@@ -58,6 +58,14 @@ async function checkPlayback(){
  assert.equal(clicks.length,8,'Count-in bar plus one click per beat');
  assert.ok(Math.abs(oscillators.find(o=>o.type!=='square').startAt-clicks[4].startAt)<1e-9,'First note lands on the first metronome click after the count-in');
  assert.ok(Math.abs(clicks[4].startAt-clicks[0].startAt-2.4)<1e-9,'Count-in lasts one bar');run('stop()');run("$('metronome').checked=false;$('count-in').checked=false");
+ run(`openScore({abc:${JSON.stringify(tempo)}})`);
+ assert.equal(run('clickTimes(0,99,12).map(c=>c.time.toFixed(1)+(c.down?"*":"")).slice(0,9).join()'),'0.0*,0.6,1.2,1.8,2.4*,3.6,4.8,6.0,7.2*','Clicks follow a tempo change at a barline');
+ run(`openScore({abc:${JSON.stringify('X:1\nM:6/8\nL:1/8\nQ:3/8=60\nK:C\nc3 (3ded c | B3 A3 |]')}})`);
+ assert.equal(run('clickTimes(0,1.9,4).map(c=>c.time.toFixed(2)).join()'),'0.00,1.00','A triplet bar keeps the beat');
+ assert.equal(run(`[...effectiveDurations(scoreEvents(ABCJS.parseOnly('X:1\\nL:1/8\\nK:C\\n(3CDE F|]')[0])).values()].map(d=>d.toFixed(4)).join()`),'0.0833,0.0833,0.0833,0.1250','Tuplet multiplier applies to every tuplet note');
+ run("$('trainer').checked=true;$('speed').value=100;$('trainer-goal').value=100;prepareTrainer()");assert.equal(run("$('speed').value"),'80','A restored trainer starts below its goal');
+ run("$('trainer-goal').value=30;$('trainer-goal').dispatchEvent(new Event('change'))");assert.equal(run("$('trainer-goal').value"),'45','Goal keeps room for the 20-point start');
+ run("$('trainer').checked=false;$('speed').value=100;$('trainer-goal').value=100");
  run(`openScore({abc:${JSON.stringify(pickup)}})`);
  assert.equal(run('clickTimes(0,1.3).map(c=>c.time.toFixed(1)+(c.down?"*":"")).join()'),'0.0,0.6*,1.2','Pickup clicks align to the bar line');
  run(`openScore({abc:${JSON.stringify('X:1\nM:6/8\nL:1/8\nK:C\nc3 d3|]')}})`);assert.equal(run('beatsPerBar()'),2,'6/8 counts two dotted beats');

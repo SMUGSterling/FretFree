@@ -15,6 +15,19 @@ function scoreEvents(tune){
  }
  return out;
 }
+// Sounding length of each note in whole notes. abcjs puts a tuplet's multiplier only on its first note,
+// so carry it per voice until the note marked endTriplet.
+function effectiveDurations(events){
+ const out=new Map(),tuplet=new Map();
+ for(const {element,key} of events){
+  if(element.el_type!=='note')continue;
+  const voice=key.split(':').slice(0,2).join(':');
+  if(element.startTriplet)tuplet.set(voice,element.tripletMultiplier||1);
+  out.set(element,(element.duration||0)*(tuplet.get(voice)||1));
+  if(element.endTriplet)tuplet.delete(voice);
+ }
+ return out;
+}
 function sourceMap(original,display){
  const originals=new Map(scoreEvents(original).map(e=>[e.key,e]));
  return new Map(scoreEvents(display).map(e=>[e.element.startChar,originals.get(e.key)]));

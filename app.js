@@ -57,7 +57,7 @@ function updateMeasures(){
  $('end-measure').value=followEnd?total:Math.max(+$('start-measure').value,Math.min(total,+$('end-measure').value));
  $('measure-count').textContent=`of ${total}`;shadeRange();
 }
-function render(){stop();try{const source=writtenABC();renderedSource=$('abc').value;const original=ABCJS.parseOnly(renderedSource)[0];const display=ABCJS.parseOnly(source)[0];noteSources=sourceMap(original,display);const tunes=ABCJS.renderAbc('notation',source,{responsive:'resize',staffwidth:740,add_classes:true,dragging:true,selectTypes:['note','bar'],selectionColor:'#317761',dragColor:'#ba663d',clickListener:scoreClick});renderedTune=tunes[0];noteDurations=new Map(scoreEvents(display).map(e=>[e.element.startChar,(e.element.duration||0)*(e.element.tripletMultiplier||1)]));staffClefs=display.lines.filter(l=>l.staff).map(l=>l.staff.map(st=>st.clef?.verticalPos||0));updateMeasures();if(selectedRange&&renderedTune?.engraver){const match=[...noteSources.entries()].find(([,e])=>e?.element.startChar===selectedRange[0]);if(match){const shown=scoreEvents(display).find(e=>e.element.startChar===match[0]);if(shown)renderedTune.engraver.rangeHighlight(shown.element.startChar,shown.element.endChar)}}$('warnings').textContent=(tunes[0]?.warnings||[]).map(x=>String(x).replace(/<[^>]+>/g,'')).join(' · ');$('workspace-heading').textContent=field('T','Untitled melody');const config=instruments[$('instrument').value];$('score-caption').textContent=`${$('instrument').value} · ${config.clef} clef · ${config.shift===2||config.shift===9?'Written pitch shown; ABC source and MIDI are concert pitch.':config.shift===-12?'Melody lowered one octave for bass range.':'Concert pitch melody part.'}`;const edition=$('source-edition');edition.hidden=!(current?.pdf||current?.originalSource);if(current?.pdf){edition.innerHTML=`<strong>Complete source edition</strong><p>The editor shows an extracted upper-part study, up to 32 bars. The original PDF below includes the complete score for ${esc(current.originalInstrument)}.</p><div class="source-actions"><a class="button-link" href="${esc(current.pdf)}" target="_blank" rel="noopener">Open complete PDF ↗</a><a class="button-link" href="${esc(current.pdf)}" download>Download PDF</a><a class="button-link" href="${esc(current.originalMidi)}" download>Original MIDI</a>${current.originalSource?`<a class="button-link" href="${esc(current.originalSource)}" download>Original editable source</a>`:''}</div>`}else if(current?.originalSource){edition.innerHTML=`<strong>Complete original ABC source</strong><p>${esc(current.studyTransform)} License: ${esc(scoreLicense(current))}. See the credit notice below before sharing.</p><a class="button-link" href="${esc(current.originalSourceDownload||current.originalSource)}" download>${current.originalSourceDownload?'Download original ABC + license bundle':'Download complete original ABC'}</a>`}const r=current?.rights;if(r){$('rights').innerHTML=`<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${current.attribution?`Credit: ${esc(current.attribution)}<br>`:''}${current.licenseURL?`<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>`:''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty?'Your edits stay private. Export or save a copy to preserve them.':'Use, print, practice, and adapt this teaching version.'}</span>`}else{$('rights').innerHTML='<strong>Your private workspace</strong>Your work stays on this device. Imported music keeps its original rights; importing or editing a file does not make it public domain.'}}catch(e){$('warnings').textContent='Could not render this score: '+e.message}}
+function render(){stop();try{const source=writtenABC();renderedSource=$('abc').value;const original=ABCJS.parseOnly(renderedSource)[0];const display=ABCJS.parseOnly(source)[0];noteSources=sourceMap(original,display);const tunes=ABCJS.renderAbc('notation',source,{responsive:'resize',staffwidth:740,add_classes:true,dragging:true,selectTypes:['note','bar'],selectionColor:'#317761',dragColor:'#ba663d',clickListener:scoreClick});renderedTune=tunes[0];{const shown=scoreEvents(display),lengths=effectiveDurations(shown);noteDurations=new Map(shown.map(e=>[e.element.startChar,lengths.get(e.element)||0]))}staffClefs=display.lines.filter(l=>l.staff).map(l=>l.staff.map(st=>st.clef?.verticalPos||0));updateMeasures();if(selectedRange&&renderedTune?.engraver){const match=[...noteSources.entries()].find(([,e])=>e?.element.startChar===selectedRange[0]);if(match){const shown=scoreEvents(display).find(e=>e.element.startChar===match[0]);if(shown)renderedTune.engraver.rangeHighlight(shown.element.startChar,shown.element.endChar)}}$('warnings').textContent=(tunes[0]?.warnings||[]).map(x=>String(x).replace(/<[^>]+>/g,'')).join(' · ');$('workspace-heading').textContent=field('T','Untitled melody');const config=instruments[$('instrument').value];$('score-caption').textContent=`${$('instrument').value} · ${config.clef} clef · ${config.shift===2||config.shift===9?'Written pitch shown; ABC source and MIDI are concert pitch.':config.shift===-12?'Melody lowered one octave for bass range.':'Concert pitch melody part.'}`;const edition=$('source-edition');edition.hidden=!(current?.pdf||current?.originalSource);if(current?.pdf){edition.innerHTML=`<strong>Complete source edition</strong><p>The editor shows an extracted upper-part study, up to 32 bars. The original PDF below includes the complete score for ${esc(current.originalInstrument)}.</p><div class="source-actions"><a class="button-link" href="${esc(current.pdf)}" target="_blank" rel="noopener">Open complete PDF ↗</a><a class="button-link" href="${esc(current.pdf)}" download>Download PDF</a><a class="button-link" href="${esc(current.originalMidi)}" download>Original MIDI</a>${current.originalSource?`<a class="button-link" href="${esc(current.originalSource)}" download>Original editable source</a>`:''}</div>`}else if(current?.originalSource){edition.innerHTML=`<strong>Complete original ABC source</strong><p>${esc(current.studyTransform)} License: ${esc(scoreLicense(current))}. See the credit notice below before sharing.</p><a class="button-link" href="${esc(current.originalSourceDownload||current.originalSource)}" download>${current.originalSourceDownload?'Download original ABC + license bundle':'Download complete original ABC'}</a>`}const r=current?.rights;if(r){$('rights').innerHTML=`<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${current.attribution?`Credit: ${esc(current.attribution)}<br>`:''}${current.licenseURL?`<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>`:''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty?'Your edits stay private. Export or save a copy to preserve them.':'Use, print, practice, and adapt this teaching version.'}</span>`}else{$('rights').innerHTML='<strong>Your private workspace</strong>Your work stays on this device. Imported music keeps its original rights; importing or editing a file does not make it public domain.'}}catch(e){$('warnings').textContent='Could not render this score: '+e.message}}
 function changed(){stop();selectedRange=null;dirty=true;$('save-status').textContent='Unsaved changes';clearTimeout(renderTimer);renderTimer=setTimeout(render,220)}
 function noteLength(){const match=field('L','1/8').match(/^(\d+)\/(\d+)$/);const base=match?+match[1]/+match[2]:.125;const beats=({'1':1,'/2':.5,'2':2,'4':4})[$('duration').value];const length=beats/4/base;return length===1?'':Number.isInteger(length)?String(length):'/'+String(Math.round(1/length))}
 function insertToken(token){const area=$('abc'),start=area.selectionStart,end=area.selectionEnd;const keyLine=area.value.match(/^K:.*(?:\n|$)/m);if(!keyLine){toast('Add a K: key header before writing notes.');return}const musicStart=keyLine.index+keyLine[0].length;if(start<musicStart){toast('Place the cursor after the K: line to add notes.');area.focus();area.setSelectionRange(area.value.length,area.value.length);return}const prefix=['^','_','='].includes(token);let text=token;if(/^[A-G]$/.test(token)){if($('octave').value==='upper')text=token.toLowerCase();if($('octave').value==='lower')text=token+',';text+=noteLength()}if(token==='z')text+=noteLength();if(!prefix)text+=' ';area.setRangeText(text,start,end,'end');area.focus();changed()}
@@ -103,16 +103,31 @@ function measureRange(){
 function rangeEnd(to,duration,from=-Infinity){const later=[...measureStarts].filter(([m,t])=>m>to&&t>from).map(([,t])=>t);return later.length?Math.min(...later):duration}
 // Beats per bar: compound meters (6/8, 9/8, 12/8) count dotted beats.
 function beatsPerBar(){const [n,d]=meterParts();return d===8&&n>3&&n%3===0?n/3:n}
-// Metronome clicks in score seconds, following repeats and tempo changes; a pickup bar is aligned to its end.
-function clickTimes(from,until){
- const beats=beatsPerBar(),starts=(renderedTune?.noteTimings||[]).filter(e=>e.type==='event'&&e.measureStart),out=[];
+// Written length of each measure in whole notes: the longest voice, so pickups and short final bars are measured, not assumed.
+function measureLengths(){
+ const sums=new Map(),events=[...new Set(noteSources.values())].filter(Boolean),durations=effectiveDurations(events);
+ for(const e of events){
+  if(e.element.el_type!=='note')continue;
+  const key=e.measure+'|'+e.key.split(':').slice(0,2).join(':');
+  sums.set(key,(sums.get(key)||0)+durations.get(e.element));
+ }
+ const lengths=new Map();
+ for(const [key,sum] of sums){const m=+key.split('|')[0];lengths.set(m,Math.max(lengths.get(m)||0,sum))}
+ return lengths;
+}
+// Metronome clicks in score seconds. Each bar's clicks are spaced from that bar's real start and end, so they follow
+// repeats and tempo changes at barlines; a pickup bar is aligned to its end.
+function clickTimes(from,until,end=until){
+ const beats=beatsPerBar(),bar=renderedTune?.getBarLength?.()||1,beat=bar/beats,lengths=measureLengths(),out=[];
+ const starts=(renderedTune?.noteTimings||[]).filter(e=>e.type==='event'&&e.measureStart);
  for(const [i,e] of starts.entries()){
-  const t=e.milliseconds/1000,next=starts[i+1]?starts[i+1].milliseconds/1000:Infinity,step=e.millisecondsPerMeasure/1000/beats;
-  const pickup=i===0&&next-t<e.millisecondsPerMeasure/1000-1e-6;
+  const t=e.milliseconds/1000,next=starts[i+1]?starts[i+1].milliseconds/1000:end;
+  const measure=(e.startCharArray||[]).map(c=>noteSources.get(c)?.measure).find(Boolean);
+  const length=lengths.get(measure)||bar,secondsPerWhole=(next-t)/length,pickup=i===0&&length<bar-1e-9;
   for(let k=0;k<beats;k++){
-   const c=pickup?next-(beats-k)*step:t+k*step;
-   if(c<t-1e-6||c>=next-1e-6)continue;
-   if(c>=from-1e-6&&c<until-1e-6)out.push({time:c,down:k===0&&!pickup});
+   const p=pickup?length-(beats-k)*beat:k*beat;
+   if(p<-1e-9||p>=length-1e-9)continue;
+   const c=t+p*secondsPerWhole;if(c>=from-1e-6&&c<until-1e-6)out.push({time:c,down:k===0&&!pickup});
   }
  }
  return out;
@@ -135,18 +150,19 @@ function scheduleNotes(notes,base){
 function schedulePass(p,from,percent,base,pass){
  const speed=percent/100,data=playbackSlice(p.full,from,percent,p.until),looping=$('loop').checked||$('trainer').checked;
  scheduleNotes(data.notes,base);
- if($('metronome').checked)for(const c of clickTimes(from,p.until))click(base+(c.time-from)/speed,c.down);
+ if($('metronome').checked)for(const c of clickTimes(from,p.until,p.full.duration))click(base+(c.time-from)/speed,c.down);
  atAudioTime(base,()=>{
   if(p.generation!==playGeneration)return;
   playOrigin=from;playClock=base;playSpeed=speed;nodes=nodes.filter(n=>!n.done);startFollow(p.generation);
+  if($('trainer').checked){$('speed').value=percent;$('speed-value').textContent=percent+'%'}
   $('play-status').textContent=`Measures ${p.range.from}–${p.range.to} · ${percent}% speed`+(looping?` · loop ${pass}`:'');
  });
  const end=base+(p.until-from)/speed;
- if(looping)atAudioTime(end-.25,()=>{
+ if(looping)atAudioTime(Math.max(base,end-.25),()=>{
   if(p.generation!==playGeneration)return;
   // Speed trainer: raise the tempo after each pass until it reaches the goal.
   let next=percent;
-  if($('trainer').checked){next=Math.min(Math.max(percent,+$('trainer-goal').value||100),percent+(+$('trainer-step').value||5));$('speed').value=next;$('speed-value').textContent=next+'%'}
+  if($('trainer').checked)next=Math.min(Math.max(percent,trainerGoal()),percent+(+$('trainer-step').value||5));
   schedulePass(p,p.start,next,end,pass+1);
  });
  else atAudioTime(end+.12,()=>{if(p.generation===playGeneration)stop()});
@@ -165,8 +181,9 @@ async function play(resumeFrom=null){
   let base=audio.currentTime+.07;
   // Count-in: one bar of clicks at the starting tempo, only when starting fresh.
   if(resumeFrom==null&&$('count-in').checked){
-   const timing=(renderedTune?.noteTimings||[]).filter(e=>e.type==='event'&&e.milliseconds/1000<=from+1e-6).pop(),beats=beatsPerBar();
-   const step=(timing?.millisecondsPerMeasure||2000)/1000/beats/(percent/100);
+   // Beat length at the start: the spacing of the first full-bar clicks from the starting measure onward.
+   const beats=beatsPerBar(),grid=clickTimes(from,full.duration,full.duration),down=grid.findIndex((c,i)=>c.down&&grid[i+1]);
+   const step=(down>=0?grid[down+1].time-grid[down].time:.5)/(percent/100);
    for(let k=0;k<beats;k++)click(base+k*step,k===0);
    $('play-status').textContent='Count-in…';base+=beats*step;
   }
@@ -370,9 +387,15 @@ $('help-toggle').onclick=()=>{$('abc-help').hidden=!$('abc-help').hidden};$('sav
 $('import').onclick=()=>$('import-file').click();$('import-file').onchange=async()=>{const file=$('import-file').files[0];if(!file)return;if(file.size>1024*1024){toast('Please use an ABC file smaller than 1 MB.');return}try{const source=await file.text();if(ABCJS.numberOfTunes(source)!==1)throw new Error('Please import one ABC tune at a time.');if(!/^K:/m.test(source)||!/^X:/m.test(source))throw new Error('Expected an ABC score with X: and K: headers.');if(!allowReplace())return;dirty=false;const notice=source.match(/^% FretFree-Rights: (.*)$/m);let metadata={};if(notice){try{metadata=JSON.parse(notice[1]);if(!metadata||typeof metadata!=='object'||Array.isArray(metadata))metadata={}}catch{}}openScore({...metadata,kind:'personal',abc:source});dirty=true;$('save-status').textContent='Imported locally. Save or export to keep a copy.'}catch(e){toast(e.message)}finally{$('import-file').value=''}};
 $('play').onclick=()=>play();for(const id of ['start-measure','end-measure'])$(id).onchange=()=>{const {from,to}=measureRange();setRange(from,to)};
 // Practice toggles are per-browser conveniences.
-for(const id of ['loop','metronome','count-in','trainer']){$(id).checked=!!storage.get('fretfree-practice-'+id,false);$(id).addEventListener('change',()=>{storage.set('fretfree-practice-'+id,$(id).checked);if(id==='trainer'&&$(id).checked&&+$('speed').value>=(+$('trainer-goal').value||100)){$('speed').value=Math.max(25,(+$('trainer-goal').value||100)-20);$('speed').oninput()}})};$('speed').oninput=()=>{const position=playing?playOrigin+Math.max(0,audio.currentTime-playClock)*playSpeed:null;$('speed-value').textContent=$('speed').value+'%';if(position!=null){stop();play(position)}};$('speed-reset').onclick=()=>{$('speed').value=100;$('speed').oninput()};$('stop').onclick=stop;$('print').onclick=()=>{render();const appendix=$('print-appendix');appendix.innerHTML=scoreLicense(current).startsWith('GPL-')?'<h2>Editable source and GPL license</h2><pre>'+esc(exportCredit(current)+'\n\nCorresponding editable ABC (FretFree export, 2026-10-03):\n'+$('abc').value+'\n\n'+GPL_LICENSE)+'</pre>':'';window.print()};$('export-abc').onclick=()=>download(creditedABC($('abc').value,current),safeName()+'.abc','text/plain');$('export-midi').onclick=()=>{try{download(creditedMidi(midiBytes($('abc').value),$('abc').value,current),safeName()+'.mid','audio/midi')}catch(e){toast(e.message)}};$('export-svg').onclick=()=>{try{clearTimeout(renderTimer);render();download(creditedSVG($('notation'),$('abc').value,current),safeName()+'.svg','image/svg+xml')}catch(e){toast(e.message)}};
+// Speed trainer starts 20 points below its goal so there is room to climb; the goal's 45% minimum keeps that within the slider.
+const trainerGoal=()=>Math.max(45,Math.min(200,+$('trainer-goal').value||100));
+function prepareTrainer(){if($('trainer').checked&&+$('speed').value>=trainerGoal()){$('speed').value=trainerGoal()-20;$('speed').oninput()}}
+for(const id of ['loop','metronome','count-in','trainer']){$(id).checked=!!storage.get('fretfree-practice-'+id,false);$(id).addEventListener('change',()=>{storage.set('fretfree-practice-'+id,$(id).checked);if(id==='trainer')prepareTrainer()})}
+$('trainer-goal').addEventListener('change',()=>{$('trainer-goal').value=trainerGoal();prepareTrainer()});;$('speed').oninput=()=>{const position=playing?playOrigin+Math.max(0,audio.currentTime-playClock)*playSpeed:null;$('speed-value').textContent=$('speed').value+'%';if(position!=null){stop();play(position)}};$('speed-reset').onclick=()=>{$('speed').value=100;$('speed').oninput()};$('stop').onclick=stop;$('print').onclick=()=>{render();const appendix=$('print-appendix');appendix.innerHTML=scoreLicense(current).startsWith('GPL-')?'<h2>Editable source and GPL license</h2><pre>'+esc(exportCredit(current)+'\n\nCorresponding editable ABC (FretFree export, 2026-10-03):\n'+$('abc').value+'\n\n'+GPL_LICENSE)+'</pre>':'';window.print()};$('export-abc').onclick=()=>download(creditedABC($('abc').value,current),safeName()+'.abc','text/plain');$('export-midi').onclick=()=>{try{download(creditedMidi(midiBytes($('abc').value),$('abc').value,current),safeName()+'.mid','audio/midi')}catch(e){toast(e.message)}};$('export-svg').onclick=()=>{try{clearTimeout(renderTimer);render();download(creditedSVG($('notation'),$('abc').value,current),safeName()+'.svg','image/svg+xml')}catch(e){toast(e.message)}};
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue=''}});document.addEventListener('visibilitychange',()=>{if(document.hidden)stop()});
 const initialView=location.hash.slice(1);
 for(const name of [...new Set(catalog.map(scoreCollection))].sort())$('collection-filter').add(new Option(name,name));for(const name of [...new Set(catalog.map(scoreLicense))].sort())$('license-filter').add(new Option(name,name));
 for(const genre of [...new Set(catalog.map(x=>x.genre||'Teaching melodies'))].sort())$('genre-filter').add(new Option(genre,genre));$('hero-count').textContent='01 / '+catalog.length;
 ABCJS.renderAbc('hero-notation',catalog[0].abc,{staffwidth:460,responsive:'resize',scale:.9,paddingtop:25,paddingbottom:30});renderCards();newScore();show(['studio','saved','about'].includes(initialView)?initialView:'library');
+// A remembered speed trainer needs the same below-goal start as a freshly ticked one.
+prepareTrainer();
