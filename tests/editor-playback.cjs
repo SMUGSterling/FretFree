@@ -39,6 +39,7 @@ assert.equal(run(`editNoteText('"Am"!accent!^c2-',{accidental:'_'})`),'"Am"!acce
 assert.equal(run(`editNoteText('[CEG]2',{accidental:'^',length:4})`),'[^C^E^G]4');
 assert.equal(run(`editNoteText('B,/2>',{length:1.5})`),'B,3/2>');
 assert.equal(run(`editNoteText('=F',{accidental:''})`),'F');
+assert.equal(run(`editNoteText('C2 ',{tie:true})`),'C2- ');assert.equal(run(`editNoteText('C2- ',{tie:false})`),'C2 ');
 assert.equal(run(`[1,2,.5,1.5,.25,2/3].map(lengthText).join(',')`),',2,/2,3/2,/4,2/3','Lengths stay exact for L:3/8');
 assert.equal(run(`editNoteText('[C2E2G2]',{length:2})`),'[CEG]2','New chord length replaces per-pitch lengths');
 assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`),'C3/2');

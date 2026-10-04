@@ -68,13 +68,15 @@ function lengthValue(text){
 const NOTE_PARTS=/^((?:"[^"]*"|![^!]*!|\+[^+]*\+|\{[^}]*\}|[.~HLMOPSTuv]|\s)*)(\[[^\]]*\]|(?:\^{1,2}|_{1,2}|=)?[A-Ga-g][,']*|[zx])(\d*\/*\d*)([^]*)$/;
 function noteParts(text){const m=String(text).match(NOTE_PARTS);return m&&{pre:m[1],core:m[2],length:lengthValue(m[3]),post:m[4]}}
 // Set the accidental ('^', '_', '=', or '' for none) and/or length (multiple of L:) on every pitch of a note or chord.
-// A new length replaces any per-pitch chord lengths; unbroken drops a trailing > or < broken-rhythm marker.
-function editNoteText(text,{accidental,length,unbroken}={}){
+// A new length replaces any per-pitch chord lengths; unbroken drops a trailing > or < broken-rhythm marker; tie adds or removes the tie (-).
+function editNoteText(text,{accidental,length,unbroken,tie}={}){
  const m=String(text).match(NOTE_PARTS);if(!m)return text;
  let [,pre,core,len,post]=m;
  if(accidental!=null)core=core.replace(/(\^{1,2}|_{1,2}|=)?([A-Ga-g])/g,(_,a,letter)=>accidental+letter);
  if(length!=null){len=lengthText(length);if(core[0]==='[')core=core.replace(/([A-Ga-g][,']*)\d*\/*\d*/g,'$1')}
  if(unbroken)post=post.replace(/[<>]+/g,'');
+ if(tie===true&&!/^-/.test(post))post='-'+post;
+ if(tie===false)post=post.replace(/^-/,'');
  return pre+core+len+post;
 }
 // Bar-length check. Measures are numbered as in scoreEvents (a bar line ends a measure only once it holds notes).

@@ -1,7 +1,7 @@
 'use strict';
 const $=id=>document.getElementById(id), esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let renderedSource=null,renderedTune=null,noteSources=new Map(),measureStarts=new Map(),selectedRange=null,playOrigin=0,playClock=0,playSpeed=1;
-let staffClefs=[];let libraryPage=0;const PAGE_SIZE=24;
+let staffClefs=[],shownElements=new Map(),inputLength=null;let libraryPage=0;const PAGE_SIZE=24;
 let current=null,savedId=null,dirty=false,renderTimer,storageOK=true,audio=null,playing=false,nodes=[],playGeneration=0;
 const storage={get(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback}catch{return fallback}},set(key,value){try{localStorage.setItem(key,JSON.stringify(value));return true}catch{storageOK=false;return false}}};
 let saved=storage.get('commonnote-scores-v1',[]),favorites=storage.get('commonnote-favorites-v1',[]);
@@ -9,7 +9,7 @@ if(!Array.isArray(saved))saved=[];if(!Array.isArray(favorites))favorites=[];
 function toast(msg){$('toast').textContent=msg;$('toast').style.display='block';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').style.display='none',3500)}
 function show(view){document.querySelectorAll('.view').forEach(el=>el.hidden=el.id!==view);document.querySelectorAll('.nav').forEach(el=>el.classList.toggle('active',el.dataset.view===view));if(view==='saved')renderSaved();if(view!=='studio')stop();history.replaceState(null,'','#'+view);window.scrollTo({top:0,behavior:'smooth'})}
 function allowReplace(){return !dirty||confirm('Replace your unsaved changes? Save or export first if you want to keep them.');}
-function openScore(item,id=null){if(!allowReplace())return;stop();current=item;savedId=id;dirty=false;selectedRange=null;$('selection-status').textContent='Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag up/down to change pitch; chords move together.';$('start-measure').value=1;$('end-measure').value='';$('abc').value=item.abc;$('instrument').value=item.instrument||($('instrument-filter').value==='all'?'Flute':$('instrument-filter').value);resetHistory();syncFields();render();$('save-status').textContent='';show('studio')}
+function openScore(item,id=null){if(!allowReplace())return;stop();current=item;savedId=id;dirty=false;selectedRange=null;$('selection-status').textContent='Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag up/down to change pitch; chords move together.';$('start-measure').value=1;$('end-measure').value='';$('abc').value=item.abc;inputLength=null;$('instrument').value=item.instrument||($('instrument-filter').value==='all'?'Flute':$('instrument-filter').value);resetHistory();syncFields();render();$('save-status').textContent='';show('studio')}
 function newScore(){openScore({title:'Untitled melody',composer:'',kind:'personal',abc:tune('Untitled melody','','4/4','C',100,'C D E F | G2 G2 | F E D C | C4 |]')})}
 function filteredCatalog(){const q=$('search').value.toLowerCase(),level=$('level-filter').value,kind=$('kind-filter').value,genre=$('genre-filter').value,collection=$('collection-filter').value,license=$('license-filter').value;const list=catalog.filter(x=>(collection==='all'||scoreCollection(x)===collection)&&(license==='all'||scoreLicense(x)===license)&&(level==='all'||x.level===level)&&(kind==='all'||x.kind===kind)&&(genre==='all'||(x.genre||'Teaching melodies')===genre)&&`${x.title} ${x.composer} ${x.skill} ${x.originalInstrument||''} ${x.aliases||''} ${x.attribution||''} ${scoreCollection(x)}`.toLowerCase().includes(q));const order=$('sort-filter').value;if(order==='title')list.sort((a,b)=>a.title.localeCompare(b.title));if(order==='composer')list.sort((a,b)=>a.composer.localeCompare(b.composer)||a.title.localeCompare(b.title));return list}
 function renderCards(){const list=filteredCatalog();const pages=Math.max(1,Math.ceil(list.length/PAGE_SIZE));libraryPage=Math.min(libraryPage,pages-1);const visible=list.slice(libraryPage*PAGE_SIZE,(libraryPage+1)*PAGE_SIZE);$('result-count').textContent=`${list.length} scores · curated collection`;$('empty').hidden=list.length>0;$('pagination').hidden=list.length<=PAGE_SIZE;$('prev-page').disabled=libraryPage===0;$('next-page').disabled=libraryPage>=pages-1;$('page-status').textContent=`Page ${libraryPage+1} of ${pages} · ${list.length} scores`;$('cards').innerHTML=visible.map(x=>`<article class="card"><div class="mini-score" id="mini-${x.id}" aria-hidden="true"></div><div class="card-body"><div class="card-top"><span class="tag">${esc(licenseLabel(x))}</span><button class="favorite" data-favorite="${x.id}" aria-label="${favorites.includes(x.id)?'Unfavorite':'Favorite'} ${esc(x.title)}" aria-pressed="${favorites.includes(x.id)}">${favorites.includes(x.id)?'★':'☆'}</button></div><h3>${esc(x.title)}</h3><span class="small">${esc(x.composer)}</span><p>${esc(x.description)}</p>${x.pdf?`<a class="pdf-link" href="${esc(x.pdf)}" target="_blank" rel="noopener">Complete PDF · ${esc(x.originalInstrument)} ↗</a>`:''}<div class="card-bottom"><span>${x.level} · ${esc(x.skill)}</span><button data-open="${x.id}">${x.pdf?'Practice part':'Open score'} ↗</button></div></div></article>`).join('');for(const x of visible){const lines=x.abc.split('\n'),k=lines.findIndex(l=>l.startsWith('K:'));ABCJS.renderAbc(`mini-${x.id}`,lines.slice(0,k+1).filter(l=>!/^T:|^C:/.test(l)).join('\n')+'\n'+lines[k+1],{staffwidth:380,scale:.7,responsive:'resize',paddingtop:15});}}
@@ -34,12 +34,12 @@ function scoreClick(element,tuneNumber,classes,analysis,drag,event){
   dirty=true;$('save-status').textContent='Unsaved changes';clearTimeout(renderTimer);
   selectedRange=[start,nextEnd];render();
  }
- selectedRange=[start,nextEnd];area.focus({preventScroll:true});area.setSelectionRange(start,nextEnd);
+ selectedRange=[start,nextEnd];area.setSelectionRange(start,nextEnd);focusScore();
  // Shift+click sets the end of the practice range; a plain click sets its start.
  if(event?.shiftKey&&!drag?.step){setRange(+$('start-measure').value,entry.measure);return}
  $('start-measure').value=entry.measure;if(+$('end-measure').value<entry.measure)$('end-measure').value=$('end-measure').max;
  shadeRange();
- $('selection-status').textContent=`Measure ${entry.measure} selected · drag up/down to change pitch · Shift+click another note to set the loop end`;
+ $('selection-status').textContent=`Measure ${entry.measure} selected · type A–G to add notes after it, ↑↓ to change pitch · Shift+click another note to set the loop end`;
 }
 function updateMeasures(){
  measureStarts=new Map();
@@ -58,7 +58,7 @@ function updateMeasures(){
  $('end-measure').value=followEnd?total:Math.max(+$('start-measure').value,Math.min(total,+$('end-measure').value));
  $('measure-count').textContent=`of ${total}`;shadeRange();
 }
-function render(){stop();recordHistory();try{const source=writtenABC();renderedSource=$('abc').value;const original=ABCJS.parseOnly(renderedSource)[0];const display=ABCJS.parseOnly(source)[0];noteSources=sourceMap(original,display);const tunes=ABCJS.renderAbc('notation',source,{responsive:'resize',staffwidth:740,add_classes:true,dragging:true,selectTypes:['note','bar'],selectionColor:'#317761',dragColor:'#ba663d',clickListener:scoreClick});renderedTune=tunes[0];{const shown=scoreEvents(display),lengths=effectiveDurations(shown);noteDurations=new Map(shown.map(e=>[e.element.startChar,lengths.get(e.element)||0]))}staffClefs=display.lines.filter(l=>l.staff).map(l=>l.staff.map(st=>st.clef?.verticalPos||0));updateMeasures();updateBarCheck(original);if(selectedRange&&renderedTune?.engraver){const match=[...noteSources.entries()].find(([,e])=>e?.element.startChar===selectedRange[0]);if(match){const shown=scoreEvents(display).find(e=>e.element.startChar===match[0]);if(shown)renderedTune.engraver.rangeHighlight(shown.element.startChar,shown.element.endChar)}}$('warnings').textContent=(tunes[0]?.warnings||[]).map(x=>String(x).replace(/<[^>]+>/g,'')).join(' · ');$('workspace-heading').textContent=field('T','Untitled melody');const config=instruments[$('instrument').value];$('score-caption').textContent=`${$('instrument').value} · ${config.clef} clef · ${config.shift===2||config.shift===9?'Written pitch shown; ABC source and MIDI are concert pitch.':config.shift===-12?'Melody lowered one octave for bass range.':'Concert pitch melody part.'}`;const edition=$('source-edition');edition.hidden=!(current?.pdf||current?.originalSource);if(current?.pdf){edition.innerHTML=`<strong>Complete source edition</strong><p>The editor shows an extracted upper-part study, up to 32 bars. The original PDF below includes the complete score for ${esc(current.originalInstrument)}.</p><div class="source-actions"><a class="button-link" href="${esc(current.pdf)}" target="_blank" rel="noopener">Open complete PDF ↗</a><a class="button-link" href="${esc(current.pdf)}" download>Download PDF</a><a class="button-link" href="${esc(current.originalMidi)}" download>Original MIDI</a>${current.originalSource?`<a class="button-link" href="${esc(current.originalSource)}" download>Original editable source</a>`:''}</div>`}else if(current?.originalSource){edition.innerHTML=`<strong>Complete original ABC source</strong><p>${esc(current.studyTransform)} License: ${esc(scoreLicense(current))}. See the credit notice below before sharing.</p><a class="button-link" href="${esc(current.originalSourceDownload||current.originalSource)}" download>${current.originalSourceDownload?'Download original ABC + license bundle':'Download complete original ABC'}</a>`}const r=current?.rights;if(r){$('rights').innerHTML=`<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${current.attribution?`Credit: ${esc(current.attribution)}<br>`:''}${current.licenseURL?`<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>`:''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty?'Your edits stay private. Export or save a copy to preserve them.':'Use, print, practice, and adapt this teaching version.'}</span>`}else{$('rights').innerHTML='<strong>Your private workspace</strong>Your work stays on this device. Imported music keeps its original rights; importing or editing a file does not make it public domain.'}}catch(e){$('warnings').textContent='Could not render this score: '+e.message}}
+function render(){stop();recordHistory();try{const source=writtenABC();renderedSource=$('abc').value;const original=ABCJS.parseOnly(renderedSource)[0];const display=ABCJS.parseOnly(source)[0];noteSources=sourceMap(original,display);const tunes=ABCJS.renderAbc('notation',source,{responsive:'resize',staffwidth:740,add_classes:true,dragging:true,selectTypes:['note','bar'],selectionColor:'#317761',dragColor:'#ba663d',clickListener:scoreClick});renderedTune=tunes[0];{const shown=scoreEvents(display),lengths=effectiveDurations(shown);noteDurations=new Map(shown.map(e=>[e.element.startChar,lengths.get(e.element)||0]));shownElements=new Map(shown.map(e=>[e.element.startChar,e.element]))}staffClefs=display.lines.filter(l=>l.staff).map(l=>l.staff.map(st=>st.clef?.verticalPos||0));updateMeasures();updateBarCheck(original);if(selectedRange&&renderedTune?.engraver){const match=[...noteSources.entries()].find(([,e])=>e?.element.startChar===selectedRange[0]);if(match){const shown=scoreEvents(display).find(e=>e.element.startChar===match[0]);if(shown)renderedTune.engraver.rangeHighlight(shown.element.startChar,shown.element.endChar)}}$('warnings').textContent=(tunes[0]?.warnings||[]).map(x=>String(x).replace(/<[^>]+>/g,'')).join(' · ');$('workspace-heading').textContent=field('T','Untitled melody');const config=instruments[$('instrument').value];$('score-caption').textContent=`${$('instrument').value} · ${config.clef} clef · ${config.shift===2||config.shift===9?'Written pitch shown; ABC source and MIDI are concert pitch.':config.shift===-12?'Melody lowered one octave for bass range.':'Concert pitch melody part.'}`;const edition=$('source-edition');edition.hidden=!(current?.pdf||current?.originalSource);if(current?.pdf){edition.innerHTML=`<strong>Complete source edition</strong><p>The editor shows an extracted upper-part study, up to 32 bars. The original PDF below includes the complete score for ${esc(current.originalInstrument)}.</p><div class="source-actions"><a class="button-link" href="${esc(current.pdf)}" target="_blank" rel="noopener">Open complete PDF ↗</a><a class="button-link" href="${esc(current.pdf)}" download>Download PDF</a><a class="button-link" href="${esc(current.originalMidi)}" download>Original MIDI</a>${current.originalSource?`<a class="button-link" href="${esc(current.originalSource)}" download>Original editable source</a>`:''}</div>`}else if(current?.originalSource){edition.innerHTML=`<strong>Complete original ABC source</strong><p>${esc(current.studyTransform)} License: ${esc(scoreLicense(current))}. See the credit notice below before sharing.</p><a class="button-link" href="${esc(current.originalSourceDownload||current.originalSource)}" download>${current.originalSourceDownload?'Download original ABC + license bundle':'Download complete original ABC'}</a>`}const r=current?.rights;if(r){$('rights').innerHTML=`<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${current.attribution?`Credit: ${esc(current.attribution)}<br>`:''}${current.licenseURL?`<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>`:''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty?'Your edits stay private. Export or save a copy to preserve them.':'Use, print, practice, and adapt this teaching version.'}</span>`}else{$('rights').innerHTML='<strong>Your private workspace</strong>Your work stays on this device. Imported music keeps its original rights; importing or editing a file does not make it public domain.'}}catch(e){$('warnings').textContent='Could not render this score: '+e.message}}
 function changed(){stop();selectedRange=null;dirty=true;$('save-status').textContent='Unsaved changes';clearTimeout(renderTimer);renderTimer=setTimeout(render,220)}
 function noteLength(){const match=field('L','1/8').match(/^(\d+)\/(\d+)$/);const base=match?+match[1]/+match[2]:.125;const beats=({'1':1,'/2':.5,'2':2,'4':4})[$('duration').value];const length=beats/4/base;return length===1?'':Number.isInteger(length)?String(length):'/'+String(Math.round(1/length))}
 function insertToken(token){flushTyping();const area=$('abc'),start=area.selectionStart,end=area.selectionEnd;const keyLine=area.value.match(/^K:.*(?:\n|$)/m);if(!keyLine){toast('Add a K: key header before writing notes.');return}const musicStart=keyLine.index+keyLine[0].length;if(start<musicStart){toast('Place the cursor after the K: line to add notes.');area.focus();area.setSelectionRange(area.value.length,area.value.length);return}const prefix=['^','_','='].includes(token);let text=token;if(/^[A-G]$/.test(token)){if($('octave').value==='upper')text=token.toLowerCase();if($('octave').value==='lower')text=token+',';text+=noteLength()}if(token==='z')text+=noteLength();if(!prefix)text+=' ';area.setRangeText(text,start,end,'end');area.focus();changed();clearTimeout(renderTimer);render()}
@@ -364,7 +364,7 @@ function applyNoteEdit(start,end,text,select=text?[start,start+text.length]:null
  flushTyping();const area=$('abc');area.setRangeText(text,start,end,'end');
  dirty=true;$('save-status').textContent='Unsaved changes';clearTimeout(renderTimer);syncFields();
  selectedRange=select;render();
- if(selectedRange){area.focus({preventScroll:true});area.setSelectionRange(...selectedRange)}
+ if(selectedRange)area.setSelectionRange(...selectedRange);focusScore();
 }
 function drawNote(t){
  if(renderedSource!==$('abc').value){clearTimeout(renderTimer);render();toast('Score updated. Click again to add the note.');return}
@@ -431,7 +431,8 @@ function openNoteMenu(entry,display,x,y){
  const item=(action,label,checked)=>`<button role="menuitemradio" aria-checked="${!!checked}" data-edit="${action}">${label}</button>`;
  $('note-menu').innerHTML=(isRest?'':`<div class="menu-label">ACCIDENTAL</div><div class="menu-row">${item('acc:^','♯ Sharp',acc==='^')}${item('acc:_','♭ Flat',acc==='_')}${item('acc:=','♮ Natural',acc==='=')}${item('acc:','None',!acc)}</div>`)
   +`<div class="menu-label">LENGTH</div>${durations.map(([v,l])=>item('len:'+v,l,Math.abs(base-v)<1e-9)).join('')}`
-  +`<button role="menuitemcheckbox" aria-checked="${dotted}" data-edit="dot">· Dotted</button><hr><button role="menuitem" class="danger" data-edit="delete">Delete ${isRest?'rest':'note'}</button>`;
+  +`<button role="menuitemcheckbox" aria-checked="${dotted}" data-edit="dot">· Dotted</button>`+(isRest?'':`<button role="menuitemcheckbox" aria-checked="${/^-/.test(noteParts($('abc').value.slice(entry.element.startChar,entry.element.endChar))?.post||'')}" data-edit="tie">⁀ Tie to next note</button>`)
+  +`<div class="menu-label">INSERT AFTER</div><div class="menu-row"><button role="menuitem" data-edit="rest-after">𝄽 Rest</button><button role="menuitem" data-edit="bar-after">| Bar line</button></div><hr><button role="menuitem" class="danger" data-edit="delete">Delete ${isRest?'rest':'note'}</button>`;
  const menu=$('note-menu');menu.hidden=false;
  menu.style.left=Math.max(8,Math.min(x,window.innerWidth-menu.offsetWidth-8))+'px';menu.style.top=Math.max(8,Math.min(y,window.innerHeight-menu.offsetHeight-8))+'px';
  menu.querySelector('button')?.focus({preventScroll:true});
@@ -443,17 +444,24 @@ $('notation').addEventListener('contextmenu',e=>{
  e.preventDefault();showGhost(null);scoreClick(display,0,[],{},null);
  const box=sel.svgEl.getBoundingClientRect();openNoteMenu(entry,display,e.clientX||box.right,e.clientY||box.bottom);
 });
-$('note-menu').addEventListener('click',e=>{
- const b=e.target.closest('[data-edit]'),picked=menuEntry;if(!b||!picked)return;
- e.stopPropagation();closeNoteMenu();
- if(renderedSource!==$('abc').value){clearTimeout(renderTimer);render();toast('Score updated. Right-click the note again.');return}
- const {entry,display}=picked,action=b.dataset.edit,area=$('abc'),v=area.value,start=entry.element.startChar,end=entry.element.endChar;
+// One edit on one note, shared by the note menu and the keyboard. Actions: acc:<^|_|=|>, len:<whole>, dot, tie,
+// delete, rest-after, bar-after.
+function editNote(entry,display,action){
+ const area=$('abc'),v=area.value,start=entry.element.startChar,end=entry.element.endChar,old=v.slice(start,end);
  if(action.startsWith('acc:')){applyNoteEdit(start,end,accidentalEdit(entry,display,action.slice(4)));return}
+ if(action==='tie'){applyNoteEdit(start,end,editNoteText(old,{tie:!/^-/.test(noteParts(old)?.post||'')}));return}
+ if(action==='rest-after'||action==='bar-after'){
+  const token=action==='bar-after'?'|':'z'+lengthText((entry.element.duration||beatLength())/unitLengthAt(end));
+  insertAt(end,token,action==='rest-after');return;
+ }
  const unit=unitLength(),len=entry.element.duration||0,dotted=DOTTABLE.some(x=>Math.abs(len-x*1.5)<1e-9);
  const change=t=>action==='delete'?'':editNoteText(t,{length:(action==='dot'?(dotted?len/1.5:len*1.5):+action.slice(4))/unit});
  const pair=brokenPair(entry);
  if(!pair){
-  if(action==='delete')applyNoteEdit(start,end+(v[end]===' '?1:0),'');else applyNoteEdit(start,end,change(v.slice(start,end)));
+  // Deleting keeps the previous note selected so typing can carry on from there.
+  const prev=action==='delete'?scoreNotes().filter(n=>n.element.startChar<start).pop():null;
+  if(action==='delete')applyNoteEdit(start,end+(v[end]===' '?1:0),'',prev?[prev.element.startChar,prev.element.endChar]:null);
+  else applyNoteEdit(start,end,change(old));
   return;
  }
  // Spell the broken-rhythm pair out with explicit lengths so the neighbour keeps its duration.
@@ -462,6 +470,12 @@ $('note-menu').addEventListener('click',e=>{
  const text=(first+v.slice(a.element.endChar,c.element.startChar)+second).replace(/^\s+/,m=>first?m:'');
  const spaced=second||!first?text:text.replace(/\s*$/,' ');
  applyNoteEdit(a.element.startChar,c.element.endChar,spaced,action==='delete'?null:undefined);
+}
+$('note-menu').addEventListener('click',e=>{
+ const b=e.target.closest('[data-edit]'),picked=menuEntry;if(!b||!picked)return;
+ e.stopPropagation();closeNoteMenu();
+ if(renderedSource!==$('abc').value){clearTimeout(renderTimer);render();toast('Score updated. Right-click the note again.');return}
+ editNote(picked.entry,picked.display,b.dataset.edit);
 });
 document.addEventListener('mousedown',e=>{if(!$('note-menu').hidden&&!$('note-menu').contains(e.target))closeNoteMenu()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('note-menu').hidden)closeNoteMenu()});
@@ -486,6 +500,63 @@ const initialView=location.hash.slice(1);
 for(const name of [...new Set(catalog.map(scoreCollection))].sort())$('collection-filter').add(new Option(name,name));for(const name of [...new Set(catalog.map(scoreLicense))].sort())$('license-filter').add(new Option(name,name));
 for(const genre of [...new Set(catalog.map(x=>x.genre||'Teaching melodies'))].sort())$('genre-filter').add(new Option(genre,genre));$('hero-count').textContent='01 / '+catalog.length;
 ABCJS.renderAbc('hero-notation',catalog[0].abc,{staffwidth:460,responsive:'resize',scale:.9,paddingtop:25,paddingbottom:30});renderCards();newScore();show(['studio','saved','about'].includes(initialView)?initialView:'library');
+// Keyboard note entry on the score (MuseScore-style): A–G add a note after the selection in the nearest octave,
+// R or 0 a rest, 3–7 set the length (16th…whole), . dots, ↑↓ move by step (Ctrl: octave), ←→ change the selection,
+// # - = set sharp/flat/natural, + ties, | adds a bar line, Delete removes the note.
+const LENGTH_KEYS={'3':1/16,'4':1/8,'5':1/4,'6':1/2,'7':1};
+function focusScore(){$('notation').focus?.({preventScroll:true})}
+// Notes and rests of the source in reading order, one entry each.
+function scoreNotes(){return [...new Set(noteSources.values())].filter(e=>e?.element.el_type==='note').sort((a,b)=>a.element.startChar-b.element.startChar)}
+function displayOf(entry){for(const [key,e] of noteSources)if(e===entry)return shownElements.get(key);return null}
+function selectedNote(){const entry=selectedRange&&scoreNotes().find(e=>e.element.startChar===selectedRange[0]);return entry?{entry,display:displayOf(entry)}:null}
+function selectEntry(entry){const display=displayOf(entry);if(!display)return;scoreClick(display,0,[],{},null);renderedTune?.engraver?.rangeHighlight?.(display.startChar,display.endChar)}
+// Insert a token at a source position with spacing, then select it.
+function insertAt(at,token,select=true){
+ const v=$('abc').value,before=at>0&&!/\s/.test(v[at-1])?' ':'',after=v[at]&&!/\s/.test(v[at])?' ':'';
+ applyNoteEdit(at,at,before+token+after,select?[at+before.length,at+before.length+token.length]:null);
+}
+// Where a new note goes with nothing selected: before the closing bar line, or at the end of the music.
+function tuneEndPosition(){
+ const all=[...new Set(noteSources.values())].filter(Boolean).sort((a,b)=>a.element.startChar-b.element.startChar),last=all.at(-1);
+ if(!last)return $('abc').value.length;
+ return last.element.el_type==='bar'&&/thick|dbl/.test(last.element.type||'')?last.element.startChar:last.element.endChar;
+}
+function insertNote(letter,sel){
+ const at=sel?sel.entry.element.endChar:tuneEndPosition(),length=inputLength??beatLength();
+ let token='z';
+ if(letter!=='z'){
+  // Letters name what the student sees, so pick the octave in written pitch, nearest the previous note.
+  const steps=Math.round(instruments[$('instrument').value].shift*7/12),prev=scoreNotes().filter(n=>n.element.startChar<at&&n.element.pitches?.length).pop();
+  const ref=prev?prev.element.pitches[0].pitch+steps:6+(staffClefs[0]?.[0]||0),letterIndex='CDEFGAB'.indexOf(letter);
+  token=pitchToken(letterIndex+7*Math.round((ref-letterIndex)/7)-steps);
+ }
+ insertAt(at,token+lengthText(length/unitLengthAt(at)));
+}
+function scoreKey(e){
+ if(e.metaKey||e.altKey||(e.ctrlKey&&!/^Arrow(Up|Down)$/.test(e.key))||!$('note-menu').hidden)return false;
+ if(renderedSource!==$('abc').value){clearTimeout(renderTimer);render()}
+ const key=e.key,sel=selectedNote(),notes=scoreNotes();
+ if(/^[a-g]$/i.test(key)){insertNote(key.toUpperCase(),sel);return true}
+ if(key==='r'||key==='R'||key==='0'){insertNote('z',sel);return true}
+ if(LENGTH_KEYS[key]){inputLength=LENGTH_KEYS[key];if(sel)editNote(sel.entry,sel.display,'len:'+inputLength);else $('selection-status').textContent='New notes will be '+(NOTE_VALUES[inputLength]||'that length').replace(/^an? /,'')+'s.';return true}
+ if(key==='|'){if(sel)editNote(sel.entry,sel.display,'bar-after');else insertAt(tuneEndPosition(),'|',false);return true}
+ if(key==='ArrowLeft'||key==='ArrowRight'){
+  if(!notes.length)return true;
+  const i=sel?notes.indexOf(sel.entry):key==='ArrowLeft'?notes.length:-1,next=notes[Math.max(0,Math.min(notes.length-1,i+(key==='ArrowLeft'?-1:1)))];
+  selectEntry(next);return true;
+ }
+ if(key==='Escape'&&sel){selectedRange=null;renderedTune?.engraver?.rangeHighlight?.(-1,-1);$('selection-status').textContent='Nothing selected. Letters add notes at the end.';return true}
+ if(!sel)return false;
+ const isNote=!!sel.entry.element.pitches?.length,start=sel.entry.element.startChar,end=sel.entry.element.endChar;
+ if(key==='.'){editNote(sel.entry,sel.display,'dot');return true}
+ if(key==='Delete'||key==='Backspace'){editNote(sel.entry,sel.display,'delete');return true}
+ if(!isNote)return false;
+ if(key==='ArrowUp'||key==='ArrowDown'){const v=$('abc').value;applyNoteEdit(start,end,moveNoteText(v.slice(start,end),(key==='ArrowUp'?1:-1)*(e.ctrlKey?7:1)));return true}
+ const accidental={'#':'^','-':'_','=':'='}[key];if(accidental){editNote(sel.entry,sel.display,'acc:'+accidental);return true}
+ if(key==='+'){editNote(sel.entry,sel.display,'tie');return true}
+ return false;
+}
+$('notation').addEventListener('keydown',e=>{if(scoreKey(e)){e.preventDefault();e.stopPropagation()}},true);
 // Bar check fixes.
 $('bar-check').addEventListener('click',e=>{
  const b=e.target.closest('[data-bar-fix]'),m=barIssues[+b?.dataset.bar];if(!m)return;

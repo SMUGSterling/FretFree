@@ -1,3 +1,11 @@
+# Simpler note input · 2026-10-04
+
+- **Keyboard note entry** on the score: A–G add notes (nearest octave, written pitch), R rest, 3–7 length, . dot, ↑↓ pitch (Ctrl octave), ←→ select, # - = accidentals, + tie, | bar line, Delete.
+- Note menu: **Tie to next note**, **Insert after: Rest / Bar line**.
+- Clicking a note focuses the score instead of the ABC box, so typing goes to the score.
+
+---
+
 # Undo and redo · 2026-10-04
 
 - **Undo / Redo** buttons and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl+Y for every change to the score: drag, draw, note menu, bar-check fixes, note buttons, header fields and typing.
