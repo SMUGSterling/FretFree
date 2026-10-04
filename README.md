@@ -17,7 +17,7 @@ See `scripts/library-stats.json` for exact counts and license versions. The orig
 
 Filter by collection, exact notation/edition license, genre, difficulty, and score type. Search also includes collection and contributor credits. Accepted license families are PD, CC0, CC BY, CC BY-SA, and GPL. Actual versions are preserved; no licenses are silently upgraded. Difficulty labels are estimates.
 
-**▶ Listen** on a library card plays the line of music shown on the card (up to 20 seconds) and lights up its notes, so students can hear a tune before opening it. It uses the instrument filter's sound, or piano when no instrument is chosen. One preview plays at a time; click again, open a score, or leave the library to stop it.
+**▶ Listen** on a library card plays the line of music shown on the card (up to 20 seconds) and lights up its notes, so students can hear a tune before opening it. It uses the instrument filter's sound, or piano when no instrument is chosen. One preview plays at a time; click again, change a filter or favorite, open a score, or leave the library to stop it.
 
 Public-domain declarations follow the source’s United States context. A public-domain composition does not make a modern transcription or arrangement public domain. Consult each edition’s rights notice and `catalog-rights.json` when sharing.
 

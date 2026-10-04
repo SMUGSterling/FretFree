@@ -1,7 +1,7 @@
 # Library card previews · 2026-10-04
 
 - **▶ Listen** on each library card plays the opening line shown on the card, up to 20 seconds, and lights up its notes.
-- Plays with the instrument filter's sound (piano when none is chosen). One preview at a time; it stops on a second click, when another card starts, when a score opens, or when you leave the library.
+- Plays with the instrument filter's sound (piano when none is chosen). One preview at a time; it stops on a second click, when another card starts, when the cards change (filters, pages, favorites), when a score opens, or when you leave the library.
 
 ---
 
