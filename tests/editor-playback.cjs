@@ -26,6 +26,11 @@ for(const instrument of Object.keys(run('instruments'))){
 }
 assert.equal(run(`moveNoteText('"Am"!accent!{a}[=CEG]2-',1)`),'"Am"!accent!{a}[=DFA]2-');
 assert.equal(run(`moveNoteText('B,2 c/2 ^f-',1)`),'C2 d/2 ^g-');
+assert.equal(run(`editNoteText('"Am"!accent!^c2-',{accidental:'_'})`),'"Am"!accent!_c2-');
+assert.equal(run(`editNoteText('[CEG]2',{accidental:'^',length:4})`),'[^C^E^G]4');
+assert.equal(run(`editNoteText('B,/2>',{length:1.5})`),'B,3/2>');
+assert.equal(run(`editNoteText('=F',{accidental:''})`),'F');
+assert.equal(run(`[1,2,.5,1.5,.25].map(lengthText).join(',')`),',2,/2,3/2,/4');
 async function checkPlayback(){
  run(`openScore({abc:${JSON.stringify(source)},instrument:'Flute'});$('start-measure').value=3;$('speed').value=50`);
  assert.equal(run('measureStarts.get(3)'),9.6,'Measure after repeated section uses performed timing');
