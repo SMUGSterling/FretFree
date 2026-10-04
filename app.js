@@ -1,18 +1,18 @@
 'use strict';
 const $=id=>document.getElementById(id), esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let renderedSource=null,renderedTune=null,noteSources=new Map(),measureStarts=new Map(),selectedRange=null,playOrigin=0,playClock=0,playSpeed=1;
-let staffClefs=[],shownElements=new Map(),inputLength=null,instrumentShown='';let libraryPage=0;const PAGE_SIZE=24;
+let staffClefs=[],shownElements=new Map(),inputLength=null,instrumentShown='',previewId=null,miniTunes=new Map();let libraryPage=0;const PAGE_SIZE=24;
 let current=null,savedId=null,dirty=false,renderTimer,storageOK=true,audio=null,playing=false,nodes=[],playGeneration=0;
 const storage={get(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback}catch{return fallback}},set(key,value){try{localStorage.setItem(key,JSON.stringify(value));return true}catch{storageOK=false;return false}}};
 let saved=storage.get('commonnote-scores-v1',[]),favorites=storage.get('commonnote-favorites-v1',[]);
 if(!Array.isArray(saved))saved=[];if(!Array.isArray(favorites))favorites=[];
 function toast(msg){$('toast').textContent=msg;$('toast').style.display='block';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').style.display='none',3500)}
-function show(view){document.querySelectorAll('.view').forEach(el=>el.hidden=el.id!==view);document.querySelectorAll('.nav').forEach(el=>el.classList.toggle('active',el.dataset.view===view));if(view==='saved')renderSaved();if(view!=='studio')stop();history.replaceState(null,'','#'+view);window.scrollTo({top:0,behavior:'smooth'})}
+function show(view){document.querySelectorAll('.view').forEach(el=>el.hidden=el.id!==view);document.querySelectorAll('.nav').forEach(el=>el.classList.toggle('active',el.dataset.view===view));if(view==='saved')renderSaved();if(view!=='studio')stop();if(view!=='library')stopPreview();history.replaceState(null,'','#'+view);window.scrollTo({top:0,behavior:'smooth'})}
 function allowReplace(){return !dirty||confirm('Replace your unsaved changes? Save or export first if you want to keep them.');}
-function openScore(item,id=null){if(!allowReplace())return;stop();current=item;savedId=id;dirty=false;selectedRange=null;$('selection-status').textContent='Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag up/down to change pitch; chords move together.';$('start-measure').value=1;$('end-measure').value='';$('abc').value=item.abc;inputLength=null;$('instrument').value=item.instrument||($('instrument-filter').value==='all'?'Flute':$('instrument-filter').value);resetHistory();syncFields();render();$('save-status').textContent='';show('studio')}
+function openScore(item,id=null){if(!allowReplace())return;stop();stopPreview();current=item;savedId=id;dirty=false;selectedRange=null;$('selection-status').textContent='Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag up/down to change pitch; chords move together.';$('start-measure').value=1;$('end-measure').value='';$('abc').value=item.abc;inputLength=null;$('instrument').value=item.instrument||($('instrument-filter').value==='all'?'Flute':$('instrument-filter').value);resetHistory();syncFields();render();$('save-status').textContent='';show('studio')}
 function newScore(){openScore({title:'Untitled melody',composer:'',kind:'personal',abc:tune('Untitled melody','','4/4','C',100,'C D E F | G2 G2 | F E D C | C4 |]')})}
 function filteredCatalog(){const q=$('search').value.toLowerCase(),level=$('level-filter').value,kind=$('kind-filter').value,genre=$('genre-filter').value,collection=$('collection-filter').value,license=$('license-filter').value;const list=catalog.filter(x=>(collection==='all'||scoreCollection(x)===collection)&&(license==='all'||scoreLicense(x)===license)&&(level==='all'||x.level===level)&&(kind==='all'||x.kind===kind)&&(genre==='all'||(x.genre||'Teaching melodies')===genre)&&`${x.title} ${x.composer} ${x.skill} ${x.originalInstrument||''} ${x.aliases||''} ${x.attribution||''} ${scoreCollection(x)}`.toLowerCase().includes(q));const order=$('sort-filter').value;if(order==='title')list.sort((a,b)=>a.title.localeCompare(b.title));if(order==='composer')list.sort((a,b)=>a.composer.localeCompare(b.composer)||a.title.localeCompare(b.title));return list}
-function renderCards(){const list=filteredCatalog();const pages=Math.max(1,Math.ceil(list.length/PAGE_SIZE));libraryPage=Math.min(libraryPage,pages-1);const visible=list.slice(libraryPage*PAGE_SIZE,(libraryPage+1)*PAGE_SIZE);$('result-count').textContent=`${list.length} scores · curated collection`;$('empty').hidden=list.length>0;$('pagination').hidden=list.length<=PAGE_SIZE;$('prev-page').disabled=libraryPage===0;$('next-page').disabled=libraryPage>=pages-1;$('page-status').textContent=`Page ${libraryPage+1} of ${pages} · ${list.length} scores`;$('cards').innerHTML=visible.map(x=>`<article class="card"><div class="mini-score" id="mini-${x.id}" aria-hidden="true"></div><div class="card-body"><div class="card-top"><span class="tag">${esc(licenseLabel(x))}</span><button class="favorite" data-favorite="${x.id}" aria-label="${favorites.includes(x.id)?'Unfavorite':'Favorite'} ${esc(x.title)}" aria-pressed="${favorites.includes(x.id)}">${favorites.includes(x.id)?'★':'☆'}</button></div><h3>${esc(x.title)}</h3><span class="small">${esc(x.composer)}</span><p>${esc(x.description)}</p>${x.pdf?`<a class="pdf-link" href="${esc(x.pdf)}" target="_blank" rel="noopener">Complete PDF · ${esc(x.originalInstrument)} ↗</a>`:''}<div class="card-bottom"><span>${x.level} · ${esc(x.skill)}</span><button data-open="${x.id}">${x.pdf?'Practice part':'Open score'} ↗</button></div></div></article>`).join('');for(const x of visible){const lines=x.abc.split('\n'),k=lines.findIndex(l=>l.startsWith('K:'));ABCJS.renderAbc(`mini-${x.id}`,lines.slice(0,k+1).filter(l=>!/^T:|^C:/.test(l)).join('\n')+'\n'+lines[k+1],{staffwidth:380,scale:.7,responsive:'resize',paddingtop:15});}}
+function renderCards(){const list=filteredCatalog();const pages=Math.max(1,Math.ceil(list.length/PAGE_SIZE));libraryPage=Math.min(libraryPage,pages-1);const visible=list.slice(libraryPage*PAGE_SIZE,(libraryPage+1)*PAGE_SIZE);if(previewId&&!visible.some(x=>x.id===previewId))stopPreview();$('result-count').textContent=`${list.length} scores · curated collection`;$('empty').hidden=list.length>0;$('pagination').hidden=list.length<=PAGE_SIZE;$('prev-page').disabled=libraryPage===0;$('next-page').disabled=libraryPage>=pages-1;$('page-status').textContent=`Page ${libraryPage+1} of ${pages} · ${list.length} scores`;$('cards').innerHTML=visible.map(x=>`<article class="card${previewId===x.id?' previewing':''}"><div class="mini-score" id="mini-${x.id}" aria-hidden="true"></div><div class="card-body"><div class="card-top"><span class="tag">${esc(licenseLabel(x))}</span><button class="favorite" data-favorite="${x.id}" aria-label="${favorites.includes(x.id)?'Unfavorite':'Favorite'} ${esc(x.title)}" aria-pressed="${favorites.includes(x.id)}">${favorites.includes(x.id)?'★':'☆'}</button></div><h3>${esc(x.title)}</h3><span class="small">${esc(x.composer)}</span><p>${esc(x.description)}</p>${x.pdf?`<a class="pdf-link" href="${esc(x.pdf)}" target="_blank" rel="noopener">Complete PDF · ${esc(x.originalInstrument)} ↗</a>`:''}<div class="card-bottom"><span>${x.level} · ${esc(x.skill)}</span><button class="listen" data-listen="${x.id}" aria-pressed="${previewId===x.id}" aria-label="${previewId===x.id?'Stop':'Listen to'} the opening of ${esc(x.title)}">${previewId===x.id?'■ Stop':'▶ Listen'}</button><button data-open="${x.id}">${x.pdf?'Practice part':'Open score'} ↗</button></div></div></article>`).join('');miniTunes.clear();for(const x of visible)miniTunes.set(x.id,ABCJS.renderAbc(`mini-${x.id}`,cardSnippet(x),{staffwidth:380,scale:.7,responsive:'resize',paddingtop:15})?.[0]);}
 
 function renderSaved(){const fav=catalog.filter(x=>favorites.includes(x.id));$('saved-cards').innerHTML=(saved.length||fav.length)?saved.map(x=>`<article class="card"><div class="card-body"><span class="tag">SAVED ON THIS DEVICE</span><h3>${esc(x.title)}</h3><p>${esc(x.composer||'Your composition')}<br>${new Date(x.updated).toLocaleDateString()}</p><div class="card-bottom"><button data-saved="${esc(x.id)}">Open score ↗</button><button data-delete="${esc(x.id)}">Delete</button></div></div></article>`).join('')+fav.map(x=>`<article class="card"><div class="card-body"><span class="tag">FAVORITE</span><h3>${esc(x.title)}</h3><p>${esc(x.composer)}</p><div class="card-bottom"><button data-open="${x.id}">Open score ↗</button><button data-favorite="${x.id}">Remove favorite</button></div></div></article>`).join(''):'<div class="empty">Your collection starts here.<br>Save a composition or tap a star in the library.</div>'}
 function field(name,defaultValue=''){const match=$('abc').value.match(new RegExp('^'+name+':(.*)$','m'));return match?match[1].trim():defaultValue}
@@ -227,14 +227,55 @@ function click(time,down){
  gain.gain.setValueAtTime(0,time);gain.gain.linearRampToValueAtTime(level,time+.002);gain.gain.exponentialRampToValueAtTime(.0001,time+.05);
  osc.connect(gain);gain.connect(audio.destination);osc.start(time);osc.stop(time+.06);osc.onended=()=>osc.done=true;nodes.push(osc);
 }
-function scheduleNotes(notes,base){
- const config=instruments[$('instrument').value],volume=+$('volume').value;
+function scheduleNotes(notes,base,instrument=$('instrument').value,into=nodes){
+ const config=instruments[instrument]||instruments.Piano,volume=+$('volume').value;
  for(const n of notes){
   const osc=audio.createOscillator(),gain=audio.createGain();osc.type=config.wave;osc.frequency.value=440*2**((n.note+(config.shift===-12?-12:0)-69)/12);
   const start=base+n.start,end=start+n.duration,attack=Math.min(.012,n.duration/3);
   gain.gain.setValueAtTime(0,start);gain.gain.linearRampToValueAtTime(volume*.12*n.velocity/100,start+attack);gain.gain.setValueAtTime(volume*.08*n.velocity/100,Math.max(start+attack,end-.04));gain.gain.linearRampToValueAtTime(0,end+.025);
-  osc.connect(gain);gain.connect(audio.destination);osc.start(start);osc.stop(end+.03);osc.onended=()=>osc.done=true;nodes.push(osc);
+  osc.connect(gain);gain.connect(audio.destination);osc.start(start);osc.stop(end+.03);osc.onended=()=>osc.done=true;into.push(osc);
  }
+}
+// Library preview: hear the line shown on a card without opening the editor. One preview plays at a time,
+// capped at PREVIEW_SECONDS, and its notes light up on the card.
+const PREVIEW_SECONDS=20;
+let previewNodes=[],previewTimers=[],previewGeneration=0;
+// The card shows the header (without title and composer) and the first line of music.
+function cardSnippet(x){const lines=x.abc.split('\n'),k=lines.findIndex(l=>l.startsWith('K:'));return lines.slice(0,k+1).filter(l=>!/^T:|^C:/.test(l)).join('\n')+'\n'+lines[k+1]}
+function previewButton(id,on){
+ const b=document.querySelector?.(`[data-listen="${id}"]`);if(!b)return;
+ const title=catalog.find(x=>x.id===id)?.title||'';
+ b.textContent=on?'■ Stop':'▶ Listen';b.setAttribute('aria-pressed',on);b.setAttribute('aria-label',`${on?'Stop':'Listen to'} the opening of ${title}`);
+ b.closest('.card')?.classList.toggle('previewing',on);
+}
+function stopPreview(){
+ previewGeneration++;previewTimers.forEach(clearTimeout);previewTimers=[];
+ for(const node of previewNodes){try{node.stop()}catch{}}previewNodes=[];
+ document.querySelectorAll('.mini-score .abcjs-playing').forEach(el=>el.classList.remove('abcjs-playing'));
+ if(previewId){const id=previewId;previewId=null;previewButton(id,false)}
+}
+async function previewCard(id){
+ const again=previewId===id;stopPreview();if(again)return;
+ const item=catalog.find(x=>x.id===id);if(!item)return;
+ stop();const generation=previewGeneration;previewId=id;previewButton(id,true);
+ try{
+  audio ||= new (window.AudioContext||window.webkitAudioContext)();await audio.resume();if(generation!==previewGeneration)return;
+  const full=parseMidi(midiBytes(cardSnippet(item))),until=Math.min(full.duration,PREVIEW_SECONDS),data=playbackSlice(full,0,100,until);
+  if(!data.notes.length){stopPreview();toast('This score has no notes to preview.');return}
+  const filter=$('instrument-filter').value,base=audio.currentTime+.07,at=(time,fn)=>previewTimers.push(setTimeout(fn,Math.max(0,(base+time-audio.currentTime)*1000)));
+  scheduleNotes(data.notes,base,instruments[filter]?filter:'Piano',previewNodes);
+  // Light up each note group on the card's mini score while it sounds.
+  const tune=miniTunes.get(id);
+  try{tune?.setTiming?.()}catch{}
+  const events=(tune?.noteTimings||[]).filter(e=>e.type==='event'&&e.elements?.length&&e.milliseconds/1000<until);
+  let lit=[];
+  for(const e of events)at(e.milliseconds/1000,()=>{
+   if(generation!==previewGeneration)return;
+   lit.forEach(el=>el.classList.remove('abcjs-playing'));
+   lit=e.elements.flat(2).filter(el=>el?.classList);lit.forEach(el=>el.classList.add('abcjs-playing'));
+  });
+  at(until+.15,()=>{if(generation===previewGeneration)stopPreview()});
+ }catch(e){stopPreview();toast('Preview unavailable: '+e.message)}
 }
 function schedulePass(p,from,percent,base,pass){
  const speed=percent/100,data=playbackSlice(p.full,from,percent,p.until),looping=$('loop').checked||$('trainer').checked;
@@ -258,7 +299,7 @@ function schedulePass(p,from,percent,base,pass){
 }
 async function play(resumeFrom=null,{countIn=false}={}){
  if(playing){stop();return}
- clearTimeout(renderTimer);render();const generation=++playGeneration;
+ stopPreview();clearTimeout(renderTimer);render();const generation=++playGeneration;
  try{
   audio ||= new (window.AudioContext||window.webkitAudioContext)();await audio.resume();if(generation!==playGeneration)return;
   const full=parseMidi(midiBytes($('abc').value)),range=measureRange(),start=measureStarts.get(range.from);
@@ -495,7 +536,7 @@ for(const name of Object.keys(instruments))$('instrument').add(new Option(name,n
 document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>show(b.dataset.view));document.querySelectorAll('.brand').forEach(a=>a.onclick=e=>{e.preventDefault();show('library')});$('browse').onclick=()=>$('library-top').scrollIntoView({behavior:'smooth'});$('start-writing').onclick=$('new-score').onclick=$('saved-new').onclick=newScore;
 for(const id of ['search','level-filter','kind-filter','instrument-filter','genre-filter','sort-filter','collection-filter','license-filter'])$(id).addEventListener('input',()=>{libraryPage=0;renderCards()});
 $('prev-page').onclick=()=>{libraryPage=Math.max(0,libraryPage-1);renderCards();$('library-top').scrollIntoView({behavior:'smooth'})};$('next-page').onclick=()=>{libraryPage++;renderCards();$('library-top').scrollIntoView({behavior:'smooth'})};
-document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.open)openScore(catalog.find(x=>x.id===b.dataset.open));if(b.dataset.saved){const x=saved.find(x=>x.id===b.dataset.saved);if(x)openScore(x,x.id)}if(b.dataset.favorite){const id=b.dataset.favorite;const next=favorites.includes(id)?favorites.filter(x=>x!==id):[...favorites,id];if(storage.set('commonnote-favorites-v1',next)){favorites=next;renderCards();renderSaved()}else toast('This browser could not save favorites.')}if(b.dataset.delete&&confirm('Delete this locally saved score?')){const next=saved.filter(x=>x.id!==b.dataset.delete);if(storage.set('commonnote-scores-v1',next)){saved=next;renderSaved();if(savedId===b.dataset.delete)savedId=null}else toast('Deletion could not be saved.')}if(b.dataset.token)insertToken(b.dataset.token)});
+document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.listen)previewCard(b.dataset.listen);if(b.dataset.open)openScore(catalog.find(x=>x.id===b.dataset.open));if(b.dataset.saved){const x=saved.find(x=>x.id===b.dataset.saved);if(x)openScore(x,x.id)}if(b.dataset.favorite){const id=b.dataset.favorite;const next=favorites.includes(id)?favorites.filter(x=>x!==id):[...favorites,id];if(storage.set('commonnote-favorites-v1',next)){favorites=next;renderCards();renderSaved()}else toast('This browser could not save favorites.')}if(b.dataset.delete&&confirm('Delete this locally saved score?')){const next=saved.filter(x=>x.id!==b.dataset.delete);if(storage.set('commonnote-scores-v1',next)){saved=next;renderSaved();if(savedId===b.dataset.delete)savedId=null}else toast('Deletion could not be saved.')}if(b.dataset.token)insertToken(b.dataset.token)});
 $('abc').addEventListener('beforeinput',()=>noteTyping('abc'));$('abc').addEventListener('input',()=>{syncFields();changed()});for(const [id,header] of [['title','T'],['composer','C'],['meter','M'],['key','K'],['bpm','Q']])$(id).addEventListener('input',()=>{noteTyping(id);setHeader(header,id==='bpm'?'1/4='+$(id).value:$(id).value);$('bpm-value').textContent=$('bpm').value;changed()});// On a prompt score the assignment is in written pitch, so a new instrument transposes the concert source to keep
 // every written note, and the written key, exactly where the student put them.
 $('instrument').onchange=()=>{
