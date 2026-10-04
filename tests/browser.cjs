@@ -46,6 +46,17 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  assert.ok(Math.abs(notes[8]-notes[7]-.5)<.01,'Loop restarts on the next beat with no gap');assert.ok(Math.abs(notes[9]-notes[8]-.25/.6)<.01,'Second pass plays at the trained speed');
  assert.ok(starts.filter(s=>s.click).length>=8,'Metronome clicks every beat');
  await page.evaluate(()=>{for(const id of ['trainer','metronome','loop','count-in'])$(id).checked=false;$('speed').value=100;$('speed').oninput()});
+ // Bar check: plain-language flags with fixes; library editions only flag bars the student changed.
+ await page.evaluate(()=>{dirty=false;openScore({abc:'X:1\nT:Bars\nM:4/4\nL:1/4\nK:C\nC D E F | G A B | c d e f g | a4 |]',instrument:'Flute'});window.scrollTo({top:0,behavior:'instant'})});
+ assert.match(await page.locator('#bar-check').innerText(),/Measure 2 has 3 beats; 4\/4 needs 4 beats\. Add a quarter note or rest\./);
+ assert.equal(await page.locator('#notation .bar-flag').count(),2,'Flagged bars are tinted');
+ await page.click('[data-bar-fix="rest"]');assert.match(await page.evaluate(()=>$('abc').value),/G A B z \|/,'Fill with a rest');
+ await page.click('[data-bar-fix="split"]');assert.match(await page.evaluate(()=>$('abc').value),/c d e f \| g \|/,'Split the bar');
+ assert.equal(await page.evaluate(()=>creditedSVG($('notation'),$('abc').value,current).includes('bar-flag')),false,'Exports omit overlays');
+ await page.evaluate(()=>{dirty=false;openScore(catalog.find(i=>i.id==='oneill-1850-0005'))});
+ assert.match(await page.locator('#bar-check').innerText(),/historic edition has 1 bar that doesn’t match/);assert.equal(await page.locator('#notation .bar-flag').count(),0);
+ await page.evaluate(()=>{const a=$('abc');a.value=a.value.replace('B>cd cAG','B>cd cA');a.dispatchEvent(new Event('input'))});await page.waitForTimeout(500);
+ assert.match(await page.locator('#bar-check').innerText(),/Measure 4 has 5 eighths; 6\/8 needs 6 eighths/,'Only the student’s change is flagged');
  // Review fixes: sustained highlights, implicit L:, written-pitch accidentals, chord and broken-rhythm lengths.
  const reopen=(abc,instrument='Flute')=>page.evaluate(([abc,instrument])=>{dirty=false;openScore({abc,instrument});window.scrollTo({top:0,behavior:'instant'})},[abc,instrument]);
  const menuEdit=async(n,label)=>{await page.locator('#notation .abcjs-notehead').nth(n).click({button:'right',force:true});await page.locator('#note-menu button',{hasText:label}).click();return page.evaluate(()=>$('abc').value)};
@@ -62,5 +73,5 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('commonnote-scores-v1'))[0].id),'legacy');
  assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('commonnote-favorites-v1'))),['ode','mutopia-263']);
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),'Mobile page fits viewport');
- assert.deepEqual(errors,[]);await browser.close();console.log('PASS: native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.');
+ assert.deepEqual(errors,[]);await browser.close();console.log('PASS: native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.');
 })().catch(e=>{console.error(e);process.exit(1)});
