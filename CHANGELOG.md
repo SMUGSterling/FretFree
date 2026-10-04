@@ -1,6 +1,6 @@
 # Cache-safe releases · 2026-10-04
 
-- `index.html` loads every local script and stylesheet with a shared `?v=` version, so browsers can't run a new page with stale cached code. Bump it with `node scripts/bump-version.cjs`; `tests/check.cjs` enforces it.
+- `index.html` loads every local script and stylesheet with `?v=` set to a hash of their contents, so browsers can't run a new page with stale cached code. Refresh it with `node scripts/bump-version.cjs`; `tests/check.cjs` fails if it is missing or out of date.
 
 ---
 
