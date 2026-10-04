@@ -1,0 +1,7 @@
+Opus 50 No. 29
+M. Giuliani (1781–1829); Stephen Rhen
+CC-BY-3.0
+https://creativecommons.org/licenses/by/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1357
+Edition license: CC-BY-3.0. Credit: M. Giuliani (1781–1829); Stephen Rhen. Source: Statens musikbibliotek - The Music Library of Sweden. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. Retain attribution and the license when sharing.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

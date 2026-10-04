@@ -1,0 +1,7 @@
+19. A Division upon a Ground
+J. Banister (c.1624–1679); Allen Garvin
+Public Domain
+https://www.mutopiaproject.org/legal.html#publicdomain
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=94
+Edition license: Public Domain. Credit: J. Banister (c.1624–1679); Allen Garvin. Source: Facsimile from 1685 edition of Playford's Division Violin, Bodleian Library. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. Edition declared Public Domain by its contributor.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

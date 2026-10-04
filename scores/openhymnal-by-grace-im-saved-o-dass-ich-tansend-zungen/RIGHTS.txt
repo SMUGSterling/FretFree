@@ -1,0 +1,7 @@
+By Grace I'm Saved
+Open Hymnal Project · Brian J. Dumont; Words: Christian L. Scheidt, 1742. Translated by Matthias Loy, (1828-1915).; Music: 'O Dass Ich Tansend Zungen' Johann Balthasar König, 1738.; Setting: "The Evangelical Lutheran Hymnal" (Ohio Synod), 1908.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/By_Grace_Im_Saved-O_Dass_Ich_Tansend_Zungen.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2007 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Christian L. Scheidt, 1742. Translated by Matthias Loy, (1828-1915).; Music: 'O Dass Ich Tansend Zungen' Johann Balthasar König, 1738.; Setting: "The Evangelical Lutheran Hymnal" (Ohio Synod), 1908.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

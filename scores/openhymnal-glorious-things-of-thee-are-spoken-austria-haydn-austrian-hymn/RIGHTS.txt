@@ -1,0 +1,7 @@
+Glorious Things of Thee are Spoken
+Open Hymnal Project · Brian J. Dumont; Words: John Newton, 1779, alt.; Music: 'Austria (Haydn)' or 'Austrian Hymn' Franz Joseph Haydn, 1797.; Setting: "The Evangelical Hymnal with Tunes", 1880.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Glorious_Things_of_Thee_Are_Spoken-Austria_Haydn-Austrian_Hymn.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2014 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: John Newton, 1779, alt.; Music: 'Austria (Haydn)' or 'Austrian Hymn' Franz Joseph Haydn, 1797.; Setting: "The Evangelical Hymnal with Tunes", 1880.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

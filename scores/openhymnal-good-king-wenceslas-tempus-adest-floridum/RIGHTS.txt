@@ -1,0 +1,7 @@
+Bonus Carol: Good King Wenceslas
+Open Hymnal Project · Brian J. Dumont; Words: John Mason Neale, 1853.; Music: 'Tempus Adest Floridum' 13th Century spring carol; first published in the Swedish Piae Cantones, 1582.; Setting: Carols Old And Carols New, 1916.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Good_King_Wenceslas-Tempus_Adest_Floridum.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2006 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: John Mason Neale, 1853.; Music: 'Tempus Adest Floridum' 13th Century spring carol; first published in the Swedish Piae Cantones, 1582.; Setting: Carols Old And Carols New, 1916.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

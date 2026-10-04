@@ -1,0 +1,7 @@
+In These Our Days So Perilous
+Open Hymnal Project · Brian J. Dumont; Words: Latin c. 6th century, adapted by Martin Luther, 1529.  Translated to English by Richard Massie, 1854, alt.; Music: 'Verleih uns Frieden Gnädiglich' Martin Luther.  Found in Klug's Geistliche Lieder, 1533.; Setting: Erythraeus, 1608.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/In_These_Our_Days_So_Perilous-Verleih_uns_Frieden_Gnaediglich.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2009 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Latin c. 6th century, adapted by Martin Luther, 1529.  Translated to English by Richard Massie, 1854, alt.; Music: 'Verleih uns Frieden Gnädiglich' Martin Luther.  Found in Klug's Geistliche Lieder, 1533.; Setting: Erythraeus, 1608.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

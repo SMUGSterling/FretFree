@@ -1,0 +1,7 @@
+Vorrei baciarti
+G. Ceresini (1584–1659); Björn Sothmann
+CC-BY-SA-3.0
+https://creativecommons.org/licenses/by-sa/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1646
+Edition license: CC-BY-SA-3.0. Credit: G. Ceresini (1584–1659); Björn Sothmann. Source: Madrigali concertati a due, tre e quattro voci con il basso continuo [...] Opera Quatra, Venezia, Alessandro Vincenti, 1627. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

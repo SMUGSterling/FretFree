@@ -1,0 +1,7 @@
+Soushi-Bushi
+Traditional; Anonymous
+Public Domain
+https://www.mutopiaproject.org/legal.html#publicdomain
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1768
+The composition and this Mutopia edition are supplied as Public Domain. Edition source: Nagai, Iwai and Obata, Kenhachiro, "Seiyo gakufu Nihon zokkyokushu", pub. Miki Shoten, Osaka, 1895. English title, "A Collection of Japanese Popular Music.". The included PDF and original MIDI are unchanged. The editable notation is a 15-bar upper-part study (maximum 32 bars) derived from the MIDI, not the complete score.
+Upper MIDI track; highest note at simultaneous onsets; first 32 bars; durations quantized to sixteenth notes. Accompaniment and performance markings omitted.

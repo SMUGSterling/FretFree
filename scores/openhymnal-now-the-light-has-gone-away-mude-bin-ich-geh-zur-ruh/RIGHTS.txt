@@ -1,0 +1,7 @@
+Now the Light Has Gone Away
+Open Hymnal Project · Brian J. Dumont; Words: Frances Ridley Havergal, 1869.; Music: 'Müde bin ich, geh zur Ruh' from Liederbuch für Kleinkinder-Schulen, 1842.; Setting: "Common Service Book" (ULCA), 1917, alt.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Now_The_Light_Has_Gone_Away-Mude_Bin_Ich_Geh_Zur_Ruh.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2009 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Frances Ridley Havergal, 1869.; Music: 'Müde bin ich, geh zur Ruh' from Liederbuch für Kleinkinder-Schulen, 1842.; Setting: "Common Service Book" (ULCA), 1917, alt.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

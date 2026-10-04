@@ -1,0 +1,7 @@
+Awake, My Heart, With Gladness
+Open Hymnal Project · Brian J. Dumont; Words: Paul Gerhardt, 1648.  Translated by John Kelly, 1867, alt.; Music: 'Auf, Auf, Mein Herz mit Freuden' Johann Crüger, 1648. Setting: "Mehrstimmiges ChoralBuch", 1906.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Awake_My_Heart_With_Gladness-Auf_Auf_Mein_Herz_mit_Freuden.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2011 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Paul Gerhardt, 1648.  Translated by John Kelly, 1867, alt.; Music: 'Auf, Auf, Mein Herz mit Freuden' Johann Crüger, 1648. Setting: "Mehrstimmiges ChoralBuch", 1906.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

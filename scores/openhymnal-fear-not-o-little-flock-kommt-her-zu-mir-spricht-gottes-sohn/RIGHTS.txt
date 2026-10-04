@@ -1,0 +1,7 @@
+Fear Not, O Little Flock
+Open Hymnal Project · Brian J. Dumont; Words: Attr. to King Gustavus Adolphus of Sweden (1594-1632), Jacob Fabricius (1593-1654); or Johann M. Altenburg (1584-1640).  Translated by Catherine Winkworth, 1855.; Music: 'Kommt her zu mir, spricht Gottes Sohn' traditional German, 1490.; Setting: "Mehrstimmiges Choralbuch", 1906.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Fear_Not_O_Little_Flock-Kommt_her_zu_mir_spricht_Gottes_Sohn.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2011 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Attr. to King Gustavus Adolphus of Sweden (1594-1632), Jacob Fabricius (1593-1654); or Johann M. Altenburg (1584-1640).  Translated by Catherine Winkworth, 1855.; Music: 'Kommt her zu mir, spricht Gottes Sohn' traditional German, 1490.; Setting: "Mehrstimmiges Choralbuch", 1906.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

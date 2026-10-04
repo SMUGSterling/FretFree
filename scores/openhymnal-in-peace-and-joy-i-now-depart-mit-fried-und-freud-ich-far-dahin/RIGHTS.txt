@@ -1,0 +1,7 @@
+In Peace and Joy I Now Depart
+Open Hymnal Project · Brian J. Dumont; Words: Martin Luther, 1524.  Translated by Leonard Woolsey Bacon, 1884, alt.; Music: 'Mit Fried und Freud ich Far Dahin' from Walter's Geistliche Gesangbüchlein, 1524.; Setting: Michael Praetorius, 1610.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/In_Peace_And_Joy_I_Now_Depart-Mit_Fried_Und_Freud_ich_Far_Dahin.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2009 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Martin Luther, 1524.  Translated by Leonard Woolsey Bacon, 1884, alt.; Music: 'Mit Fried und Freud ich Far Dahin' from Walter's Geistliche Gesangbüchlein, 1524.; Setting: Michael Praetorius, 1610.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

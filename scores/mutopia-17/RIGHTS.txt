@@ -1,0 +1,7 @@
+Duet in G
+F. Carulli (1770–1841); jeff covey <jeff.covey@pobox.com>
+CC-BY-SA-4.0
+https://creativecommons.org/licenses/by-sa/4.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=17
+Edition license: CC-BY-SA-4.0. Credit: F. Carulli (1770–1841); jeff covey <jeff.covey@pobox.com>. Source: Manuscript. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

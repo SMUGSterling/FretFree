@@ -1,0 +1,7 @@
+All Depends On Our Possessing
+Open Hymnal Project · Brian J. Dumont; Words: unknown circa 1673. Translated by Catherine Winkworth, 1858.; Music: 'Alles ist an Gottes Segen' Johann Balthasar König, 1738.  Setting: "Chorale Book for England", 1863, alt.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/All_Depends_On_Our_Possessing-Alles_ist_an_Gottes_Segen.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2005 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: unknown circa 1673. Translated by Catherine Winkworth, 1858.; Music: 'Alles ist an Gottes Segen' Johann Balthasar König, 1738.  Setting: "Chorale Book for England", 1863, alt.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

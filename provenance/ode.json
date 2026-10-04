@@ -1,0 +1,16 @@
+{
+  "id": "ode",
+  "title": "Ode to Joy",
+  "composer": "Ludwig van Beethoven",
+  "level": "Beginner",
+  "kind": "historic",
+  "skill": "Stepwise motion",
+  "description": "The familiar theme from Symphony No. 9, arranged as a single melody.",
+  "date": "1824",
+  "source": "https://www.loc.gov/item/2021668114/",
+  "sourceLabel": "Library of Congress · Symphony No. 9 manuscript",
+  "rights": "Composition first performed and published in the 1820s. Newly typeset, simplified melody theme; no modern edition or recording is included.",
+  "genre": "Teaching melodies",
+  "notationLicense": "CC0-1.0",
+  "collection": "FretFree teaching melodies"
+}

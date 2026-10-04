@@ -1,0 +1,7 @@
+Cranham (hymntune)
+G. T. Holst (1874–1934); Steve Dunlop
+Public Domain
+https://www.mutopiaproject.org/legal.html#publicdomain
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1233
+Edition license: Public Domain. Credit: G. T. Holst (1874–1934); Steve Dunlop. Source: www.cyberhymnal.org. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. Edition declared Public Domain by its contributor.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

@@ -1,0 +1,16 @@
+{
+  "id": "bach",
+  "title": "Prelude in C · first four bars",
+  "composer": "Johann Sebastian Bach",
+  "level": "Intermediate",
+  "kind": "historic",
+  "skill": "Arpeggios",
+  "description": "An opening study based on BWV 846, with the broken-chord pattern in a single voice.",
+  "date": "1722",
+  "source": "https://imslp.org/wiki/Prelude_and_Fugue_in_C_major,_BWV_846_(Bach,_Johann_Sebastian)",
+  "sourceLabel": "Historical work reference · BWV 846",
+  "rights": "From The Well-Tempered Clavier, Book I (1722). Newly typeset single-voice teaching reduction of the first four bars; sustained bass voices are omitted.",
+  "genre": "Teaching melodies",
+  "notationLicense": "CC0-1.0",
+  "collection": "FretFree teaching melodies"
+}

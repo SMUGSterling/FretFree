@@ -1,0 +1,24 @@
+{
+  "total": 3883,
+  "baseline": 841,
+  "added": 3042,
+  "collections": {
+    "FretFree teaching melodies": 4,
+    "FretFree original studies": 8,
+    "Mutopia": 1771,
+    "O’Neill’s Music of Ireland (1903)": 1828,
+    "Open Hymnal": 272
+  },
+  "licenses": {
+    "CC0-1.0": 12,
+    "Public Domain": 1221,
+    "GPL-2.0-or-later": 1828,
+    "CC-BY-SA-4.0": 180,
+    "CC-BY-SA-3.0": 395,
+    "CC-BY-SA-2.0": 5,
+    "CC-BY-SA-2.5": 59,
+    "CC-BY-4.0": 66,
+    "CC-BY-3.0": 60,
+    "CC-BY-2.5": 57
+  }
+}

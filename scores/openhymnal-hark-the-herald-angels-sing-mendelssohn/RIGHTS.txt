@@ -1,0 +1,7 @@
+Hark! The Herald Angels Sing
+Open Hymnal Project · Brian J. Dumont; Words: Charles Wesley, 1739, alt.; Music: 'Mendelssohn' from 'Festgesang' Felix Mendelssohn, 1840.  Setting: William H. Cummings, 1857.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Hark_The_Herald_Angels_Sing-Mendelssohn.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2005 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Charles Wesley, 1739, alt.; Music: 'Mendelssohn' from 'Festgesang' Felix Mendelssohn, 1840.  Setting: William H. Cummings, 1857.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

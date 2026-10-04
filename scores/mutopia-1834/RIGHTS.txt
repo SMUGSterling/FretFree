@@ -1,0 +1,7 @@
+Ave Maria
+P. Benoit (1834–1901); Kris Van Bruwaene
+CC-BY-3.0
+https://creativecommons.org/licenses/by/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1834
+Edition license: CC-BY-3.0. Credit: P. Benoit (1834–1901); Kris Van Bruwaene. Source: Manuscript. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. Retain attribution and the license when sharing.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

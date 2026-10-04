@@ -1,0 +1,7 @@
+Miserere mei, Deus
+G. Allegri (c.1582–1652); Jay Nelsestuen
+CC-BY-SA-4.0
+https://creativecommons.org/licenses/by-sa/4.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=2158
+Edition license: CC-BY-SA-4.0. Credit: G. Allegri (c.1582–1652); Jay Nelsestuen. Source: Two editions, one from IMSLP by Bono Depoorter (http://ks.petruccimusiclibrary.org/files/imglnks/usimg/9/9e/IMSLP362907-PMLP21402-Miserere3.pdf), the other from CPDL by Philip Legge (http://www2.cpdl.org/wiki/images/3/3c/Allegri_Miserere_PML2.pdf). PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

@@ -1,0 +1,7 @@
+Urbs Jerusalem (2e verset)
+J. Titelouze (1563–1633); Gérard Gréco
+CC-BY-SA-3.0
+https://creativecommons.org/licenses/by-sa/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1688
+Edition license: CC-BY-SA-3.0. Credit: J. Titelouze (1563–1633); Gérard Gréco. Source: Archives des maîtres de l'orgue, vol.1, 1897, Alexandre Guilmant. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

@@ -1,0 +1,7 @@
+O Wondrous Type, O Vision Fair
+Open Hymnal Project · Brian J. Dumont; Words: From the "Sarum Breviary", 1495.  Translated by John Mason Neale, 1851.; Music: 'Deo Gracias' or 'Agincourt' traditional English, circa 1415.  Setting: Charles Winfred Douglas, 1918, alt.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/O_Wondrous_Type_O_Vision_Fair-Deo_Gracias-Agincourt.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2011 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: From the "Sarum Breviary", 1495.  Translated by John Mason Neale, 1851.; Music: 'Deo Gracias' or 'Agincourt' traditional English, circa 1415.  Setting: Charles Winfred Douglas, 1918, alt.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

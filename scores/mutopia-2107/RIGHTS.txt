@@ -1,0 +1,7 @@
+Gravsang af Shakespeare's Cymbeline
+P. Heise (1830–1879); Niels CCM Moes
+CC-BY-4.0
+https://creativecommons.org/licenses/by/4.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=2107
+Edition license: CC-BY-4.0. Credit: P. Heise (1830–1879); Niels CCM Moes. Source: The Royal Library of Denmark. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. Retain attribution and the license when sharing.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

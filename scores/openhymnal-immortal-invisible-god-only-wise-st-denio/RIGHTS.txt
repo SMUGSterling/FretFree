@@ -1,0 +1,7 @@
+Immortal, Invisible, God Only Wise
+Open Hymnal Project · Brian J. Dumont; Words: Walter Chalmers Smith, 1876.; Music: 'St. Denio' or 'Joanna' or 'Palestrina'; traditional Welsh found in "Caniadau y Cyssegr" by John Roberts, 1839.; Setting: "Caniadau y Cyssegr a'r Teulu", 1878, alt.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Immortal_Invisible_God_Only_Wise-St_Denio.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2005 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Walter Chalmers Smith, 1876.; Music: 'St. Denio' or 'Joanna' or 'Palestrina'; traditional Welsh found in "Caniadau y Cyssegr" by John Roberts, 1839.; Setting: "Caniadau y Cyssegr a'r Teulu", 1878, alt.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

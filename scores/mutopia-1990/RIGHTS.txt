@@ -1,0 +1,7 @@
+Prelude Op. 23, No. 3
+S. Rachmaninoff (1873–1943); Abel Cheung
+CC-BY-SA-4.0
+https://creativecommons.org/licenses/by-sa/4.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1990
+Edition license: CC-BY-SA-4.0. Credit: S. Rachmaninoff (1873–1943); Abel Cheung. Source: IMSLP - Muzyka and Gutheil editions. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

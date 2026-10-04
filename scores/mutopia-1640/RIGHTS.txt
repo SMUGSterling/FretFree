@@ -1,0 +1,7 @@
+Sonata in a for 2 cornets and 3 sackbuts and basso continuo
+D. Speer (1636–1707); U. Weigelt
+Public Domain
+https://www.mutopiaproject.org/legal.html#publicdomain
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1640
+The composition and this Mutopia edition are supplied as Public Domain. Edition source: http://icking-music-archive.org/scores/speer/son_a/01_A_Speer_Partitur_B.pdf. The included PDF and original MIDI are unchanged. The editable notation is a 32-bar upper-part study (maximum 32 bars) derived from the MIDI, not the complete score.
+Upper MIDI track; highest note at simultaneous onsets; first 32 bars; durations quantized to sixteenth notes. Accompaniment and performance markings omitted.

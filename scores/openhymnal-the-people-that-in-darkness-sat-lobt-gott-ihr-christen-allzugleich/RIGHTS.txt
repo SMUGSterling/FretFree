@@ -1,0 +1,7 @@
+The People That in Darkness Sat
+Open Hymnal Project · Brian J. Dumont; Words: John Morison, 1781.  Music: 'Lobt Gott, ihr Christen Allzugleich' Nikolaus Hermann, 1554.; Setting: "Kern des Deutschen Kirchengesangs", 1855, alt.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/The_People_That_in_Darkness_Sat-Lobt_Gott_Ihr_Christen_Allzugleich.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2010 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: John Morison, 1781.  Music: 'Lobt Gott, ihr Christen Allzugleich' Nikolaus Hermann, 1554.; Setting: "Kern des Deutschen Kirchengesangs", 1855, alt.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

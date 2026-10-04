@@ -1,0 +1,7 @@
+I Sing the Mighty Power of God
+Open Hymnal Project · Brian J. Dumont; Words: Isaac Watts, 1709.; Music: 'Ellacombe' from Gesangbuch der Herzogl. Hofkapelle, Wurttemberg, 1784. Setting: "Amore Dei", 1897.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/I_Sing_The_Mighty_Power_Of_God-Ellacombe.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2014 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Isaac Watts, 1709.; Music: 'Ellacombe' from Gesangbuch der Herzogl. Hofkapelle, Wurttemberg, 1784. Setting: "Amore Dei", 1897.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

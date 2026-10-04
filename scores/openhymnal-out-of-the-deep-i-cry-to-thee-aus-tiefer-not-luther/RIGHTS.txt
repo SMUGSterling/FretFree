@@ -1,0 +1,7 @@
+Out of the Deep I Cry to Thee
+Open Hymnal Project · Brian J. Dumont; Words: Martin Luther, 1524. Translated by Arthur Tozer Russell (1806-1874).; Music: 'Aus Tiefer Not (Luther)' or 'Af Dybsens Nød' Martin Luther from Erfurt Enchiridion, 1524.; Setting: Johann Sebastian Bach, 1725.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Out_Of_The_Deep_I_Cry_To_Thee-Aus_Tiefer_Not_Luther.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2009 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Martin Luther, 1524. Translated by Arthur Tozer Russell (1806-1874).; Music: 'Aus Tiefer Not (Luther)' or 'Af Dybsens Nød' Martin Luther from Erfurt Enchiridion, 1524.; Setting: Johann Sebastian Bach, 1725.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

@@ -1,0 +1,16 @@
+{
+  "id": "elise",
+  "title": "Für Elise · opening",
+  "composer": "Ludwig van Beethoven",
+  "level": "Intermediate",
+  "kind": "historic",
+  "skill": "Chromatic notes",
+  "description": "A short excerpt of the opening melody, without piano accompaniment.",
+  "date": "1867 publication",
+  "source": "https://imslp.org/wiki/F%C3%BCr_Elise,_WoO_59_(Beethoven,_Ludwig_van)",
+  "sourceLabel": "Historical work reference · WoO 59",
+  "rights": "Composed 1810; first published 1867. Newly typeset opening melody excerpt only, not the complete piano work.",
+  "genre": "Teaching melodies",
+  "notationLicense": "CC0-1.0",
+  "collection": "FretFree teaching melodies"
+}

@@ -1,0 +1,7 @@
+Abide, O Dearest Jesus
+Open Hymnal Project · Brian J. Dumont; Words: Joshua Stegmann, 1628.  Translated by August Crull circa 1892.; Music: 'Christus der ist mein Leben' Melchior Vulpius, 1609.; Setting: "Mehrstimmiges ChoralBuch", 1906.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Abide_O_Dearest_Jesus-Christus_Der_Ist_Mein_Leben.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2013 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Joshua Stegmann, 1628.  Translated by August Crull circa 1892.; Music: 'Christus der ist mein Leben' Melchior Vulpius, 1609.; Setting: "Mehrstimmiges ChoralBuch", 1906.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

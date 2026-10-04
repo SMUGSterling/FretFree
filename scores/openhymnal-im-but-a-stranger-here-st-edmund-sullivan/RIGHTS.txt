@@ -1,0 +1,7 @@
+I'm But A Stranger Here
+Open Hymnal Project · Brian J. Dumont; Words: Thomas Rawson Taylor, 1836.; Music: 'St. Edmund (Sullivan)' Arthur Seymour Sullivan, 1872.  Setting: "Church Praise, with Tunes", 1885.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Im_But_A_Stranger_Here-St_Edmund_Sullivan.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2011 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Thomas Rawson Taylor, 1836.; Music: 'St. Edmund (Sullivan)' Arthur Seymour Sullivan, 1872.  Setting: "Church Praise, with Tunes", 1885.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

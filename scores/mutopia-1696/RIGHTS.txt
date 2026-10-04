@@ -1,0 +1,7 @@
+O come sei gentile, Madrigale a 2 Soprani
+C. Monteverdi (1567–1643); Björn Sothmann
+CC-BY-SA-3.0
+https://creativecommons.org/licenses/by-sa/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1696
+Edition license: CC-BY-SA-3.0. Credit: C. Monteverdi (1567–1643); Björn Sothmann. Source: Concerto. Settimo Libro di Madrigali a l. 2. 3. 4. & Sei voci, con altri generi de Canti, di Claudio Monteverde Maestro di Capella della Serenissima Republica Nouamente Dato in Luce. Dedicato alla Serenissima Madama Caterina Medici Gonzaga Duchessa di Mantoua di Monferrato &c. Stampa del Gardano. In Venetia. 1619. Appresso Bartolomeo Magni.. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

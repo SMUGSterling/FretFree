@@ -1,0 +1,7 @@
+See Amid the Winter's Snow
+Open Hymnal Project · Brian J. Dumont; Words: Edward Caswall, 1851.  Music: 'Humility' John Goss, 1870.; Setting: "The Children's Hymnal, with Tunes", 1875.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/See_Amid_The_Winters_Snow-Humility.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2008 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Edward Caswall, 1851.  Music: 'Humility' John Goss, 1870.; Setting: "The Children's Hymnal, with Tunes", 1875.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

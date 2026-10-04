@@ -1,0 +1,7 @@
+Vom Himmel kam der Engel Schaar
+J. S. Bach (1685–1750); Gérard Gréco
+CC-BY-SA-2.5
+https://creativecommons.org/licenses/by-sa/2.5/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=850
+Edition license: CC-BY-SA-2.5. Credit: J. S. Bach (1685–1750); Gérard Gréco. Source: J.S. Bach, 2e cahier de chorals variés, n° 9, Révision par Gabriel Fauré, Paris, 1920, A. Durand et fils. et Bach-Gesellschaft Edition, band 25, 1878. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

@@ -1,0 +1,7 @@
+Lo, How A Rose E'er Blooming
+Open Hymnal Project · Brian J. Dumont; Words: verses 1-2, 15th Century German.  Translated by Theodore Baker, 1894.; verses 3,4 Fridrich Layriz (1808-1859).  Translated by Harriet Reynolds Krauth, 1875.; verse 5, 15th Century German.  Translated by John C. Mattes, 1914.; Music: 'Es Ist Ein Ros Entsprungen (Rhythmic)' German from Köln, 1599.  Setting: Michael Praetorius, 1609.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Lo_How_A_Rose_Eer_Blooming-Es_Ist_Ein_Ros_Entsprungen.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2010 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: verses 1-2, 15th Century German.  Translated by Theodore Baker, 1894.; verses 3,4 Fridrich Layriz (1808-1859).  Translated by Harriet Reynolds Krauth, 1875.; verse 5, 15th Century German.  Translated by John C. Mattes, 1914.; Music: 'Es Ist Ein Ros Entsprungen (Rhythmic)' German from Köln, 1599.  Setting: Michael Praetorius, 1609.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

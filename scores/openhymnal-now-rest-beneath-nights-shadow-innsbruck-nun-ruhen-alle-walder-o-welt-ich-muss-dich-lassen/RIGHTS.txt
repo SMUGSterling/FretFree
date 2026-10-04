@@ -1,0 +1,7 @@
+Now Rest Beneath Night's Shadow
+Open Hymnal Project · Brian J. Dumont; Words: Paul Gerhardt, 1648.  Translation composite before 1941.; Music: 'Innsbruck' or 'Nun ruhen alle Wälder' or 'O Welt, Ich Muss Dich Lassen' Heinrich Isaac, 1490.; Setting: Johann Sebastian Bach, 1734.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Now_Rest_Beneath_Nights_Shadow-Innsbruck-Nun_ruhen_alle_Walder-O_Welt_Ich_Muss_Dich_Lassen.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2010 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Paul Gerhardt, 1648.  Translation composite before 1941.; Music: 'Innsbruck' or 'Nun ruhen alle Wälder' or 'O Welt, Ich Muss Dich Lassen' Heinrich Isaac, 1490.; Setting: Johann Sebastian Bach, 1734.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

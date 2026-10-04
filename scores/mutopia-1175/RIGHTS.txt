@@ -1,0 +1,7 @@
+Es ist ein Ros’ entsprungen
+Anonymous; arr: Michael Praetorius, 1609; Thomas Scharkowski
+Public Domain
+https://www.mutopiaproject.org/legal.html#publicdomain
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1175
+Edition license: Public Domain. Credit: Anonymous; arr: Michael Praetorius, 1609; Thomas Scharkowski. Source: Musae Sioniae Michaëlis Praetorij, C. deutscher geistlicher in de christlichen Kirchen ublicher Psalmen und Lieder mit 4 Stimmen Sechster Theil. Wolfenbüttel 1609, Nr. 53.. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. Edition declared Public Domain by its contributor.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

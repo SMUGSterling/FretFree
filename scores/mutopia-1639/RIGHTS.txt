@@ -1,0 +1,7 @@
+Magnificat
+P. Benoit (1834–1901); Kris Van Bruwaene
+CC-BY-SA-3.0
+https://creativecommons.org/licenses/by-sa/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1639
+Edition license: CC-BY-SA-3.0. Credit: P. Benoit (1834–1901); Kris Van Bruwaene. Source: Schott Frères Bruxelles S.F.1272 (undated) and hand copied choral parts dated 1953.. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

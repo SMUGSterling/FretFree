@@ -1,0 +1,7 @@
+The Old Folks At Home (Swanee River)
+S. C. Foster (1826–1864); Arr. by W. L. HAYDEN, 1881; Louie van Bommel
+CC-BY-SA-3.0
+https://creativecommons.org/licenses/by-sa/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1641
+Edition license: CC-BY-SA-3.0. Credit: S. C. Foster (1826–1864); Arr. by W. L. HAYDEN, 1881; Louie van Bommel. Source: Gems of The Season (arranged for guitar by W.L. Hayden) Boston: Ditson & Co., Oliver, 1881. Library of Congress http://memory.loc.gov/cgi-bin/ampage?collId=mussm&fileName=sm/sm1881/01900/01976/mussm01976.db&recNum=0&itemLink=h?ammem/mussm:@field(NUMBER+@band(sm1881+01976))&linkText=0. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

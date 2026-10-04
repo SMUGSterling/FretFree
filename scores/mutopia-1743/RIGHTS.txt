@@ -1,0 +1,7 @@
+Bourrée in E Minor
+J. S. Bach (1685–1750); Rudy Matela
+Public Domain
+https://www.mutopiaproject.org/legal.html#publicdomain
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1743
+The composition and this Mutopia edition are supplied as Public Domain. Edition source: Band I: J.S. Bach: Compositionen für die Laute, Denkmäler alter Lautenkunst Wolfenbüttel: Julius Zwißlers Verlag, 1921. Plate Band I. (among other sources). The included PDF and original MIDI are unchanged. The editable notation is a 21-bar upper-part study (maximum 32 bars) derived from the MIDI, not the complete score.
+Upper MIDI track; highest note at simultaneous onsets; first 32 bars; durations quantized to sixteenth notes. Accompaniment and performance markings omitted.

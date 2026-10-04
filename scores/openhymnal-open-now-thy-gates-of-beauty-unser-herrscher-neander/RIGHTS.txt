@@ -1,0 +1,7 @@
+Open Now Thy Gates of Beauty
+Open Hymnal Project · Brian J. Dumont; Words: Benjamin Schmolck, 1730.  Translated by Catherine Winkworth, 1863.; Music: 'Unser Herrscher' or 'Neander' Joachim Neander, 1680.  Setting: "Chorale Book for England", 1863.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Open_Now_Thy_Gates_Of_Beauty-Unser_Herrscher-Neander.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2009 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Benjamin Schmolck, 1730.  Translated by Catherine Winkworth, 1863.; Music: 'Unser Herrscher' or 'Neander' Joachim Neander, 1680.  Setting: "Chorale Book for England", 1863.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

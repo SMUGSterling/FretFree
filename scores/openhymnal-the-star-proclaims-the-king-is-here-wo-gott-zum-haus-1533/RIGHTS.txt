@@ -1,0 +1,7 @@
+The Star Proclaims the King is Here
+Open Hymnal Project · Brian J. Dumont; Words: Coelius Sedulius, c. 450. German version by M. Luther, 1543.  English translation by John Mason Neale, 1852.; Music: 'Wo Gott Zum Haus' from Klug's Geistliche Lieder, Wittenberg, 1533.; Setting: "Kern des Deutschen Kirchengesangs", 1855, alt.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/The_Star_Proclaims_the_King_Is_Here-Wo_Gott_Zum_Haus_1533.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2009 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Coelius Sedulius, c. 450. German version by M. Luther, 1543.  English translation by John Mason Neale, 1852.; Music: 'Wo Gott Zum Haus' from Klug's Geistliche Lieder, Wittenberg, 1533.; Setting: "Kern des Deutschen Kirchengesangs", 1855, alt.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

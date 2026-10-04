@@ -1,0 +1,7 @@
+Study in A Minor
+D. Aguado (1784–1849); Glen Larsen
+CC-BY-SA-3.0
+https://creativecommons.org/licenses/by-sa/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1833
+Edition license: CC-BY-SA-3.0. Credit: D. Aguado (1784–1849); Glen Larsen. Source: Schonenberger, Paris. Plate S. 1320. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

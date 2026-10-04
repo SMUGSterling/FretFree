@@ -1,0 +1,34 @@
+[
+  {
+    "id": "mutopia-942",
+    "error": "Empty study"
+  },
+  {
+    "id": "mutopia-1204",
+    "error": "Empty study"
+  },
+  {
+    "id": "mutopia-451",
+    "error": "No contributor credit in LilyPond header"
+  },
+  {
+    "id": "mutopia-1194",
+    "error": "Empty study"
+  },
+  {
+    "id": "mutopia-1160",
+    "error": "Unusual meter"
+  },
+  {
+    "id": "mutopia-702",
+    "error": "Empty study"
+  },
+  {
+    "id": "mutopia-1829",
+    "error": "HTTP Error 404: Not Found"
+  },
+  {
+    "id": "mutopia-1830",
+    "error": "HTTP Error 404: Not Found"
+  }
+]

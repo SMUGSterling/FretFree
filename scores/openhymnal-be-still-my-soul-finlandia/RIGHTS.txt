@@ -1,0 +1,7 @@
+Be Still My Soul
+Open Hymnal Project · Brian J. Dumont; Words: Katharina A. von Schlegel, 1752.  Translated by Jane L. Borthwick, 1855.; Music: 'Finlandia' Jean Sibelius, 1899.  Setting: from Jean Sibelius, 1900.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Be_Still_My_Soul-Finlandia.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2008 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Katharina A. von Schlegel, 1752.  Translated by Jane L. Borthwick, 1855.; Music: 'Finlandia' Jean Sibelius, 1899.  Setting: from Jean Sibelius, 1900.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

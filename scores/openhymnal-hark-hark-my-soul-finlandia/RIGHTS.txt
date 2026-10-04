@@ -1,0 +1,7 @@
+Hark, Hark, My Soul!
+Open Hymnal Project · Brian J. Dumont; Words: Frederick W. Faber, 1854.  Arranged and alt. by Mike Hosken, 2014.; Music: 'Finlandia' Jean Sibelius, 1899.  Setting: from Jean Sibelius, 1900.; the author on 20 Jan 2014.  This score is a part of the Open Hymnal Project, 2014 Revision.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Hark_Hark_My_Soul-Finlandia.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  All alterations to the lyrics are placed into the public domain by  FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Frederick W. Faber, 1854.  Arranged and alt. by Mike Hosken, 2014.; Music: 'Finlandia' Jean Sibelius, 1899.  Setting: from Jean Sibelius, 1900.; the author on 20 Jan 2014.  This score is a part of the Open Hymnal Project, 2014 Revision.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

@@ -1,0 +1,7 @@
+Oh, Blest the House
+Open Hymnal Project · Brian J. Dumont; Words: Christoph C. L. von Pfeil, 1735. Translated by Catherine Winkworth, 1863, alt.; Music: 'Wo Gott Zum Haus' from Klug's Geistliche Lieder, 1533.; Setting: "Evangelical Lutheran Hymn-Book", 1931.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Oh_Blest_The_House-Wo_Gott_Zum_Haus.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2006 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Christoph C. L. von Pfeil, 1735. Translated by Catherine Winkworth, 1863, alt.; Music: 'Wo Gott Zum Haus' from Klug's Geistliche Lieder, 1533.; Setting: "Evangelical Lutheran Hymn-Book", 1931.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

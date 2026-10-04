@@ -1,0 +1,7 @@
+Jerusalem the Golden
+Open Hymnal Project · Brian J. Dumont; Words: Bernard of Cluny, 1146.  Translated by John Mason Neale, 1858.; Music: 'Ewing' Alexander C. Ewing, 1853.  Setting: "Hymns Ancient and Modern", 1861.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Jerusalem_the_Golden-Ewing.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2010 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Bernard of Cluny, 1146.  Translated by John Mason Neale, 1858.; Music: 'Ewing' Alexander C. Ewing, 1853.  Setting: "Hymns Ancient and Modern", 1861.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

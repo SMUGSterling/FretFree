@@ -1,0 +1,7 @@
+T'amo mia vita
+C. Monteverdi (1567–1643); Björn Sothmann
+CC-BY-SA-3.0
+https://creativecommons.org/licenses/by-sa/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1772
+Edition license: CC-BY-SA-3.0. Credit: C. Monteverdi (1567–1643); Björn Sothmann. Source: Il Quinto Libro de Madrigali a cinque voci. Di Claudio Monteverde Maestro della Musica del Serenissimo Sig. Duca di Mantoa. Col Basso continuo per il Clavicembalo Chittarone od altro simile istromento, fatto particolarmente per li sei vltimi, & per li altri a beneplacito. Di nouo ristampato. - In Venetia, Appresso Ricciardo Amadino. 1608.. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

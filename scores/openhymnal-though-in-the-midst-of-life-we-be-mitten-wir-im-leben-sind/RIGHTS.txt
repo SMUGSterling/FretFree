@@ -1,0 +1,7 @@
+Though in the Midst of Life We Be
+Open Hymnal Project · Brian J. Dumont; Words: v.1 Medieval sequence, vs 2,3 Martin Luther, 1524.  Translated by Richard Massie, 1854, alt.; Music: 'Mitten wir im Leben Sind' Medieval sequence altered by Martin Luther.; Found in Walter's Geistliche Gesangbüchlein, 1524.  Setting: Erythraeus, 1608.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Though_In_The_Midst_Of_Life_We_Be-Mitten_Wir_Im_Leben_Sind.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2009 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: v.1 Medieval sequence, vs 2,3 Martin Luther, 1524.  Translated by Richard Massie, 1854, alt.; Music: 'Mitten wir im Leben Sind' Medieval sequence altered by Martin Luther.; Found in Walter's Geistliche Gesangbüchlein, 1524.  Setting: Erythraeus, 1608.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

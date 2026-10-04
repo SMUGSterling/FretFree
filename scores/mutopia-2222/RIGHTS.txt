@@ -1,0 +1,7 @@
+Psalm 42
+F. Lachner (1803–1890); calixte
+CC-BY-SA-4.0
+https://creativecommons.org/licenses/by-sa/4.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=2222
+Edition license: CC-BY-SA-4.0. Credit: F. Lachner (1803–1890); calixte. Source: Manuscript (from IMSLP) BSB Mus.Mss. 5843. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

@@ -1,0 +1,7 @@
+The Day is Surely Drawing Near
+Open Hymnal Project · Brian J. Dumont; Words: Bartholomäus Ringwaldt, 1565.  Translated by Phillip A. Peter, 1872, alt.; Music: 'Es ist Gewisslich an der Zeit' from Klug's Geistliche Lieder, Wittenberg, 1533.; Setting: "Evangelical Lutheran Hymn-Book", 1931.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/The_Day_Is_Surely_Drawing_Near-Es_ist_Gewisslich_an_der_Zett.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2011 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Bartholomäus Ringwaldt, 1565.  Translated by Phillip A. Peter, 1872, alt.; Music: 'Es ist Gewisslich an der Zeit' from Klug's Geistliche Lieder, Wittenberg, 1533.; Setting: "Evangelical Lutheran Hymn-Book", 1931.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

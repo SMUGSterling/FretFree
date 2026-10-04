@@ -1,0 +1,7 @@
+It Is Well With My Soul
+Open Hymnal Project · Brian J. Dumont; Words: Horatio G. Spafford, 1873.  Music and Setting: 'It Is Well' or 'Ville Du Havre' Philip P. Bliss, 1876.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/It_Is_Well_With_My_Soul-It_Is_Well-Ville_Du_Havre.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2010 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Horatio G. Spafford, 1873.  Music and Setting: 'It Is Well' or 'Ville Du Havre' Philip P. Bliss, 1876.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

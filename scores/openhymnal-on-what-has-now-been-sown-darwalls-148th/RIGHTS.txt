@@ -1,0 +1,7 @@
+On What Has Now Been Sown
+Open Hymnal Project · Brian J. Dumont; Words: John Newton, 1779.  Music: 'Darwall`s 148th' John Darwall, 1770.; Setting: "Common Service Book" (ULCA), 1917.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/On_What_Has_Now_Been_Sown-Darwalls_148th.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2013 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: John Newton, 1779.  Music: 'Darwall`s 148th' John Darwall, 1770.; Setting: "Common Service Book" (ULCA), 1917.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

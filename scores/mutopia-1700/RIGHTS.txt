@@ -1,0 +1,7 @@
+Canon in D
+J. Pachelbel (1653–1706); Anonymous
+CC-BY-3.0
+https://creativecommons.org/licenses/by/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1700
+Edition license: CC-BY-3.0. Credit: J. Pachelbel (1653–1706); Anonymous. Source: Jim Paterson www.mfiles.co.uk (with permission). PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. Retain attribution and the license when sharing.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

@@ -1,0 +1,7 @@
+Whiter Than Snow
+Open Hymnal Project · Brian J. Dumont; Words: James Nicholson, 1872.; Music: 'Whiter Than Snow' William Gustavus Fischer, 1872.  Setting: "Pentecostal Hymns, No. 2", 1898.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Whiter_Than_Snow-Whiter_Than_Snow.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2012 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: James Nicholson, 1872.; Music: 'Whiter Than Snow' William Gustavus Fischer, 1872.  Setting: "Pentecostal Hymns, No. 2", 1898.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

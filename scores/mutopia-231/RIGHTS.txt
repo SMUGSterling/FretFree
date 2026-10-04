@@ -1,0 +1,7 @@
+Cadenza for Haydn Cello Concerto in D major, 1st movement
+C. Brey (1954–); Carter Brey
+Public Domain
+https://www.mutopiaproject.org/legal.html#publicdomain
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=231
+Edition license: Public Domain. Credit: C. Brey (1954–); Carter Brey. Source: Unknown. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. Edition declared Public Domain by its contributor.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

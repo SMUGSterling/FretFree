@@ -1,0 +1,7 @@
+Zwei geistliche Chöre - Periti autem
+F. Mendelssohn-Bartholdy (1809–1847); Urs Metzger
+CC-BY-SA-4.0
+https://creativecommons.org/licenses/by-sa/4.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1937
+Edition license: CC-BY-SA-4.0. Credit: F. Mendelssohn-Bartholdy (1809–1847); Urs Metzger. Source: Leipzig: Breitkopf & Härtel, 1874-82. Plate M.B. 110.. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

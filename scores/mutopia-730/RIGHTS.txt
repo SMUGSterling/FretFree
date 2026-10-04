@@ -1,0 +1,7 @@
+Der gute Kamerad
+H. Suter (1870–1926); bearbeitet von Hermann Suter (1870–1926); Klaus Rettinghaus
+CC-BY-4.0
+https://creativecommons.org/licenses/by/4.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=730
+Edition license: CC-BY-4.0. Credit: H. Suter (1870–1926); bearbeitet von Hermann Suter (1870–1926); Klaus Rettinghaus. Source: Leipzig : C. F. Peters, 1915. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. Retain attribution and the license when sharing.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

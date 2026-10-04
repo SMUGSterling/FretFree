@@ -1,0 +1,7 @@
+Mazurka: Op.33, No.1
+F. F. Chopin (1810–1849); Ryan Prince
+CC-BY-3.0
+https://creativecommons.org/licenses/by/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1682
+Edition license: CC-BY-3.0. Credit: F. F. Chopin (1810–1849); Ryan Prince. Source: G. Schirmer, 1894. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. Retain attribution and the license when sharing.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

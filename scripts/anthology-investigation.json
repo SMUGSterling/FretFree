@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-03",
+  "included": 0,
+  "publication": "https://aperio.press/news/2020-03-17-public-domain-song-anthology/",
+  "officialLicense": "CC0-1.0 as identified by dataset; unrestricted reuse stated by publication",
+  "attempts": [
+    {
+      "url": "https://dataverse.lib.virginia.edu/dataset.xhtml?persistentId=doi%3A10.18130%2FV3%2FC4RD06",
+      "result": "HTTP 403 Forbidden"
+    },
+    {
+      "url": "https://dataverse.lib.virginia.edu/api/datasets/:persistentId/?persistentId=doi:10.18130/V3/C4RD06",
+      "result": "HTTP 403 Forbidden"
+    },
+    {
+      "url": "https://dataverse.lib.virginia.edu/api/datasets/export?exporter=dataverse_json&persistentId=doi:10.18130/V3/C4RD06",
+      "result": "HTTP 403 Forbidden"
+    },
+    {
+      "url": "https://www.fulcrum.org/downloads/qj72p994d?locale=en",
+      "result": "HTTP 403 Forbidden"
+    },
+    {
+      "url": "https://libraopen.lib.virginia.edu/downloads/rx913p97f",
+      "result": "HTTP 403 Forbidden"
+    }
+  ],
+  "reason": "Official score bytes could not be retrieved; no entries were invented or counted."
+}

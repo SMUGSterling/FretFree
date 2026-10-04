@@ -1,0 +1,7 @@
+Savior Of The Nations Come
+Open Hymnal Project · Brian J. Dumont; Words: Ambrose of Milan, c. 397.  Translated to German by Martin Luther, 1524.; Translated from German to English by William M. Reynolds, 1851.; Music: 'Nun Komm, Der Heiden Heiland' from Walter's Geistliche Gesangbüchlein, 1524.; Setting: "Mehrstimmiges ChoralBuch", 1906.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Savior_Of_The_Nations_Come-Nun_Komm_Der_Heiden_Heiland.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2007 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Ambrose of Milan, c. 397.  Translated to German by Martin Luther, 1524.; Translated from German to English by William M. Reynolds, 1851.; Music: 'Nun Komm, Der Heiden Heiland' from Walter's Geistliche Gesangbüchlein, 1524.; Setting: "Mehrstimmiges ChoralBuch", 1906.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

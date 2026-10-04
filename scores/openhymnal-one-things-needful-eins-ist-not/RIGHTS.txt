@@ -1,0 +1,7 @@
+One Thing's Needful
+Open Hymnal Project · Brian J. Dumont; Words: Johann H. Schröder, 1697.  Translated by Frances E. Cox, 1841, alt.; Music: 'Eins ist Not' Adam Krieger (1634-1666).  Setting: Fridrich Layriz, 1853, alt.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/One_Things_Needful-Eins_Ist_Not.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2012 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Johann H. Schröder, 1697.  Translated by Frances E. Cox, 1841, alt.; Music: 'Eins ist Not' Adam Krieger (1634-1666).  Setting: Fridrich Layriz, 1853, alt.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

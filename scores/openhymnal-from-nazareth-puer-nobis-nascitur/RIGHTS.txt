@@ -1,0 +1,7 @@
+From Nazareth
+Open Hymnal Project · Brian J. Dumont; Words: Margaret E. Sangster, 1911. Music: 'Puer Nobis Nascitur' Michael Praetorius, 1609.; Setting: George Ratcliffe Woodward for "The English Hymnal", 1906.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/From_Nazareth-Puer_Nobis_Nascitur.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2013 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Margaret E. Sangster, 1911. Music: 'Puer Nobis Nascitur' Michael Praetorius, 1609.; Setting: George Ratcliffe Woodward for "The English Hymnal", 1906.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

@@ -1,0 +1,7 @@
+All Glory, Laud, and Honor
+Open Hymnal Project · Brian J. Dumont; Words: Theodulf of Orleans, circa 820. Translated by John Mason Neale, 1851.; Music: 'Valet Will Ich Dir Geben' or 'St. Theodulph' Melchior Teschner, 1615.; Setting: Presbyterian Hymnal, 1911.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/All_Glory_Laud_And_Honor-Valet_Will_Ich_Dir_Geben-St_Theodulph.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2006 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Theodulf of Orleans, circa 820. Translated by John Mason Neale, 1851.; Music: 'Valet Will Ich Dir Geben' or 'St. Theodulph' Melchior Teschner, 1615.; Setting: Presbyterian Hymnal, 1911.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

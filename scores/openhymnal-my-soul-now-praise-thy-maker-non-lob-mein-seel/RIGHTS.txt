@@ -1,0 +1,7 @@
+My Soul, Now Praise Thy Maker
+Open Hymnal Project · Brian J. Dumont; Words: Johann Graumann, 1525.  Translated by Catherine Winkworth, 1863.; Music: 'Nun Lob, Mein Seel' from Johannes Kugelmann`s Concentus Novi, 1540; Setting: "Mehrstimmiges ChoralBuch", 1906.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/My_Soul_Now_Praise_Thy_Maker-Non_Lob_Mein_Seel.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2014 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Johann Graumann, 1525.  Translated by Catherine Winkworth, 1863.; Music: 'Nun Lob, Mein Seel' from Johannes Kugelmann`s Concentus Novi, 1540; Setting: "Mehrstimmiges ChoralBuch", 1906.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

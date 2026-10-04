@@ -1,0 +1,7 @@
+Album pour la jeunesse - 1.Mélodie
+R. Schumann (1810–1856); Philippe Hézaine
+CC-BY-SA-2.5
+https://creativecommons.org/licenses/by-sa/2.5/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=647
+Edition license: CC-BY-SA-2.5. Credit: R. Schumann (1810–1856); Philippe Hézaine. Source: Peters. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

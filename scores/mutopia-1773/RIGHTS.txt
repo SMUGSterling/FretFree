@@ -1,0 +1,7 @@
+Ave dulcissima Maria
+G. Priuli (15??–16??); Björn Sothmann
+CC-BY-SA-3.0
+https://creativecommons.org/licenses/by-sa/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1773
+Edition license: CC-BY-SA-3.0. Credit: G. Priuli (15??–16??); Björn Sothmann. Source: Raccolta di Leonardo Simonetti. - Ghirlanda sacra scielta da diuersi Eccellentissimi Compositori de uarij Motetti à Voce sola Libro Primo Opera Seconda per Leonardo Simonetti Musico nella Capella del Ser.mo Prencipe di Venezia in S. Marco. - Stampa del Gardano. In Venezia 1625.. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

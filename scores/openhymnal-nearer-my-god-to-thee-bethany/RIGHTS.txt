@@ -1,0 +1,7 @@
+Nearer, My God, To Thee
+Open Hymnal Project · Brian J. Dumont; Words: st. 1-2 by Sarah F. Adams, 1841. st. 3-5 by Hervey D. Ganse (1822-1891).; st. 6 by Edward H. Bickersteth, Jr. (1825-1906).; Music: 'Bethany (Mason)' Lowell Mason, 1856.  Setting: Lowell Mason, 1859.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Nearer_My_God_To_Thee-Bethany.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2008 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: st. 1-2 by Sarah F. Adams, 1841. st. 3-5 by Hervey D. Ganse (1822-1891).; st. 6 by Edward H. Bickersteth, Jr. (1825-1906).; Music: 'Bethany (Mason)' Lowell Mason, 1856.  Setting: Lowell Mason, 1859.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

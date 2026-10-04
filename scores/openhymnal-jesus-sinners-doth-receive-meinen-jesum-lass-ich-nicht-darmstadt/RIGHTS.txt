@@ -1,0 +1,7 @@
+Jesus Sinners Doth Receive
+Open Hymnal Project · Brian J. Dumont; Words: Erdmann Neumeister, 1718.  Translated by Henry Mills, 1845 (et al).; Music: 'Meinen Jesum Lass` Ich Nicht (Darmstadt)' from Neu-verfertigtes Darmstädtiches Gesang-Buch, 1699.; Setting: "Mehrstimmiges ChoralBuch", 1906.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Jesus_Sinners_Doth_Receive-Meinen_Jesum_Lass_ich_Nicht_Darmstadt.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2013 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Erdmann Neumeister, 1718.  Translated by Henry Mills, 1845 (et al).; Music: 'Meinen Jesum Lass` Ich Nicht (Darmstadt)' from Neu-verfertigtes Darmstädtiches Gesang-Buch, 1699.; Setting: "Mehrstimmiges ChoralBuch", 1906.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

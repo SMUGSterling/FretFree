@@ -1,0 +1,7 @@
+Amazing Grace
+Open Hymnal Project · Brian J. Dumont; Words: John Newton, 1779.  last verse author unknown, before 1829.; Music: 'New Britain' James P. Carrell and David L. Clayton, 1831.  Setting: Edwin Othello Excell, 1900.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Amazing_Grace-New_Britain.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2006 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: John Newton, 1779.  last verse author unknown, before 1829.; Music: 'New Britain' James P. Carrell and David L. Clayton, 1831.  Setting: Edwin Othello Excell, 1900.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

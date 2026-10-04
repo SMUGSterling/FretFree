@@ -1,0 +1,7 @@
+Popule Meus
+J. Naujalis (1869–1934); Daniel Johnson
+Public Domain
+https://www.mutopiaproject.org/legal.html#publicdomain
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=970
+Edition license: Public Domain. Credit: J. Naujalis (1869–1934); Daniel Johnson. Source: C. Witanowski, 1901. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. Edition declared Public Domain by its contributor.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

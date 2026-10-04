@@ -1,0 +1,7 @@
+A Lamb Goes Uncomplaining Forth
+Open Hymnal Project · Brian J. Dumont; Words: Paul Gerhardt, 1648.  Translation composite.; Music: 'An Wasserflüssen Babylon' Wolfgang Dachstein, 1525.  Setting: "Evangelical Lutheran Hymn-Book", 1931.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/A_Lamb_Goes_Uncomplaining_Forth-An_Wasserfluessen_Babylon.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2008 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Paul Gerhardt, 1648.  Translation composite.; Music: 'An Wasserflüssen Babylon' Wolfgang Dachstein, 1525.  Setting: "Evangelical Lutheran Hymn-Book", 1931.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

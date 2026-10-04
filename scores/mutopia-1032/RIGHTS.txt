@@ -1,0 +1,7 @@
+Dymuniad
+R. H. Williams (1805–1876); Brian M. Ames
+CC-BY-SA-3.0
+https://creativecommons.org/licenses/by-sa/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1032
+Edition license: CC-BY-SA-3.0. Credit: R. H. Williams (1805–1876); Brian M. Ames. Source: ‘Y Drysorfa,’ Ionawr, 1835, o dan yr enw ‘Deisyfiad.’. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

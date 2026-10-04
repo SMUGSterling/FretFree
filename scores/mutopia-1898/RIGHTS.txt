@@ -1,0 +1,7 @@
+Ein feste Burg ist unser Gott
+J. Pachelbel (1653–1706); Kevin DallaSanta
+CC-BY-SA-3.0
+https://creativecommons.org/licenses/by-sa/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1898
+Edition license: CC-BY-SA-3.0. Credit: J. Pachelbel (1653–1706); Kevin DallaSanta. Source: Breitkopf und Härtel, 1903. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

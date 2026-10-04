@@ -1,0 +1,7 @@
+Al mormorar de' liquidi cristalli, Madrigale a 6 voci
+G. Gastoldi (1556–1622); Björn Sothmann
+CC-BY-SA-3.0
+https://creativecommons.org/licenses/by-sa/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1637
+Edition license: CC-BY-SA-3.0. Credit: G. Gastoldi (1556–1622); Björn Sothmann. Source: G. Ricordi, 1908 (Milan). Plates 101373-409, Editor: Luigi Torchi (1858–1920). PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

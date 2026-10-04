@@ -1,0 +1,7 @@
+Gnossienne No. 3
+E. Satie (1866–1925); Frédéric Duperray
+CC-BY-SA-4.0
+https://creativecommons.org/licenses/by-sa/4.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=2131
+Edition license: CC-BY-SA-4.0. Credit: E. Satie (1866–1925); Frédéric Duperray. Source: Paris : Rouart, Lerolle & Cie., 1913. Plates R.L. 9884-9886 & Cie. Possibly scanned from the Dover reprint.. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

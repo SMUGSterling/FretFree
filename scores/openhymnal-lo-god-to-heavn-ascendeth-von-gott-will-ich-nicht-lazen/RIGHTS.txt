@@ -1,0 +1,7 @@
+Lo, God To Heav'n Ascendeth
+Open Hymnal Project · Brian J. Dumont; Words: Gottfried Wilhelm Sacer, 1661.  verses 1-5,7 Translated by Frances Elizabeth Cox, 1841.; verse 6 translator unknown.  Music: 'Von Gott will ich Nicht Lazen' Johann Crüger, 1640.; Setting: "Kern des Deutschen Kirchengesangs Zum Gebrauch" Fridrich Layriz, 1854.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Lo_God_To_Heavn_Ascendeth-Von_Gott_will_ich_Nicht_Lazen.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2011 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Gottfried Wilhelm Sacer, 1661.  verses 1-5,7 Translated by Frances Elizabeth Cox, 1841.; verse 6 translator unknown.  Music: 'Von Gott will ich Nicht Lazen' Johann Crüger, 1640.; Setting: "Kern des Deutschen Kirchengesangs Zum Gebrauch" Fridrich Layriz, 1854.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

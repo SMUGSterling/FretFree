@@ -1,0 +1,7 @@
+Ebb and Flow
+C. J. Brown (1947–2016); Silas Brown
+CC-BY-2.5
+https://creativecommons.org/licenses/by/2.5/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=812
+Edition license: CC-BY-2.5. Credit: C. J. Brown (1947–2016); Silas Brown. Source: Typeset from the manuscript with full permission of the composer. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. Retain attribution and the license when sharing.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

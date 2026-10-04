@@ -1,0 +1,7 @@
+18 Progressive Lessons, No. 2
+M. Giuliani (1781–1829); Glen Larsen
+CC-BY-SA-4.0
+https://creativecommons.org/licenses/by-sa/4.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=2181
+Edition license: CC-BY-SA-4.0. Credit: M. Giuliani (1781–1829); Glen Larsen. Source: Chez Richault, Paris. Plate 3307 R.. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

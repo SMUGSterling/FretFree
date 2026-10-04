@@ -1,0 +1,7 @@
+Fidelio Nr. 4 Aria - Hat man nicht auch Gold beineben
+L. V. Beethoven (1770–1827); Alexander Brock
+CC-BY-SA-4.0
+https://creativecommons.org/licenses/by-sa/4.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=2227
+Edition license: CC-BY-SA-4.0. Credit: L. V. Beethoven (1770–1827); Alexander Brock. Source: New York: G. Schirmer Inc.. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

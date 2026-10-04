@@ -1,0 +1,7 @@
+Prelude
+A. Scriabin (1872–1915); Keith OHara
+Public Domain
+https://www.mutopiaproject.org/legal.html#publicdomain
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1779
+The composition and this Mutopia edition are supplied as Public Domain. Edition source: M.P. Belaieff (1895). The included PDF and original MIDI are unchanged. The editable notation is a 25-bar upper-part study (maximum 32 bars) derived from the MIDI, not the complete score.
+Upper MIDI track; highest note at simultaneous onsets; first 32 bars; durations quantized to sixteenth notes. Accompaniment and performance markings omitted.

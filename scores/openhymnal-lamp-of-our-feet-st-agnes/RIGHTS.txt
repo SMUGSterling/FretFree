@@ -1,0 +1,7 @@
+Lamp of Our Feet
+Open Hymnal Project · Brian J. Dumont; Words: Bernard Barton, 1826.  Music: 'St. Agnes' John B. Dykes, 1866.; Setting: "Hymnal and Canticles of the Protestant Episcopal Church", 1875.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Lamp_of_Our_Feet-St_Agnes.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2012 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Bernard Barton, 1826.  Music: 'St. Agnes' John B. Dykes, 1866.; Setting: "Hymnal and Canticles of the Protestant Episcopal Church", 1875.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

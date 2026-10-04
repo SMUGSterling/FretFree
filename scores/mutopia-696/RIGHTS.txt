@@ -1,0 +1,7 @@
+Offertoire
+J.-F. Dandrieu (1681–1738); Gérard Gréco
+CC-BY-SA-2.5
+https://creativecommons.org/licenses/by-sa/2.5/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=696
+Edition license: CC-BY-SA-2.5. Credit: J.-F. Dandrieu (1681–1738); Gérard Gréco. Source: Archives des Maîtres de l'Orgue, vol. 7 - A. Durand et fils - 1905 - Alexandre Guilmant. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

@@ -1,0 +1,7 @@
+Comfort, Comfort Ye My People
+Open Hymnal Project · Brian J. Dumont; Words: Johann Olearius (Oelschlaeger), 1671.  Translated by Catherine Winkworth, 1862.; Music: 'Freu dich sehr, o meine Seele' from Trente Quatre Pseaumes de David, Geneva, 1551.; Setting: "Evangelical Lutheran Hymn-Book", 1931.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Comfort_Comfort_Ye_My_People-Freu_dich_sehr_o_meine_Seele.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2008 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: Johann Olearius (Oelschlaeger), 1671.  Translated by Catherine Winkworth, 1862.; Music: 'Freu dich sehr, o meine Seele' from Trente Quatre Pseaumes de David, Geneva, 1551.; Setting: "Evangelical Lutheran Hymn-Book", 1931.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

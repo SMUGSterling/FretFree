@@ -1,0 +1,7 @@
+24 Studies for the Guitar, No. 13
+M. Giuliani (1781–1829); Glen Larsen
+CC-BY-SA-3.0
+https://creativecommons.org/licenses/by-sa/3.0/
+https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=1809
+Edition license: CC-BY-SA-3.0. Credit: M. Giuliani (1781–1829); Glen Larsen. Source: Statens musikbibliotek - The Music Library of Sweden. PDF, MIDI, and LilyPond files unchanged. FretFree extracted upper-part study, up to 32 bars; accompaniment omitted. If sharing adaptations, retain this exact attribution/share-alike license.
+FretFree: upper MIDI track, highest simultaneous note, first 32 bars, sixteenth-note quantization; accompaniment and markings omitted.

@@ -1,0 +1,7 @@
+Blest Be The Tie That Binds
+Open Hymnal Project · Brian J. Dumont; Words: John Fawcett, 1782.; Music and Setting: 'Boylston' Lowell Mason, 1832.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/Blest_Be_The_Tie_That_Binds-Boylston.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2012 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: John Fawcett, 1782.; Music and Setting: 'Boylston' Lowell Mason, 1832.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.

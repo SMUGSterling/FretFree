@@ -1,0 +1,7 @@
+What Child Is This?
+Open Hymnal Project · Brian J. Dumont; Words: William Chatterton Dix, 1865.; Music: 'Greensleeves' 16th Century English Traditional.; Setting: traditional from "The Sunday School Hymnal and Service Book", 1871.
+Public Domain
+http://openhymnal.org/copying.html
+http://openhymnal.org/Abc/What_Child_Is_This-Greensleeves.abc
+Public domain declared individually in original ABC. C: copyright: public domain.  This score is a part of the Open Hymnal Project, 2005 Revision. FretFree upper-melody extraction; complete original ABC retained. Credit: Open Hymnal Project, Brian J. Dumont; Words: William Chatterton Dix, 1865.; Music: 'Greensleeves' 16th Century English Traditional.; Setting: traditional from "The Sunday School Hymnal and Service Book", 1871.
+FretFree extracted voice S1V1; lyrics and accompaniment omitted; unsupported decorations removed; default tempo 100 if not specified.
