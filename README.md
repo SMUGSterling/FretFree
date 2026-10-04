@@ -23,6 +23,7 @@ Public-domain declarations follow the source’s United States context. A public
 
 - Drag notes vertically to change pitch. Chords move together; rhythms and source positions are retained.
 - Click a sheet-music note to select its **original concert-pitch ABC** and choose its starting measure, including transposing instruments.
+- Practise a range of measures: click a note to set the start and Shift+click another to set the end (or type them), and the range is shaded on the score. **Loop** repeats it with no gap; **Metronome** clicks every beat, accented on beat one (compound meters count dotted beats); **Count-in** plays one bar first. **Speed trainer** raises the speed by 2, 5 or 10% after each pass until it reaches the goal. These toggles are remembered in the browser.
 - Play from a chosen measure; speed is a percentage of the score’s original tempo. The speed slider preserves the ABC `Q:` tempo; the separate BPM control edits it.
 - ABC exports preserve credits, exact licenses, source references, and change notices. FretFree ABC reimports restore this rights metadata. Exporting an imported credited ABC again replaces its notice block rather than multiplying notices.
 - MIDI exports contain copyright/text events with credits and the corresponding editable ABC. Musical notes and timing are unchanged. Exported files use MIDI format 1 when a metadata track is added.
@@ -66,7 +67,7 @@ node tests/rights-browser.cjs
 
 Before committing a change to any `.js` or `.css` file, run `node scripts/bump-version.cjs`. It stamps every local script and stylesheet in `index.html` with `?v=` set to a hash of their contents, so visitors get fresh code exactly when it changes, without a hard refresh. `tests/check.cjs` fails if any stamp is missing or no longer matches the files.
 
-Set `CHROMIUM_PATH` to an existing Chromium executable if needed. The browser tests cover native note dragging and its pixel ratio, draw mode, the note properties menu, playback note highlighting, correct ABC selection, transposition, measure playback, percent speed, legacy storage, mobile width, all-score engraving, filters, and rights-preserving exports.
+Set `CHROMIUM_PATH` to an existing Chromium executable if needed. The browser tests cover native note dragging and its pixel ratio, draw mode, the note properties menu, playback note highlighting, practice ranges, gapless loops, the speed trainer, metronome and count-in, correct ABC selection, transposition, measure playback, percent speed, legacy storage, mobile width, all-score engraving, filters, and rights-preserving exports.
 
 ## Anthology investigation
 
