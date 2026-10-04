@@ -111,6 +111,19 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  await page.locator('#notation .abcjs-notehead').nth(1).click({button:'right',force:true});await page.locator('#note-menu button',{hasText:'Tie to next'}).click();
  await page.locator('#notation .abcjs-notehead').nth(1).click({button:'right',force:true});await page.locator('#note-menu button',{hasText:'Rest'}).click();
  assert.equal(await kbody(),'C D- z E F G | G4 |]','Menu ties and inserts a rest');
+ // Writing prompts: blank bars of rests, typing writes over them, goals tick off live; keys follow written pitch.
+ await page.evaluate(()=>{dirty=false;$('instrument').value='Flute'});await page.click('#open-prompts');
+ assert.equal(await page.locator('.prompt-card').count(),9,'Prompt picker lists every prompt');
+ await page.click('[data-prompt="first-melody"]');
+ const pbody=()=>page.evaluate(()=>$('abc').value.trim().split('\n').pop());
+ assert.equal(await pbody(),'z4 | z4 | z4 | z4 |]','Prompt starts with one rest per bar');
+ const met=()=>page.evaluate(()=>document.querySelectorAll('#prompt-check li.met').length);assert.equal(await met(),0);
+ for(const k of ['c','d','e','f','g','6','e','5','f','d','e','d','6','c','c'])await page.keyboard.press(k);
+ assert.equal(await pbody(),'c d e f | g e2 f | d e d c | c2 z2 |]','Typing over rests keeps every bar full');
+ assert.equal(await met(),5,'All goals met');assert.match(await page.locator('#prompt-check').innerText(),/All goals met/);
+ await page.evaluate(()=>{dirty=false;$('instrument').value='Clarinet in B♭'});await page.click('#open-prompts');await page.click('[data-prompt="step-by-step"]');
+ assert.equal(await page.evaluate(()=>[$('abc').value.match(/^K:.*/m)[0],writtenABC().match(/^K:(\S+)/m)[1]].join(' ')),'K:F G','Prompt key is written pitch for transposing instruments');
+ await page.evaluate(()=>{dirty=false;$('instrument').value='Flute';newScore()});assert.ok(await page.locator('#prompt-check').isHidden(),'No prompt panel on a plain score');
  // Review fixes: sustained highlights, implicit L:, written-pitch accidentals, chord and broken-rhythm lengths.
  const reopen=(abc,instrument='Flute')=>page.evaluate(([abc,instrument])=>{dirty=false;openScore({abc,instrument});window.scrollTo({top:0,behavior:'instant'})},[abc,instrument]);
  const menuEdit=async(n,label)=>{await page.locator('#notation .abcjs-notehead').nth(n).click({button:'right',force:true});await page.locator('#note-menu button',{hasText:label}).click();return page.evaluate(()=>$('abc').value)};
@@ -127,5 +140,5 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('commonnote-scores-v1'))[0].id),'legacy');
  assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('commonnote-favorites-v1'))),['ode','mutopia-263']);
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),'Mobile page fits viewport');
- assert.deepEqual(errors,[]);await browser.close();console.log('PASS: native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.');
+ assert.deepEqual(errors,[]);await browser.close();console.log('PASS: native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.');
 })().catch(e=>{console.error(e);process.exit(1)});
