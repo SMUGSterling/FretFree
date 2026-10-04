@@ -211,7 +211,7 @@ function noteLabels(tune,mode){
    const alter=carried[p.pitch]??key[name]??0,pc=(LETTER_SEMIS[letter]+alter+12)%12;
    // Lowered against the key signature (a flat, or a natural on a sharp) takes the flat syllable.
    const text=mode==='solfege'?(alter<(key[name]??0)?SOLFEGE_FLAT:SOLFEGE_SHARP)[(pc-doPc+12)%12]:name+({1:'♯',2:'𝄪','-1':'♭','-2':'𝄫'}[alter]||'');
-   labels.push({at:e.startChar,text});
+   labels.push({at:e.startChar,text,midi:60+12*Math.floor(p.pitch/7)+LETTER_SEMIS[letter]+alter});
   }
  }
  return labels;
@@ -223,4 +223,7 @@ function labelSource(source,mode){
  for(const {at,text} of noteLabels(ABCJS.parseOnly(source)[0],mode).sort((a,b)=>b.at-a.at))out=out.slice(0,at)+`"_${text}"`+out.slice(at);
  return out;
 }
+// Baroque soprano recorder fingerings by written MIDI pitch: [thumb, 1, 2, 3, 4, 5, 6, 7], 1 = covered.
+// Limited to the beginner range (C to D', with F♯ and B♭) where school charts agree.
+const RECORDER_FINGERING={60:[1,1,1,1,1,1,1,1],62:[1,1,1,1,1,1,1,0],64:[1,1,1,1,1,1,0,0],65:[1,1,1,1,1,0,1,1],66:[1,1,1,1,0,1,1,0],67:[1,1,1,1,0,0,0,0],69:[1,1,1,0,0,0,0,0],70:[1,1,0,1,1,0,0,0],71:[1,1,0,0,0,0,0,0],72:[1,0,1,0,0,0,0,0],74:[0,0,1,0,0,0,0,0]};
 

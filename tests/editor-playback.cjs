@@ -12,6 +12,8 @@ class FakeAudio{constructor(){this.currentTime=10;this.destination={}}async resu
 w.AudioContext=FakeAudio;
 for(const f of ['vendor/abcjs-basic-min.js','catalog.js','catalog-expanded.js','score-tools.js','rights-tools.js','catalog-licensed.js','app.js'])run(fs.readFileSync(path.join(root,f),'utf8'));
 const source='% Unicode ♫\n\nX:1\nT:Click and drag\nM:4/4\nL:1/4\nQ:1/4=100\nK:C\n|: C D E F | G4 :| c4 |]';
+// Tab and fingering are display-only extra staffs; this loop checks note-to-source mapping on the music staff.
+run("$('fingering').checked=false");
 for(const instrument of Object.keys(run('instruments'))){
  run(`openScore({abc:${JSON.stringify(source)},instrument:${JSON.stringify(instrument)}})`);
  const entries=run('scoreEvents(renderedTune).filter(e=>e.element.el_type==="note")');
@@ -27,6 +29,12 @@ for(const instrument of Object.keys(run('instruments'))){
 assert.equal(run(`moveNoteText('"Am"!accent!{a}[=CEG]2-',1)`),'"Am"!accent!{a}[=DFA]2-');
 assert.equal(run(`moveNoteText('B,2 c/2 ^f-',1)`),'C2 d/2 ^g-');
 // Bar check: pickups, section-closing bars that complete a pickup, free meter, multi-bar rests, tuplets and meter changes are fine.
+// Note names: written letters and movable-do solfège, raised/lowered against the key signature.
+const labels=(abc,mode)=>run(`noteLabels(ABCJS.parseOnly(${JSON.stringify(abc)})[0],'${mode}').map(l=>l.text).join(' ')`);
+assert.equal(labels('X:1\nL:1/4\nK:D\nD F A d | c ^c =c _B |]','letters'),'D F♯ A D C♯ C♯ C B♭');
+assert.equal(labels('X:1\nL:1/4\nK:D\nD F A d | c ^c =c _B |]','solfege'),'do mi sol do ti ti te le');
+assert.equal(labels('X:1\nL:1/4\nK:Am\nA c e ^G | A2 |]','solfege'),'la do mi si la','Minor keys are la-based');
+assert.equal(run(`labelSource('X:1\\nL:1/4\\nK:G\\nG A|]','letters')`),'X:1\nL:1/4\nK:G\n"_G"G "_A"A|]');
 const flaggedBars=abc=>run(`barProblems(ABCJS.parseOnly(${JSON.stringify(abc)})[0]).map(m=>m.measure).join()`);
 assert.equal(flaggedBars('X:1\nM:4/4\nL:1/4\nK:C\nC D E | F G A B | c4 |]'),'','Short opening bar is a pickup');
 assert.equal(flaggedBars('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | G A B | c d e f g | a4 |]'),'2,3','Short and long bars are flagged');
