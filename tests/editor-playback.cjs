@@ -34,6 +34,7 @@ const labels=(abc,mode)=>run(`noteLabels(ABCJS.parseOnly(${JSON.stringify(abc)})
 assert.equal(labels('X:1\nL:1/4\nK:D\nD F A d | c ^c =c _B |]','letters'),'D F♯ A D C♯ C♯ C B♭');
 assert.equal(labels('X:1\nL:1/4\nK:D\nD F A d | c ^c =c _B |]','solfege'),'do mi sol do ti ti te le');
 assert.equal(labels('X:1\nL:1/4\nK:Am\nA c e ^G | A2 |]','solfege'),'la do mi si la','Minor keys are la-based');
+assert.equal(labels('X:1\nL:1/4\nK:D\n%%score (1 2)\nV:1\nF ^G G =F|]\nV:2\nF, G, ^G, G,|]','letters'),'F♯ G♯ G♯ F F♯ G G♯ G♯','Every voice is labelled with its own accidentals');
 assert.equal(run(`labelSource('X:1\\nL:1/4\\nK:G\\nG A|]','letters')`),'X:1\nL:1/4\nK:G\n"_G"G "_A"A|]');
 const flaggedBars=abc=>run(`barProblems(ABCJS.parseOnly(${JSON.stringify(abc)})[0]).map(m=>m.measure).join()`);
 assert.equal(flaggedBars('X:1\nM:4/4\nL:1/4\nK:C\nC D E | F G A B | c4 |]'),'','Short opening bar is a pickup');
@@ -84,6 +85,9 @@ async function checkPlayback(){
  run("$('trainer').checked=true;$('speed').value=100;$('trainer-goal').value=100;prepareTrainer()");assert.equal(run("$('speed').value"),'80','A restored trainer starts below its goal');
  run("$('trainer-goal').value=30;$('trainer-goal').dispatchEvent(new Event('change'))");assert.equal(run("$('trainer-goal').value"),'45','Goal keeps room for the 20-point start');
  run("$('trainer').checked=false;$('speed').value=100;$('trainer-goal').value=100");
+ run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nC D E F | G A B c | d e f g |]')}});setRange(1,1)`);
+ oscillators.length=0;await run('play(2.5,{countIn:true})');assert.equal(oscillators.length,7,'A start past the range plays to the end of the tune');run('stop()');
+ run('setRange(1,2)');oscillators.length=0;await run('play(2.5,{countIn:true})');assert.equal(oscillators.length,3,'A start inside the range stops at its end');run('stop()');
  run(`openScore({abc:${JSON.stringify(pickup)}})`);
  assert.equal(run('clickTimes(0,1.3).map(c=>c.time.toFixed(1)+(c.down?"*":"")).join()'),'0.0,0.6*,1.2','Pickup clicks align to the bar line');
  run(`openScore({abc:${JSON.stringify('X:1\nM:6/8\nL:1/8\nK:C\nc3 d3|]')}})`);assert.equal(run('beatsPerBar()'),2,'6/8 counts two dotted beats');

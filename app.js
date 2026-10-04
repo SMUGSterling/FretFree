@@ -265,7 +265,9 @@ async function play(resumeFrom=null,{countIn=false}={}){
   const from=resumeFrom??start;
   if(from==null){toast('This measure has no playback event. Check the ABC notation.');return}
   // Playing from a note after the practice range runs to the end of the tune.
-  let until=rangeEnd(range.to,full.duration,from);if(until<=from+1e-6)until=full.duration;
+  // A start inside the range ends at the range's end; a start past it plays to the end of the tune, and loops from there.
+  const rangeStop=start==null?full.duration:rangeEnd(range.to,full.duration,start),past=from>=rangeStop-1e-6;
+  const until=past?full.duration:rangeEnd(range.to,full.duration,from);
   const percent=+$('speed').value;
   if(!playbackSlice(full,from,percent,until).notes.length){toast('Add some notes before playback.');return}
   playing=true;$('play').textContent='■ Playing';
@@ -280,7 +282,7 @@ async function play(resumeFrom=null,{countIn=false}={}){
   }
   else $('play-status').textContent=`Measures ${range.from}–${range.to} · ${percent}% speed`;
   playOrigin=from;playClock=base;playSpeed=percent/100;
-  schedulePass({full,range,start,until,generation},from,percent,base,1);
+  schedulePass({full,range,start:past?from:start,until,generation},from,percent,base,1);
  }catch(e){stop();toast('Playback unavailable: '+e.message)}
 }
 // Light up sounding notes. Score time comes from the audio clock, so speed changes and resumes stay in sync.

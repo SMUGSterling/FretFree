@@ -194,23 +194,25 @@ function promptSource(prompt,key=prompt.key,body=null){
  const [n,d]=prompt.meter.split('/').map(Number),[un,ud]=prompt.unit.split('/').map(Number),rest='z'+lengthText((n/d)/(un/ud));
  return `X:1\nT:${prompt.title}\nC:\nM:${prompt.meter}\nL:${prompt.unit}\nQ:1/4=${prompt.tempo}\nK:${key}\n${body??Array(prompt.bars).fill(rest).join(' | ')} |]`;
 }
-// Note-name labels for the first voice, as written: letters (F♯) or movable-do solfège (do-based major,
+// Note-name labels for every voice, as written: letters (F♯) or movable-do solfège (do-based major,
 // la-based minor; notes raised against the key signature use sharp syllables, lowered ones flat syllables).
+// Each voice keeps its own key and bar accidentals.
 const SOLFEGE_SHARP=['do','di','re','ri','mi','fa','fi','sol','si','la','li','ti'],SOLFEGE_FLAT=['do','ra','re','me','mi','fa','se','sol','le','la','te','ti'];
 function noteLabels(tune,mode){
- const labels=[];let key={},doPc=0,carried={};
- const setKey=k=>{key=keyAlters(k);if(k?.root&&k.root!=='none'){const root=(LETTER_SEMIS['CDEFGAB'.indexOf(k.root)]+(k.acc==='#'?1:k.acc==='b'?-1:0)+12)%12;doPc=/^m(in)?$/i.test(k.mode||'')?(root+3)%12:root}};
- for(const line of tune.lines||[]){
-  const staff=line.staff?.[0];if(!staff)continue;if(staff.key)setKey(staff.key);
-  for(const e of staff.voices[0]||[]){
-   if(e.el_type==='key'){setKey(e);continue}
-   if(e.el_type==='bar'){carried={};continue}
+ const labels=[],voices=new Map();
+ const keyState=k=>{const state={key:keyAlters(k),doPc:0};if(k?.root&&k.root!=='none'){const root=(LETTER_SEMIS['CDEFGAB'.indexOf(k.root)]+(k.acc==='#'?1:k.acc==='b'?-1:0)+12)%12;state.doPc=/^m(in)?$/i.test(k.mode||'')?(root+3)%12:root}return state};
+ for(const line of tune.lines||[])for(const [s,staff] of (line.staff||[]).entries())for(const [v,voice] of (staff.voices||[]).entries()){
+  const id=s+':'+v,state=voices.get(id)||{carried:{}};voices.set(id,state);
+  if(staff.key)Object.assign(state,keyState(staff.key));
+  for(const e of voice){
+   if(e.el_type==='key'){Object.assign(state,keyState(e));continue}
+   if(e.el_type==='bar'){state.carried={};continue}
    if(e.el_type!=='note'||!e.pitches?.length||e.rest)continue;
-   const p=e.pitches[0],letter=((p.pitch%7)+7)%7,name='CDEFGAB'[letter];
-   if(p.accidental)carried[p.pitch]=ALTER[p.accidental]??0;
-   const alter=carried[p.pitch]??key[name]??0,pc=(LETTER_SEMIS[letter]+alter+12)%12;
+   const p=e.pitches[0],letter=((p.pitch%7)+7)%7,name='CDEFGAB'[letter],key=state.key||{};
+   if(p.accidental)state.carried[p.pitch]=ALTER[p.accidental]??0;
+   const alter=state.carried[p.pitch]??key[name]??0,pc=(LETTER_SEMIS[letter]+alter+12)%12;
    // Lowered against the key signature (a flat, or a natural on a sharp) takes the flat syllable.
-   const text=mode==='solfege'?(alter<(key[name]??0)?SOLFEGE_FLAT:SOLFEGE_SHARP)[(pc-doPc+12)%12]:name+({1:'♯',2:'𝄪','-1':'♭','-2':'𝄫'}[alter]||'');
+   const text=mode==='solfege'?(alter<(key[name]??0)?SOLFEGE_FLAT:SOLFEGE_SHARP)[(pc-(state.doPc||0)+12)%12]:name+({1:'♯',2:'𝄪','-1':'♭','-2':'𝄫'}[alter]||'');
    labels.push({at:e.startChar,text,midi:60+12*Math.floor(p.pitch/7)+LETTER_SEMIS[letter]+alter});
   }
  }

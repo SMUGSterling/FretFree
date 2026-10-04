@@ -38,7 +38,7 @@ Public-domain declarations follow the source’s United States context. A public
 - Print/PDF exports retain the rights notice and links. GPL scores additionally print the editable ABC and complete GPL v2 text as an appendix. Keep these pages with redistributed copies.
 - When distributing CC BY adaptations, preserve attribution, license, source, and change notices. CC BY-SA adaptations also retain the same edition license. GPL derivatives retain credits, license, change notices, and corresponding editable source. The app’s MIT code license does not replace music licenses.
 
-Piano/guitar selections do not generate accompaniment or tablature. Sound is synthesized locally. Instrument selection changes written pitch/clef while MIDI stays in concert pitch (bass-range instruments sound an octave lower in playback).
+Piano selections do not generate accompaniment; Guitar shows tablature and Recorder shows fingering diagrams (see Fingering above). Sound is synthesized locally. Instrument selection changes written pitch/clef while MIDI stays in concert pitch (bass-range instruments sound an octave lower in playback).
 
 ## Saved-score compatibility
 
