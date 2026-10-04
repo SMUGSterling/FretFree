@@ -1,3 +1,9 @@
+# Cache-safe releases · 2026-10-04
+
+- `index.html` loads every local script and stylesheet with a shared `?v=` version, so browsers can't run a new page with stale cached code. Bump it with `node scripts/bump-version.cjs`; `tests/check.cjs` enforces it.
+
+---
+
 # Editor feel · 2026-10-04
 
 - Note dragging now needs 10 screen pixels per staff step and reads one consistent pointer coordinate, so notes no longer race ahead of the cursor or jitter. Drags keep tracking, and still apply, when the pointer leaves the score.
