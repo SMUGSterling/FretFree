@@ -10,3 +10,4 @@
 .print-appendix{display:none}@media print{.print-appendix:has(pre){display:block;break-before:page}.print-appendix pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:8pt;line-height:1.3}}
 
 @media(max-width:720px){.library-options label{flex-basis:calc(50% - 8px)}}
+#notation .abcjs-playing,#notation .abcjs-playing path{fill:#d9480f;color:#d9480f}#notation .abcjs-playing{filter:drop-shadow(0 0 2px #f59f00)}
