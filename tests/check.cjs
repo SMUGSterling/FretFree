@@ -35,5 +35,7 @@ for(const prompt of context.writingPrompts){
  const missed=goals(context.promptSource(prompt,prompt.key,prompt.example)).filter(g=>!g.ok).map(g=>g.label);
  assert.equal(missed.join('; '),'',`Prompt ${prompt.id}: example misses goals`);
  assert.ok(goals(context.promptSource(prompt)).some(g=>!g.ok),`Prompt ${prompt.id}: blank score must not pass`);
+ const otherMeter=context.promptSource(prompt,prompt.key,prompt.example).replace(/^M:.*$/m,prompt.meter==='4/4'?'M:3/4':'M:4/4');
+ assert.equal(goals(otherMeter)[0].ok,false,`Prompt ${prompt.id}: changing the meter must not satisfy the bars goal`);
 }
 console.log('PASS: '+context.library.length+' scores; catalog parsing, teaching-score bar lengths, writing-prompt examples, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.');

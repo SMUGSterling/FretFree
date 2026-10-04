@@ -167,12 +167,13 @@ function melodyBars(tune){
 const SCALES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,9,10,11]};
 function promptTonic(key){const m=String(key).match(/^([A-G])([#b]?)/);return m?(LETTER_SEMIS['CDEFGAB'.indexOf(m[1])]+(m[2]==='#'?1:m[2]==='b'?-1:0)+12)%12:0}
 function checkPrompt(prompt,bars){
- const near=(a,b)=>Math.abs(a-b)<1e-6,tonic=promptTonic(prompt.key),degree=n=>((n.midi-tonic)%12+12)%12;
+ const near=(a,b)=>Math.abs(a-b)<1e-6,tonic=promptTonic(prompt.key),degree=n=>((n.midi-tonic)%12+12)%12,promptBar=prompt.meter.split('/').reduce((n,d)=>n/d);
  const notes=bars.flatMap(b=>b.notes),pitched=notes.filter(n=>n.midi!=null),moves=pitched.slice(1).map((n,i)=>Math.abs(n.midi-pitched[i].midi));
  const kinds={rest:n=>n.rest,eighth:n=>n.midi!=null&&near(n.duration,.125),'dotted-half':n=>n.midi!=null&&near(n.duration,.75),'dotted-quarter':n=>n.midi!=null&&near(n.duration,.375)};
  return prompt.goals.map(g=>{
   let ok=false;
-  if(g.type==='bars')ok=bars.length===prompt.bars&&bars.every(b=>near(b.length,b.expected)&&b.notes.some(n=>n.midi!=null));
+  // Bars must match the prompt's own meter, so changing the time signature can't satisfy the goal.
+  if(g.type==='bars')ok=bars.length===prompt.bars&&bars.every(b=>near(b.length,promptBar)&&near(b.expected,promptBar)&&b.notes.some(n=>n.midi!=null));
   else if(g.type==='lengths')ok=pitched.length>0&&pitched.every(n=>g.allowed.some(a=>near(a,n.duration)));
   else if(g.type==='start')ok=!!pitched.length&&degree(pitched[0])===g.degree;
   else if(g.type==='end')ok=!!pitched.length&&degree(pitched.at(-1))===g.degree;

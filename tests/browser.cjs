@@ -123,6 +123,10 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  assert.equal(await met(),5,'All goals met');assert.match(await page.locator('#prompt-check').innerText(),/All goals met/);
  await page.evaluate(()=>{dirty=false;$('instrument').value='Clarinet in B♭'});await page.click('#open-prompts');await page.click('[data-prompt="step-by-step"]');
  assert.equal(await page.evaluate(()=>[$('abc').value.match(/^K:.*/m)[0],writtenABC().match(/^K:(\S+)/m)[1]].join(' ')),'K:F G','Prompt key is written pitch for transposing instruments');
+ for(const k of ['g','a','b','a','g','a','b','c','d','c','b','a','b','a','g','g'])await page.keyboard.press(k);
+ await page.selectOption('#instrument','Flute');await page.waitForTimeout(400);
+ assert.equal(await page.evaluate(()=>writtenABC().trim().split('\n').pop()),'G A B A | G A B c | d c B A | B A G G |]','Changing instrument keeps the written notes of a prompt');
+ assert.equal(await page.evaluate(()=>document.querySelectorAll('#prompt-check li.met').length),4,'Goals still met after changing instrument');
  await page.evaluate(()=>{dirty=false;$('instrument').value='Flute';newScore()});assert.ok(await page.locator('#prompt-check').isHidden(),'No prompt panel on a plain score');
  // Review fixes: sustained highlights, implicit L:, written-pitch accidentals, chord and broken-rhythm lengths.
  const reopen=(abc,instrument='Flute')=>page.evaluate(([abc,instrument])=>{dirty=false;openScore({abc,instrument});window.scrollTo({top:0,behavior:'instant'})},[abc,instrument]);
