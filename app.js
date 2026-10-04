@@ -19,7 +19,9 @@ function field(name,defaultValue=''){const match=$('abc').value.match(new RegExp
 function assignSelect(id,value){const select=$(id);if(![...select.options].some(o=>o.value===value))select.add(new Option(value,value));select.value=value}
 function syncFields(){$('title').value=field('T','Untitled');$('composer').value=field('C');assignSelect('meter',field('M','4/4'));assignSelect('key',field('K','C').split(/\s/)[0]);const m=field('Q','100').match(/(\d+)\s*$/);$('bpm').value=m?Math.max(40,Math.min(200,+m[1])):100;$('bpm-value').textContent=$('bpm').value}
 function setHeader(name,value){const lines=$('abc').value.split('\n'),i=lines.findIndex(x=>x.startsWith(name+':'));const text=name+':'+String(value).replace(/[\r\n]/g,' ');if(i>=0)lines[i]=text;else lines.splice(Math.max(0,lines.findIndex(x=>x.startsWith('K:'))),0,text);$('abc').value=lines.join('\n')}
-function writtenABC(){let source=$('abc').value;const config=instruments[$('instrument').value];if(config.shift)source=ABCJS.strTranspose(source,ABCJS.parseOnly(source),config.shift);source=source.replace(/^K:(.*)$/m,(_,key)=>'K:'+key.replace(/\s+clef=\S+/g,'')+' clef='+config.clef);return source}
+function writtenABC(){let source=$('abc').value;const config=instruments[$('instrument').value];if(config.shift)source=ABCJS.strTranspose(source,ABCJS.parseOnly(source),config.shift);source=source.replace(/^K:(.*)$/m,(_,key)=>'K:'+key.replace(/\s+clef=\S+/g,'')+' clef='+config.clef);return labelSource(source,noteNamesMode())}
+// Note names under the score: off, letters or movable-do solfège; display only, never written to the ABC source.
+const noteNamesMode=()=>$('note-names')?.value||'off';
 function scoreClick(element,tuneNumber,classes,analysis,drag,event){
  if(renderedSource!==$('abc').value){clearTimeout(renderTimer);render();toast('Score updated. Select the note again.');return}
  const entry=noteSources.get(element.startChar);if(!entry)return;
@@ -408,7 +410,7 @@ const DOTTABLE=[1,.5,.25,.125,.0625,.03125];
 function closeNoteMenu(){$('note-menu').hidden=true;menuEntry=null}
 const transposing=()=>{const shift=instruments[$('instrument').value].shift;return shift%12!==0?shift:0};
 // Accidentals are what the player sees, so read and edit them in written pitch, then transpose back to the concert source.
-function writtenNote(display){const w=writtenABC();return {text:w.slice(display.startChar,display.endChar),key:(w.match(/^K:(.*)$/m)||[,'C'])[1].replace(/\s+clef=\S+/g,'').trim()}}
+function writtenNote(display){const w=writtenABC();return {text:w.slice(display.startChar,display.endChar).replace(noteNamesMode()==='off'?/^$/:/^"_[^"]*"/,''),key:(w.match(/^K:(.*)$/m)||[,'C'])[1].replace(/\s+clef=\S+/g,'').trim()}}
 function accidentalEdit(entry,display,acc){
  const old=$('abc').value.slice(entry.element.startChar,entry.element.endChar),shift=transposing();
  if(!shift)return editNoteText(old,{accidental:acc});
@@ -657,5 +659,6 @@ document.addEventListener('keydown',e=>{
  if(key==='z'&&!e.shiftKey){e.preventDefault();stepHistory(-1)}
  else if(key==='z'&&e.shiftKey||key==='y'){e.preventDefault();stepHistory(1)}
 });
+$('note-names').value=storage.get('fretfree-note-names','off');if(noteNamesMode()!=='off')render();$('note-names').onchange=()=>{storage.set('fretfree-note-names',$('note-names').value);render()};
 // A remembered speed trainer needs the same below-goal start as a freshly ticked one.
 prepareTrainer();

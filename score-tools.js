@@ -194,4 +194,33 @@ function promptSource(prompt,key=prompt.key,body=null){
  const [n,d]=prompt.meter.split('/').map(Number),[un,ud]=prompt.unit.split('/').map(Number),rest='z'+lengthText((n/d)/(un/ud));
  return `X:1\nT:${prompt.title}\nC:\nM:${prompt.meter}\nL:${prompt.unit}\nQ:1/4=${prompt.tempo}\nK:${key}\n${body??Array(prompt.bars).fill(rest).join(' | ')} |]`;
 }
+// Note-name labels for the first voice, as written: letters (F♯) or movable-do solfège (do-based major,
+// la-based minor; notes raised against the key signature use sharp syllables, lowered ones flat syllables).
+const SOLFEGE_SHARP=['do','di','re','ri','mi','fa','fi','sol','si','la','li','ti'],SOLFEGE_FLAT=['do','ra','re','me','mi','fa','se','sol','le','la','te','ti'];
+function noteLabels(tune,mode){
+ const labels=[];let key={},doPc=0,carried={};
+ const setKey=k=>{key=keyAlters(k);if(k?.root&&k.root!=='none'){const root=(LETTER_SEMIS['CDEFGAB'.indexOf(k.root)]+(k.acc==='#'?1:k.acc==='b'?-1:0)+12)%12;doPc=/^m(in)?$/i.test(k.mode||'')?(root+3)%12:root}};
+ for(const line of tune.lines||[]){
+  const staff=line.staff?.[0];if(!staff)continue;if(staff.key)setKey(staff.key);
+  for(const e of staff.voices[0]||[]){
+   if(e.el_type==='key'){setKey(e);continue}
+   if(e.el_type==='bar'){carried={};continue}
+   if(e.el_type!=='note'||!e.pitches?.length||e.rest)continue;
+   const p=e.pitches[0],letter=((p.pitch%7)+7)%7,name='CDEFGAB'[letter];
+   if(p.accidental)carried[p.pitch]=ALTER[p.accidental]??0;
+   const alter=carried[p.pitch]??key[name]??0,pc=(LETTER_SEMIS[letter]+alter+12)%12;
+   // Lowered against the key signature (a flat, or a natural on a sharp) takes the flat syllable.
+   const text=mode==='solfege'?(alter<(key[name]??0)?SOLFEGE_FLAT:SOLFEGE_SHARP)[(pc-doPc+12)%12]:name+({1:'♯',2:'𝄪','-1':'♭','-2':'𝄫'}[alter]||'');
+   labels.push({at:e.startChar,text});
+  }
+ }
+ return labels;
+}
+// Add the labels to an ABC source as annotations below each note.
+function labelSource(source,mode){
+ if(!mode||mode==='off')return source;
+ let out=source;
+ for(const {at,text} of noteLabels(ABCJS.parseOnly(source)[0],mode).sort((a,b)=>b.at-a.at))out=out.slice(0,at)+`"_${text}"`+out.slice(at);
+ return out;
+}
 
