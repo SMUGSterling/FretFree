@@ -64,7 +64,7 @@ node tests/browser.cjs
 node tests/rights-browser.cjs
 ```
 
-Set `CHROMIUM_PATH` to an existing Chromium executable if needed. The browser tests cover native note dragging, correct ABC selection, transposition, measure playback, percent speed, legacy storage, mobile width, all-score engraving, filters, and rights-preserving exports.
+Set `CHROMIUM_PATH` to an existing Chromium executable if needed. The browser tests cover native note dragging and its pixel ratio, draw mode, the note properties menu, playback note highlighting, correct ABC selection, transposition, measure playback, percent speed, legacy storage, mobile width, all-score engraving, filters, and rights-preserving exports.
 
 ## Anthology investigation
 

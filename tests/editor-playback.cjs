@@ -26,6 +26,13 @@ for(const instrument of Object.keys(run('instruments'))){
 }
 assert.equal(run(`moveNoteText('"Am"!accent!{a}[=CEG]2-',1)`),'"Am"!accent!{a}[=DFA]2-');
 assert.equal(run(`moveNoteText('B,2 c/2 ^f-',1)`),'C2 d/2 ^g-');
+assert.equal(run(`editNoteText('"Am"!accent!^c2-',{accidental:'_'})`),'"Am"!accent!_c2-');
+assert.equal(run(`editNoteText('[CEG]2',{accidental:'^',length:4})`),'[^C^E^G]4');
+assert.equal(run(`editNoteText('B,/2>',{length:1.5})`),'B,3/2>');
+assert.equal(run(`editNoteText('=F',{accidental:''})`),'F');
+assert.equal(run(`[1,2,.5,1.5,.25,2/3].map(lengthText).join(',')`),',2,/2,3/2,/4,2/3','Lengths stay exact for L:3/8');
+assert.equal(run(`editNoteText('[C2E2G2]',{length:2})`),'[CEG]2','New chord length replaces per-pitch lengths');
+assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`),'C3/2');
 async function checkPlayback(){
  run(`openScore({abc:${JSON.stringify(source)},instrument:'Flute'});$('start-measure').value=3;$('speed').value=50`);
  assert.equal(run('measureStarts.get(3)'),9.6,'Measure after repeated section uses performed timing');
