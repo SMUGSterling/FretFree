@@ -8,7 +8,7 @@ w.scrollTo=()=>{};w.confirm=()=>true;
 const legacy={id:'legacy',title:'Saved before update',abc:'X:1\nT:Saved before update\nM:4/4\nL:1/4\nK:C\nC4 |]',updated:1};
 w.localStorage.setItem('commonnote-scores-v1',JSON.stringify([legacy]));w.localStorage.setItem('commonnote-favorites-v1','["ode","mutopia-263"]');
 const oscillators=[];
-class FakeAudio{constructor(){this.currentTime=10;this.destination={}}async resume(){}createOscillator(){const o={frequency:{value:0},connect(){},start(t){this.startAt=t},stop(t){this.stopAt=t}};oscillators.push(o);return o}createGain(){return {gain:{setValueAtTime(){},linearRampToValueAtTime(){}},connect(){}}}}
+class FakeAudio{constructor(){this.currentTime=10;this.destination={}}async resume(){}createOscillator(){const o={frequency:{value:0},connect(){},start(t){this.startAt=t},stop(t){this.stopAt=t}};oscillators.push(o);return o}createGain(){return {gain:{setValueAtTime(){},linearRampToValueAtTime(){},exponentialRampToValueAtTime(){}},connect(){}}}}
 w.AudioContext=FakeAudio;
 for(const f of ['vendor/abcjs-basic-min.js','catalog.js','catalog-expanded.js','score-tools.js','rights-tools.js','catalog-licensed.js','app.js'])run(fs.readFileSync(path.join(root,f),'utf8'));
 const source='% Unicode ♫\n\nX:1\nT:Click and drag\nM:4/4\nL:1/4\nQ:1/4=100\nK:C\n|: C D E F | G4 :| c4 |]';
@@ -47,9 +47,23 @@ async function checkPlayback(){
  run(`openScore({abc:${JSON.stringify(pickup)}})`);assert.equal(run('measureStarts.get(2)'),.6,'Pickup counted as measure one');
  const tied='X:1\nM:4/4\nL:1/4\nQ:1/4=100\nK:C\nC4- | C4 | D4 |]';
  run(`openScore({abc:${JSON.stringify(tied)}});$('start-measure').value=2;$('speed').value=100`);oscillators.length=0;await run('play()');assert.ok(oscillators.length>0,'Tied note resumes at measure boundary');assert.ok(Math.abs(oscillators[0].stopAt-oscillators[0].startAt-2.43)<.001);run('stop()');
+ // Practice range, count-in and metronome.
+ const sliced=run(`playbackSlice({duration:4,notes:[{start:0,duration:3,note:60,velocity:80},{start:3,duration:1,note:62,velocity:80}]},1,100,2.5)`);
+ assert.equal(sliced.notes.length,1,'Range end drops later notes');assert.equal(sliced.notes[0].duration,1.5,'Range end clips a held note');assert.equal(sliced.duration,1.5);
+ run(`openScore({abc:${JSON.stringify(source)},instrument:'Flute'});$('speed').value=100;setRange(1,1)`);
+ assert.equal(run('rangeEnd(1,99)'),2.4,'Range ends where the next measure is first played');
+ oscillators.length=0;await run('play()');assert.equal(oscillators.length,4,'Range plays only its measures');run('stop()');
+ run("$('metronome').checked=true;$('count-in').checked=true");oscillators.length=0;await run('play()');
+ const clicks=oscillators.filter(o=>o.type==='square');
+ assert.equal(clicks.length,8,'Count-in bar plus one click per beat');
+ assert.ok(Math.abs(oscillators.find(o=>o.type!=='square').startAt-clicks[4].startAt)<1e-9,'First note lands on the first metronome click after the count-in');
+ assert.ok(Math.abs(clicks[4].startAt-clicks[0].startAt-2.4)<1e-9,'Count-in lasts one bar');run('stop()');run("$('metronome').checked=false;$('count-in').checked=false");
+ run(`openScore({abc:${JSON.stringify(pickup)}})`);
+ assert.equal(run('clickTimes(0,1.3).map(c=>c.time.toFixed(1)+(c.down?"*":"")).join()'),'0.0,0.6*,1.2','Pickup clicks align to the bar line');
+ run(`openScore({abc:${JSON.stringify('X:1\nM:6/8\nL:1/8\nK:C\nc3 d3|]')}})`);assert.equal(run('beatsPerBar()'),2,'6/8 counts two dotted beats');
  assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-scores-v1')),[legacy]);
  assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-favorites-v1')),['ode','mutopia-263']);
  run("openScore(saved[0],saved[0].id);$('save').onclick()");assert.equal(run('saved.length'),1,'Save updates existing score identity');
- console.log('PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, repeats, pickups, ties, tempo changes, speed scaling, and legacy storage.');w.close();
+ console.log('PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, and legacy storage.');w.close();
 }
 checkPlayback().catch(e=>{console.error(e);w.close();process.exitCode=1});

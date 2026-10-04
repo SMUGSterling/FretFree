@@ -33,6 +33,19 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
   await page.locator('#notation .abcjs-notehead').nth(2).click({button:'right',force:true});await page.locator('#note-menu button',{hasText:label}).click();
   assert.match(await page.evaluate(()=>$('abc').value),expected,'Note menu: '+label);
  }
+ // Practice loop: Shift+click sets the range; passes are gapless and the speed trainer steps up each pass.
+ await page.evaluate(()=>{const orig=AudioContext.prototype.createOscillator;window.__starts=[];AudioContext.prototype.createOscillator=function(){const o=orig.call(this),s=o.start.bind(o);o.start=t=>{__starts.push({t,click:o.type==='square'});s(t)};return o}});
+ await page.evaluate(()=>{dirty=false;openScore({abc:'X:1\nM:4/4\nL:1/4\nQ:1/4=240\nK:C\nC D E F | G A B c | d e f g | a4 |]',instrument:'Flute'});window.scrollTo({top:0,behavior:'instant'})});
+ await page.locator('#notation .abcjs-notehead').nth(4).click({force:true});await page.locator('#notation .abcjs-notehead').nth(9).click({force:true,modifiers:['Shift']});
+ assert.deepEqual(await page.evaluate(()=>[$('start-measure').value,$('end-measure').value]),['2','3'],'Shift+click sets the loop end');
+ assert.equal(await page.locator('#notation .range-shade').count(),1,'Practice range is shaded');
+ await page.evaluate(()=>{$('speed').value=50;$('speed').oninput();$('trainer-step').value='10'});await page.check('#trainer');await page.check('#metronome');
+ await page.click('#play');await page.waitForTimeout(4600);
+ const starts=await page.evaluate(()=>__starts);assert.match(await page.locator('#play-status').textContent(),/Measures 2–3 · 60% speed · loop 2/);await page.click('#stop');
+ const notes=starts.filter(s=>!s.click).map(s=>s.t);assert.ok(notes.length>=9,'Second pass scheduled');
+ assert.ok(Math.abs(notes[8]-notes[7]-.5)<.01,'Loop restarts on the next beat with no gap');assert.ok(Math.abs(notes[9]-notes[8]-.25/.6)<.01,'Second pass plays at the trained speed');
+ assert.ok(starts.filter(s=>s.click).length>=8,'Metronome clicks every beat');
+ await page.evaluate(()=>{for(const id of ['trainer','metronome','loop','count-in'])$(id).checked=false;$('speed').value=100;$('speed').oninput()});
  // Review fixes: sustained highlights, implicit L:, written-pitch accidentals, chord and broken-rhythm lengths.
  const reopen=(abc,instrument='Flute')=>page.evaluate(([abc,instrument])=>{dirty=false;openScore({abc,instrument});window.scrollTo({top:0,behavior:'instant'})},[abc,instrument]);
  const menuEdit=async(n,label)=>{await page.locator('#notation .abcjs-notehead').nth(n).click({button:'right',force:true});await page.locator('#note-menu button',{hasText:label}).click();return page.evaluate(()=>$('abc').value)};
@@ -43,11 +56,11 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  await reopen('X:1\nM:4/4\nL:1/4\nK:C\n[C2E2G2] z2|]');assert.match(await menuEdit(0,'Whole'),/\[CEG\]4 z2/,'Chord length replaces inner lengths');
  await reopen('X:1\nM:4/4\nL:1/4\nK:C\nC>D E F|]');assert.match(await menuEdit(0,'Half'),/C2D\/2 E F/,'Broken rhythm neighbour keeps its length');
  await page.evaluate(({source})=>{openScore({abc:source,instrument:'Flute'});$('start-measure').value=3;window.scrollTo({top:0,behavior:'instant'})},{source});
- await page.click('#play');assert.match(await page.locator('#play-status').textContent(),/From measure 3/);
+ await page.click('#play');assert.match(await page.locator('#play-status').textContent(),/Measures 3–3/);
  await page.evaluate(()=>$('speed').value=75);await page.locator('#speed').dispatchEvent('input');assert.equal(await page.locator('#speed-value').textContent(),'75%');
  assert.equal(await page.evaluate(()=>$('abc').value),source,'Speed preserves Q/source');await page.click('#stop');
  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('commonnote-scores-v1'))[0].id),'legacy');
  assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('commonnote-favorites-v1'))),['ode','mutopia-263']);
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),'Mobile page fits viewport');
- assert.deepEqual(errors,[]);await browser.close();console.log('PASS: native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.');
+ assert.deepEqual(errors,[]);await browser.close();console.log('PASS: native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.');
 })().catch(e=>{console.error(e);process.exit(1)});

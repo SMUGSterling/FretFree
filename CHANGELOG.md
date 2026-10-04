@@ -1,3 +1,13 @@
+# Practice tools · 2026-10-04
+
+- **Practice range:** choose start and end measures, or click a note then Shift+click another. The range is shaded on the score.
+- **Gapless loop:** each pass is scheduled on the audio clock before the previous one ends.
+- **Metronome and count-in:** click on every beat with an accented downbeat; compound meters count dotted beats; pickup bars align to the barline. Count-in plays one bar at the starting tempo.
+- **Speed trainer:** +2/5/10% after each pass up to a goal speed; the speed slider shows the current tempo.
+- Practice toggles are remembered per browser.
+
+---
+
 # Cache-safe releases · 2026-10-04
 
 - `index.html` loads every local script and stylesheet with `?v=` set to a hash of their contents, so browsers can't run a new page with stale cached code. Refresh it with `node scripts/bump-version.cjs`; `tests/check.cjs` fails if it is missing or out of date.
