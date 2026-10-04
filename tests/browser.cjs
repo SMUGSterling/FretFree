@@ -57,6 +57,12 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  assert.match(await page.locator('#bar-check').innerText(),/historic edition has 1 bar that doesn’t match/);assert.equal(await page.locator('#notation .bar-flag').count(),0);
  await page.evaluate(()=>{const a=$('abc');a.value=a.value.replace('B>cd cAG','B>cd cA');a.dispatchEvent(new Event('input'))});await page.waitForTimeout(500);
  assert.match(await page.locator('#bar-check').innerText(),/Measure 4 has 5 eighths; 6\/8 needs 6 eighths/,'Only the student’s change is flagged');
+ await page.evaluate(()=>{const item={id:'test-edition',title:'Edition',abc:'X:1\nT:Edition\nM:4/4\nL:1/4\nK:C\nC D E F | G A B | c d e f | G A B | c4 |]',rights:'test'};catalog.push(item);dirty=false;openScore(item)});
+ assert.match(await page.locator('#bar-check').innerText(),/2 bars that don’t match/,'Repeated edition bars are counted separately');
+ await page.evaluate(()=>{const a=$('abc');a.value=a.value.replace('| G A B | c4','| G A B | G A B | c4');a.dispatchEvent(new Event('input'))});await page.waitForTimeout(500);
+ assert.match(await page.locator('#bar-check').innerText(),/Measure 5 has 3 beats/,'A student copy of an edition bar is still flagged');
+ await page.evaluate(()=>{catalog.pop();dirty=false;openScore({abc:'X:1\nT:L\nM:4/4\nL:1/8\nK:C\nC2 D2 E2 F2 | [L:1/16] G4 A4 B4 | c16 |]'})});
+ await page.click('[data-bar-fix="rest"]');assert.match(await page.evaluate(()=>$('abc').value),/B4 z4 \|/,'Rest fix uses the inline unit length');
  // Review fixes: sustained highlights, implicit L:, written-pitch accidentals, chord and broken-rhythm lengths.
  const reopen=(abc,instrument='Flute')=>page.evaluate(([abc,instrument])=>{dirty=false;openScore({abc,instrument});window.scrollTo({top:0,behavior:'instant'})},[abc,instrument]);
  const menuEdit=async(n,label)=>{await page.locator('#notation .abcjs-notehead').nth(n).click({button:'right',force:true});await page.locator('#note-menu button',{hasText:label}).click();return page.evaluate(()=>$('abc').value)};

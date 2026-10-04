@@ -91,7 +91,7 @@ function shadeRange(){
 }
 // Bar check: flag measures with too many or too few beats, in plain words, with a one-click fix where one is safe.
 // Library editions keep their historic irregular bars, so only bars that differ from the opened edition are flagged.
-let barBaseline=new Set(),barIssues=[];
+let barBaseline=[],barIssues=[];
 const barText=m=>$('abc').value.slice(m.notes[0].element.startChar,(m.bar||m.notes.at(-1).element).endChar);
 const barKey=m=>m.voice+'|'+barText(m).replace(/\s+/g,'');
 const NOTE_VALUES={1:'a whole note',.75:'a dotted half note',.5:'a half note',.375:'a dotted quarter',.25:'a quarter note',.1875:'a dotted eighth',.125:'an eighth note',.0625:'a sixteenth note'};
@@ -99,15 +99,26 @@ function beatCount(value){const whole=Math.floor(value+1e-9),part=value-whole,fr
 function beatWords(length,meter){const unit={2:'half-note beat',4:'beat',8:'eighth',16:'sixteenth'}[meter.den]||'beat',n=length*meter.den,text=beatCount(n);return text+' '+unit+(text==='1'?'':'s')}
 function amountWords(whole,meter){return NOTE_VALUES[Math.round(whole*1e6)/1e6]||beatWords(whole,meter)+"' worth"}
 function barSplit(m){const k=m.notes.findIndex(n=>Math.abs(n.at-m.expected)<1e-6);return k>=0&&k<m.notes.length-1?m.notes[k]:null}
+// Each irregular bar of the opened edition excuses one current bar with the same text: the nearest by measure number,
+// so a student's identical bar elsewhere is still flagged and repeated edition bars are counted separately.
+function newBarProblems(problems){
+ const left=problems.slice();
+ for(const b of barBaseline){
+  let best=-1;
+  for(const [i,m] of left.entries())if(barKey(m)===b.key&&(best<0||Math.abs(m.measure-b.measure)<Math.abs(left[best].measure-b.measure)))best=i;
+  if(best>=0)left.splice(best,1);
+ }
+ return left;
+}
 function updateBarCheck(tune){
  const problems=barProblems(tune),fromLibrary=catalog.includes(current),voices=new Set(barLengths(tune).map(m=>m.voice)).size;
- if(!dirty)barBaseline=fromLibrary?new Set(problems.map(barKey)):new Set();
- barIssues=problems.filter(m=>!barBaseline.has(barKey(m)));
+ if(!dirty)barBaseline=fromLibrary?problems.map(m=>({key:barKey(m),measure:m.measure})):[];
+ barIssues=newBarProblems(problems);
  shadeMeasures('bar-flag',m=>barIssues.some(i=>i.measure===m),true);
  const box=$('bar-check');if(!box)return;
  if(!barIssues.length){
   box.className='bar-check ok';
-  box.innerHTML=!dirty&&barBaseline.size?`This historic edition has ${barBaseline.size} bar${barBaseline.size===1?' that doesn’t':'s that don’t'} match the time signature. That's how the source was written.`
+  box.innerHTML=!dirty&&barBaseline.length?`This historic edition has ${barBaseline.length} bar${barBaseline.length===1?' that doesn’t':'s that don’t'} match the time signature. That's how the source was written.`
    :noteSources.size&&(dirty||!fromLibrary)?'✓ Every bar has the right number of beats.':'';
   box.hidden=!box.innerHTML;return;
  }
@@ -281,6 +292,11 @@ const meterParts=()=>{const m=field('M','4/4').trim();if(m==='C')return [4,4];if
 // Without L:, ABC's unit is 1/16 for meters under 3/4 and 1/8 otherwise.
 const unitLength=()=>{const m=field('L','').match(/^(\d+)\/(\d+)$/);if(m)return +m[1]/+m[2];const [n,d]=meterParts();return n/d<.75?1/16:1/8};
 const beatLength=()=>1/meterParts()[1];
+// Unit length in force at a source position: the last L: field before it, on a header line or inline as [L:].
+function unitLengthAt(pos){
+ let found=null;for(const m of $('abc').value.slice(0,pos).matchAll(/(?:^|\n)L:\s*(\d+)\s*\/\s*(\d+)|\[L:\s*(\d+)\s*\/\s*(\d+)\s*\]/g))found=m;
+ return found?+(found[1]||found[3])/+(found[2]||found[4]):unitLength();
+}
 const pitchName=p=>'CDEFGAB'[((p%7)+7)%7]+(4+Math.floor(p/7));
 const lengthName=v=>({1:'whole',.5:'half',.25:'quarter',.125:'eighth',.0625:'16th',.03125:'32nd'})[v]||'';
 function scorePoint(e){const svg=$('notation').querySelector('svg');return svg&&new DOMPoint(e.clientX,e.clientY).matrixTransform(svg.getScreenCTM().inverse())}
@@ -446,7 +462,7 @@ $('bar-check').addEventListener('click',e=>{
  }
  if(b.dataset.barFix==='rest'){
   // The rest goes just before the closing bar line, or at the end of an unbarred last measure.
-  const at=m.bar?m.bar.startChar:m.notes.at(-1).element.endChar,rest='z'+lengthText((m.expected-m.length)/unitLength());
+  const at=m.bar?m.bar.startChar:m.notes.at(-1).element.endChar,rest='z'+lengthText((m.expected-m.length)/unitLengthAt(at));
   const text=(/\s/.test(v[at-1]||' ')?'':' ')+rest+(m.bar?' ':'');
   applyNoteEdit(at,at,text,[at+text.indexOf(rest),at+text.indexOf(rest)+rest.length]);return;
  }
