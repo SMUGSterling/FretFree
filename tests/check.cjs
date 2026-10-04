@@ -1,5 +1,11 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const ABCJS=require('../vendor/abcjs-basic-min.js');
+// Every local script and stylesheet carries ?v=<content hash>; a stale stamp means the bump step was skipped.
+{const {assets,assetVersion}=require('../scripts/bump-version.cjs'),html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+ const tags=[...html.matchAll(/<(?:script[^>]*\ssrc|link[^>]*\shref)="(?!https?:|\/\/)([^"]+\.(?:js|css)[^"]*)"/g)].map(m=>m[1]);
+ assert.ok(tags.length>=8&&assets(html).length===tags.length,'index.html lists its local assets');
+ const expected=assetVersion(html),stale=tags.filter(t=>!t.endsWith('?v='+expected));
+ assert.deepEqual(stale,[],`Assets changed or unstamped; run node scripts/bump-version.cjs (expected ?v=${expected})`)}
 const context={ABCJS,console,Uint8Array,DataView,Map,atob};vm.createContext(context);
 vm.runInContext(fs.readFileSync(require.resolve('../catalog.js'),'utf8'),context);
 vm.runInContext(fs.readFileSync(require.resolve('../catalog-expanded.js'),'utf8')+'\nglobalThis.library=catalog;',context);
