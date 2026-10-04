@@ -51,7 +51,7 @@ function updateMeasures(){
  $('start-measure').max=total;$('start-measure').value=Math.max(1,Math.min(total,+$('start-measure').value||1));
  $('measure-count').textContent=`of ${total}`;
 }
-function render(){stop();try{const source=writtenABC();renderedSource=$('abc').value;const original=ABCJS.parseOnly(renderedSource)[0];const display=ABCJS.parseOnly(source)[0];noteSources=sourceMap(original,display);const tunes=ABCJS.renderAbc('notation',source,{responsive:'resize',staffwidth:740,add_classes:true,dragging:true,selectTypes:['note','bar'],selectionColor:'#317761',dragColor:'#ba663d',clickListener:scoreClick});renderedTune=tunes[0];staffClefs=display.lines.filter(l=>l.staff).map(l=>l.staff.map(st=>st.clef?.verticalPos||0));updateMeasures();if(selectedRange&&renderedTune?.engraver){const match=[...noteSources.entries()].find(([,e])=>e?.element.startChar===selectedRange[0]);if(match){const shown=scoreEvents(display).find(e=>e.element.startChar===match[0]);if(shown)renderedTune.engraver.rangeHighlight(shown.element.startChar,shown.element.endChar)}}$('warnings').textContent=(tunes[0]?.warnings||[]).map(x=>String(x).replace(/<[^>]+>/g,'')).join(' · ');$('workspace-heading').textContent=field('T','Untitled melody');const config=instruments[$('instrument').value];$('score-caption').textContent=`${$('instrument').value} · ${config.clef} clef · ${config.shift===2||config.shift===9?'Written pitch shown; ABC source and MIDI are concert pitch.':config.shift===-12?'Melody lowered one octave for bass range.':'Concert pitch melody part.'}`;const edition=$('source-edition');edition.hidden=!(current?.pdf||current?.originalSource);if(current?.pdf){edition.innerHTML=`<strong>Complete source edition</strong><p>The editor shows an extracted upper-part study, up to 32 bars. The original PDF below includes the complete score for ${esc(current.originalInstrument)}.</p><div class="source-actions"><a class="button-link" href="${esc(current.pdf)}" target="_blank" rel="noopener">Open complete PDF ↗</a><a class="button-link" href="${esc(current.pdf)}" download>Download PDF</a><a class="button-link" href="${esc(current.originalMidi)}" download>Original MIDI</a>${current.originalSource?`<a class="button-link" href="${esc(current.originalSource)}" download>Original editable source</a>`:''}</div>`}else if(current?.originalSource){edition.innerHTML=`<strong>Complete original ABC source</strong><p>${esc(current.studyTransform)} License: ${esc(scoreLicense(current))}. See the credit notice below before sharing.</p><a class="button-link" href="${esc(current.originalSourceDownload||current.originalSource)}" download>${current.originalSourceDownload?'Download original ABC + license bundle':'Download complete original ABC'}</a>`}const r=current?.rights;if(r){$('rights').innerHTML=`<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${current.attribution?`Credit: ${esc(current.attribution)}<br>`:''}${current.licenseURL?`<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>`:''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty?'Your edits stay private. Export or save a copy to preserve them.':'Use, print, practice, and adapt this teaching version.'}</span>`}else{$('rights').innerHTML='<strong>Your private workspace</strong>Your work stays on this device. Imported music keeps its original rights; importing or editing a file does not make it public domain.'}}catch(e){$('warnings').textContent='Could not render this score: '+e.message}}
+function render(){stop();try{const source=writtenABC();renderedSource=$('abc').value;const original=ABCJS.parseOnly(renderedSource)[0];const display=ABCJS.parseOnly(source)[0];noteSources=sourceMap(original,display);const tunes=ABCJS.renderAbc('notation',source,{responsive:'resize',staffwidth:740,add_classes:true,dragging:true,selectTypes:['note','bar'],selectionColor:'#317761',dragColor:'#ba663d',clickListener:scoreClick});renderedTune=tunes[0];noteDurations=new Map(scoreEvents(display).map(e=>[e.element.startChar,(e.element.duration||0)*(e.element.tripletMultiplier||1)]));staffClefs=display.lines.filter(l=>l.staff).map(l=>l.staff.map(st=>st.clef?.verticalPos||0));updateMeasures();if(selectedRange&&renderedTune?.engraver){const match=[...noteSources.entries()].find(([,e])=>e?.element.startChar===selectedRange[0]);if(match){const shown=scoreEvents(display).find(e=>e.element.startChar===match[0]);if(shown)renderedTune.engraver.rangeHighlight(shown.element.startChar,shown.element.endChar)}}$('warnings').textContent=(tunes[0]?.warnings||[]).map(x=>String(x).replace(/<[^>]+>/g,'')).join(' · ');$('workspace-heading').textContent=field('T','Untitled melody');const config=instruments[$('instrument').value];$('score-caption').textContent=`${$('instrument').value} · ${config.clef} clef · ${config.shift===2||config.shift===9?'Written pitch shown; ABC source and MIDI are concert pitch.':config.shift===-12?'Melody lowered one octave for bass range.':'Concert pitch melody part.'}`;const edition=$('source-edition');edition.hidden=!(current?.pdf||current?.originalSource);if(current?.pdf){edition.innerHTML=`<strong>Complete source edition</strong><p>The editor shows an extracted upper-part study, up to 32 bars. The original PDF below includes the complete score for ${esc(current.originalInstrument)}.</p><div class="source-actions"><a class="button-link" href="${esc(current.pdf)}" target="_blank" rel="noopener">Open complete PDF ↗</a><a class="button-link" href="${esc(current.pdf)}" download>Download PDF</a><a class="button-link" href="${esc(current.originalMidi)}" download>Original MIDI</a>${current.originalSource?`<a class="button-link" href="${esc(current.originalSource)}" download>Original editable source</a>`:''}</div>`}else if(current?.originalSource){edition.innerHTML=`<strong>Complete original ABC source</strong><p>${esc(current.studyTransform)} License: ${esc(scoreLicense(current))}. See the credit notice below before sharing.</p><a class="button-link" href="${esc(current.originalSourceDownload||current.originalSource)}" download>${current.originalSourceDownload?'Download original ABC + license bundle':'Download complete original ABC'}</a>`}const r=current?.rights;if(r){$('rights').innerHTML=`<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${current.attribution?`Credit: ${esc(current.attribution)}<br>`:''}${current.licenseURL?`<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>`:''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty?'Your edits stay private. Export or save a copy to preserve them.':'Use, print, practice, and adapt this teaching version.'}</span>`}else{$('rights').innerHTML='<strong>Your private workspace</strong>Your work stays on this device. Imported music keeps its original rights; importing or editing a file does not make it public domain.'}}catch(e){$('warnings').textContent='Could not render this score: '+e.message}}
 function changed(){stop();selectedRange=null;dirty=true;$('save-status').textContent='Unsaved changes';clearTimeout(renderTimer);renderTimer=setTimeout(render,220)}
 function noteLength(){const match=field('L','1/8').match(/^(\d+)\/(\d+)$/);const base=match?+match[1]/+match[2]:.125;const beats=({'1':1,'/2':.5,'2':2,'4':4})[$('duration').value];const length=beats/4/base;return length===1?'':Number.isInteger(length)?String(length):'/'+String(Math.round(1/length))}
 function insertToken(token){const area=$('abc'),start=area.selectionStart,end=area.selectionEnd;const keyLine=area.value.match(/^K:.*(?:\n|$)/m);if(!keyLine){toast('Add a K: key header before writing notes.');return}const musicStart=keyLine.index+keyLine[0].length;if(start<musicStart){toast('Place the cursor after the K: line to add notes.');area.focus();area.setSelectionRange(area.value.length,area.value.length);return}const prefix=['^','_','='].includes(token);let text=token;if(/^[A-G]$/.test(token)){if($('octave').value==='upper')text=token.toLowerCase();if($('octave').value==='lower')text=token+',';text+=noteLength()}if(token==='z')text+=noteLength();if(!prefix)text+=' ';area.setRangeText(text,start,end,'end');area.focus();changed()}
@@ -63,25 +63,28 @@ function parseMidi(bytes){const v=new DataView(bytes.buffer,bytes.byteOffset,byt
 function stop(){playing=false;playGeneration++;clearTimeout(playTimer);stopFollow();for(const node of nodes){try{node.stop()}catch{}}nodes=[];$('play').textContent='▶ Play';$('play-status').textContent='Ready to play'}
 async function play(resumeFrom=null){if(playing){stop();return}clearTimeout(renderTimer);render();const generation=++playGeneration;try{audio ||= new (window.AudioContext||window.webkitAudioContext)();await audio.resume();if(generation!==playGeneration)return;const full=parseMidi(midiBytes($('abc').value));const measure=+$('start-measure').value||1;const from=resumeFrom??measureStarts.get(measure);if(from==null){toast('This measure has no playback event. Check the ABC notation.');return}const percent=+$('speed').value;const data=playbackSlice(full,from,percent);if(!data.notes.length){toast('Add some notes before playback.');return}playing=true;playOrigin=from;playClock=audio.currentTime+.07;playSpeed=percent/100;$('play').textContent='■ Playing';$('play-status').textContent=`From measure ${measure} · ${percent}% speed`;const base=playClock,config=instruments[$('instrument').value];for(const n of data.notes){const osc=audio.createOscillator(),gain=audio.createGain();osc.type=config.wave;osc.frequency.value=440*2**((n.note+(config.shift===-12?-12:0)-69)/12);const start=base+n.start,end=start+n.duration,attack=Math.min(.012,n.duration/3);gain.gain.setValueAtTime(0,start);gain.gain.linearRampToValueAtTime(+$('volume').value*.12*n.velocity/100,start+attack);gain.gain.setValueAtTime(+$('volume').value*.08*n.velocity/100,Math.max(start+attack,end-.04));gain.gain.linearRampToValueAtTime(0,end+.025);osc.connect(gain);gain.connect(audio.destination);osc.start(start);osc.stop(end+.03);nodes.push(osc)}startFollow(generation);playTimer=setTimeout(()=>{const loop=$('loop').checked;stop();if(loop)play()},(data.duration+.12)*1000)}catch(e){stop();toast('Playback unavailable: '+e.message)}}
 // Light up sounding notes. Score time comes from the audio clock, so speed changes and resumes stay in sync.
-let followFrame=0,followLit=[];
+// abcjs timing events group notes by onset, so each note keeps its own end time; a held note stays lit while others move.
+let followFrame=0,noteDurations=new Map();
 const nextFrame=f=>window.requestAnimationFrame?requestAnimationFrame(f):setTimeout(f,16),cancelFrame=id=>window.cancelAnimationFrame?cancelAnimationFrame(id):clearTimeout(id);
-function stopFollow(){if(followFrame)cancelFrame(followFrame);followFrame=0;for(const el of followLit)el.classList.remove('abcjs-playing');followLit=[]}
+function stopFollow(){if(followFrame)cancelFrame(followFrame);followFrame=0;document.querySelectorAll('#notation .abcjs-playing').forEach(el=>el.classList.remove('abcjs-playing'))}
 function startFollow(generation){
  stopFollow();if(!renderedTune?.noteTimings)return;
- const events=renderedTune.noteTimings.filter(e=>e.type==='event'&&e.elements?.length);let index=0,shown=-1;
+ const bar=renderedTune.getBarLength?.()||1,events=renderedTune.noteTimings.filter(e=>e.type==='event'&&e.elements?.length),notes=[];
+ for(const [i,e] of events.entries())for(const [j,group] of e.elements.entries()){
+  const start=e.milliseconds/1000,whole=noteDurations.get(e.startCharArray?.[j]);
+  const end=whole?start+whole*e.millisecondsPerMeasure/bar/1000:(events[i+1]?.milliseconds??Infinity)/1000;
+  notes.push({start,end,els:[group].flat(2).filter(el=>el?.classList)});
+ }
+ notes.sort((a,b)=>a.start-b.start);let next=0,active=[];
  const tick=()=>{
   if(generation!==playGeneration)return;
-  const now=playOrigin+Math.max(0,audio.currentTime-playClock)*playSpeed;
-  while(index+1<events.length&&events[index+1].milliseconds/1000<=now+.005)index++;
-  const active=events[index]&&events[index].milliseconds/1000<=now+.005?index:-1;
-  if(active!==shown){
-   stopFollow();shown=active;
-   if(active>=0){
-    followLit=events[active].elements.flat(2).filter(el=>el?.classList);
-    for(const el of followLit)el.classList.add('abcjs-playing');
-    const box=followLit[0]?.getBoundingClientRect();
-    if(box&&(box.top<0||box.bottom>window.innerHeight))followLit[0].scrollIntoView({block:'center',behavior:'smooth'});
-   }
+  const now=playOrigin+Math.max(0,audio.currentTime-playClock)*playSpeed+.005;
+  active=active.filter(n=>{if(n.end>now)return true;for(const el of n.els)el.classList.remove('abcjs-playing');return false});
+  while(next<notes.length&&notes[next].start<=now){
+   const n=notes[next++];if(n.end<=now)continue;
+   for(const el of n.els)el.classList.add('abcjs-playing');active.push(n);
+   const box=n.els[0]?.getBoundingClientRect();
+   if(box&&(box.top<0||box.bottom>window.innerHeight))n.els[0].scrollIntoView({block:'center',behavior:'smooth'});
   }
   followFrame=nextFrame(tick);
  };
@@ -107,8 +110,10 @@ window.addEventListener('mouseup',e=>{
 },true);
 // Draw mode: click an empty staff position to add a one-beat note. Right-click (or long-press) any note for its properties.
 let drawMode=false,ghost=null,menuEntry=null;
-const unitLength=()=>{const m=field('L','1/8').match(/^(\d+)\/(\d+)$/);return m?+m[1]/+m[2]:.125};
-const beatLength=()=>{const m=field('M','4/4').trim(),den=m==='C'?4:m==='C|'?2:+(m.match(/\/(\d+)/)||[])[1]||4;return 1/den};
+const meterParts=()=>{const m=field('M','4/4').trim();if(m==='C')return [4,4];if(m==='C|')return [2,2];const x=m.match(/(\d+)\s*\/\s*(\d+)/);return x?[+x[1],+x[2]]:[4,4]};
+// Without L:, ABC's unit is 1/16 for meters under 3/4 and 1/8 otherwise.
+const unitLength=()=>{const m=field('L','').match(/^(\d+)\/(\d+)$/);if(m)return +m[1]/+m[2];const [n,d]=meterParts();return n/d<.75?1/16:1/8};
+const beatLength=()=>1/meterParts()[1];
 const pitchName=p=>'CDEFGAB'[((p%7)+7)%7]+(4+Math.floor(p/7));
 const lengthName=v=>({1:'whole',.5:'half',.25:'quarter',.125:'eighth',.0625:'16th',.03125:'32nd'})[v]||'';
 function scorePoint(e){const svg=$('notation').querySelector('svg');return svg&&new DOMPoint(e.clientX,e.clientY).matrixTransform(svg.getScreenCTM().inverse())}
@@ -177,13 +182,33 @@ for(const type of ['mousedown','touchstart'])$('notation').addEventListener(type
 },{capture:true,passive:false});
 $('notation').addEventListener('mousemove',e=>{if(drawMode&&!renderedTune?.engraver?.dragTarget)showGhost(onNote(e)?null:drawTarget(e))});
 $('notation').addEventListener('mouseleave',()=>showGhost(null));
-// Note properties menu.
+// Note properties menu. Lengths come from the parsed (effective) duration, so chords and broken rhythm read correctly.
+const DOTTABLE=[1,.5,.25,.125,.0625,.03125];
 function closeNoteMenu(){$('note-menu').hidden=true;menuEntry=null}
-function openNoteMenu(entry,x,y){
- menuEntry=entry;const old=$('abc').value.slice(entry.element.startChar,entry.element.endChar),parts=noteParts(old);
- const isRest=!entry.element.pitches?.length,acc=(parts?.core.match(/^\[?(\^{1,2}|_{1,2}|=)/)||[])[1]||'',len=(parts?.length??1)*unitLength();
+const transposing=()=>{const shift=instruments[$('instrument').value].shift;return shift%12!==0?shift:0};
+// Accidentals are what the player sees, so read and edit them in written pitch, then transpose back to the concert source.
+function writtenNote(display){const w=writtenABC();return {text:w.slice(display.startChar,display.endChar),key:(w.match(/^K:(.*)$/m)||[,'C'])[1].replace(/\s+clef=\S+/g,'').trim()}}
+function accidentalEdit(entry,display,acc){
+ const old=$('abc').value.slice(entry.element.startChar,entry.element.endChar),shift=transposing();
+ if(!shift)return editNoteText(old,{accidental:acc});
+ const {text,key}=writtenNote(display),mini=`X:1\nL:1/8\nK:${key}\n${editNoteText(text,{accidental:acc})}\n`;
+ const lines=ABCJS.strTranspose(mini,ABCJS.parseOnly(mini),-shift).split('\n'),note=lines[lines.findIndex(l=>l.startsWith('K:'))+1];
+ return note==null?old:note;
+}
+// A note joined to its neighbour by > or < (broken rhythm), as [first, second] source entries.
+function brokenPair(entry){
+ const v=$('abc').value,notes=[...noteSources.values()].filter(e=>e?.element.el_type==='note').sort((a,b)=>a.element.startChar-b.element.startChar);
+ const marked=e=>/[<>]/.test(noteParts(v.slice(e.element.startChar,e.element.endChar))?.post||''),i=notes.indexOf(entry);
+ if(marked(entry)&&notes[i+1])return [entry,notes[i+1]];
+ if(i>0&&marked(notes[i-1]))return [notes[i-1],entry];
+ return null;
+}
+function openNoteMenu(entry,display,x,y){
+ menuEntry={entry,display};
+ const isRest=!entry.element.pitches?.length,text=transposing()?writtenNote(display).text:$('abc').value.slice(entry.element.startChar,entry.element.endChar);
+ const acc=(noteParts(text)?.core.match(/^\[?(\^{1,2}|_{1,2}|=)/)||[])[1]||'',len=entry.element.duration||0;
  const durations=[[1,'𝅝 Whole'],[.5,'𝅗𝅥 Half'],[.25,'♩ Quarter'],[.125,'♪ Eighth'],[.0625,'𝅘𝅥𝅯 16th']];
- const dotted=durations.some(([v])=>Math.abs(len-v*1.5)<1e-9),base=dotted?len/1.5:len;
+ const dotted=DOTTABLE.some(v=>Math.abs(len-v*1.5)<1e-9),base=dotted?len/1.5:len;
  const item=(action,label,checked)=>`<button role="menuitemradio" aria-checked="${!!checked}" data-edit="${action}">${label}</button>`;
  $('note-menu').innerHTML=(isRest?'':`<div class="menu-label">ACCIDENTAL</div><div class="menu-row">${item('acc:^','♯ Sharp',acc==='^')}${item('acc:_','♭ Flat',acc==='_')}${item('acc:=','♮ Natural',acc==='=')}${item('acc:','None',!acc)}</div>`)
   +`<div class="menu-label">LENGTH</div>${durations.map(([v,l])=>item('len:'+v,l,Math.abs(base-v)<1e-9)).join('')}`
@@ -193,21 +218,31 @@ function openNoteMenu(entry,x,y){
  menu.querySelector('button')?.focus({preventScroll:true});
 }
 $('notation').addEventListener('contextmenu',e=>{
- const sel=selectableAt(e);
- const entry=sel&&sel.absEl.abcelem.el_type==='note'&&noteSources.get(sel.absEl.abcelem.startChar);if(!entry)return;
- e.preventDefault();showGhost(null);scoreClick(sel.absEl.abcelem,0,[],{},null);
- const box=sel.svgEl.getBoundingClientRect();openNoteMenu(entry,e.clientX||box.right,e.clientY||box.bottom);
+ if(renderedSource!==$('abc').value){e.preventDefault();clearTimeout(renderTimer);render();toast('Score updated. Right-click the note again.');return}
+ const sel=selectableAt(e),display=sel?.absEl.abcelem;
+ const entry=display?.el_type==='note'&&noteSources.get(display.startChar);if(!entry)return;
+ e.preventDefault();showGhost(null);scoreClick(display,0,[],{},null);
+ const box=sel.svgEl.getBoundingClientRect();openNoteMenu(entry,display,e.clientX||box.right,e.clientY||box.bottom);
 });
 $('note-menu').addEventListener('click',e=>{
- const b=e.target.closest('[data-edit]'),entry=menuEntry;if(!b||!entry)return;
+ const b=e.target.closest('[data-edit]'),picked=menuEntry;if(!b||!picked)return;
  e.stopPropagation();closeNoteMenu();
- const action=b.dataset.edit,area=$('abc'),start=entry.element.startChar,end=entry.element.endChar,old=area.value.slice(start,end);
- if(action==='delete'){applyNoteEdit(start,end+(area.value[end]===' '?1:0),'');return}
- const len=(noteParts(old)?.length??1)*unitLength();let edit;
- if(action.startsWith('acc:'))edit={accidental:action.slice(4)};
- else if(action.startsWith('len:'))edit={length:+action.slice(4)/unitLength()};
- else{const dotted=[1,.5,.25,.125,.0625,.03125].some(v=>Math.abs(len-v*1.5)<1e-9);edit={length:(dotted?len/1.5:len*1.5)/unitLength()}}
- applyNoteEdit(start,end,editNoteText(old,edit));
+ if(renderedSource!==$('abc').value){clearTimeout(renderTimer);render();toast('Score updated. Right-click the note again.');return}
+ const {entry,display}=picked,action=b.dataset.edit,area=$('abc'),v=area.value,start=entry.element.startChar,end=entry.element.endChar;
+ if(action.startsWith('acc:')){applyNoteEdit(start,end,accidentalEdit(entry,display,action.slice(4)));return}
+ const unit=unitLength(),len=entry.element.duration||0,dotted=DOTTABLE.some(x=>Math.abs(len-x*1.5)<1e-9);
+ const change=t=>action==='delete'?'':editNoteText(t,{length:(action==='dot'?(dotted?len/1.5:len*1.5):+action.slice(4))/unit});
+ const pair=brokenPair(entry);
+ if(!pair){
+  if(action==='delete')applyNoteEdit(start,end+(v[end]===' '?1:0),'');else applyNoteEdit(start,end,change(v.slice(start,end)));
+  return;
+ }
+ // Spell the broken-rhythm pair out with explicit lengths so the neighbour keeps its duration.
+ const [a,c]=pair,fixed=n=>editNoteText(v.slice(n.element.startChar,n.element.endChar),{length:(n.element.duration||0)/unit,unbroken:true});
+ const first=a===entry?change(fixed(a)):fixed(a),second=c===entry?change(fixed(c)):fixed(c);
+ const text=(first+v.slice(a.element.endChar,c.element.startChar)+second).replace(/^\s+/,m=>first?m:'');
+ const spaced=second||!first?text:text.replace(/\s*$/,' ');
+ applyNoteEdit(a.element.startChar,c.element.endChar,spaced,action==='delete'?null:undefined);
 });
 document.addEventListener('mousedown',e=>{if(!$('note-menu').hidden&&!$('note-menu').contains(e.target))closeNoteMenu()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('note-menu').hidden)closeNoteMenu()});

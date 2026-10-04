@@ -33,6 +33,15 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
   await page.locator('#notation .abcjs-notehead').nth(2).click({button:'right',force:true});await page.locator('#note-menu button',{hasText:label}).click();
   assert.match(await page.evaluate(()=>$('abc').value),expected,'Note menu: '+label);
  }
+ // Review fixes: sustained highlights, implicit L:, written-pitch accidentals, chord and broken-rhythm lengths.
+ const reopen=(abc,instrument='Flute')=>page.evaluate(([abc,instrument])=>{dirty=false;openScore({abc,instrument});window.scrollTo({top:0,behavior:'instant'})},[abc,instrument]);
+ const menuEdit=async(n,label)=>{await page.locator('#notation .abcjs-notehead').nth(n).click({button:'right',force:true});await page.locator('#note-menu button',{hasText:label}).click();return page.evaluate(()=>$('abc').value)};
+ await reopen('X:1\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\n%%score (1 2)\nV:1\nE F G A|]\nV:2\nC,4|]');await page.click('#play');await page.waitForTimeout(800);
+ assert.equal(await page.locator('#notation .abcjs-note.abcjs-playing').count(),2,'Held whole note stays lit under moving quarters');await page.click('#stop');
+ await reopen('X:1\nM:2/4\nK:C\nC4 D4|]');assert.match(await menuEdit(0,'Half'),/C8 D4/,'Implicit L:1/16 in 2/4');
+ await reopen('X:1\nM:4/4\nL:1/4\nK:C\nB c d e|]','Clarinet in B♭');assert.match(await menuEdit(0,'Natural'),/_B c d e/,'Natural applies to written pitch');
+ await reopen('X:1\nM:4/4\nL:1/4\nK:C\n[C2E2G2] z2|]');assert.match(await menuEdit(0,'Whole'),/\[CEG\]4 z2/,'Chord length replaces inner lengths');
+ await reopen('X:1\nM:4/4\nL:1/4\nK:C\nC>D E F|]');assert.match(await menuEdit(0,'Half'),/C2D\/2 E F/,'Broken rhythm neighbour keeps its length');
  await page.evaluate(({source})=>{openScore({abc:source,instrument:'Flute'});$('start-measure').value=3;window.scrollTo({top:0,behavior:'instant'})},{source});
  await page.click('#play');assert.match(await page.locator('#play-status').textContent(),/From measure 3/);
  await page.evaluate(()=>$('speed').value=75);await page.locator('#speed').dispatchEvent('input');assert.equal(await page.locator('#speed-value').textContent(),'75%');
@@ -40,5 +49,5 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('commonnote-scores-v1'))[0].id),'legacy');
  assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('commonnote-favorites-v1'))),['ode','mutopia-263']);
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),'Mobile page fits viewport');
- assert.deepEqual(errors,[]);await browser.close();console.log('PASS: native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.');
+ assert.deepEqual(errors,[]);await browser.close();console.log('PASS: native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.');
 })().catch(e=>{console.error(e);process.exit(1)});

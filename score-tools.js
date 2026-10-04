@@ -41,9 +41,9 @@ function playbackSlice(data,from,percent){
  const speed=percent/100;
  return {duration:Math.max(0,(data.duration-from)/speed),notes:data.notes.filter(n=>n.start+n.duration>from).map(n=>({...n,start:Math.max(0,n.start-from)/speed,duration:(n.start+n.duration-Math.max(from,n.start))/speed}))};
 }
-// ABC lengths are multiples of L:. 1 -> '', 2 -> '2', .5 -> '/2', 1.5 -> '3/2'.
+// ABC lengths are multiples of L:, written as a reduced fraction. 1 -> '', 2 -> '2', .5 -> '/2', 1.5 -> '3/2', 2/3 -> '2/3'.
 function lengthText(value){
- let q=1;while(q<64&&Math.abs(value*q-Math.round(value*q))>1e-9)q*=2;
+ let q=1;while(q<96&&Math.abs(value*q-Math.round(value*q))>1e-9)q++;
  const p=Math.round(value*q);return q===1?(p===1?'':String(p)):(p===1?'/'+q:p+'/'+q);
 }
 function lengthValue(text){
@@ -54,9 +54,12 @@ function lengthValue(text){
 const NOTE_PARTS=/^((?:"[^"]*"|![^!]*!|\+[^+]*\+|\{[^}]*\}|[.~HLMOPSTuv]|\s)*)(\[[^\]]*\]|(?:\^{1,2}|_{1,2}|=)?[A-Ga-g][,']*|[zx])(\d*\/*\d*)([^]*)$/;
 function noteParts(text){const m=String(text).match(NOTE_PARTS);return m&&{pre:m[1],core:m[2],length:lengthValue(m[3]),post:m[4]}}
 // Set the accidental ('^', '_', '=', or '' for none) and/or length (multiple of L:) on every pitch of a note or chord.
-function editNoteText(text,{accidental,length}={}){
- const p=noteParts(text);if(!p)return text;
- const core=accidental==null?p.core:p.core.replace(/(\^{1,2}|_{1,2}|=)?([A-Ga-g])/g,(_,a,letter)=>accidental+letter);
- const m=text.match(NOTE_PARTS);
- return p.pre+core+(length==null?m[3]:lengthText(length))+p.post;
+// A new length replaces any per-pitch chord lengths; unbroken drops a trailing > or < broken-rhythm marker.
+function editNoteText(text,{accidental,length,unbroken}={}){
+ const m=String(text).match(NOTE_PARTS);if(!m)return text;
+ let [,pre,core,len,post]=m;
+ if(accidental!=null)core=core.replace(/(\^{1,2}|_{1,2}|=)?([A-Ga-g])/g,(_,a,letter)=>accidental+letter);
+ if(length!=null){len=lengthText(length);if(core[0]==='[')core=core.replace(/([A-Ga-g][,']*)\d*\/*\d*/g,'$1')}
+ if(unbroken)post=post.replace(/[<>]+/g,'');
+ return pre+core+len+post;
 }
