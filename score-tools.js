@@ -136,3 +136,62 @@ function barProblems(tune){
  }
  return problems;
 }
+// The first voice as written, bar by bar: each note's MIDI pitch (null for rests) and sounding length. Accidentals
+// follow ABC rules: the key signature, inline key changes, and accidentals carried to the end of the bar.
+const LETTER_SEMIS=[0,2,4,5,7,9,11],ALTER={sharp:1,flat:-1,natural:0,dblsharp:2,dblflat:-2};
+function keyAlters(key){const alters={};for(const a of key?.accidentals||[])alters[a.note.toUpperCase()]=ALTER[a.acc]??0;return alters}
+function melodyBars(tune){
+ const bars=[],lengths=barLengths(tune).filter(m=>m.voice==='0:0');let key={},bar=null,carried={},tuplet=1;
+ const close=()=>{if(bar?.notes.length){const m=lengths[bars.length];bars.push({...bar,expected:m?.expected??bar.length})}bar=null;carried={}};
+ for(const line of tune.lines||[]){
+  const staff=line.staff?.[0];if(!staff)continue;if(staff.key)key=keyAlters(staff.key);
+  for(const e of staff.voices[0]||[]){
+   if(e.el_type==='key'){key=keyAlters(e);continue}
+   if(e.el_type==='bar'){close();continue}
+   if(e.el_type!=='note')continue;
+   bar??={notes:[],length:0,measure:bars.length+1};
+   if(e.startTriplet)tuplet=e.tripletMultiplier||1;
+   const duration=(e.duration||0)*tuplet;let midi=null;
+   if(e.pitches?.length&&!e.rest){
+    const p=e.pitches[0],letter=((p.pitch%7)+7)%7,name='CDEFGAB'[letter];
+    if(p.accidental)carried[p.pitch]=ALTER[p.accidental]??0;
+    midi=60+12*Math.floor(p.pitch/7)+LETTER_SEMIS[letter]+(carried[p.pitch]??key[name]??0);
+   }
+   bar.notes.push({midi,duration,rest:midi==null&&e.rest?.type!=='invisible'});bar.length+=duration;
+   if(e.endTriplet)tuplet=1;
+  }
+ }
+ close();return bars;
+}
+// Check a writing prompt's goals against the melody. Returns [{label, ok}].
+const SCALES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,9,10,11]};
+function promptTonic(key){const m=String(key).match(/^([A-G])([#b]?)/);return m?(LETTER_SEMIS['CDEFGAB'.indexOf(m[1])]+(m[2]==='#'?1:m[2]==='b'?-1:0)+12)%12:0}
+function checkPrompt(prompt,bars){
+ const near=(a,b)=>Math.abs(a-b)<1e-6,tonic=promptTonic(prompt.key),degree=n=>((n.midi-tonic)%12+12)%12,promptBar=prompt.meter.split('/').reduce((n,d)=>n/d);
+ const notes=bars.flatMap(b=>b.notes),pitched=notes.filter(n=>n.midi!=null),moves=pitched.slice(1).map((n,i)=>Math.abs(n.midi-pitched[i].midi));
+ const kinds={rest:n=>n.rest,eighth:n=>n.midi!=null&&near(n.duration,.125),'dotted-half':n=>n.midi!=null&&near(n.duration,.75),'dotted-quarter':n=>n.midi!=null&&near(n.duration,.375)};
+ return prompt.goals.map(g=>{
+  let ok=false;
+  // Bars must match the prompt's own meter, so changing the time signature can't satisfy the goal.
+  if(g.type==='bars')ok=bars.length===prompt.bars&&bars.every(b=>near(b.length,promptBar)&&near(b.expected,promptBar)&&b.notes.some(n=>n.midi!=null));
+  else if(g.type==='lengths')ok=pitched.length>0&&pitched.every(n=>g.allowed.some(a=>near(a,n.duration)));
+  else if(g.type==='start')ok=!!pitched.length&&degree(pitched[0])===g.degree;
+  else if(g.type==='end')ok=!!pitched.length&&degree(pitched.at(-1))===g.degree;
+  else if(g.type==='endBar'){const b=bars[g.bar-1]?.notes.filter(n=>n.midi!=null);ok=!!b?.length&&degree(b.at(-1))===g.degree}
+  else if(g.type==='steps')ok=pitched.length>1&&moves.every(m=>m<=2);
+  else if(g.type==='range')ok=pitched.length>1&&Math.max(...pitched.map(n=>n.midi))-Math.min(...pitched.map(n=>n.midi))<=g.max;
+  else if(g.type==='inKey')ok=pitched.length>0&&pitched.every(n=>SCALES[g.scale].includes(degree(n)));
+  else if(g.type==='atLeast'){
+   const count=g.kind==='leap'?moves.filter(m=>m>=5).length:g.kind==='degree'?pitched.filter(n=>degree(n)===g.degree).length:notes.filter(kinds[g.kind]).length;
+   ok=count>=g.count;
+  }
+  return {label:g.label,ok};
+ });
+}
+// ABC for a writing prompt: the prompt's headers and key (pass the concert key for transposing instruments) and a
+// body, by default one whole-bar rest per bar for the student to write over.
+function promptSource(prompt,key=prompt.key,body=null){
+ const [n,d]=prompt.meter.split('/').map(Number),[un,ud]=prompt.unit.split('/').map(Number),rest='z'+lengthText((n/d)/(un/ud));
+ return `X:1\nT:${prompt.title}\nC:\nM:${prompt.meter}\nL:${prompt.unit}\nQ:1/4=${prompt.tempo}\nK:${key}\n${body??Array(prompt.bars).fill(rest).join(' | ')} |]`;
+}
+

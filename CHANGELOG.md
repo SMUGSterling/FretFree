@@ -1,3 +1,12 @@
+# Writing prompts · 2026-10-04
+
+- **✎ Writing prompts**: nine assignments (first melody, steps, rests, waltz, eighths, question and answer, minor, leaps, jig) with a blank score of rests and a live goals checklist.
+- Typing a note on a rest writes over it and keeps the bar full; length keys with a rest selected set the next note's length.
+- Prompt keys are written pitch for transposing instruments; the prompt stays attached to saved scores.
+- Each prompt's example melody is checked against its goals in `tests/check.cjs`.
+
+---
+
 # Simpler note input · 2026-10-04
 
 - **Keyboard note entry** on the score: A–G add notes (nearest octave, written pitch), R rest, 3–7 length, . dot, ↑↓ pitch (Ctrl octave), ←→ select, # - = accidentals, + tie, | bar line, Delete.

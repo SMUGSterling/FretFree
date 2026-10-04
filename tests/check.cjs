@@ -28,4 +28,14 @@ const chords=context.parseMidi(context.midiBytes(context.library.find(x=>x.id===
 vm.runInContext(fs.readFileSync(require.resolve('../score-tools.js'),'utf8'),context);
 {const own=context.library.filter(x=>x.kind==='historic'&&!x.collection||x.kind==='original').filter(x=>context.barProblems(ABCJS.parseOnly(x.abc)[0]).length).map(x=>x.id);
  assert.equal(own.join(', '),'','FretFree teaching scores have correct bar lengths')}
-console.log('PASS: '+context.library.length+' scores; catalog parsing, teaching-score bar lengths, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.');
+// Writing prompts: every example meets all its goals, and the blank starting score does not.
+vm.runInContext(fs.readFileSync(require.resolve('../prompts.js'),'utf8').replace('const writingPrompts','globalThis.writingPrompts'),context);
+for(const prompt of context.writingPrompts){
+ const goals=source=>context.checkPrompt(prompt,context.melodyBars(ABCJS.parseOnly(source)[0]));
+ const missed=goals(context.promptSource(prompt,prompt.key,prompt.example)).filter(g=>!g.ok).map(g=>g.label);
+ assert.equal(missed.join('; '),'',`Prompt ${prompt.id}: example misses goals`);
+ assert.ok(goals(context.promptSource(prompt)).some(g=>!g.ok),`Prompt ${prompt.id}: blank score must not pass`);
+ const otherMeter=context.promptSource(prompt,prompt.key,prompt.example).replace(/^M:.*$/m,prompt.meter==='4/4'?'M:3/4':'M:4/4');
+ assert.equal(goals(otherMeter)[0].ok,false,`Prompt ${prompt.id}: changing the meter must not satisfy the bars goal`);
+}
+console.log('PASS: '+context.library.length+' scores; catalog parsing, teaching-score bar lengths, writing-prompt examples, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.');
