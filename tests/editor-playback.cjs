@@ -26,6 +26,15 @@ for(const instrument of Object.keys(run('instruments'))){
 }
 assert.equal(run(`moveNoteText('"Am"!accent!{a}[=CEG]2-',1)`),'"Am"!accent!{a}[=DFA]2-');
 assert.equal(run(`moveNoteText('B,2 c/2 ^f-',1)`),'C2 d/2 ^g-');
+// Bar check: pickups, section-closing bars that complete a pickup, free meter, multi-bar rests, tuplets and meter changes are fine.
+const flaggedBars=abc=>run(`barProblems(ABCJS.parseOnly(${JSON.stringify(abc)})[0]).map(m=>m.measure).join()`);
+assert.equal(flaggedBars('X:1\nM:4/4\nL:1/4\nK:C\nC D E | F G A B | c4 |]'),'','Short opening bar is a pickup');
+assert.equal(flaggedBars('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | G A B | c d e f g | a4 |]'),'2,3','Short and long bars are flagged');
+assert.equal(flaggedBars('X:1\nM:6/8\nL:1/8\nK:G\nD|:G2A B2c|d3 d2:|'),'','Section end completes the pickup');
+assert.equal(flaggedBars('X:1\nM:none\nL:1/4\nK:C\nC D E | F G |]'),'','Free meter is not checked');
+assert.equal(flaggedBars('X:1\nM:3/4\nL:1/4\nK:C\nC D E | Z2 | F G A |]'),'','Multi-bar rests are not checked');
+assert.equal(flaggedBars('X:1\nM:2/4\nL:1/8\nK:C\n(3CDE F2 | G4 |]'),'','Tuplets count at their sounding length');
+assert.equal(flaggedBars('X:1\nM:4/4\nL:1/4\nK:C\nC4 | [M:3/4] D3 | E3 |]'),'','Inline meter changes apply');
 assert.equal(run(`editNoteText('"Am"!accent!^c2-',{accidental:'_'})`),'"Am"!accent!_c2-');
 assert.equal(run(`editNoteText('[CEG]2',{accidental:'^',length:4})`),'[^C^E^G]4');
 assert.equal(run(`editNoteText('B,/2>',{length:1.5})`),'B,3/2>');
@@ -72,6 +81,6 @@ async function checkPlayback(){
  assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-scores-v1')),[legacy]);
  assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-favorites-v1')),['ode','mutopia-263']);
  run("openScore(saved[0],saved[0].id);$('save').onclick()");assert.equal(run('saved.length'),1,'Save updates existing score identity');
- console.log('PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, and legacy storage.');w.close();
+ console.log('PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, bar checks, and legacy storage.');w.close();
 }
 checkPlayback().catch(e=>{console.error(e);w.close();process.exitCode=1});

@@ -1,3 +1,12 @@
+# Bar check · 2026-10-04
+
+- Flags bars with too many or too few beats in plain words, tints them on the score, and offers **Fill with a rest** or **Split the bar**.
+- Understands pickups, section-closing bars that complete a pickup, free meter, multi-bar rests, tuplets and inline meter changes.
+- Library editions: historic irregular bars are noted once, not flagged; only bars the student changes are checked.
+- Practice-range and bar-check overlays are left out of SVG exports and prints.
+
+---
+
 # Practice tools · 2026-10-04
 
 - **Practice range:** choose start and end measures, or click a note then Shift+click another. The range is shaded on the score.

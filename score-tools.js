@@ -77,3 +77,60 @@ function editNoteText(text,{accidental,length,unbroken}={}){
  if(unbroken)post=post.replace(/[<>]+/g,'');
  return pre+core+len+post;
 }
+// Bar-length check. Measures are numbered as in scoreEvents (a bar line ends a measure only once it holds notes).
+const SECTION_END=/repeat|thin_thin|thin_thick|thick_thin|dbl/;
+// A time signature as {length (whole notes), den, label}; 'free' for M:none, null when absent.
+function meterInfo(meter){
+ if(!meter||!meter.type)return null;
+ if(meter.type==='common_time')return {length:1,den:4,label:'4/4'};
+ if(meter.type==='cut_time')return {length:1,den:2,label:'2/2'};
+ const v=meter.value?.[0];if(meter.type!=='specified'||!v)return 'free';
+ const num=String(v.num).split('+').reduce((a,b)=>a+ +b,0);return {length:num/+v.den,den:+v.den,label:num+'/'+v.den};
+}
+function barLengths(tune){
+ const out=[],states=new Map();let header=null;
+ for(const line of tune.lines||[])for(const [s,staff] of (line.staff||[]).entries()){
+  header??=meterInfo(staff.meter);
+  for(const [v,voice] of staff.voices.entries()){
+   const id=s+':'+v;let st=states.get(id);
+   if(!st){st={measure:1,length:0,meter:meterInfo(staff.meter)??header??'free',notes:[],tuplet:1,multi:false,ending:null};states.set(id,st)}
+   for(const e of voice){
+    if(e.el_type==='meter'){const m=meterInfo(e);if(m)st.meter=m;continue}
+    if(e.el_type==='note'){
+     if(e.startTriplet)st.tuplet=e.tripletMultiplier||1;
+     if(e.rest?.type==='multimeasure')st.multi=true;
+     st.length+=(e.duration||0)*st.tuplet;st.notes.push({element:e,at:st.length});
+     if(e.endTriplet)st.tuplet=1;continue;
+    }
+    if(e.el_type!=='bar')continue;
+    if(st.notes.length){out.push({voice:id,measure:st.measure,length:st.length,meter:st.meter,expected:st.meter.length,multi:st.multi||st.meter==='free',notes:st.notes,bar:e,sectionEnd:SECTION_END.test(e.type)||!!e.startEnding,ending:st.ending});st.measure++}
+    st.length=0;st.notes=[];st.multi=false;st.ending=e.startEnding||(e.endEnding?null:st.ending);
+   }
+  }
+ }
+ for(const [id,st] of states)if(st.notes.length)out.push({voice:id,measure:st.measure,length:st.length,meter:st.meter,expected:st.meter.length,multi:st.multi||st.meter==='free',notes:st.notes,bar:null,sectionEnd:true,ending:st.ending});
+ return out;
+}
+// Measures whose length doesn't match the time signature. A short opening bar (pickup) is fine, and so is a short
+// bar that closes a section when it completes a pickup: the section's, the next section's, or the tune's.
+function barProblems(tune){
+ const problems=[],byVoice=new Map(),near=(a,b)=>Math.abs(a-b)<1e-6;
+ for(const m of barLengths(tune)){if(!byVoice.has(m.voice))byVoice.set(m.voice,[]);byVoice.get(m.voice).push(m)}
+ for(const measures of byVoice.values()){
+  const sections=[[]];
+  for(const m of measures){sections.at(-1).push(m);if(m.sectionEnd)sections.push([])}
+  if(!sections.at(-1).length)sections.pop();
+  const tunePickup=measures[0]&&measures[0].length<measures[0].expected-1e-6?measures[0].length:0;
+  for(const [i,section] of sections.entries()){
+   const first=section[0],pickup=first.length<first.expected-1e-6?first.length:0,nextFirst=sections[i+1]?.[0];
+   for(const [j,m] of section.entries()){
+    if(m.multi||near(m.length,m.expected))continue;
+    const short=m.length<m.expected;
+    if(short&&j===0)continue;
+    if(short&&j===section.length-1&&[pickup,tunePickup,nextFirst&&nextFirst.length<nextFirst.expected?nextFirst.length:0].some(p=>p&&near(m.length+p,m.expected)))continue;
+    problems.push(m);
+   }
+  }
+ }
+ return problems;
+}
