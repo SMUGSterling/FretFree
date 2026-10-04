@@ -79,6 +79,21 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  await page.keyboard.press('Control+Shift+z');assert.equal(await body(),'C D E F | G A B z | c4 |]','Redo');
  await page.click('#undo');await page.locator('#notation .abcjs-notehead').nth(1).click({button:'right',force:true});await page.locator('#note-menu button',{hasText:'Flat'}).click();
  assert.ok(await page.locator('#redo').isDisabled(),'A new edit clears redo');
+ // Undo review fixes: note buttons, instrument, typing bursts, menu, saved clean state.
+ const reopenU=()=>page.evaluate(()=>{dirty=false;openScore({abc:'X:1\nT:U\nM:4/4\nL:1/4\nK:C\nC D E F | G A B c |]',instrument:'Flute'});window.scrollTo({top:0,behavior:'instant'})});
+ await reopenU();await page.evaluate(()=>{const a=$('abc');a.setSelectionRange(a.value.length,a.value.length)});
+ await page.click('[data-token="D"]');await page.click('[data-token="E"]');await page.click('#undo');
+ assert.match(await page.evaluate(()=>$('abc').value),/c \|\]D $/,'Each note-button click is its own step');
+ await reopenU();await page.selectOption('#instrument','Clarinet in B♭');await page.waitForTimeout(400);await page.click('#undo');
+ assert.equal(await page.inputValue('#instrument'),'Flute','Instrument change is undoable');assert.equal(await page.evaluate(()=>dirty),false);
+ await reopenU();await page.evaluate(()=>{const a=$('abc');a.focus();a.setSelectionRange(a.value.length,a.value.length)});
+ for(const t of [' %a',' %b',' %c']){await page.keyboard.type(t,{delay:10});await page.waitForTimeout(500)}
+ assert.equal(await page.evaluate(()=>historyIndex),1,'Typing bursts in one field merge');
+ await page.locator('#notation .abcjs-notehead').nth(0).click({button:'right',force:true});await page.evaluate(()=>document.activeElement.blur());await page.keyboard.press('Control+z');
+ assert.ok(await page.locator('#note-menu').isHidden(),'Undo closes the note menu');
+ await reopenU();await page.evaluate(()=>{const a=$('abc');a.setSelectionRange(a.value.length,a.value.length)});await page.click('[data-token="G"]');await page.click('#save');await page.click('#undo');
+ assert.equal(await page.evaluate(()=>dirty),true,'Undo away from a save is unsaved');await page.click('#redo');assert.equal(await page.evaluate(()=>dirty),false,'Redo back to the save is clean');
+ await page.evaluate(()=>{saved=saved.filter(x=>x.id!==savedId);localStorage.setItem('commonnote-scores-v1',JSON.stringify(saved));dirty=false});
  // Review fixes: sustained highlights, implicit L:, written-pitch accidentals, chord and broken-rhythm lengths.
  const reopen=(abc,instrument='Flute')=>page.evaluate(([abc,instrument])=>{dirty=false;openScore({abc,instrument});window.scrollTo({top:0,behavior:'instant'})},[abc,instrument]);
  const menuEdit=async(n,label)=>{await page.locator('#notation .abcjs-notehead').nth(n).click({button:'right',force:true});await page.locator('#note-menu button',{hasText:label}).click();return page.evaluate(()=>$('abc').value)};
