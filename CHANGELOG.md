@@ -1,3 +1,8 @@
+# Undo and redo · 2026-10-04
+
+- **Undo / Redo** buttons and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl+Y for every change to the score: drag, draw, note menu, bar-check fixes, note buttons, header fields and typing.
+- Score edits are one step each; typing bursts in one field merge; undoing to the opened text clears "Unsaved changes".
+
 # Teaching score fixes · 2026-10-04
 
 - **Für Elise · opening:** rewritten to Beethoven's actual rhythm at doubled note values (the old excerpt had 4-beat bars in 3/4).
