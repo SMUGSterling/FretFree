@@ -23,6 +23,7 @@ Public-domain declarations follow the source’s United States context. A public
 
 - Drag notes vertically to change pitch. Chords move together; rhythms and source positions are retained.
 - Click a sheet-music note to select its **original concert-pitch ABC** and choose its starting measure, including transposing instruments.
+- **Undo / Redo** (buttons, Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or Ctrl+Y) covers every change to the score: dragging, drawing, the note menu, bar-check fixes, note buttons, header fields and typing. Each score edit is one step; a burst of typing in one place is one step. Undoing back to the opened text clears the unsaved-changes state; a new edit after undo clears redo. History resets when another score is opened.
 - **Bar check** flags measures with too many or too few beats in plain words ("Measure 2 has 3 beats; 4/4 needs 4 beats. Add a quarter note or rest."), tints them on the score, and offers **Fill with a rest** for short bars or **Split the bar** when a long bar has a clean break. Pickups, section-closing bars that complete a pickup, `M:none`, multi-bar rests, tuplets and inline meter changes are understood. Library editions keep their historic irregular bars without warnings; only bars the student changes are checked. Overlays never appear in prints or SVG exports.
 - Practise a range of measures: click a note to set the start and Shift+click another to set the end (or type them), and the range is shaded on the score. **Loop** repeats it with no gap; **Metronome** clicks every beat, accented on beat one (compound meters count dotted beats); **Count-in** plays one bar first. **Speed trainer** raises the speed by 2, 5 or 10% after each pass until it reaches the goal. These toggles are remembered in the browser.
 - Play from a chosen measure; speed is a percentage of the score’s original tempo. The speed slider preserves the ABC `Q:` tempo; the separate BPM control edits it.
@@ -68,7 +69,7 @@ node tests/rights-browser.cjs
 
 Before committing a change to any `.js` or `.css` file, run `node scripts/bump-version.cjs`. It stamps every local script and stylesheet in `index.html` with `?v=` set to a hash of their contents, so visitors get fresh code exactly when it changes, without a hard refresh. `tests/check.cjs` fails if any stamp is missing or no longer matches the files.
 
-Set `CHROMIUM_PATH` to an existing Chromium executable if needed. The browser tests cover native note dragging and its pixel ratio, draw mode, the note properties menu, playback note highlighting, practice ranges, gapless loops, the speed trainer, metronome and count-in, the bar check and its fixes, correct ABC selection, transposition, measure playback, percent speed, legacy storage, mobile width, all-score engraving, filters, and rights-preserving exports.
+Set `CHROMIUM_PATH` to an existing Chromium executable if needed. The browser tests cover native note dragging and its pixel ratio, draw mode, the note properties menu, playback note highlighting, practice ranges, gapless loops, the speed trainer, metronome and count-in, the bar check and its fixes, undo/redo, correct ABC selection, transposition, measure playback, percent speed, legacy storage, mobile width, all-score engraving, filters, and rights-preserving exports.
 
 ## Anthology investigation
 
