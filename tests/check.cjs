@@ -24,4 +24,8 @@ for(const score of context.library){
  console.log(`${score.title}: ${data.notes.length} notes, ${data.duration.toFixed(1)} seconds; transpositions passed`);
 }
 const chords=context.parseMidi(context.midiBytes(context.library.find(x=>x.id==='chords').abc));assert.ok(chords.notes.filter(x=>x.start===0).length===3,'chord playback is polyphonic');
-console.log('PASS: '+context.library.length+' scores; catalog parsing, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.');
+// FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
+vm.runInContext(fs.readFileSync(require.resolve('../score-tools.js'),'utf8'),context);
+{const own=context.library.filter(x=>x.kind==='historic'&&!x.collection||x.kind==='original').filter(x=>context.barProblems(ABCJS.parseOnly(x.abc)[0]).length).map(x=>x.id);
+ assert.equal(own.join(', '),'','FretFree teaching scores have correct bar lengths')}
+console.log('PASS: '+context.library.length+' scores; catalog parsing, teaching-score bar lengths, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.');

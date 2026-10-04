@@ -1,3 +1,11 @@
+# Teaching score fixes · 2026-10-04
+
+- **Für Elise · opening:** rewritten to Beethoven's actual rhythm at doubled note values (the old excerpt had 4-beat bars in 3/4).
+- **Little engine:** now in 3/4, matching its 3-beat eighth-eighth-quarter-quarter figure; only the two cadence bars changed.
+- `tests/check.cjs` requires every FretFree teaching score to pass the bar check.
+
+---
+
 # Bar check · 2026-10-04
 
 - Flags bars with too many or too few beats in plain words, tints them on the score, and offers **Fill with a rest** or **Split the bar**.
