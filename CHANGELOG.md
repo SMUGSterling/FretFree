@@ -1,3 +1,12 @@
+# Phase 1 practice tools complete · 2026-10-04
+
+- **Play from a note**: double-click, Space, or **▶ Play from here**; count-in applies.
+- **Note names**: Off / Letters / Do re mi (movable do) under each note, in written pitch.
+- **Guitar tab** for Guitar; **recorder fingering diagrams** (baroque soprano, C to D′ plus F♯ and B♭) for Recorder.
+- The score keeps keyboard focus across re-renders.
+
+---
+
 # Writing prompts · 2026-10-04
 
 - **✎ Writing prompts**: nine assignments (first melody, steps, rests, waltz, eighths, question and answer, minor, leaps, jig) with a blank score of rests and a live goals checklist.
