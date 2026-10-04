@@ -58,7 +58,7 @@ function updateMeasures(){
  $('end-measure').value=followEnd?total:Math.max(+$('start-measure').value,Math.min(total,+$('end-measure').value));
  $('measure-count').textContent=`of ${total}`;shadeRange();
 }
-function render(){stop();recordHistory();instrumentShown=$('instrument').value;try{const source=writtenABC();renderedSource=$('abc').value;const original=ABCJS.parseOnly(renderedSource)[0];const display=ABCJS.parseOnly(source)[0];noteSources=sourceMap(original,display);const tunes=ABCJS.renderAbc('notation',source,{responsive:'resize',staffwidth:740,add_classes:true,dragging:true,selectTypes:['note','bar'],selectionColor:'#317761',dragColor:'#ba663d',clickListener:scoreClick});renderedTune=tunes[0];{const shown=scoreEvents(display),lengths=effectiveDurations(shown);noteDurations=new Map(shown.map(e=>[e.element.startChar,lengths.get(e.element)||0]));shownElements=new Map(shown.map(e=>[e.element.startChar,e.element]))}staffClefs=display.lines.filter(l=>l.staff).map(l=>l.staff.map(st=>st.clef?.verticalPos||0));updateMeasures();updateBarCheck(original);updatePromptCheck(display);if(selectedRange&&renderedTune?.engraver){const match=[...noteSources.entries()].find(([,e])=>e?.element.startChar===selectedRange[0]);if(match){const shown=scoreEvents(display).find(e=>e.element.startChar===match[0]);if(shown)renderedTune.engraver.rangeHighlight(shown.element.startChar,shown.element.endChar)}}$('warnings').textContent=(tunes[0]?.warnings||[]).map(x=>String(x).replace(/<[^>]+>/g,'')).join(' · ');$('workspace-heading').textContent=field('T','Untitled melody');const config=instruments[$('instrument').value];$('score-caption').textContent=`${$('instrument').value} · ${config.clef} clef · ${config.shift===2||config.shift===9?'Written pitch shown; ABC source and MIDI are concert pitch.':config.shift===-12?'Melody lowered one octave for bass range.':'Concert pitch melody part.'}`;const edition=$('source-edition');edition.hidden=!(current?.pdf||current?.originalSource);if(current?.pdf){edition.innerHTML=`<strong>Complete source edition</strong><p>The editor shows an extracted upper-part study, up to 32 bars. The original PDF below includes the complete score for ${esc(current.originalInstrument)}.</p><div class="source-actions"><a class="button-link" href="${esc(current.pdf)}" target="_blank" rel="noopener">Open complete PDF ↗</a><a class="button-link" href="${esc(current.pdf)}" download>Download PDF</a><a class="button-link" href="${esc(current.originalMidi)}" download>Original MIDI</a>${current.originalSource?`<a class="button-link" href="${esc(current.originalSource)}" download>Original editable source</a>`:''}</div>`}else if(current?.originalSource){edition.innerHTML=`<strong>Complete original ABC source</strong><p>${esc(current.studyTransform)} License: ${esc(scoreLicense(current))}. See the credit notice below before sharing.</p><a class="button-link" href="${esc(current.originalSourceDownload||current.originalSource)}" download>${current.originalSourceDownload?'Download original ABC + license bundle':'Download complete original ABC'}</a>`}const r=current?.rights;if(r){$('rights').innerHTML=`<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${current.attribution?`Credit: ${esc(current.attribution)}<br>`:''}${current.licenseURL?`<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>`:''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty?'Your edits stay private. Export or save a copy to preserve them.':'Use, print, practice, and adapt this teaching version.'}</span>`}else{$('rights').innerHTML='<strong>Your private workspace</strong>Your work stays on this device. Imported music keeps its original rights; importing or editing a file does not make it public domain.'}}catch(e){$('warnings').textContent='Could not render this score: '+e.message}}
+function render(){stop();recordHistory();instrumentShown=$('instrument').value;const scoreFocused=$('notation')?.contains?.(document.activeElement);try{const source=writtenABC();renderedSource=$('abc').value;const original=ABCJS.parseOnly(renderedSource)[0];const display=ABCJS.parseOnly(source)[0];noteSources=sourceMap(original,display);const tunes=ABCJS.renderAbc('notation',source,{responsive:'resize',staffwidth:740,add_classes:true,dragging:true,selectTypes:['note','bar'],selectionColor:'#317761',dragColor:'#ba663d',clickListener:scoreClick});renderedTune=tunes[0];if(scoreFocused)focusScore();{const shown=scoreEvents(display),lengths=effectiveDurations(shown);noteDurations=new Map(shown.map(e=>[e.element.startChar,lengths.get(e.element)||0]));shownElements=new Map(shown.map(e=>[e.element.startChar,e.element]))}staffClefs=display.lines.filter(l=>l.staff).map(l=>l.staff.map(st=>st.clef?.verticalPos||0));updateMeasures();updateBarCheck(original);updatePromptCheck(display);if(selectedRange&&renderedTune?.engraver){const match=[...noteSources.entries()].find(([,e])=>e?.element.startChar===selectedRange[0]);if(match){const shown=scoreEvents(display).find(e=>e.element.startChar===match[0]);if(shown)renderedTune.engraver.rangeHighlight(shown.element.startChar,shown.element.endChar)}}$('warnings').textContent=(tunes[0]?.warnings||[]).map(x=>String(x).replace(/<[^>]+>/g,'')).join(' · ');$('workspace-heading').textContent=field('T','Untitled melody');const config=instruments[$('instrument').value];$('score-caption').textContent=`${$('instrument').value} · ${config.clef} clef · ${config.shift===2||config.shift===9?'Written pitch shown; ABC source and MIDI are concert pitch.':config.shift===-12?'Melody lowered one octave for bass range.':'Concert pitch melody part.'}`;const edition=$('source-edition');edition.hidden=!(current?.pdf||current?.originalSource);if(current?.pdf){edition.innerHTML=`<strong>Complete source edition</strong><p>The editor shows an extracted upper-part study, up to 32 bars. The original PDF below includes the complete score for ${esc(current.originalInstrument)}.</p><div class="source-actions"><a class="button-link" href="${esc(current.pdf)}" target="_blank" rel="noopener">Open complete PDF ↗</a><a class="button-link" href="${esc(current.pdf)}" download>Download PDF</a><a class="button-link" href="${esc(current.originalMidi)}" download>Original MIDI</a>${current.originalSource?`<a class="button-link" href="${esc(current.originalSource)}" download>Original editable source</a>`:''}</div>`}else if(current?.originalSource){edition.innerHTML=`<strong>Complete original ABC source</strong><p>${esc(current.studyTransform)} License: ${esc(scoreLicense(current))}. See the credit notice below before sharing.</p><a class="button-link" href="${esc(current.originalSourceDownload||current.originalSource)}" download>${current.originalSourceDownload?'Download original ABC + license bundle':'Download complete original ABC'}</a>`}const r=current?.rights;if(r){$('rights').innerHTML=`<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${current.attribution?`Credit: ${esc(current.attribution)}<br>`:''}${current.licenseURL?`<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>`:''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty?'Your edits stay private. Export or save a copy to preserve them.':'Use, print, practice, and adapt this teaching version.'}</span>`}else{$('rights').innerHTML='<strong>Your private workspace</strong>Your work stays on this device. Imported music keeps its original rights; importing or editing a file does not make it public domain.'}}catch(e){$('warnings').textContent='Could not render this score: '+e.message}}
 function changed(){stop();selectedRange=null;dirty=true;$('save-status').textContent='Unsaved changes';clearTimeout(renderTimer);renderTimer=setTimeout(render,220)}
 function noteLength(){const match=field('L','1/8').match(/^(\d+)\/(\d+)$/);const base=match?+match[1]/+match[2]:.125;const beats=({'1':1,'/2':.5,'2':2,'4':4})[$('duration').value];const length=beats/4/base;return length===1?'':Number.isInteger(length)?String(length):'/'+String(Math.round(1/length))}
 function insertToken(token){flushTyping();const area=$('abc'),start=area.selectionStart,end=area.selectionEnd;const keyLine=area.value.match(/^K:.*(?:\n|$)/m);if(!keyLine){toast('Add a K: key header before writing notes.');return}const musicStart=keyLine.index+keyLine[0].length;if(start<musicStart){toast('Place the cursor after the K: line to add notes.');area.focus();area.setSelectionRange(area.value.length,area.value.length);return}const prefix=['^','_','='].includes(token);let text=token;if(/^[A-G]$/.test(token)){if($('octave').value==='upper')text=token.toLowerCase();if($('octave').value==='lower')text=token+',';text+=noteLength()}if(token==='z')text+=noteLength();if(!prefix)text+=' ';area.setRangeText(text,start,end,'end');area.focus();changed();clearTimeout(renderTimer);render()}
@@ -251,7 +251,7 @@ function schedulePass(p,from,percent,base,pass){
  });
  else atAudioTime(end+.12,()=>{if(p.generation===playGeneration)stop()});
 }
-async function play(resumeFrom=null){
+async function play(resumeFrom=null,{countIn=false}={}){
  if(playing){stop();return}
  clearTimeout(renderTimer);render();const generation=++playGeneration;
  try{
@@ -259,12 +259,14 @@ async function play(resumeFrom=null){
   const full=parseMidi(midiBytes($('abc').value)),range=measureRange(),start=measureStarts.get(range.from);
   const from=resumeFrom??start;
   if(from==null){toast('This measure has no playback event. Check the ABC notation.');return}
-  const until=rangeEnd(range.to,full.duration,from),percent=+$('speed').value;
+  // Playing from a note after the practice range runs to the end of the tune.
+  let until=rangeEnd(range.to,full.duration,from);if(until<=from+1e-6)until=full.duration;
+  const percent=+$('speed').value;
   if(!playbackSlice(full,from,percent,until).notes.length){toast('Add some notes before playback.');return}
   playing=true;$('play').textContent='■ Playing';
   let base=audio.currentTime+.07;
-  // Count-in: one bar of clicks at the starting tempo, only when starting fresh.
-  if(resumeFrom==null&&$('count-in').checked){
+  // Count-in: one bar of clicks at the starting tempo when starting fresh or from a chosen note, not on a speed change.
+  if((resumeFrom==null||countIn)&&$('count-in').checked){
    // Beat length at the start: the spacing of the first full-bar clicks from the starting measure onward.
    const beats=beatsPerBar(),grid=clickTimes(from,full.duration,full.duration),down=grid.findIndex((c,i)=>c.down&&grid[i+1]);
    const step=(down>=0?grid[down+1].time-grid[down].time:.5)/(percent/100);
@@ -432,6 +434,7 @@ function openNoteMenu(entry,display,x,y){
  $('note-menu').innerHTML=(isRest?'':`<div class="menu-label">ACCIDENTAL</div><div class="menu-row">${item('acc:^','♯ Sharp',acc==='^')}${item('acc:_','♭ Flat',acc==='_')}${item('acc:=','♮ Natural',acc==='=')}${item('acc:','None',!acc)}</div>`)
   +`<div class="menu-label">LENGTH</div>${durations.map(([v,l])=>item('len:'+v,l,Math.abs(base-v)<1e-9)).join('')}`
   +`<button role="menuitemcheckbox" aria-checked="${dotted}" data-edit="dot">· Dotted</button>`+(isRest?'':`<button role="menuitemcheckbox" aria-checked="${/^-/.test(noteParts($('abc').value.slice(entry.element.startChar,entry.element.endChar))?.post||'')}" data-edit="tie">⁀ Tie to next note</button>`)
+  +`<button role="menuitem" data-edit="play-from">▶ Play from here</button>`
   +`<div class="menu-label">INSERT AFTER</div><div class="menu-row"><button role="menuitem" data-edit="rest-after">𝄽 Rest</button><button role="menuitem" data-edit="bar-after">| Bar line</button></div><hr><button role="menuitem" class="danger" data-edit="delete">Delete ${isRest?'rest':'note'}</button>`;
  const menu=$('note-menu');menu.hidden=false;
  menu.style.left=Math.max(8,Math.min(x,window.innerWidth-menu.offsetWidth-8))+'px';menu.style.top=Math.max(8,Math.min(y,window.innerHeight-menu.offsetHeight-8))+'px';
@@ -448,6 +451,7 @@ $('notation').addEventListener('contextmenu',e=>{
 // delete, rest-after, bar-after.
 function editNote(entry,display,action){
  const area=$('abc'),v=area.value,start=entry.element.startChar,end=entry.element.endChar,old=v.slice(start,end);
+ if(action==='play-from'){playFromNote(display);return}
  if(action.startsWith('acc:')){applyNoteEdit(start,end,accidentalEdit(entry,display,action.slice(4)));return}
  if(action==='tie'){applyNoteEdit(start,end,editNoteText(old,{tie:!/^-/.test(noteParts(old)?.post||'')}));return}
  if(action==='rest-after'||action==='bar-after'){
@@ -509,6 +513,22 @@ ABCJS.renderAbc('hero-notation',catalog[0].abc,{staffwidth:460,responsive:'resiz
 // Keyboard note entry on the score (MuseScore-style): A–G add a note after the selection in the nearest octave,
 // R or 0 a rest, 3–7 set the length (16th…whole), . dots, ↑↓ move by step (Ctrl: octave), ←→ change the selection,
 // # - = set sharp/flat/natural, + ties, | adds a bar line, Delete removes the note.
+// Play from a note: double-click it, press Space with it selected, or choose Play from here in its menu.
+function noteStartTime(display){
+ const e=(renderedTune?.noteTimings||[]).find(t=>t.type==='event'&&(t.startCharArray||[]).includes(display.startChar));
+ return e?e.milliseconds/1000:null;
+}
+function playFromNote(display){
+ if(!display)return;stop();const time=noteStartTime(display);
+ if(time==null){toast('This note has no playback time. Check the ABC notation.');return}
+ play(time,{countIn:true});
+}
+// abcjs focuses the clicked note on mouse-up, which can scroll the page between the two clicks; fall back to the note
+// the first click selected.
+$('notation').addEventListener('dblclick',e=>{
+ const hit=selectableAt(e)?.absEl.abcelem,display=hit?.el_type==='note'?hit:selectedNote()?.display;
+ if(display){e.preventDefault();playFromNote(display)}
+});
 const LENGTH_KEYS={'3':1/16,'4':1/8,'5':1/4,'6':1/2,'7':1};
 function focusScore(){$('notation').focus?.({preventScroll:true})}
 // Notes and rests of the source in reading order, one entry each.
@@ -558,6 +578,7 @@ function scoreKey(e){
  if(e.metaKey||e.altKey||(e.ctrlKey&&!/^Arrow(Up|Down)$/.test(e.key))||!$('note-menu').hidden)return false;
  if(renderedSource!==$('abc').value){clearTimeout(renderTimer);render()}
  const key=e.key,sel=selectedNote(),notes=scoreNotes();
+ if(key===' '){if(playing)stop();else if(sel)playFromNote(sel.display);else play();return true}
  if(/^[a-g]$/i.test(key)){insertNote(key.toUpperCase(),sel);return true}
  if(key==='r'||key==='R'||key==='0'){insertNote('z',sel);return true}
  if(LENGTH_KEYS[key]){inputLength=LENGTH_KEYS[key];if(sel&&sel.entry.element.pitches?.length)editNote(sel.entry,sel.display,'len:'+inputLength);else $('selection-status').textContent='New notes will be '+(NOTE_VALUES[inputLength]||'that length').replace(/^an? /,'')+'s.';return true}
