@@ -61,10 +61,14 @@ assert.ok(run('favorites.includes("ode")'), 'Existing favorites preserved');
 assert.equal(run('played.size'), 0, 'A damaged played list is ignored instead of breaking start-up');
 assert.ok(run('filteredCatalog().length') >= 200);
 assert.equal($('hero-count').textContent, '01 / ' + run('catalog.length'));
-assert.ok(
-  $('cards').querySelectorAll('.card').length <= 24 && $('cards').querySelector('.mini-score svg'),
-  'First page of cards is engraved'
-);
+{
+  const first = [...$('cards').querySelectorAll('.card')];
+  assert.equal(first.length, 24, 'The first page holds a full page of cards');
+  assert.ok(
+    first.every(card => card.querySelector('.mini-score svg')),
+    'Every card on the first page is engraved'
+  );
+}
 
 // Search and sort go through the real input events.
 setFilter('sort-filter', 'title');
@@ -140,11 +144,8 @@ assert.equal(
   true,
   'An advanced score suggests advanced scores'
 );
-assert.equal(
-  $('next-up').querySelectorAll('.next-card').length,
-  3,
-  'Try next panel shows three cards for a library score'
-);
+assert.equal($('next-up').hidden, false, 'Try next panel is shown for a library score');
+assert.equal($('next-up').querySelectorAll('.next-card').length, 3, 'Try next panel shows three cards');
 assert.equal(
   $('next-up').querySelector('.next-card h3').textContent,
   picks[0][0] && run(`catalog.find(x=>x.id===${JSON.stringify(picks[0][0])}).title`)
