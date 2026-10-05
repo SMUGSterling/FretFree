@@ -1,3 +1,10 @@
+# Test runner and CI · 2026-10-05
+
+- `package.json` with `npm test` (node suites), `npm run test:browser` and `npm run test:all`; GitHub Actions runs all suites on every pull request and push to `main`.
+- `midiBytes` and `parseMidi` moved from `app.js` to `score-tools.js`, so `tests/check.cjs` loads the real file instead of slicing `app.js` by text.
+
+---
+
 # Try next · 2026-10-05
 
 - **Try next** under each library score: three tunes that share its skill tags, at the same level or one up, with tunes you haven't opened first.
