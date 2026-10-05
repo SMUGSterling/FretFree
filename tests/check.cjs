@@ -117,10 +117,10 @@ assert.ok(chords.notes.filter(x => x.start === 0).length === 3, 'chord playback 
     null,
     'Only payload version 1 opens'
   );
-  const big = await context.encodeShare({...payload, a: payload.a + '\n' + 'C D E F | G A B c |\n'.repeat(20000)});
+  const big = await plain({...payload, a: payload.a + '\n' + 'C D E F | G A B c |\n'.repeat(20000)});
   assert.ok(
-    big.length > 1000 && (await context.decodeShare(big)).a.length > 300000,
-    'A 400 KB score encodes without overflowing the stack'
+    big[0] === '0' && big.length > 400000 && (await context.decodeShare(big)).a.length > 300000,
+    'A 400 KB score reaches the plain encoder uncompressed and encodes without overflowing the stack'
   );
   assert.equal(
     await context.decodeShare('0' + btoa('{"a":"not abc"}')),
