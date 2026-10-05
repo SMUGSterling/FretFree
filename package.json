@@ -1,0 +1,19 @@
+{
+ "name": "fretfree",
+ "version": "1.0.0",
+ "private": true,
+ "description": "A static sheet-music library and practice workspace for students. No build step; these scripts only run the tests and maintenance tasks.",
+ "license": "MIT",
+ "scripts": {
+  "test": "node tests/check.cjs && node tests/library-ui.cjs && node tests/editor-playback.cjs",
+  "test:browser": "node tests/browser.cjs && node tests/rights-browser.cjs",
+  "test:all": "npm test && npm run test:browser",
+  "serve": "python3 -m http.server 8000",
+  "bump": "node scripts/bump-version.cjs",
+  "build:skills": "node scripts/build-skills.cjs"
+ },
+ "devDependencies": {
+  "jsdom": "^29.1.1",
+  "playwright": "^1.56.1"
+ }
+}

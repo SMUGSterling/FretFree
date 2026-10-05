@@ -1,0 +1,23 @@
+name: Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Node suites (catalog, library UI, editor and playback)
+        run: npm test
+      - run: npx playwright install --with-deps chromium
+      - name: Browser suites against a local static server
+        run: |
+          python3 -m http.server 8000 >/dev/null 2>&1 &
+          for i in 1 2 3 4 5; do curl -sf http://localhost:8000/ >/dev/null && break; sleep 1; done
+          npm run test:browser

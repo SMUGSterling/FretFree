@@ -10,8 +10,7 @@ const context={ABCJS,console,Uint8Array,DataView,Map,atob};vm.createContext(cont
 vm.runInContext(fs.readFileSync(require.resolve('../catalog.js'),'utf8'),context);
 vm.runInContext(fs.readFileSync(require.resolve('../catalog-expanded.js'),'utf8')+'\nglobalThis.library=catalog;',context);
 vm.runInContext(fs.readFileSync(require.resolve('../rights-tools.js'),'utf8'),context);vm.runInContext(fs.readFileSync(require.resolve('../catalog-licensed.js'),'utf8')+'\nglobalThis.library=catalog;',context);
-const app=fs.readFileSync(require.resolve('../app.js'),'utf8');
-vm.runInContext(app.slice(app.indexOf('function midiBytes'),app.indexOf('function stop()')),context);
+vm.runInContext(fs.readFileSync(require.resolve('../score-tools.js'),'utf8'),context);
 assert.ok(context.library.length>=200,'Expanded library should contain at least 200 scores');
 assert.equal(new Set(context.library.map(x=>x.id)).size,context.library.length,'Unique score IDs');
 for(const score of context.library){
@@ -25,7 +24,6 @@ for(const score of context.library){
 }
 const chords=context.parseMidi(context.midiBytes(context.library.find(x=>x.id==='chords').abc));assert.ok(chords.notes.filter(x=>x.start===0).length===3,'chord playback is polyphonic');
 // FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
-vm.runInContext(fs.readFileSync(require.resolve('../score-tools.js'),'utf8'),context);
 // Skill tags are read from the music; catalog-skills.js must match what skillTags() says about every score today.
 {const tags=abc=>context.skillTags(ABCJS.parseOnly(abc)[0]).join(', ');
  assert.equal(tags('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | G A B c | c B A G | F E D C |]'),'Steps');

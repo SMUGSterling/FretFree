@@ -61,22 +61,17 @@ The update performs no migration, clearing, or ID replacement. Existing saved AB
 
 `catalog-rights.json` records per-edition rights; `provenance/` preserves listing evidence; `scores/<id>/` preserves original assets and `RIGHTS.txt`; `licenses/` retains collection notices and license texts. `scripts/` includes import inputs, exclusions, duplicate reports, and library statistics. `VALIDATION.md` records the completed checks.
 
-Tests (development dependencies are not required to host):
+Tests (development dependencies are not required to host; `package.json` exists only for them):
 
 ```
-npm install --no-save playwright jsdom
+npm install
+npm test                 # catalog, library UI, editor and playback suites
 npx playwright install chromium
-node tests/check.cjs
-node tests/library-ui.cjs
-node tests/editor-playback.cjs
+npm run serve            # in another terminal
+npm run test:browser     # real-browser suites against http://localhost:8000
 ```
 
-With the local HTTP server running:
-
-```
-node tests/browser.cjs
-node tests/rights-browser.cjs
-```
+`npm run test:all` runs everything. The same steps run in GitHub Actions (`.github/workflows/test.yml`) on every pull request and push to `main`.
 
 Before committing a change to any `.js` or `.css` file, run `node scripts/bump-version.cjs`. It stamps every local script and stylesheet in `index.html` with `?v=` set to a hash of their contents, so visitors get fresh code exactly when it changes, without a hard refresh. `tests/check.cjs` fails if any stamp is missing or no longer matches the files.
 
