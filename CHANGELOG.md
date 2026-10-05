@@ -1,3 +1,9 @@
+# Selection leaves the practice range alone · 2026-10-05
+
+- Clicking a note (or typing notes, which moves the selection) no longer changes the practice start. Set the range with Shift+click: from the selected note's measure to the clicked one, or from the clicked measure to the end when nothing is selected. The note menu gains **🔁 Practise from here**, and the Start/End boxes still work.
+
+---
+
 # Blank sheets · 2026-10-05
 
 - **New score** opens a blank sheet: eight bars of whole-bar rests in 4/4 (set the number in the **Bars** box, 1–64), with the first bar selected so typing or drawing starts at once.

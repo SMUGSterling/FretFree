@@ -158,6 +158,11 @@ const {chromium} = require('playwright'),
     window.scrollTo({top: 0, behavior: 'instant'});
   });
   await page.locator('#notation .abcjs-notehead').nth(4).click({force: true});
+  assert.deepEqual(
+    await page.evaluate(() => [$('start-measure').value, $('end-measure').value]),
+    ['1', '4'],
+    'A plain click selects a note without moving the practice range'
+  );
   await page
     .locator('#notation .abcjs-notehead')
     .nth(9)
@@ -165,7 +170,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(
     await page.evaluate(() => [$('start-measure').value, $('end-measure').value]),
     ['2', '3'],
-    'Shift+click sets the loop end'
+    'Shift+click sets the range from the selected note to the clicked one'
   );
   assert.equal(await page.locator('#notation .range-shade').count(), 1, 'Practice range is shaded');
   await page.evaluate(() => {
