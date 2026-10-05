@@ -546,6 +546,34 @@ const {chromium} = require('playwright'),
   assert.equal(await page.locator('#speed-value').textContent(), '75%');
   assert.equal(await page.evaluate(() => $('abc').value), source, 'Speed preserves Q/source');
   await page.click('#stop');
+  // Blank sheet: a new score is empty bars; draw mode fills a bar's rest instead of adding beats beside it.
+  await page.evaluate(() => {
+    dirty = false;
+    newScore();
+  });
+  const sheet = () => page.evaluate(() => $('abc').value.trim().split('\n').pop());
+  assert.equal(await sheet(), 'z4 | z4 | z4 | z4 | z4 | z4 | z4 | z4 |]', 'New score is a blank sheet');
+  await page.click('#draw-mode');
+  const firstRest = await page.locator('#notation .abcjs-rest').first().boundingBox();
+  await page.mouse.click(firstRest.x + firstRest.width / 2 - 20, firstRest.y + firstRest.height / 2);
+  await page.waitForFunction(() => !$('abc').value.includes('z4 | z4 | z4 | z4 | z4 | z4 | z4 | z4'));
+  assert.match(
+    await sheet(),
+    /^[A-Ga-g][,']* z3 \| z4 \| z4 \| z4 \| z4 \| z4 \| z4 \| z4 \|\]$/,
+    'Drawing on a blank bar replaces the start of its rest'
+  );
+  // A second click just right of the new note, nearer to it than to the rest, still fills the bar's rest.
+  const firstNote = await page.locator('#notation .abcjs-note').first().boundingBox();
+  await page.mouse.click(firstNote.x + firstNote.width + 6, firstNote.y - 12);
+  await page.waitForFunction(() => !/^[A-Ga-g][,']* z3 \|/.test($('abc').value.trim().split('\n').pop()));
+  assert.match(
+    await sheet(),
+    /^[A-Ga-g][,']* [A-Ga-g][,']* z2 \| z4 \| z4 \| z4 \| z4 \| z4 \| z4 \| z4 \|\]$/,
+    'Drawing beside a note in a part-filled bar consumes the rest rather than overfilling the bar'
+  );
+  await page.click('#draw-mode');
+  await page.click('#add-bars');
+  assert.equal(await page.evaluate(() => $('measure-count').textContent), 'of 12', 'Add 4 bars extends the sheet');
   // Share by link: the link carries the edited score, instrument and the library edition's credits; opening it shows the copy.
   await page.evaluate(() => {
     dirty = false;
@@ -696,7 +724,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.'
+    'PASS: blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

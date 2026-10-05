@@ -1,3 +1,12 @@
+# Blank sheets · 2026-10-05
+
+- **New score** opens a blank sheet: eight bars of whole-bar rests in 4/4 (set the number in the **Bars** box, 1–64), with the first bar selected so typing or drawing starts at once.
+- **Draw notes** on a bar that holds a rest fills the rest from its start instead of squeezing a note in beside it, so blank bars fill bar by bar.
+- **＋ 4 bars** adds four blank bars in the current meter before the closing barline.
+- The header and footer logo is now an inline SVG natural sign instead of the ♮ text character, which depended on each device's symbol font and rendered as a broken glyph on some systems.
+
+---
+
 # OpenScore String Quartets · 2026-10-05
 
 - **368 first-violin movements** from 104 string quartets (Haydn, Mozart, Beethoven, Emilie Mayer, Mendelssohn, Brahms and more) join the library as Advanced practice parts, from the CC0 OpenScore String Quartets corpus, under a new **Chamber music** genre and **OpenScore String Quartets** collection.
@@ -8,7 +17,7 @@
 # OpenScore Lieder Corpus · 2026-10-05
 
 - **1,345 art songs** join the library as vocal-line practice parts, from the CC0 OpenScore Lieder Corpus: 143 composers; 25 Beginner, 702 Intermediate and 618 Advanced by the usual estimate, with a new **Art song** genre and **OpenScore Lieder** collection filter.
-- `scripts/import-lieder.py` converts MuseScore `.mscx` to ABC (pitch spelling, ties, tuplets, repeats and endings, key and meter changes, tempo), trims piano introductions, validates each score, and records the pinned source path and hash per entry.
+- `scripts/import-openscore.py lieder` converts MuseScore `.mscx` to ABC (pitch spelling, ties, tuplets, repeats and endings, key and meter changes, tempo), trims piano introductions, validates each score, and records the pinned source path and hash per entry.
 
 ---
 

@@ -41,13 +41,23 @@ function openScore(item, id = null) {
   renderNextUp();
   show('studio');
 }
-function newScore() {
+// A new score is a blank sheet: whole-bar rests in 4/4, so drawing or typing writes straight onto empty bars.
+const DEFAULT_BARS = 8;
+function newScore(bars) {
+  if (typeof bars !== 'number') bars = +$('new-bars')?.value || DEFAULT_BARS;
+  bars = Math.max(1, Math.min(64, Math.round(bars) || DEFAULT_BARS));
+  if (!allowReplace()) return;
+  dirty = false;
   openScore({
     title: 'Untitled melody',
     composer: '',
     kind: 'personal',
-    abc: tune('Untitled melody', '', '4/4', 'C', 100, 'C D E F | G2 G2 | F E D C | C4 |]')
+    abc: promptSource({title: 'Untitled melody', meter: '4/4', unit: '1/4', tempo: 100, key: 'C', bars})
   });
+  const first = scoreNotes()[0];
+  if (first) selectEntry(first);
+  $('selection-status').textContent =
+    `Blank sheet of ${bars} bars. Click a bar and type A–G, or turn on Draw notes and click the staff; each bar fills from its rest. ＋ 4 bars adds more.`;
 }
 for (const name of Object.keys(instruments)) $('instrument').add(new Option(name, name));
 for (const note of 'CDEFGAB') {
