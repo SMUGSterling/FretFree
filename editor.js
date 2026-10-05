@@ -1342,7 +1342,8 @@ async function shareLink() {
       : 'Anyone with the link gets a copy of the score. Nothing is uploaded; the music is inside the link.');
   let copied = false;
   try {
-    await navigator.clipboard?.writeText(url);
+    if (typeof navigator.clipboard?.writeText !== 'function') throw new Error('no clipboard');
+    await navigator.clipboard.writeText(url);
     copied = true;
   } catch {}
   toast(copied ? 'Link copied. Paste it anywhere.' : 'Select the link and copy it.');
@@ -1369,6 +1370,10 @@ async function openSharedLink(hash) {
     instrument: instruments[payload.i] ? payload.i : undefined,
     prompt: payload.p
   });
+  // The link was the only copy and show() has replaced it in the address bar, so treat the score as unsaved work.
+  dirty = true;
+  cleanKey = '';
+  $('save-status').textContent = 'Shared copy, not yet saved on this device. Save it to My scores to keep it.';
   toast('Opened a shared score. Save it to My scores to keep a copy.');
   return true;
 }

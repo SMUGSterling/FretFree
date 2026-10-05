@@ -186,6 +186,8 @@ assert.equal(
   assert.equal($('title').value, 'Ode (shared)');
   assert.equal($('instrument').value, 'Violin');
   assert.equal(run('current.kind'), 'shared');
+  assert.equal(run('dirty'), true, 'A shared copy counts as unsaved work until it is saved');
+  assert.match($('save-status').textContent, /not yet saved/);
   assert.ok($('rights').textContent.includes('CC0'), 'Credits travel with the link');
   assert.equal($('next-up').hidden, true, 'No suggestions for a shared copy');
   assert.equal(await run('openSharedLink("s=1garbage")'), false, 'A damaged link is refused');
