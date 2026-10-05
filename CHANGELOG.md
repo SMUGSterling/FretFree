@@ -1,3 +1,10 @@
+# Try next · 2026-10-05
+
+- **Try next** under each library score: three tunes that share its skill tags, at the same level or one up, with tunes you haven't opened first.
+- Opened library scores are remembered on this browser and marked **✓ Played** in the library.
+
+---
+
 # Search by skill · 2026-10-05
 
 - **Skill filter** in the library, and clickable skill tags on every card: Steps, Skips, Leaps, Repeated notes, Eighth notes, Sixteenth notes, Dotted rhythms, Triplets, Triple meter, Compound meter, Minor key, Accidentals, Chords, Rests, Wide range, Repeats.
