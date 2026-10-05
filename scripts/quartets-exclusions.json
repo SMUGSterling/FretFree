@@ -1,0 +1,124 @@
+{
+ "commit": "9be3df2ace482130fe031b9e8a647cdf112ed243",
+ "files": 122,
+ "accepted": 368,
+ "excluded": [
+  {
+   "file": "scores/Arriaga,_Juan_Crisóstomo_de/String_Quartet_No.1_in_D_minor/sq13744399.mscx",
+   "movement": 2,
+   "reason": "tuplet 13:8 over 13 notes unsupported"
+  },
+  {
+   "file": "scores/Bartók,_Béla/String_Quartet_No.1,_Op.7_(Sz.40)/sq7295726.mscx",
+   "reason": "composition rights not verified: composer died 1945, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Bartók,_Béla/String_Quartet_No.2,_Op.17_(Sz.67)/sq8741475.mscx",
+   "reason": "composition rights not verified: composer died 1945, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Beach,_Amy/String_Quartet,_Op._89/sq14387632.mscx",
+   "reason": "composition rights not verified: composer died 1944, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Beethoven,_Ludwig_van/String_Quartet_No.1,_Op.18_No.1/sq8071278.mscx",
+   "movement": 2,
+   "reason": "tuplet 7:16 over 7 notes unsupported"
+  },
+  {
+   "file": "scores/Beethoven,_Ludwig_van/String_Quartet_No.13_in_B♭_major,_Op.130/sq11539384.mscx",
+   "movement": 3,
+   "reason": "tuplet 18:8 over 18 notes unsupported"
+  },
+  {
+   "file": "scores/Brahms,_Johannes/String_Quartet_No.3,_Op.67/sq8928855.mscx",
+   "movement": 1,
+   "reason": "tuplet 8:12 over 8 notes unsupported"
+  },
+  {
+   "file": "scores/Bridge,_Frank/String_Quartet_No.1,_H.70/sq8938822.mscx",
+   "reason": "composition rights not verified: composer died 1941, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Bridge,_Frank/String_Quartet_No.2,_H.115/sq9094235.mscx",
+   "reason": "composition rights not verified: composer died 1941, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Debussy,_Claude/String_Quartet_in_G_minor,_Op.10/sq8661306.mscx",
+   "movement": 4,
+   "reason": "tuplet 19:16 over 19 notes unsupported"
+  },
+  {
+   "file": "scores/Delius,_Frederick/String_Quartet_in_E_minor/sq9790696.mscx",
+   "reason": "composition rights not verified: composer died 1934, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Elgar,_Edward/String_Quartet,_Op.83/sq7362818.mscx",
+   "reason": "composition rights not verified: composer died 1934, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Glazunov,_Alexander/String_Quartet_No.1,_Op.1/sq7358579.mscx",
+   "reason": "composition rights not verified: composer died 1936, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Haydn,_Joseph/String_Quartet_in_D_major,_Hob.III63,_Op.64_No.5/sq7284122.mscx",
+   "movement": 2,
+   "reason": "tuplet 10:8 over 10 notes unsupported"
+  },
+  {
+   "file": "scores/Haydn,_Joseph/String_Quartet_in_D_minor,_Hob.III76,_Op.76_No.2/sq12772795.mscx",
+   "movement": 2,
+   "reason": "tuplet 9:2 over 12 notes unsupported"
+  },
+  {
+   "file": "scores/Haydn,_Joseph/String_Quartet_in_G_minor,_Hob.III74,_Op.74_No.3_(The_Horseman)/sq10313029.mscx",
+   "movement": 2,
+   "reason": "tuplet 10:4 over 10 notes unsupported"
+  },
+  {
+   "file": "scores/Indy,_Vincent_d’/String_Quartet_No.1,_Op.35/sq7354505.mscx",
+   "reason": "composition rights not verified: composer died 1931, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Krzyżanowska,_Halina/String_Quartet,_Op.44/sq7524617.mscx",
+   "reason": "composition rights not verified: composer died 1937, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Moeran,_Ernest_John/String_Quartet_in_A_minor/sq9071492.mscx",
+   "reason": "composition rights not verified: composer died 1950, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Müller-Hermann,_Johanna/String_Quartet,_Op.6/sq7541288.mscx",
+   "reason": "composition rights not verified: composer died 1941, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Nielsen,_Carl/String_Quartet_No.1,_Op.13/sq12536479.mscx",
+   "reason": "composition rights not verified: composer died 1931, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Ravel,_Maurice/String_Quartet_in_F_major/sq8482283.mscx",
+   "reason": "composition rights not verified: composer died 1937, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Schubert,_Franz/String_Quartet_in_C_minor,_D.703,_No.12/sq7648382.mscx",
+   "movement": 1,
+   "reason": "tuplet 12:12 over 1 notes unsupported"
+  },
+  {
+   "file": "scores/Schubert,_Franz/String_Quartet_in_C_minor,_D.703,_No.12/sq7648382.mscx",
+   "reason": "no usable movements"
+  },
+  {
+   "file": "scores/Schulhoff,_Erwin/String_Quartet_No.1/sq8630159.mscx",
+   "reason": "composition rights not verified: composer died 1942, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Smyth,_Ethel/String_Quartet_in_E_minor/sq7555331.mscx",
+   "reason": "composition rights not verified: composer died 1944, after 1929; needs a publication date check"
+  },
+  {
+   "file": "scores/Strauss,_Richard/String_Quartet_in_A_major,_Op.2/sq9608209.mscx",
+   "reason": "composition rights not verified: composer died 1949, after 1929; needs a publication date check"
+  }
+ ]
+}

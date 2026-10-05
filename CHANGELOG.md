@@ -1,3 +1,10 @@
+# OpenScore String Quartets · 2026-10-05
+
+- **368 first-violin movements** from 104 string quartets (Haydn, Mozart, Beethoven, Emilie Mayer, Mendelssohn, Brahms and more) join the library as Advanced practice parts, from the CC0 OpenScore String Quartets corpus, under a new **Chamber music** genre and **OpenScore String Quartets** collection.
+- The Lieder importer became `scripts/import-openscore.py` with profiles; the quartets profile splits each file into movements and admits only composers who died before 1930 (US public-domain rule), listing the rest for a publication-date check.
+
+---
+
 # OpenScore Lieder Corpus · 2026-10-05
 
 - **1,345 art songs** join the library as vocal-line practice parts, from the CC0 OpenScore Lieder Corpus: 143 composers; 25 Beginner, 702 Intermediate and 618 Advanced by the usual estimate, with a new **Art song** genre and **OpenScore Lieder** collection filter.

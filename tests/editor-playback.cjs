@@ -59,6 +59,7 @@ for (const f of [
   'rights-tools.js',
   'catalog-licensed.js',
   'catalog-lieder.js',
+  'catalog-quartets.js',
   'shared.js',
   'library.js',
   'editor.js',

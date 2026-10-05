@@ -29,6 +29,7 @@ vm.runInContext(fs.readFileSync(require.resolve('../rights-tools.js'), 'utf8'), 
 vm.runInContext(
   fs.readFileSync(require.resolve('../catalog-licensed.js'), 'utf8') +
     fs.readFileSync(require.resolve('../catalog-lieder.js'), 'utf8') +
+    fs.readFileSync(require.resolve('../catalog-quartets.js'), 'utf8') +
     '\nglobalThis.library=catalog;',
   context
 );
