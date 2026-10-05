@@ -1,17 +1,18 @@
 {
- "total": 5228,
+ "total": 5596,
  "baseline": 841,
- "added": 4387,
+ "added": 4755,
  "collections": {
   "FretFree teaching melodies": 4,
   "FretFree original studies": 8,
   "Mutopia": 1771,
   "O’Neill’s Music of Ireland (1903)": 1828,
   "Open Hymnal": 272,
-  "OpenScore Lieder": 1345
+  "OpenScore Lieder": 1345,
+  "OpenScore String Quartets": 368
  },
  "licenses": {
-  "CC0-1.0": 1357,
+  "CC0-1.0": 1725,
   "Public Domain": 1221,
   "GPL-2.0-or-later": 1828,
   "CC-BY-SA-4.0": 180,
@@ -29,5 +30,13 @@
   "files": 1352,
   "accepted": 1345,
   "excluded": 7
+ },
+ "quartetsAdded": 368,
+ "quartetsSource": {
+  "repo": "https://github.com/OpenScore/StringQuartets",
+  "commit": "9be3df2ace482130fe031b9e8a647cdf112ed243",
+  "files": 122,
+  "accepted": 368,
+  "excluded": 27
  }
 }

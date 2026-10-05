@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Import vocal lines from the OpenScore Lieder Corpus (CC0) as FretFree practice parts.
+"""Import single-line practice parts from OpenScore corpora (CC0) into FretFree.
 
-Usage: python3 scripts/import-lieder.py /path/to/Lieder-clone
+Usage: python3 scripts/import-openscore.py lieder   /path/to/Lieder-clone
+       python3 scripts/import-openscore.py quartets /path/to/StringQuartets-clone
 
-Reads every MuseScore .mscx file, takes the top vocal staff (voice 1), and writes it as single-line ABC:
-pitch spelling from MuseScore's tonal pitch class, durations, dots, ties, tuplets, repeats and first/second
-endings, key and meter changes, and the opening tempo. Piano staffs, lyrics, grace notes, dynamics and
-other markings are omitted. Leading and trailing bars of silence (piano introductions and postludes) are
-trimmed. Each candidate is then checked by scripts/validate-candidates.cjs (abcjs parse, MIDI, transposition)
-and only accepted rows are written to catalog-lieder.js, with rights metadata appended to catalog-rights.json
-and counts to scripts/library-stats.json. Exclusions are listed in scripts/lieder-exclusions.json.
+Reads every MuseScore .mscx file, takes one staff's first voice (the top vocal staff for Lieder, Violin 1 for
+quartets), and writes it as single-line ABC: pitch spelling from MuseScore's tonal pitch class, durations, dots,
+ties, tuplets, repeats and first/second endings, key and meter changes, and the opening tempo. Other staffs,
+lyrics, grace notes, dynamics and other markings are omitted. Leading and trailing bars of silence are trimmed.
+Quartets are split into movements at section breaks, or where a final barline is followed by a new tempo marking.
+Each candidate is then checked by scripts/validate-candidates.cjs (abcjs parse, MIDI, transposition) and only
+accepted rows are written to the profile's catalog file, with rights metadata appended to catalog-rights.json and
+counts to scripts/library-stats.json. Exclusions are listed per profile in scripts/<profile>-exclusions.json.
 """
 import glob
 import hashlib
@@ -25,7 +27,6 @@ from fractions import Fraction
 import yaml
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REPO = 'https://github.com/OpenScore/Lieder'
 LICENSE_URL = 'https://creativecommons.org/publicdomain/zero/1.0/'
 
 DURATIONS = {
@@ -109,6 +110,25 @@ def text_of(el, path, default=''):
     return (found.text or '').strip() if found is not None and found.text else default
 
 
+# Metronome marks in MuseScore text are <sym> glyphs; name the common ones so a title can read "Allegro (♩ = 76)".
+SMUFL_GLYPHS = str.maketrans({'\uECA2': '𝅝', '\uECA3': '𝅗𝅥', '\uECA5': '♩', '\uECA7': '♪', '\uECA9': '𝅘𝅥𝅯', '\uECB7': '.'})
+METRONOME_GLYPHS = {'metNoteWhole': '𝅝', 'metNoteHalfUp': '𝅗𝅥', 'metNoteQuarterUp': '♩', 'metNote8thUp': '♪', 'metNote16thUp': '𝅘𝅥𝅯', 'metAugmentationDot': '.'}
+
+
+def tempo_label(text_el):
+    """Plain text of a MuseScore tempo marking, with metronome glyphs named and markup removed."""
+    if text_el is None:
+        return ''
+    # MuseScore stores the marking's markup as text, so <sym> tags arrive escaped inside the text node.
+    raw = ''.join(text_el.itertext())
+    raw = re.sub(r'<sym>(\w+)</sym>', lambda m: METRONOME_GLYPHS.get(m.group(1), ''), raw)
+    raw = re.sub(r'<[^>]+>', '', raw)
+    # Glyphs typed in the ScoreText font are SMuFL private-use characters; name the metronome notes, drop the rest.
+    raw = raw.translate(SMUFL_GLYPHS)
+    raw = re.sub(r'[\ue000-\uf8ff]', '', raw)
+    return re.sub(r'\s+', ' ', raw).strip(' .,;:-–')
+
+
 class Voice:
     """The playable events of one staff's first voice, measure by measure."""
 
@@ -129,11 +149,14 @@ class Voice:
                 elif tag == 'TimeSig':
                     meter = (int(text_of(el, 'sigN', '4')), int(text_of(el, 'sigD', '4')))
                     events.append(('meter', meter))
-                elif tag == 'Tempo' and tempo is None:
+                elif tag == 'Tempo':
                     try:
-                        tempo = float(text_of(el, 'tempo', '2'))
+                        value = float(text_of(el, 'tempo', '2'))
                     except ValueError:
-                        tempo = None
+                        value = None
+                    events.append(('tempo', (value, tempo_label(el.find('text')))))
+                    if tempo is None:
+                        tempo = value
                 elif tag in ('Chord', 'Rest'):
                     events.append(('note', el))
                 elif tag == 'Tuplet':
@@ -141,38 +164,60 @@ class Voice:
                 elif tag == 'endTuplet':
                     events.append(('endtuplet', None))
                 elif tag == 'Spanner' and el.get('type') == 'Volta' and el.find('Volta') is not None:
-                    endings = re.sub(r'[^0-9,]', '', text_of(el, 'Volta/endings', '') or text_of(el, 'Volta/beginText', '1'))
-                    events.append(('volta', endings or '1'))
+                    # Ending numbers 1-9 only: MuseScore sometimes stores 0 or a long list; abcjs reads [1, [2 or [1,2.
+                    numbers = sorted({int(n) for n in re.findall(r'\d+', text_of(el, 'Volta/endings', '') or text_of(el, 'Volta/beginText', '')) if 1 <= int(n) <= 9})
+                    if numbers:
+                        events.append(('volta', ','.join(str(n) for n in numbers)))
             self.measures.append({
                 'events': events,
                 'start_repeat': m.find('startRepeat') is not None,
                 'end_repeat': m.find('endRepeat') is not None,
                 'len': m.get('len'),
+                'section_end': any(b.text == 'section' for b in m.findall('LayoutBreak/subtype')),
+                'final_bar': any((b.findtext('subtype') or '') == 'end' for b in m.iter('BarLine')),
             })
         self.tempo = tempo
 
+    def movements(self):
+        """Measure ranges of the movements: a new one starts after a section break, or after a final barline when
+        the next bar carries a tempo marking. A file without either is one movement."""
+        starts = [0]
+        for i in range(1, len(self.measures)):
+            prev = self.measures[i - 1]
+            has_tempo = any(kind == 'tempo' for kind, _ in self.measures[i]['events'])
+            if prev['section_end'] or (prev['final_bar'] and has_tempo):
+                starts.append(i)
+        return [(a, b - 1) for a, b in zip(starts, starts[1:] + [len(self.measures)])]
 
-def convert(path, version):
-    """One .mscx file -> dict with abc and analysis, or raise ValueError when there is no usable vocal line."""
-    root = ET.parse(path).getroot()
+
+def load_voice(root, profile):
+    """The staff this profile practises: the top vocal staff for Lieder, else the first staff."""
     score = root.find('Score')
     parts = score.findall('Part')
     staffs = score.findall('Staff')
     if not parts or not staffs:
         raise ValueError('no parts')
-    # The vocal part: the first part whose instrument name looks vocal, else the top staff.
     chosen = None
-    for part in parts:
-        name = (text_of(part, 'Instrument/longName') or text_of(part, 'Instrument/trackName')).lower()
-        if any(w in name for w in VOCAL_WORDS):
-            chosen = part.find('Staff').get('id')
-            break
+    if profile['staff'] == 'vocal':
+        for part in parts:
+            name = (text_of(part, 'Instrument/longName') or text_of(part, 'Instrument/trackName')).lower()
+            if any(w in name for w in VOCAL_WORDS):
+                chosen = part.find('Staff').get('id')
+                break
     staff = next((s for s in staffs if s.get('id') == chosen), staffs[0])
-    voice = Voice(staff, version)
+    return Voice(staff, root.get('version', ''))
+
+
+def render(voice, lo=0, hi=None):
+    """Measures lo..hi of a voice -> dict with ABC body and analysis, or raise ValueError when too little sounds."""
+    if hi is None:
+        hi = len(voice.measures) - 1
     # Pass 1: collect note durations to pick the unit length and find the first/last sounding measure.
     smallest = Fraction(1, 4)
     sounding = []
     for i, m in enumerate(voice.measures):
+        if i < lo or i > hi:
+            continue
         has_note = False
         for kind, el in m['events']:
             if kind != 'note' or el.tag != 'Chord':
@@ -188,7 +233,8 @@ def convert(path, version):
         raise ValueError('fewer than 4 bars with notes')
     first, last = sounding[0], sounding[-1]
     unit = Fraction(1, 16) if smallest < Fraction(1, 16) else Fraction(1, 8)
-    # Pass 2: emit ABC.
+    # Pass 2: emit ABC. Key and meter carry in from everything before the first sounding bar; the tempo is the
+    # range's first marking (a movement's own), with a default when it has none.
     key = 0
     meter = (4, 4)
     for m in voice.measures[:first + 1]:
@@ -197,6 +243,12 @@ def convert(path, version):
                 key = value
             elif kind == 'meter':
                 meter = value
+    tempo, tempo_text = None, ''
+    for m in voice.measures[lo:hi + 1]:
+        marks = [value for kind, value in m['events'] if kind == 'tempo' and value[0] is not None]
+        if marks:
+            tempo, tempo_text = marks[0]
+            break
     header_key, header_meter = key, meter
     key_alters = sig_alters(key)
     bars = []
@@ -255,7 +307,7 @@ def convert(path, version):
                 if group is not None:
                     actual, normal, members = group
                     # abcjs draws (p:q:r tuplets for p up to 9; r is however many notes the group holds here.
-                    if not 2 <= actual <= 9 or len(members) > 9:
+                    if not 2 <= actual <= 9 or not 1 <= normal <= 9 or len(members) > 9:
                         raise ValueError(f'tuplet {actual}:{normal} over {len(members)} notes unsupported')
                     if idx == members[0]:
                         out.append(f'({actual}:{normal}:{len(members)}')
@@ -304,14 +356,13 @@ def convert(path, version):
     last_pc = pitches[-1] % 12
     minor_tonic = {k: (9 + 7 * k) % 12 for k in MAJOR_KEYS}[header_key]
     key_name = MINOR_KEYS[header_key] if last_pc == minor_tonic else MAJOR_KEYS[header_key]
-    tempo = voice.tempo
     bpm = int(round(tempo * 60)) if tempo else 80
     bpm = max(30, min(240, bpm))
     return {
         'body': body, 'key': key_name, 'meter': f'{header_meter[0]}/{header_meter[1]}', 'unit': unit, 'bpm': bpm,
         'bars': len(bars), 'notes': notes, 'pitchMin': min(pitches), 'pitchMax': max(pitches),
         'accidentals': accidentals, 'tuplets': has_tuplet, 'smallest': smallest,
-        'trimmed': (first, len(voice.measures) - 1 - last),
+        'trimmed': (first - lo, hi - last), 'tempoText': tempo_text,
     }
 
 
@@ -326,10 +377,69 @@ def level_for(info):
     return 'Intermediate'
 
 
+PROFILES = {
+    'lieder': {
+        'repo': 'https://github.com/OpenScore/Lieder',
+        'staff': 'vocal',
+        'split': False,
+        'prefix': 'lieder-',
+        'catalog': 'catalog-lieder.js',
+        'exclusions': 'lieder-exclusions.json',
+        'stats_key': 'lieder',
+        'collection': 'OpenScore Lieder',
+        'header': '% OpenScore Lieder Corpus (CC0 1.0). Encoded by OpenScore volunteers; vocal line only.',
+        'file_comment': '/* OpenScore Lieder Corpus vocal lines. CC0 1.0 encodings of public-domain songs; generated by scripts/import-openscore.py. */',
+        'declared': 'CC0 1.0 Universal (OpenScore Lieder Corpus)',
+        'composition': 'Public-domain nineteenth-century song; CC0 encoding',
+        'attribution': 'OpenScore Lieder Corpus, encoded by volunteers (https://github.com/OpenScore/Lieder)',
+        'source_label': 'OpenScore Lieder Corpus · MuseScore edition (CC0)',
+        'instrument': 'Voice and piano',
+        'style': 'Lied',
+        'edition': 'OpenScore Lieder Corpus',
+        'transform': 'Vocal line (top voice) extracted from the CC0 MuseScore edition; piano part, lyrics, grace notes and performance markings omitted.',
+        'genre': 'Art song',
+        'skill': 'Art song melody',
+        'rights': 'Nineteenth-century composition in the public domain. The OpenScore Lieder Corpus encoding is released under CC0 1.0; attribution to OpenScore Lieder is requested, not required. This practice part is the vocal line only.',
+        'describe': lambda composer, lyricist, movement: f'Song for voice and piano by {composer}' + (f', words by {lyricist}' if lyricist else '') + '. Vocal line as an editable practice part.',
+        'latest_death': None,
+    },
+    'quartets': {
+        'repo': 'https://github.com/OpenScore/StringQuartets',
+        'staff': 'first',
+        'split': True,
+        'prefix': 'sq-',
+        'catalog': 'catalog-quartets.js',
+        'exclusions': 'quartets-exclusions.json',
+        'stats_key': 'quartets',
+        'collection': 'OpenScore String Quartets',
+        'header': '% OpenScore String Quartets (CC0 1.0). Encoded by OpenScore volunteers; first violin part only.',
+        'file_comment': '/* OpenScore String Quartets first-violin parts, one movement each. CC0 1.0 encodings of public-domain works; generated by scripts/import-openscore.py. */',
+        'declared': 'CC0 1.0 Universal (OpenScore String Quartets)',
+        'composition': 'Public-domain string quartet (composer died before 1930); CC0 encoding',
+        'attribution': 'OpenScore String Quartets, encoded by volunteers (https://github.com/OpenScore/StringQuartets)',
+        'source_label': 'OpenScore String Quartets · MuseScore edition (CC0)',
+        'instrument': 'String quartet (first violin)',
+        'style': 'Chamber music',
+        'edition': 'OpenScore String Quartets',
+        'transform': 'First violin part of one movement, extracted from the CC0 MuseScore edition; the other three parts, grace notes and performance markings omitted.',
+        'genre': 'Chamber music',
+        'skill': 'First violin part',
+        'rights': 'String quartet in the public domain (composer died before 1930). The OpenScore String Quartets encoding is released under CC0 1.0; attribution to OpenScore is requested, not required. This practice part is the first violin line of one movement.',
+        'describe': lambda composer, lyricist, movement: f'First violin part of the string quartet by {composer}' + (f', {movement}' if movement else '') + '. One movement as an editable practice part.',
+        # Composition rights follow the US public-domain context; without per-work publication dates, admit only
+        # composers who died before 1930, whose works were published before 1930 with near certainty.
+        'latest_death': 1929,
+    },
+}
+
+
 def main():
-    if len(sys.argv) < 2:
+    if len(sys.argv) < 3 or sys.argv[1] not in PROFILES:
         sys.exit(__doc__)
-    src = os.path.abspath(sys.argv[1])
+    profile = PROFILES[sys.argv[1]]
+    key_name = profile['stats_key']
+    REPO = profile['repo']
+    src = os.path.abspath(sys.argv[2])
     commit = subprocess.run(['git', '-C', src, 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True).stdout.strip()
     composers = yaml.safe_load(open(os.path.join(src, 'data', 'composers.yaml'), encoding='utf-8'))
     by_path = {c['path']: c for c in composers.values() if isinstance(c, dict) and 'path' in c}
@@ -337,84 +447,104 @@ def main():
     candidates = []
     excluded = []
     files = sorted(glob.glob(os.path.join(src, 'scores', '**', '*.mscx'), recursive=True))
+    clean = lambda t: re.sub(r'\s+', ' ', t).replace('"', "'").strip()
     for path in files:
         rel = os.path.relpath(path, src)
         lc = os.path.splitext(os.path.basename(path))[0]
+        composer_dir = rel.split(os.sep)[1]
+        comp = by_path.get(composer_dir, {})
+        if profile['latest_death'] is not None and (not comp.get('died') or int(comp['died']) > profile['latest_death']):
+            excluded.append({'file': rel, 'reason': f"composition rights not verified: composer died {comp.get('died', 'unknown')}, after {profile['latest_death']}; needs a publication date check"})
+            continue
         try:
             root = ET.parse(path).getroot()
-            version = root.get('version', '')
             meta = {m.get('name'): (m.text or '').strip() for m in root.find('Score').findall('metaTag')}
-            info = convert(path, version)
+            voice = load_voice(root, profile)
+            ranges = voice.movements() if profile['split'] else [(0, len(voice.measures) - 1)]
+            infos = []
+            for n, (lo, hi) in enumerate(ranges, 1):
+                try:
+                    infos.append((n, render(voice, lo, hi)))
+                except ValueError as e:
+                    if not profile['split']:
+                        raise
+                    excluded.append({'file': rel, 'movement': n, 'reason': str(e)})
+            if not infos:
+                raise ValueError('no usable movements')
         except Exception as e:  # noqa: BLE001 - every failure is recorded, not hidden
             excluded.append({'file': rel, 'reason': str(e)})
             continue
-        clean = lambda t: re.sub(r'\s+', ' ', t).replace('"', "'").strip()
-        composer_dir = rel.split(os.sep)[1]
-        comp = by_path.get(composer_dir, {})
         composer = clean(meta.get('composer') or comp.get('name') or composer_dir.replace('_', ' '))
         years = f" ({comp['born']}–{comp['died']})" if comp.get('born') and comp.get('died') else ''
-        work = meta.get('workTitle', '').strip()
-        movement = meta.get('movementTitle', '').strip()
-        number = meta.get('movementNumber', '').strip()
-        work, movement = clean(work), clean(movement)
-        title = movement or work or lc
-        if movement and work and work != movement:
-            title = f'{movement} · {work}'
+        work = clean(meta.get('workTitle', ''))
+        movement_title = clean(meta.get('movementTitle', ''))
         set_name = rel.split(os.sep)[2].replace('_', ' ').strip()
         lyricist = clean(meta.get('lyricist') or meta.get('poet') or '')
-        header = [
-            f'% OpenScore Lieder Corpus (CC0 1.0). Encoded by OpenScore volunteers; vocal line only.',
-            f'% Source: {meta.get("source", REPO)} ; {REPO}/blob/{commit}/{rel.replace(os.sep, "/")}',
-            'X:1',
-            f'T:{title}',
-            f'C:{composer}',
-        ]
-        if lyricist:
-            header.append(f'% Words: {lyricist}')
-        header += [f'M:{info["meter"]}', f'L:{info["unit"].numerator}/{info["unit"].denominator}', f'Q:1/4={info["bpm"]}', f'K:{info["key"]}']
-        abc = '\n'.join(header) + '\n' + info['body'] + '\n'
         with open(path, 'rb') as fh:
             sha = hashlib.sha256(fh.read()).hexdigest()
-        level = level_for(info)
-        trimmed_note = ''
-        if info['trimmed'][0] or info['trimmed'][1]:
-            trimmed_note = f" Trimmed {info['trimmed'][0]} opening and {info['trimmed'][1]} closing bars of silence."
-        candidates.append({
-            'id': f'lieder-{lc[2:]}',
-            'title': title,
-            'composer': composer + years,
-            'abc': abc,
-            'collection': 'OpenScore Lieder',
-            'notationLicense': 'CC0-1.0',
-            'declaredLicense': 'CC0 1.0 Universal (OpenScore Lieder Corpus)',
-            'licenseURL': LICENSE_URL,
-            'compositionStatus': 'Public-domain nineteenth-century song; CC0 encoding',
-            'attribution': 'OpenScore Lieder Corpus, encoded by volunteers (https://github.com/OpenScore/Lieder)',
-            'source': meta.get('source') or REPO,
-            'sourceLabel': 'OpenScore Lieder Corpus · MuseScore edition (CC0)',
-            'sourceFile': f'{REPO}/blob/{commit}/{rel.replace(os.sep, "/")}',
-            'sourceSHA256': sha,
-            'sourceCommit': commit,
-            'originalInstrument': 'Voice and piano',
-            'lyricist': lyricist,
-            'set': set_name,
-            'style': 'Lied',
-            'edition': 'OpenScore Lieder Corpus',
-            'studyTransform': 'Vocal line (top voice) extracted from the CC0 MuseScore edition; piano part, lyrics, grace notes and performance markings omitted.' + trimmed_note,
-            'bars': info['bars'],
-            'studyNotes': info['notes'],
-            'pitchMin': info['pitchMin'],
-            'pitchMax': info['pitchMax'],
-            'kind': 'historic',
-            'genre': 'Art song',
-            'level': level,
-            'skill': 'Art song melody',
-            'rights': 'Nineteenth-century composition in the public domain. The OpenScore Lieder Corpus encoding is released under CC0 1.0; attribution to OpenScore Lieder is requested, not required. This practice part is the vocal line only.',
-            'description': f'Song for voice and piano by {composer}' + (f', words by {lyricist}' if lyricist else '') + '. Vocal line as an editable practice part.',
-            'reviewedAt': today,
-            'aliases': set_name,
-        })
-    scratch = os.path.join(ROOT, 'scripts', 'lieder-candidates.json')
+        for n, info in infos:
+            if profile['split']:
+                movement = f"{n}. {info['tempoText']}" if info['tempoText'] else f'Movement {n}'
+                title = f'{work or set_name or lc} · {movement}' if len(infos) > 1 else (work or set_name or lc)
+                entry_id = f"{profile['prefix']}{lc[2:]}-{n}"
+                describe_movement = movement if len(infos) > 1 else ''
+            else:
+                title = movement_title or work or lc
+                if movement_title and work and work != movement_title:
+                    title = f'{movement_title} · {work}'
+                entry_id = f"{profile['prefix']}{lc[2:]}"
+                describe_movement = ''
+            header = [
+                profile['header'],
+                f'% Source: {meta.get("source", REPO)} ; {REPO}/blob/{commit}/{rel.replace(os.sep, "/")}',
+                'X:1',
+                f'T:{title}',
+                f'C:{composer}',
+            ]
+            if lyricist:
+                header.append(f'% Words: {lyricist}')
+            header += [f'M:{info["meter"]}', f'L:{info["unit"].numerator}/{info["unit"].denominator}', f'Q:1/4={info["bpm"]}', f'K:{info["key"]}']
+            abc = '\n'.join(header) + '\n' + info['body'] + '\n'
+            level = level_for(info)
+            trimmed_note = ''
+            if info['trimmed'][0] or info['trimmed'][1]:
+                trimmed_note = f" Trimmed {info['trimmed'][0]} opening and {info['trimmed'][1]} closing bars of silence."
+            candidates.append({
+                'id': entry_id,
+                'title': title,
+                'composer': composer + years,
+                'abc': abc,
+                'collection': profile['collection'],
+                'notationLicense': 'CC0-1.0',
+                'declaredLicense': profile['declared'],
+                'licenseURL': LICENSE_URL,
+                'compositionStatus': profile['composition'],
+                'attribution': profile['attribution'],
+                'source': meta.get('source') or REPO,
+                'sourceLabel': profile['source_label'],
+                'sourceFile': f'{REPO}/blob/{commit}/{rel.replace(os.sep, "/")}',
+                'sourceSHA256': sha,
+                'sourceCommit': commit,
+                'originalInstrument': profile['instrument'],
+                'lyricist': lyricist,
+                'set': set_name,
+                'style': profile['style'],
+                'edition': profile['edition'],
+                'studyTransform': profile['transform'] + trimmed_note,
+                'bars': info['bars'],
+                'studyNotes': info['notes'],
+                'pitchMin': info['pitchMin'],
+                'pitchMax': info['pitchMax'],
+                'kind': 'historic',
+                'genre': profile['genre'],
+                'level': level,
+                'skill': profile['skill'],
+                'rights': profile['rights'],
+                'description': profile['describe'](composer, lyricist, describe_movement),
+                'reviewedAt': today,
+                'aliases': set_name,
+            })
+    scratch = os.path.join(ROOT, 'scripts', f'{key_name}-candidates.json')
     with open(scratch, 'w', encoding='utf-8') as fh:
         json.dump(candidates, fh, ensure_ascii=False)
     ready_path = scratch + '.ready.json'
@@ -425,41 +555,38 @@ def main():
         excluded.append({'file': e['id'], 'title': e.get('title'), 'reason': e['error']})
     for p in (scratch, ready_path, ready_path + '.errors.json'):
         os.remove(p)
-    # catalog-lieder.js
-    with open(os.path.join(ROOT, 'catalog-lieder.js'), 'w', encoding='utf-8') as fh:
-        fh.write('/* OpenScore Lieder Corpus vocal lines. CC0 1.0 encodings of public-domain songs; generated by scripts/import-lieder.py. */\n')
+    with open(os.path.join(ROOT, profile['catalog']), 'w', encoding='utf-8') as fh:
+        fh.write(profile['file_comment'] + '\n')
         fh.write('catalog.push(...' + json.dumps(ready, ensure_ascii=False) + ');\n')
-    # catalog-rights.json: replace any earlier lieder rows, then append the new ones without ABC.
+    # catalog-rights.json: replace any earlier rows of this profile, then append the new ones without ABC.
     rights_path = os.path.join(ROOT, 'catalog-rights.json')
-    rights = [r for r in json.load(open(rights_path, encoding='utf-8')) if not str(r.get('id', '')).startswith('lieder-')]
+    rights = [r for r in json.load(open(rights_path, encoding='utf-8')) if not str(r.get('id', '')).startswith(profile['prefix'])]
     for row in ready:
         meta = dict(row)
         meta.pop('abc', None)
         rights.append(meta)
     with open(rights_path, 'w', encoding='utf-8') as fh:
         json.dump(rights, fh, ensure_ascii=False, indent=2)
-    # library-stats.json
+    # library-stats.json, idempotently: remove the previous contribution of this profile before adding this run's.
     stats_path = os.path.join(ROOT, 'scripts', 'library-stats.json')
     stats = json.load(open(stats_path, encoding='utf-8'))
-    # Idempotent: remove the previous Lieder contribution before adding this run's.
-    previous = stats.get('liederAdded', 0)
-    stats['collections']['OpenScore Lieder'] = len(ready)
+    previous = stats.get(f'{key_name}Added', 0)
+    stats['collections'][profile['collection']] = len(ready)
     stats['licenses']['CC0-1.0'] = stats['licenses'].get('CC0-1.0', 0) - previous + len(ready)
     stats['added'] = stats['added'] - previous + len(ready)
     stats['total'] = stats['baseline'] + stats['added']
-    stats['liederAdded'] = len(ready)
-    stats.pop('lieder', None)
-    stats['liederSource'] = {'repo': REPO, 'commit': commit, 'files': len(files), 'accepted': len(ready), 'excluded': len(excluded)}
+    stats[f'{key_name}Added'] = len(ready)
+    stats[f'{key_name}Source'] = {'repo': REPO, 'commit': commit, 'files': len(files), 'accepted': len(ready), 'excluded': len(excluded)}
     with open(stats_path, 'w', encoding='utf-8') as fh:
         json.dump(stats, fh, ensure_ascii=False, indent=1)
         fh.write('\n')
-    with open(os.path.join(ROOT, 'scripts', 'lieder-exclusions.json'), 'w', encoding='utf-8') as fh:
+    with open(os.path.join(ROOT, 'scripts', profile['exclusions']), 'w', encoding='utf-8') as fh:
         json.dump({'commit': commit, 'files': len(files), 'accepted': len(ready), 'excluded': excluded}, fh, ensure_ascii=False, indent=1)
         fh.write('\n')
     levels = {}
     for r in ready:
         levels[r['level']] = levels.get(r['level'], 0) + 1
-    print(f'Lieder: {len(files)} files, {len(ready)} accepted, {len(excluded)} excluded; levels {levels}')
+    print(f"{profile['collection']}: {len(files)} files, {len(ready)} accepted, {len(excluded)} excluded; levels {levels}")
 
 
 if __name__ == '__main__':
