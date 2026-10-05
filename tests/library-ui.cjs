@@ -9,7 +9,7 @@ for(const id of ['meter','key'])get(id).options=[{value:id==='meter'?'4/4':'C'}]
 const persisted=new Map([['commonnote-scores-v1',JSON.stringify([{id:'legacy-score',title:'Existing saved tune',abc:'X:1\nT:Existing saved tune\nM:4/4\nL:1/4\nK:C\nC4 |]',updated:1}])],['commonnote-favorites-v1','["ode"]']]);
 const events={};const document={getElementById:get,querySelectorAll:()=>[],addEventListener:(name,cb)=>events[name]=cb,hidden:false};
 const context={document,console,Option:function(text,value){this.text=text;this.value=value},localStorage:{getItem:key=>persisted.get(key)||null,setItem:(key,val)=>persisted.set(key,val)},location:{hash:''},history:{replaceState(){}},window:{scrollTo(){},addEventListener(){}},ABCJS:{...real,renderAbc:(_,source)=>real.parseOnly(source)},setTimeout:()=>1,clearTimeout(){},confirm:()=>true,crypto:{randomUUID:()=> 'new-score-test'},Uint8Array,DataView,Map,atob};vm.createContext(context);
-for(const file of ['catalog.js','catalog-expanded.js','score-tools.js','rights-tools.js','catalog-licensed.js','catalog-skills.js','app.js'])vm.runInContext(fs.readFileSync(require.resolve('../'+file),'utf8'),context);
+for(const file of ['catalog.js','catalog-expanded.js','score-tools.js','rights-tools.js','catalog-licensed.js','catalog-skills.js','shared.js','library.js','editor.js','playback.js','app.js'])vm.runInContext(fs.readFileSync(require.resolve('../'+file),'utf8'),context);
 const run=code=>vm.runInContext(code,context);
 assert.equal(run('saved[0].id'),'legacy-score','Renaming preserves existing saved scores');assert.ok(run('favorites.includes("ode")'),'Existing favorites preserved');
 assert.ok(run('filteredCatalog().length')>=200);assert.equal(get('hero-count').textContent,'01 / '+run('catalog.length'));

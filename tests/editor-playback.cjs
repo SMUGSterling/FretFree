@@ -10,7 +10,7 @@ w.localStorage.setItem('commonnote-scores-v1',JSON.stringify([legacy]));w.localS
 const oscillators=[];
 class FakeAudio{constructor(){this.currentTime=10;this.destination={}}async resume(){}createOscillator(){const o={frequency:{value:0},connect(){},start(t){this.startAt=t},stop(t){this.stopAt=t}};oscillators.push(o);return o}createGain(){return {gain:{setValueAtTime(){},linearRampToValueAtTime(){},exponentialRampToValueAtTime(){}},connect(){}}}}
 w.AudioContext=FakeAudio;
-for(const f of ['vendor/abcjs-basic-min.js','catalog.js','catalog-expanded.js','score-tools.js','rights-tools.js','catalog-licensed.js','app.js'])run(fs.readFileSync(path.join(root,f),'utf8'));
+for(const f of ['vendor/abcjs-basic-min.js','catalog.js','catalog-expanded.js','score-tools.js','rights-tools.js','catalog-licensed.js','shared.js','library.js','editor.js','playback.js','app.js'])run(fs.readFileSync(path.join(root,f),'utf8'));
 const source='% Unicode ♫\n\nX:1\nT:Click and drag\nM:4/4\nL:1/4\nQ:1/4=100\nK:C\n|: C D E F | G4 :| c4 |]';
 // Tab and fingering are display-only extra staffs; this loop checks note-to-source mapping on the music staff.
 run("$('fingering').checked=false");
