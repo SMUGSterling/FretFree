@@ -1,0 +1,35 @@
+{
+ "commit": "38c5db510224d9facdc4b08d741fc788cfb58ea8",
+ "files": 1352,
+ "accepted": 1345,
+ "excluded": [
+  {
+   "file": "scores/Boulton,_Harold/12_New_Songs/10_For_Ever_Mine/lc6416048.mscx",
+   "reason": "tuplet 12:8 over 11 notes unsupported"
+  },
+  {
+   "file": "scores/Debussy,_Claude/Trois_Chansons_de_Bilitis/2_La_Chevelure/lc5079450.mscx",
+   "reason": "tuplet 3:2 over 13 notes unsupported"
+  },
+  {
+   "file": "scores/Gabriel,_Virginia/_/Only/lc6603244.mscx",
+   "reason": "fewer than 4 bars with notes"
+  },
+  {
+   "file": "scores/Gray,_Louisa/_/Sleep_on,_and_dream_of_me/lc6620571.mscx",
+   "reason": "fewer than 4 bars with notes"
+  },
+  {
+   "file": "scores/Guest,_Jane_Mary/_/The_Bonnie_Wee_Wife/lc6621051.mscx",
+   "reason": "fewer than 4 bars with notes"
+  },
+  {
+   "file": "scores/Lehmann,_Liza/2_Seal_Songs/1_The_Mother_Seal’s_Lullaby/lc6573515.mscx",
+   "reason": "fewer than 4 bars with notes"
+  },
+  {
+   "file": "scores/Lehmann,_Liza/Songs_of_Love_and_Spring/04_Dawning_Love/lc6762153.mscx",
+   "reason": "fewer than 4 bars with notes"
+  }
+ ]
+}
