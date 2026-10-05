@@ -158,6 +158,10 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  await page.click('#play');assert.match(await page.locator('#play-status').textContent(),/Measures 3–3/);
  await page.evaluate(()=>$('speed').value=75);await page.locator('#speed').dispatchEvent('input');assert.equal(await page.locator('#speed-value').textContent(),'75%');
  assert.equal(await page.evaluate(()=>$('abc').value),source,'Speed preserves Q/source');await page.click('#stop');
+ // Skill chips: clicking a card's chip filters the library to that skill; clicking it again clears the filter.
+ await page.evaluate(()=>{dirty=false;show('library')});await page.locator('#cards .chip',{hasText:'Steps'}).first().click();
+ assert.deepEqual(await page.evaluate(()=>[$('skill-filter').value,filteredCatalog().every(x=>scoreSkills(x).includes('Steps')),document.querySelectorAll('#cards .chip[aria-pressed="true"]').length>0]),['Steps',true,true],'Chip applies the skill filter');
+ await page.locator('#cards .chip[aria-pressed="true"]').first().click();assert.equal(await page.evaluate(()=>$('skill-filter').value),'all','Clicking the active chip clears the filter');
  // Library preview: Listen plays the card's opening line and lights its notes; one preview at a time; opening a score stops it.
  await page.evaluate(()=>{dirty=false;show('library')});await page.locator('[data-listen="ode"]').click();
  await page.waitForFunction(()=>document.querySelectorAll('.mini-score .abcjs-playing').length>0);
@@ -172,5 +176,5 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('commonnote-scores-v1'))[0].id),'legacy');
  assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('commonnote-favorites-v1'))),['ode','mutopia-263']);
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),'Mobile page fits viewport');
- assert.deepEqual(errors,[]);await browser.close();console.log('PASS: library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.');
+ assert.deepEqual(errors,[]);await browser.close();console.log('PASS: skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.');
 })().catch(e=>{console.error(e);process.exit(1)});

@@ -21,3 +21,4 @@
 .card-bottom button{white-space:nowrap}.card-bottom .listen{margin-left:auto}
 .card.previewing{border-color:var(--orange);box-shadow:0 0 0 1px var(--orange)}.card.previewing .listen{background:#9e4d28;border-color:#9e4d28;color:#fff}
 .mini-score .abcjs-playing,.mini-score .abcjs-playing path{fill:#d9480f;color:#d9480f}
+.card-skills{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 12px}.chip{font-size:10px;letter-spacing:.3px;padding:3px 8px;border-radius:999px;border:1px solid var(--border);background:#f1f3ea;color:var(--ink);cursor:pointer}.chip:hover{border-color:var(--green)}.chip[aria-pressed="true"]{background:var(--green);border-color:var(--green);color:#fff}

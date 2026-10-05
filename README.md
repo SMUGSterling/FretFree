@@ -17,6 +17,8 @@ See `scripts/library-stats.json` for exact counts and license versions. The orig
 
 Filter by collection, exact notation/edition license, genre, difficulty, and score type. Search also includes collection and contributor credits. Accepted license families are PD, CC0, CC BY, CC BY-SA, and GPL. Actual versions are preserved; no licenses are silently upgraded. Difficulty labels are estimates.
 
+**Skill filter.** Every score is tagged with what it practises, read from the music itself: Steps, Skips (thirds), Leaps, Repeated notes, Eighth notes, Sixteenth notes, Dotted rhythms, Triplets, Triple meter, Compound meter, Minor key, Accidentals, Chords, Rests, Wide range (an octave and a fourth or more) and Repeats. Filter by skill, click a tag on a card to filter by it (click again to clear), or type a skill in the search box. Tags live in `catalog-skills.js`, built by `node scripts/build-skills.cjs` from `skillTags()` in `score-tools.js`; `tests/check.cjs` fails when the file is stale. The original `skill` label on each card is kept.
+
 **▶ Listen** on a library card plays the line of music shown on the card (up to 20 seconds) and lights up its notes, so students can hear a tune before opening it. It uses the instrument filter's sound, or piano when no instrument is chosen. One preview plays at a time; click again, change a filter or favorite, open a score, or leave the library to stop it.
 
 Public-domain declarations follow the source’s United States context. A public-domain composition does not make a modern transcription or arrangement public domain. Consult each edition’s rights notice and `catalog-rights.json` when sharing.

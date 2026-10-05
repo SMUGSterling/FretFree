@@ -229,3 +229,46 @@ function labelSource(source,mode){
 // Limited to the beginner range (C to D', with F♯ and B♭) where school charts agree.
 const RECORDER_FINGERING={60:[1,1,1,1,1,1,1,1],62:[1,1,1,1,1,1,1,0],64:[1,1,1,1,1,1,0,0],65:[1,1,1,1,1,0,1,1],66:[1,1,1,1,0,1,1,0],67:[1,1,1,1,0,0,0,0],69:[1,1,1,0,0,0,0,0],70:[1,1,0,1,1,0,0,0],71:[1,1,0,0,0,0,0,0],72:[1,0,1,0,0,0,0,0],74:[0,0,1,0,0,0,0,0]};
 
+// Skill tags, worked out from the music itself so every score can be found by what it teaches.
+// Written in the words students use. Keep the list in this order: it's the order of the Skill filter.
+const SKILLS=['Steps','Skips','Leaps','Repeated notes','Eighth notes','Sixteenth notes','Dotted rhythms','Triplets','Triple meter','Compound meter','Minor key','Accidentals','Chords','Rests','Wide range','Repeats'];
+// MIDI number of a parsed pitch: the key signature applies unless the bar already carried an accidental for that note.
+function pitchMidi(p,alters,carried){
+ const letter='CDEFGAB'[((p.pitch%7)+7)%7],explicit=p.accidental&&p.accidental!=='none';
+ if(explicit)carried.set(p.pitch,ALTER[p.accidental]??0);
+ return 60+Math.floor(p.pitch/7)*12+LETTER_SEMIS['CDEFGAB'.indexOf(letter)]+(carried.has(p.pitch)?carried.get(p.pitch):alters[letter]||0);
+}
+function skillTags(tune){
+ const tags=new Set();let steps=0,skips=0,leaps=0,same=0,intervals=0,notes=0,rests=0,accidentals=0,lo=Infinity,hi=-Infinity;
+ for(const line of tune.lines)for(const staff of line.staff||[]){
+  const meter=staff.meter?.value?.[0],num=+meter?.num,den=+meter?.den;
+  if(num===3)tags.add('Triple meter');if(den===8&&num>3&&num%3===0)tags.add('Compound meter');
+  if(/^(m|min|minor|aeo|aeolian|dor|dorian|phr|phrygian)/i.test(staff.key?.mode||''))tags.add('Minor key');
+  const alters=keyAlters(staff.key);
+  for(const voice of staff.voices||[]){
+   let last=null,carried=new Map();
+   for(const e of voice){
+    if(e.el_type==='bar'){if(/repeat/.test(e.type))tags.add('Repeats');carried=new Map();continue}
+    if(e.el_type!=='note')continue;
+    if(e.startTriplet)tags.add('Triplets');
+    const d=e.duration;
+    if(d>0){if(d<1/8+1e-9&&d>1/16+1e-9)tags.add('Eighth notes');if(d<=1/16+1e-9)tags.add('Sixteenth notes');
+     for(const base of [1/4,1/8,1/16,1/2])if(Math.abs(d-base*1.5)<1e-9)tags.add('Dotted rhythms')}
+    if(!e.pitches?.length){rests++;last=null;continue}
+    notes++;if(e.pitches.length>1)tags.add('Chords');
+    let pitch=null;
+    for(const p of e.pitches){if(p.accidental&&p.accidental!=='none')accidentals++;const midi=pitchMidi(p,alters,carried);pitch??=midi;lo=Math.min(lo,midi);hi=Math.max(hi,midi)}
+    // Intervals in semitones: steps are seconds, skips thirds, leaps a fourth or more.
+    if(last!=null){const gap=Math.abs(pitch-last);intervals++;if(gap===0)same++;else if(gap<=2)steps++;else if(gap<=4)skips++;else leaps++}
+    last=pitch;
+   }
+  }
+ }
+ if(intervals>=6){
+  if(steps/intervals>=.6)tags.add('Steps');if(skips/intervals>=.25)tags.add('Skips');if(leaps/intervals>=.2)tags.add('Leaps');if(same/intervals>=.3)tags.add('Repeated notes');
+ }
+ if(accidentals>=2)tags.add('Accidentals');if(rests>=3&&rests/(notes+rests)>=.08)tags.add('Rests');if(hi-lo>=17)tags.add('Wide range');
+ return SKILLS.filter(s=>tags.has(s));
+}
+// catalog-skills.js stores each score's tags as a bit mask over SKILLS, to keep the file small.
+const skillMask=tags=>tags.reduce((m,t)=>m|1<<SKILLS.indexOf(t),0),skillsFromMask=mask=>SKILLS.filter((s,i)=>mask>>i&1);
