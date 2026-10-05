@@ -36,6 +36,12 @@ Each edition has its own public-domain dedication or exact CC BY / CC BY-SA vers
 
 The editable FretFree study is an adaptation: upper MIDI track, highest note at simultaneous onsets, up to 32 bars, durations quantized to sixteenth notes, with accompaniment/performance markings omitted. CC BY credit, license, source, and change notices remain attached. CC BY-SA studies and user adaptations retain the same exact edition license when shared. Public-domain editions remain explicitly distinguished from licensed transcriptions/arrangements.
 
+## OpenScore Lieder Corpus
+
+Source: https://github.com/OpenScore/Lieder (MuseScore `.mscx` editions), pinned to the commit recorded in `scripts/lieder-exclusions.json` and on every entry (`sourceCommit`, `sourceFile`, `sourceSHA256`). License: https://github.com/OpenScore/Lieder/blob/main/LICENSE.txt, **CC0 1.0 Universal**; the project asks for, but does not require, credit to OpenScore Lieder. The compositions are nineteenth-century songs in the public domain.
+
+The practice part is explicitly labeled **vocal line only**: `scripts/import-lieder.py` takes the top vocal staff's first voice and writes pitch spelling (from MuseScore's tonal pitch class), durations, ties, tuplets, repeats and endings, key and meter changes, and the opening tempo. The piano part, lyrics, grace notes, dynamics and other markings are omitted, and bars of silence before the first and after the last sung note are trimmed (the entry's `studyTransform` says how many). Irregular bar lengths in the source (cadenza bars, written-out pickups) are kept as written. Each candidate must parse, play and transpose cleanly under `scripts/validate-candidates.cjs`; the few that do not are listed in `scripts/lieder-exclusions.json` with the reason. Original files are not vendored (665 MB): each entry records the pinned GitHub path and SHA-256 of its source instead.
+
 ## FretFree baseline studies
 
 The four historical teaching melodies and eight original exercises retain their baseline CC0-1.0 notation dedication. Their IDs, ABC, and favorites remain compatible. Other baseline Mutopia editions retain their public-domain declarations.

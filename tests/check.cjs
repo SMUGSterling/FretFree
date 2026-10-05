@@ -27,7 +27,9 @@ vm.runInContext(
 );
 vm.runInContext(fs.readFileSync(require.resolve('../rights-tools.js'), 'utf8'), context);
 vm.runInContext(
-  fs.readFileSync(require.resolve('../catalog-licensed.js'), 'utf8') + '\nglobalThis.library=catalog;',
+  fs.readFileSync(require.resolve('../catalog-licensed.js'), 'utf8') +
+    fs.readFileSync(require.resolve('../catalog-lieder.js'), 'utf8') +
+    '\nglobalThis.library=catalog;',
   context
 );
 vm.runInContext(fs.readFileSync(require.resolve('../score-tools.js'), 'utf8'), context);

@@ -1,3 +1,10 @@
+# OpenScore Lieder Corpus · 2026-10-05
+
+- **1,345 art songs** join the library as vocal-line practice parts, from the CC0 OpenScore Lieder Corpus: 143 composers; 25 Beginner, 702 Intermediate and 618 Advanced by the usual estimate, with a new **Art song** genre and **OpenScore Lieder** collection filter.
+- `scripts/import-lieder.py` converts MuseScore `.mscx` to ABC (pitch spelling, ties, tuplets, repeats and endings, key and meter changes, tempo), trims piano introductions, validates each score, and records the pinned source path and hash per entry.
+
+---
+
 # Share by link · 2026-10-05
 
 - **Share link** under a score: the URL carries the score itself (ABC, instrument, source edition for credits), compressed into the `#s=` hash. Nothing is uploaded. Opening a link shows the copy as a "Shared score" ready to play, edit or save.

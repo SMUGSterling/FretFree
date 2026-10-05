@@ -58,6 +58,7 @@ for (const f of [
   'score-tools.js',
   'rights-tools.js',
   'catalog-licensed.js',
+  'catalog-lieder.js',
   'shared.js',
   'library.js',
   'editor.js',
