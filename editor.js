@@ -712,7 +712,7 @@ function drawNote(t) {
     rightBar = items.find(i => isBar(i) && i.x > t.x),
     inBar = items.filter(i => !isBar(i) && (!leftBar || i.x > leftBar.x) && (!rightBar || i.x < rightBar.x)),
     nearest = inBar.reduce((best, i) => (!best || Math.abs(i.x - t.x) < Math.abs(best.x - t.x) ? i : best), null);
-  if (nearest?.entry.element.rest) {
+  if (nearest?.entry.element.rest && nearest.entry.element.rest.type !== 'multimeasure') {
     fillRest(nearest.entry, pitchToken(t.written - Math.round((config.shift * 7) / 12)), beatLength());
     $('selection-status').textContent =
       `Added ${pitchName(t.written)} on the rest · right-click it to change accidental or length`;
