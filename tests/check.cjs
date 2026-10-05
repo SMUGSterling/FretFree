@@ -163,6 +163,21 @@ assert.ok(chords.notes.filter(x => x.start === 0).length === 3, 'chord playback 
   console.error(e);
   process.exit(1);
 });
+// Non-commercial wording: the NC note appears for every CC NC licence, and the ShareAlike sentence only for -SA-,
+// including the plain CC BY-NC case that no catalog edition exercises yet.
+{
+  const nc = {notationLicense: 'CC-BY-NC-4.0', rights: 'r'},
+    ncsa = {notationLicense: 'CC-BY-NC-SA-3.0', rights: 'r'},
+    sa = {notationLicense: 'CC-BY-SA-4.0', rights: 'r'};
+  assert.ok(context.nonCommercial(nc) && context.nonCommercial(ncsa) && !context.nonCommercial(sa));
+  assert.equal(context.licenseLabel(nc), 'CC-BY-NC-4.0 · NON-COMMERCIAL EDITION');
+  assert.equal(context.licenseLabel(sa), 'CC-BY-SA-4.0 · LICENSED EDITION');
+  assert.match(context.nonCommercialNote(nc), /^Non-commercial edition: .*not for sale/);
+  assert.ok(!/same license/.test(context.nonCommercialNote(nc)), 'Plain CC BY-NC carries no ShareAlike obligation');
+  assert.match(context.nonCommercialNote(ncsa), /Adaptations keep the same license\.$/);
+  assert.ok(context.exportCredit(nc).includes('Non-commercial edition'), 'Exports carry the NC note');
+  assert.ok(!context.exportCredit(sa).includes('Non-commercial edition'), 'SA-only exports do not');
+}
 // Skill tags are read from the music; catalog-skills.js must match what skillTags() says about every score today.
 {
   const tags = abc => context.skillTags(ABCJS.parseOnly(abc)[0]).join(', ');
