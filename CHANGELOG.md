@@ -1,3 +1,10 @@
+# Code layout · 2026-10-05
+
+- `app.js` split into `shared.js`, `library.js`, `editor.js`, `playback.js` and a small `app.js` for wiring; `render()` broken into engrave, index, selection, caption, source-edition and rights steps.
+- One Prettier style across the first-party scripts (`npm run format`, checked in CI); storage keys gathered in `KEYS`; the instrument select read through `currentInstrument()`.
+
+---
+
 # Test runner and CI · 2026-10-05
 
 - `package.json` with `npm test` (node suites), `npm run test:browser` and `npm run test:all`; GitHub Actions runs all suites on every pull request and push to `main`.

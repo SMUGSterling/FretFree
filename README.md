@@ -61,6 +61,8 @@ The update performs no migration, clearing, or ID replacement. Existing saved AB
 
 `catalog-rights.json` records per-edition rights; `provenance/` preserves listing evidence; `scores/<id>/` preserves original assets and `RIGHTS.txt`; `licenses/` retains collection notices and license texts. `scripts/` includes import inputs, exclusions, duplicate reports, and library statistics. `VALIDATION.md` records the completed checks.
 
+Code layout: `shared.js` (DOM and storage helpers, `KEYS`, `currentInstrument()`), `library.js` (cards, filters, previews, suggestions), `editor.js` (the open score, rendering, undo, bar check, draw mode, note menu, keyboard entry, fingering, prompts), `playback.js` (audio scheduling, metronome, trainer, note highlight) and `app.js` (wiring and start-up, loaded last). `score-tools.js` holds pure functions over parsed ABC; `rights-tools.js` the credits and licence text. Run `npm run format` before committing; CI checks it.
+
 Tests (development dependencies are not required to host; `package.json` exists only for them):
 
 ```

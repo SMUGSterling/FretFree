@@ -133,6 +133,8 @@ function updateMeasures() {
   $('measure-count').textContent = `of ${total}`;
   shadeRange();
 }
+// Rendering the open score: engrave the written-pitch ABC, index the drawn notes against the source, then refresh
+// the measures, checks and panels around the score. Everything else reads the state this sets.
 function render() {
   stop();
   recordHistory();
@@ -144,64 +146,84 @@ function render() {
     const original = ABCJS.parseOnly(renderedSource)[0];
     const display = ABCJS.parseOnly(source)[0];
     noteSources = sourceMap(original, display);
-    const tunes = ABCJS.renderAbc('notation', source, {
-      responsive: 'resize',
-      staffwidth: 740,
-      add_classes: true,
-      dragging: true,
-      selectTypes: ['note', 'bar'],
-      selectionColor: '#317761',
-      dragColor: '#ba663d',
-      clickListener: scoreClick,
-      ...(fingeringShown() === 'guitar' ? {tablature: [{instrument: 'guitar', label: 'Guitar'}]} : {}),
-      ...(fingeringShown() === 'recorder'
-        ? {paddingbottom: 120}
-        : fingeringShown() === 'guitar'
-          ? {paddingbottom: 40}
-          : {})
-    });
-    renderedTune = tunes[0];
+    renderedTune = ABCJS.renderAbc('notation', source, engraveOptions())[0];
     if (scoreFocused) focusScore();
     updateFingering(source);
-    {
-      const shown = scoreEvents(display),
-        lengths = effectiveDurations(shown);
-      noteDurations = new Map(shown.map(e => [e.element.startChar, lengths.get(e.element) || 0]));
-      shownElements = new Map(shown.map(e => [e.element.startChar, e.element]));
-    }
-    staffClefs = display.lines.filter(l => l.staff).map(l => l.staff.map(st => st.clef?.verticalPos || 0));
+    indexDisplay(display);
     updateMeasures();
     updateBarCheck(original);
     updatePromptCheck(display);
-    if (selectedRange && renderedTune?.engraver) {
-      const match = [...noteSources.entries()].find(([, e]) => e?.element.startChar === selectedRange[0]);
-      if (match) {
-        const shown = scoreEvents(display).find(e => e.element.startChar === match[0]);
-        if (shown) renderedTune.engraver.rangeHighlight(shown.element.startChar, shown.element.endChar);
-      }
-    }
-    $('warnings').textContent = (tunes[0]?.warnings || []).map(x => String(x).replace(/<[^>]+>/g, '')).join(' · ');
-    $('workspace-heading').textContent = field('T', 'Untitled melody');
-    const config = instruments[currentInstrument()];
-    $('score-caption').textContent =
-      `${currentInstrument()} · ${config.clef} clef · ${config.shift === 2 || config.shift === 9 ? 'Written pitch shown; ABC source and MIDI are concert pitch.' : config.shift === -12 ? 'Melody lowered one octave for bass range.' : 'Concert pitch melody part.'}`;
-    const edition = $('source-edition');
-    edition.hidden = !(current?.pdf || current?.originalSource);
-    if (current?.pdf) {
-      edition.innerHTML = `<strong>Complete source edition</strong><p>The editor shows an extracted upper-part study, up to 32 bars. The original PDF below includes the complete score for ${esc(current.originalInstrument)}.</p><div class="source-actions"><a class="button-link" href="${esc(current.pdf)}" target="_blank" rel="noopener">Open complete PDF ↗</a><a class="button-link" href="${esc(current.pdf)}" download>Download PDF</a><a class="button-link" href="${esc(current.originalMidi)}" download>Original MIDI</a>${current.originalSource ? `<a class="button-link" href="${esc(current.originalSource)}" download>Original editable source</a>` : ''}</div>`;
-    } else if (current?.originalSource) {
-      edition.innerHTML = `<strong>Complete original ABC source</strong><p>${esc(current.studyTransform)} License: ${esc(scoreLicense(current))}. See the credit notice below before sharing.</p><a class="button-link" href="${esc(current.originalSourceDownload || current.originalSource)}" download>${current.originalSourceDownload ? 'Download original ABC + license bundle' : 'Download complete original ABC'}</a>`;
-    }
-    const r = current?.rights;
-    if (r) {
-      $('rights').innerHTML =
-        `<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${current.attribution ? `Credit: ${esc(current.attribution)}<br>` : ''}${current.licenseURL ? `<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>` : ''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty ? 'Your edits stay private. Export or save a copy to preserve them.' : 'Use, print, practice, and adapt this teaching version.'}</span>`;
-    } else {
-      $('rights').innerHTML =
-        '<strong>Your private workspace</strong>Your work stays on this device. Imported music keeps its original rights; importing or editing a file does not make it public domain.';
-    }
+    restoreSelection(display);
+    $('warnings').textContent = (renderedTune?.warnings || []).map(x => String(x).replace(/<[^>]+>/g, '')).join(' · ');
+    updateCaption();
+    updateSourceEdition();
+    updateRights();
   } catch (e) {
     $('warnings').textContent = 'Could not render this score: ' + e.message;
+  }
+}
+// abcjs options for the main score. Guitar adds a tab staff; recorder leaves room below for the fingering diagrams.
+function engraveOptions() {
+  const fingering = fingeringShown();
+  return {
+    responsive: 'resize',
+    staffwidth: 740,
+    add_classes: true,
+    dragging: true,
+    selectTypes: ['note', 'bar'],
+    selectionColor: '#317761',
+    dragColor: '#ba663d',
+    clickListener: scoreClick,
+    ...(fingering === 'guitar' ? {tablature: [{instrument: 'guitar', label: 'Guitar'}], paddingbottom: 40} : {}),
+    ...(fingering === 'recorder' ? {paddingbottom: 120} : {})
+  };
+}
+// Per drawn note: its effective duration and parsed element (by display offset), plus each staff's clef offset.
+function indexDisplay(display) {
+  const shown = scoreEvents(display),
+    lengths = effectiveDurations(shown);
+  noteDurations = new Map(shown.map(e => [e.element.startChar, lengths.get(e.element) || 0]));
+  shownElements = new Map(shown.map(e => [e.element.startChar, e.element]));
+  staffClefs = display.lines.filter(l => l.staff).map(l => l.staff.map(st => st.clef?.verticalPos || 0));
+}
+// Keep the selected note highlighted across a re-render.
+function restoreSelection(display) {
+  if (!selectedRange || !renderedTune?.engraver) return;
+  const match = [...noteSources.entries()].find(([, e]) => e?.element.startChar === selectedRange[0]);
+  if (!match) return;
+  const shown = scoreEvents(display).find(e => e.element.startChar === match[0]);
+  if (shown) renderedTune.engraver.rangeHighlight(shown.element.startChar, shown.element.endChar);
+}
+function updateCaption() {
+  $('workspace-heading').textContent = field('T', 'Untitled melody');
+  const config = instruments[currentInstrument()];
+  const pitch =
+    config.shift === 2 || config.shift === 9
+      ? 'Written pitch shown; ABC source and MIDI are concert pitch.'
+      : config.shift === -12
+        ? 'Melody lowered one octave for bass range.'
+        : 'Concert pitch melody part.';
+  $('score-caption').textContent = `${currentInstrument()} · ${config.clef} clef · ${pitch}`;
+}
+// Links to the complete source edition behind a library practice part.
+function updateSourceEdition() {
+  const edition = $('source-edition');
+  edition.hidden = !(current?.pdf || current?.originalSource);
+  if (current?.pdf) {
+    edition.innerHTML = `<strong>Complete source edition</strong><p>The editor shows an extracted upper-part study, up to 32 bars. The original PDF below includes the complete score for ${esc(current.originalInstrument)}.</p><div class="source-actions"><a class="button-link" href="${esc(current.pdf)}" target="_blank" rel="noopener">Open complete PDF ↗</a><a class="button-link" href="${esc(current.pdf)}" download>Download PDF</a><a class="button-link" href="${esc(current.originalMidi)}" download>Original MIDI</a>${current.originalSource ? `<a class="button-link" href="${esc(current.originalSource)}" download>Original editable source</a>` : ''}</div>`;
+  } else if (current?.originalSource) {
+    edition.innerHTML = `<strong>Complete original ABC source</strong><p>${esc(current.studyTransform)} License: ${esc(scoreLicense(current))}. See the credit notice below before sharing.</p><a class="button-link" href="${esc(current.originalSourceDownload || current.originalSource)}" download>${current.originalSourceDownload ? 'Download original ABC + license bundle' : 'Download complete original ABC'}</a>`;
+  }
+}
+// The rights notice under the score: the edition's license and credits, or a note that personal work stays private.
+function updateRights() {
+  const r = current?.rights;
+  if (r) {
+    $('rights').innerHTML =
+      `<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${current.attribution ? `Credit: ${esc(current.attribution)}<br>` : ''}${current.licenseURL ? `<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>` : ''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty ? 'Your edits stay private. Export or save a copy to preserve them.' : 'Use, print, practice, and adapt this teaching version.'}</span>`;
+  } else {
+    $('rights').innerHTML =
+      '<strong>Your private workspace</strong>Your work stays on this device. Imported music keeps its original rights; importing or editing a file does not make it public domain.';
   }
 }
 function changed() {
