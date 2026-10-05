@@ -21,6 +21,17 @@ run('libraryPage=0;renderCards()');assert.ok(get('cards').innerHTML.includes('da
 get('skill-filter').value='Chords';assert.equal(run('filteredCatalog().length'),run('catalog.filter(x=>scoreSkills(x).includes("Chords")).length'));assert.ok(run('filteredCatalog().every(x=>scoreSkills(x).includes("Chords"))'));
 run('renderCards()');assert.ok(get('cards').innerHTML.includes('data-skill="Chords" aria-pressed="true"'),'The active skill chip is pressed');
 get('skill-filter').value='all';get('search').value='compound meter';assert.ok(run('filteredCatalog().length')>=800&&run('filteredCatalog().every(x=>scoreSkills(x).includes("Compound meter")||/compound/i.test(x.skill+x.title))'),'Search matches skill tags');get('search').value='';
+// Try next: suggestions share skills, sit at the same level or one up, skip the score itself and played scores; opening a score marks it played.
+{get('sort-filter').value='featured';run('libraryPage=0');run('openScore(catalog.find(x=>x.id==="ode"))');
+ assert.ok(run('played.has("ode")'),'Opening a library score records it as played');assert.ok(JSON.parse(persisted.get('fretfree-played')).includes('ode'),'Played scores persist');
+ assert.ok(get('cards').innerHTML.includes('✓ Played'),'Library cards mark played scores');
+ const picks=run('suggestNext(catalog.find(x=>x.id==="ode"),catalog,scoreSkills,played).map(p=>[p.item.id,p.item.level,p.shared.join("/")])');
+ assert.equal(picks.length,3);assert.ok(picks.every(([id,level,shared])=>id!=='ode'&&['Beginner','Intermediate'].includes(level)&&shared.includes('Steps')),'Suggestions share Steps and stay within one level: '+JSON.stringify(picks));
+ const skip=run(`suggestNext(catalog.find(x=>x.id==="ode"),catalog,scoreSkills,new Set(${JSON.stringify(picks.map(p=>p[0]))})).map(p=>p.item.id)`);
+ assert.ok(!skip.some(id=>picks.map(p=>p[0]).includes(id)),'Played suggestions give way to unplayed ones');
+ assert.equal(run('suggestNext(catalog.find(x=>x.id==="mutopia-263"),catalog,scoreSkills).every(p=>p.item.level==="Advanced")'),true,'An advanced score suggests advanced scores');
+ assert.ok(get('next-up').innerHTML.includes('Try next')&&!get('next-up').hidden,'Try next panel shows for a library score');
+ run('newScore()');assert.equal(get('next-up').hidden,true,'No suggestions for a new score');}
 run('openScore(catalog.find(x=>x.pdf))');assert.equal(get('source-edition').hidden,false);assert.ok(get('source-edition').innerHTML.includes('Download PDF'));
 run('newScore()');assert.equal(get('source-edition').hidden,true);get('title').value='My new music';run("setHeader('T','My new music')");get('save').onclick();assert.equal(run('saved.length'),2);get('save').onclick();assert.equal(run('saved.length'),2,'Saving again updates existing record');
-console.log('PASS: legacy saved scores/favorites, title search, skill filter and chips, genre filters, pagination, full-score links, and save/update behavior.');
+console.log('PASS: legacy saved scores/favorites, title search, skill filter and chips, try-next suggestions and played marks, genre filters, pagination, full-score links, and save/update behavior.');

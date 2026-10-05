@@ -276,3 +276,21 @@ function skillTags(tune){
 }
 // catalog-skills.js stores each score's tags as a bit mask over SKILLS, to keep the file small.
 const skillMask=tags=>tags.reduce((m,t)=>m|1<<SKILLS.indexOf(t),0),skillsFromMask=mask=>SKILLS.filter((s,i)=>mask>>i&1);
+// "Try next" suggestions: scores that share this one's skills, at the same level or one level up, with unplayed
+// scores first. `skillsOf` maps a score to its tags; `played` is the set of score ids the student has opened.
+const LEVELS=['Beginner','Intermediate','Advanced'];
+function suggestNext(item,catalog,skillsOf,played=new Set(),count=3){
+ const mine=new Set(skillsOf(item)),level=LEVELS.indexOf(item.level);
+ const scored=[];
+ for(const x of catalog){
+  if(x.id===item.id||x.title===item.title)continue;
+  const step=LEVELS.indexOf(x.level)-level;if(step<0||step>1)continue;
+  const shared=skillsOf(x).filter(t=>mine.has(t));if(!shared.length&&mine.size)continue;
+  // Shared skills count most; each unfamiliar skill costs a little; played tunes drop down the list.
+  const extra=skillsOf(x).length-shared.length;
+  scored.push({item:x,shared,step,score:shared.length*2-Math.min(extra,3)*.5-(played.has(x.id)?4:0),tie:hashText(item.id+'|'+x.id)});
+ }
+ return scored.sort((a,b)=>b.score-a.score||a.tie-b.tie).slice(0,count);
+}
+// Small stable hash, so ties between equally good suggestions vary from score to score instead of running alphabetically.
+function hashText(text){let h=2166136261;for(const c of text)h=Math.imul(h^c.charCodeAt(0),16777619)>>>0;return h}
