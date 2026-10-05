@@ -1,3 +1,9 @@
+# Library tests on jsdom · 2026-10-05
+
+- `tests/library-ui.cjs` now runs the real `index.html` in jsdom with the real engraving library, instead of a hand-written DOM mock. Filters fire real input events, cards and chips are clicked, and saved data is read back from localStorage.
+
+---
+
 # Code layout · 2026-10-05
 
 - `app.js` split into `shared.js`, `library.js`, `editor.js`, `playback.js` and a small `app.js` for wiring; `render()` broken into engrave, index, selection, caption, source-edition and rights steps.
