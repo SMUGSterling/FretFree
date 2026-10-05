@@ -1,7 +1,7 @@
 {
- "total": 6133,
+ "total": 6130,
  "baseline": 841,
- "added": 5292,
+ "added": 5289,
  "collections": {
   "FretFree teaching melodies": 4,
   "FretFree original studies": 8,
@@ -10,7 +10,7 @@
   "Open Hymnal": 272,
   "OpenScore Lieder": 1345,
   "OpenScore String Quartets": 368,
-  "Paul Hardy’s Session Tunebook": 537
+  "Paul Hardy’s Session Tunebook": 534
  },
  "licenses": {
   "CC0-1.0": 1725,
@@ -23,7 +23,7 @@
   "CC-BY-4.0": 66,
   "CC-BY-3.0": 60,
   "CC-BY-2.5": 57,
-  "CC-BY-NC-SA-3.0": 537
+  "CC-BY-NC-SA-3.0": 534
  },
  "liederAdded": 1345,
  "liederSource": {
@@ -41,7 +41,7 @@
   "accepted": 368,
   "excluded": 27
  },
- "pghAdded": 537,
+ "pghAdded": 534,
  "pghSource": {
   "edition": "2016",
   "file": "pgh_session_tunebook.abc",
@@ -49,7 +49,7 @@
   "mirror": "https://github.com/danwatford/abc/blob/012724a7345d7cca7692f33d63b3d09c8ce336c0/parser/src/test/resources/pgh_session_tunebook.abc",
   "commit": "012724a7345d7cca7692f33d63b3d09c8ce336c0",
   "tunes": 569,
-  "accepted": 537,
-  "excluded": 32
+  "accepted": 534,
+  "excluded": 35
  }
 }

@@ -70,6 +70,8 @@ for (const score of context.library) {
     assert.equal(context.melodyNotes(shifted.notes)[0].note, context.melodyNotes(data.notes)[0].note + step);
   }
   assert.ok(score.rights && /^https?:/.test(score.source));
+  // Fail closed: every edition must declare its license; scoreLicense() defaults are for display only.
+  assert.ok(score.notationLicense || score.declaredLicense, `${score.id}: edition declares no license`);
   assert.ok(
     ADMITTED_LICENSES.has(context.scoreLicense(score)),
     `${score.id}: edition license ${context.scoreLicense(score)} is outside the admission policy in RIGHTS.md`

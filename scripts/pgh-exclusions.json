@@ -2,7 +2,7 @@
  "edition": "2016",
  "sha256": "5b39a17fd676481f39fd8d62cdd48fa69168e38cda36afa683729c439f2c1de7",
  "tunes": 569,
- "accepted": 537,
+ "accepted": 534,
  "excluded": [
   {
    "file": "X:1017",
@@ -107,6 +107,12 @@
    "reason": "Composer credit \"Pete Lockwood 1986\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
+   "file": "X:13003",
+   "title": "Mairi's Wedding",
+   "composer": "Trad.",
+   "reason": "Known later composition despite the traditional credit: Mairi’s Wedding: composed by Johnny Bannerman, 1934"
+  },
+  {
    "file": "X:13035",
    "title": "March of the Concertinas",
    "composer": "Alan Day, 2014",
@@ -161,6 +167,12 @@
    "reason": "Composer credit \"Ian Burns, 1980\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
+   "file": "X:19050",
+   "title": "Stop The Cavalry",
+   "composer": "Trad.",
+   "reason": "Known later composition despite the traditional credit: Stop the Cavalry: melody composed by Jona Lewie, 1980"
+  },
+  {
    "file": "X:19062",
    "title": "Streamers and Confetti",
    "composer": "Mats Edén",
@@ -183,6 +195,12 @@
    "title": "Valiant, The",
    "composer": "Simon Ritchie abt1998",
    "reason": "Composer credit \"Simon Ritchie abt1998\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:23006",
+   "title": "Wild Mountain Thyme",
+   "composer": "Trad.",
+   "reason": "Known later composition despite the traditional credit: Wild Mountain Thyme: the version played is Francis McPeake’s, 1957 (after the traditional Braes o’ Balquhidder)"
   },
   {
    "file": "X:23028",

@@ -1,7 +1,7 @@
 # Non-commercial editions and Paul Hardy’s Session Tunebook · 2026-10-05
 
 - **Policy.** Creative Commons NonCommercial editions (CC BY-NC, CC BY-NC-SA) are now admitted as a distinct class. They are labelled **NON-COMMERCIAL EDITION** on cards and in the rights box, and every export and share link carries the restriction in plain words. No-derivatives and informal “free for non-commercial use” statements stay excluded.
-- **Paul Hardy’s Session Tunebook (2016 edition):** 537 traditional and pre-1930 session tunes, CC BY-NC-SA 3.0, with guitar chords. 32 tunes by later named composers are excluded. New importer `scripts/import-pgh.py`.
+- **Paul Hardy’s Session Tunebook (2016 edition):** 534 traditional and pre-1930 session tunes, CC BY-NC-SA 3.0, with guitar chords. 35 tunes by later named composers, or known later compositions credited as traditional, are excluded. New importer `scripts/import-pgh.py`.
 - The library’s pitch checks and difficulty estimates now follow the melody track, since chord symbols add an accompaniment track whose bass notes stay in range under transposition.
 
 ---
