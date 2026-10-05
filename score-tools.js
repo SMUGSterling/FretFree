@@ -707,3 +707,33 @@ function parseMidi(bytes) {
   for (const n of active.values()) notes.push({...n, duration: Math.max(0.1, time - n.start)});
   return {notes, duration: Math.max(time, ...notes.map(n => n.start + n.duration), 0)};
 }
+
+// Share links: the whole score rides in the URL hash (#s=…), so no server ever holds student work.
+// Payload {v, a: abc, i: instrument, s: library source id, p: prompt id}. The first character says how the rest
+// is packed: '1' deflate-raw + base64url, '0' plain base64url (for browsers without CompressionStream).
+const base64url = {
+  encode: bytes =>
+    btoa(String.fromCharCode(...bytes))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, ''),
+  decode: text => Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
+};
+const streamBytes = async (bytes, Transform, format) =>
+  new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new Transform(format))).arrayBuffer());
+async function encodeShare(payload) {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  if (typeof CompressionStream === 'function')
+    return '1' + base64url.encode(await streamBytes(bytes, CompressionStream, 'deflate-raw'));
+  return '0' + base64url.encode(bytes);
+}
+async function decodeShare(text) {
+  try {
+    const packed = base64url.decode(text.slice(1));
+    const bytes = text[0] === '1' ? await streamBytes(packed, DecompressionStream, 'deflate-raw') : packed;
+    const payload = JSON.parse(new TextDecoder().decode(bytes));
+    return typeof payload?.a === 'string' && payload.a.includes('K:') ? payload : null;
+  } catch {
+    return null;
+  }
+}

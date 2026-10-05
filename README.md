@@ -21,6 +21,8 @@ Filter by collection, exact notation/edition license, genre, difficulty, and sco
 
 **Try next.** Under a library score, the editor suggests three tunes that share its skill tags, at the same level or one level up, unfamiliar skills kept to a minimum. Scores you have opened are remembered in this browser (`fretfree-played`), marked **✓ Played** in the library, and moved down the suggestions so new tunes come first. There is no account; clearing site data clears the list.
 
+**Share link.** The **Share link** button under a score builds a URL that carries the whole score: the ABC as it stands (edits included), the instrument, and the library edition it came from so its credits and licence notice travel with it. Nothing is uploaded; there is no server. The score is compressed (deflate) and base64url-encoded into the `#s=` hash, about 500 characters for a typical teaching tune; the panel warns above 8,000 characters, where some messaging apps truncate. Anyone who opens the link gets a copy marked "Shared score", which they can play, edit and save to My scores. Browsers without `CompressionStream` fall back to an uncompressed link that still opens everywhere.
+
 **▶ Listen** on a library card plays the line of music shown on the card (up to 20 seconds) and lights up its notes, so students can hear a tune before opening it. It uses the instrument filter's sound, or piano when no instrument is chosen. One preview plays at a time; click again, change a filter or favorite, open a score, or leave the library to stop it.
 
 Public-domain declarations follow the source’s United States context. A public-domain composition does not make a modern transcription or arrangement public domain. Consult each edition’s rights notice and `catalog-rights.json` when sharing.

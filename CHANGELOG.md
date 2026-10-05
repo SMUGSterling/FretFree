@@ -1,3 +1,10 @@
+# Share by link · 2026-10-05
+
+- **Share link** under a score: the URL carries the score itself (ABC, instrument, source edition for credits), compressed into the `#s=` hash. Nothing is uploaded. Opening a link shows the copy as a "Shared score" ready to play, edit or save.
+- The About page now describes share links instead of saying there is no sharing feature.
+
+---
+
 # Library tests on jsdom · 2026-10-05
 
 - `tests/library-ui.cjs` now runs the real `index.html` in jsdom with the real engraving library, instead of a hand-written DOM mock. Filters fire real input events, cards and chips are clicked, and saved data is read back from localStorage.

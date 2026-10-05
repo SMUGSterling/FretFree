@@ -546,6 +546,44 @@ const {chromium} = require('playwright'),
   assert.equal(await page.locator('#speed-value').textContent(), '75%');
   assert.equal(await page.evaluate(() => $('abc').value), source, 'Speed preserves Q/source');
   await page.click('#stop');
+  // Share by link: the link carries the edited score, instrument and the library edition's credits; opening it shows the copy.
+  await page.evaluate(() => {
+    dirty = false;
+    show('library');
+  });
+  await page.locator('#cards [data-open="elise"]').click();
+  await page.evaluate(() => {
+    $('abc').value = $('abc').value.replace('T:Für Elise', 'T:Für Elise (shared)');
+    $('instrument').value = 'Cello';
+    changed();
+  });
+  await page.click('#share-link');
+  await page.waitForFunction(() => $('share-url').value.startsWith('http'));
+  const shareUrl = await page.inputValue('#share-url');
+  assert.match(shareUrl, /#s=1[A-Za-z0-9_-]+$/, 'Share link is compressed and URL-safe');
+  const shared = await browser.newPage({viewport: {width: 1280, height: 900}});
+  await shared.goto(shareUrl);
+  await shared.waitForFunction(() => current?.kind === 'shared');
+  assert.deepEqual(
+    await shared.evaluate(() => [
+      $('title').value,
+      $('instrument').value,
+      current.rights === catalog.find(x => x.id === 'elise').rights,
+      $('rights').textContent.includes('CC0'),
+      $('studio').hidden
+    ]),
+    ['Für Elise (shared) · opening melody', 'Cello', true, true, false],
+    'The shared copy opens with its edit, instrument and the edition credits'
+  );
+  await shared.close();
+  const broken = await browser.newPage({viewport: {width: 1280, height: 900}});
+  await broken.goto((process.env.FRETFREE_URL || 'http://localhost:8000') + '/#s=1garbage');
+  await broken.waitForFunction(() => !$('library').hidden);
+  assert.match(await broken.evaluate(() => $('toast').textContent), /did not contain a readable score/);
+  await broken.close();
+  await page.evaluate(() => {
+    dirty = false;
+  });
   // Try next: a library score shows three suggestions sharing its skills; opening one swaps the panel to the new score; a new score hides it.
   await page.evaluate(() => {
     dirty = false;

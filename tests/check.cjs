@@ -88,6 +88,34 @@ for (const score of context.library) {
 const chords = context.parseMidi(context.midiBytes(context.library.find(x => x.id === 'chords').abc));
 assert.ok(chords.notes.filter(x => x.start === 0).length === 3, 'chord playback is polyphonic');
 // FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
+// Share links: the payload round-trips through deflate+base64url, and through plain base64url where
+// CompressionStream is missing; damaged links decode to null.
+(async () => {
+  const payload = {v: 1, a: 'X:1\nT:Shared\nM:4/4\nL:1/4\nK:C\nC D E F | G4 |]', i: 'Flute', s: 'ode'};
+  Object.assign(context, {CompressionStream, DecompressionStream, Response, Blob, TextEncoder, TextDecoder, btoa});
+  const packed = await context.encodeShare(payload);
+  assert.equal(packed[0], '1', 'Compressed when CompressionStream exists');
+  assert.match(packed, /^[A-Za-z0-9_-]+$/, 'Link-safe characters only');
+  assert.equal(JSON.stringify(await context.decodeShare(packed)), JSON.stringify(payload));
+  const plain = vm.runInContext(
+    '(p=>{const C=CompressionStream;CompressionStream=undefined;try{return encodeShare(p)}finally{CompressionStream=C}})',
+    context
+  );
+  const fallback = await plain(payload);
+  assert.equal(fallback[0], '0', 'Plain base64url without CompressionStream');
+  assert.equal(JSON.stringify(await context.decodeShare(fallback)), JSON.stringify(payload));
+  assert.ok(packed.length < fallback.length, 'Compression shortens the link');
+  assert.equal(await context.decodeShare('1garbage'), null);
+  assert.equal(
+    await context.decodeShare('0' + btoa('{"a":"not abc"}')),
+    null,
+    'A payload without a key line is rejected'
+  );
+  console.log('Share links: compressed and plain round trips passed');
+})().catch(e => {
+  console.error(e);
+  process.exit(1);
+});
 // Skill tags are read from the music; catalog-skills.js must match what skillTags() says about every score today.
 {
   const tags = abc => context.skillTags(ABCJS.parseOnly(abc)[0]).join(', ');

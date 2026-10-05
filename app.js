@@ -308,7 +308,12 @@ ABCJS.renderAbc('hero-notation', catalog[0].abc, {
 });
 renderCards();
 newScore();
-show(['studio', 'saved', 'about'].includes(initialView) ? initialView : 'library');
+if (initialView.startsWith('s=')) {
+  show('studio');
+  openSharedLink(initialView).then(ok => {
+    if (!ok) show('library');
+  });
+} else show(['studio', 'saved', 'about'].includes(initialView) ? initialView : 'library');
 $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
 $('fingering').onchange = () => {
   storage.set(KEYS.fingering, $('fingering').checked);

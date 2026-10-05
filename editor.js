@@ -221,6 +221,9 @@ function updateRights() {
   if (r) {
     $('rights').innerHTML =
       `<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${current.attribution ? `Credit: ${esc(current.attribution)}<br>` : ''}${current.licenseURL ? `<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>` : ''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty ? 'Your edits stay private. Export or save a copy to preserve them.' : 'Use, print, practice, and adapt this teaching version.'}</span>`;
+  } else if (current?.kind === 'shared') {
+    $('rights').innerHTML =
+      '<strong>Shared score</strong>Opened from a link. The music arrived inside the link itself; nothing was uploaded or stored elsewhere. Save it to My scores to keep a copy on this device.';
   } else {
     $('rights').innerHTML =
       '<strong>Your private workspace</strong>Your work stays on this device. Imported music keeps its original rights; importing or editing a file does not make it public domain.';
@@ -1312,3 +1315,71 @@ document.addEventListener('keydown', e => {
     stepHistory(1);
   }
 });
+
+// Share by link. The link carries the score itself, so anyone with it gets a copy; nothing is uploaded.
+// Scores from a library edition carry the edition's id, so the rights notice travels with them.
+const SHARE_WARN_LENGTH = 8000;
+function shareSourceId() {
+  if (!current) return undefined;
+  const source = catalog.find(
+    x => x === current || (x.rights && x.rights === current.rights && x.source === current.source)
+  );
+  return source?.id;
+}
+async function shareLink() {
+  const payload = {v: 1, a: $('abc').value, i: currentInstrument()};
+  const source = shareSourceId();
+  if (source) payload.s = source;
+  if (current?.prompt) payload.p = current.prompt;
+  const url = `${location.origin}${location.pathname}#s=${await encodeShare(payload)}`;
+  const panel = $('share-panel');
+  panel.hidden = false;
+  $('share-url').value = url;
+  $('share-note').textContent =
+    `${url.length.toLocaleString()} characters. ` +
+    (url.length > SHARE_WARN_LENGTH
+      ? 'Some messaging apps cut links this long; export ABC for a safer copy.'
+      : 'Anyone with the link gets a copy of the score. Nothing is uploaded; the music is inside the link.');
+  let copied = false;
+  try {
+    await navigator.clipboard?.writeText(url);
+    copied = true;
+  } catch {}
+  toast(copied ? 'Link copied. Paste it anywhere.' : 'Select the link and copy it.');
+  if (!copied) {
+    $('share-url').focus();
+    $('share-url').select();
+  }
+}
+// A shared score opens as a copy, in the sender's instrument, with the library edition's credits when it has one.
+async function openSharedLink(hash) {
+  const payload = await decodeShare(hash.slice(2));
+  if (!payload) {
+    toast('This link did not contain a readable score.');
+    return false;
+  }
+  const source = catalog.find(x => x.id === payload.s);
+  const title = payload.a.match(/^T:(.*)$/m)?.[1]?.trim() || 'Shared score';
+  openScore({
+    ...(source || {}),
+    title,
+    composer: source?.composer || payload.a.match(/^C:(.*)$/m)?.[1]?.trim() || '',
+    kind: 'shared',
+    abc: payload.a,
+    instrument: instruments[payload.i] ? payload.i : undefined,
+    prompt: payload.p
+  });
+  toast('Opened a shared score. Save it to My scores to keep a copy.');
+  return true;
+}
+$('share-link').onclick = () => shareLink().catch(e => toast('Could not make a link: ' + e.message));
+$('share-copy').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText($('share-url').value);
+    toast('Link copied.');
+  } catch {
+    $('share-url').focus();
+    $('share-url').select();
+  }
+};
+$('share-close').onclick = () => ($('share-panel').hidden = true);
