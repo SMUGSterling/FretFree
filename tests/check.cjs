@@ -26,6 +26,17 @@ for(const score of context.library){
 const chords=context.parseMidi(context.midiBytes(context.library.find(x=>x.id==='chords').abc));assert.ok(chords.notes.filter(x=>x.start===0).length===3,'chord playback is polyphonic');
 // FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
 vm.runInContext(fs.readFileSync(require.resolve('../score-tools.js'),'utf8'),context);
+// Skill tags are read from the music; catalog-skills.js must match what skillTags() says about every score today.
+{const tags=abc=>context.skillTags(ABCJS.parseOnly(abc)[0]).join(', ');
+ assert.equal(tags('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | G A B c | c B A G | F E D C |]'),'Steps');
+ assert.equal(tags('X:1\nM:3/4\nL:1/8\nK:Am\nA,2 C2 E2 | A2 E2 C2 | ^G3 A B2 | a4 z2 |]'),'Skips, Leaps, Eighth notes, Dotted rhythms, Triple meter, Minor key, Wide range','Thirds are skips, wider intervals leaps; meter, mode and range are read from the staff');
+ assert.equal(tags('X:1\nM:6/8\nL:1/8\nK:G\n|: (3GAB c/d/e/ f/g/a/ | [GBd]3 z3 :|'),'Steps, Eighth notes, Sixteenth notes, Dotted rhythms, Triplets, Compound meter, Chords, Repeats','Triplet eighths count as eighths; one short rest is not a rest study');
+ assert.equal(tags('X:1\nM:4/4\nL:1/4\nK:C\nC C C C | D D D D |]'),'Repeated notes');
+ assert.equal(tags('X:1\nM:4/4\nL:1/4\nK:D\nD ^D E =F | F ^F G ^G |]'),'Steps, Accidentals');
+ assert.equal(tags('X:1\nM:4/4\nL:1/4\nK:C\nF x F [K:G] F x2 [K:C] F x | F [K:G] F [K:C] F x |]'),'Steps, Repeated notes','Inline key changes alter the notes that follow; invisible rests are not rests or rhythms');
+ assert.equal(tags('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | [K:Am] A B c d |]'),'Steps, Minor key','An inline minor key tags the score');
+ const {buildSkills,render}=require('../scripts/build-skills.cjs');
+ assert.equal(fs.readFileSync(require.resolve('../catalog-skills.js'),'utf8'),render(buildSkills()),'catalog-skills.js is stale; run node scripts/build-skills.cjs');}
 {const own=context.library.filter(x=>x.kind==='historic'&&!x.collection||x.kind==='original').filter(x=>context.barProblems(ABCJS.parseOnly(x.abc)[0]).length).map(x=>x.id);
  assert.equal(own.join(', '),'','FretFree teaching scores have correct bar lengths')}
 // Writing prompts: every example meets all its goals, and the blank starting score does not.
@@ -38,4 +49,4 @@ for(const prompt of context.writingPrompts){
  const otherMeter=context.promptSource(prompt,prompt.key,prompt.example).replace(/^M:.*$/m,prompt.meter==='4/4'?'M:3/4':'M:4/4');
  assert.equal(goals(otherMeter)[0].ok,false,`Prompt ${prompt.id}: changing the meter must not satisfy the bars goal`);
 }
-console.log('PASS: '+context.library.length+' scores; catalog parsing, teaching-score bar lengths, writing-prompt examples, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.');
+console.log('PASS: '+context.library.length+' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.');

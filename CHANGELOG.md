@@ -1,3 +1,10 @@
+# Search by skill · 2026-10-05
+
+- **Skill filter** in the library, and clickable skill tags on every card: Steps, Skips, Leaps, Repeated notes, Eighth notes, Sixteenth notes, Dotted rhythms, Triplets, Triple meter, Compound meter, Minor key, Accidentals, Chords, Rests, Wide range, Repeats.
+- Tags are read from the music by `skillTags()` and stored in `catalog-skills.js` (`node scripts/build-skills.cjs`); search matches them too.
+
+---
+
 # Library card previews · 2026-10-04
 
 - **▶ Listen** on each library card plays the opening line shown on the card, up to 20 seconds, and lights up its notes.
