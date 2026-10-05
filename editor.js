@@ -706,6 +706,18 @@ function drawNote(t) {
     items.push({x: box.x + box.width / 2, entry});
   }
   items.sort((a, b) => a.x - b.x);
+  // A click in a bar that holds rests fills the nearest rest (a blank sheet fills bar by bar) instead of adding beats.
+  const isBar = i => i.entry.element.el_type === 'bar',
+    leftBar = items.filter(i => isBar(i) && i.x <= t.x).at(-1),
+    rightBar = items.find(i => isBar(i) && i.x > t.x),
+    inBar = items.filter(i => !isBar(i) && (!leftBar || i.x > leftBar.x) && (!rightBar || i.x < rightBar.x)),
+    nearest = inBar.reduce((best, i) => (!best || Math.abs(i.x - t.x) < Math.abs(best.x - t.x) ? i : best), null);
+  if (nearest?.entry.element.rest) {
+    fillRest(nearest.entry, pitchToken(t.written - Math.round((config.shift * 7) / 12)), beatLength());
+    $('selection-status').textContent =
+      `Added ${pitchName(t.written)} on the rest · right-click it to change accidental or length`;
+    return;
+  }
   const next = items.find(i => i.x > t.x),
     last = items.at(-1),
     value = $('abc').value;
@@ -763,6 +775,27 @@ $('notation').addEventListener('mousemove', e => {
   if (drawMode && !renderedTune?.engraver?.dragTarget) showGhost(onNote(e) ? null : drawTarget(e));
 });
 $('notation').addEventListener('mouseleave', () => showGhost(null));
+// Add blank bars (whole-bar rests in the current meter) before the closing barline, or at the end.
+function addBars(count = 4) {
+  flushTyping();
+  const [num, den] = meterParts(),
+    rest = 'z' + lengthText(num / den / unitLength()),
+    value = $('abc').value,
+    close = value.lastIndexOf('|]');
+  const bars = Array(count).fill(rest).join(' | ');
+  let at, text;
+  if (close >= 0) {
+    at = close;
+    text = (/\|\s*$/.test(value.slice(0, close)) ? '' : '| ') + bars + ' ';
+  } else {
+    at = value.length;
+    text = (value.endsWith('\n') ? '' : '\n') + bars + ' |]';
+  }
+  const first = at + text.indexOf(rest);
+  applyNoteEdit(at, at, text, [first, first + rest.length]);
+  $('selection-status').textContent = `Added ${count} blank bars at the end.`;
+}
+$('add-bars').onclick = () => addBars(4);
 // Note properties menu. Lengths come from the parsed (effective) duration, so chords and broken rhythm read correctly.
 const DOTTABLE = [1, 0.5, 0.25, 0.125, 0.0625, 0.03125];
 function closeNoteMenu() {
@@ -1029,15 +1062,19 @@ function letterToken(letter, at) {
 // Typing on a rest writes over it (as in MuseScore): the note takes its length from the rest and the rest keeps
 // what is left, which stays selected so the next letter continues. A filled rest passes the selection on.
 function overwriteRest(letter, rest) {
+  fillRest(rest, letterToken(letter, rest.element.startChar));
+}
+// Put a note (its pitch token, without a length) at the start of a rest; the rest keeps whatever time is left.
+function fillRest(rest, core, wanted = inputLength ?? beatLength()) {
   const v = $('abc').value,
     start = rest.element.startChar,
     end = rest.element.endChar,
     old = v.slice(start, end),
     unit = unitLengthAt(start);
   const restLength = rest.element.duration || 0,
-    length = Math.min(inputLength ?? beatLength(), restLength || Infinity),
+    length = Math.min(wanted, restLength || Infinity),
     left = restLength - length;
-  const token = letterToken(letter, start) + lengthText(length / unit),
+  const token = core + lengthText(length / unit),
     trail = old.match(/\s*$/)[0],
     lead = old.match(/^\s*/)[0] || (start > 0 && !/\s/.test(v[start - 1]) ? ' ' : '');
   if (left > 1e-6) {

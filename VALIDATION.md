@@ -1,11 +1,11 @@
 # FretFree validation — 2026-10-03
 
-Baseline: the supplied ZIP, containing 841 scores. Final library: **3,883 scores**, with **3,042 additions** (1,828 O’Neill, 272 Open Hymnal, 942 Mutopia).
+Baseline: the supplied ZIP, containing 841 scores. Final library: **5,596 scores**, with **4,755 additions** (1,828 O’Neill, 272 Open Hymnal, 942 Mutopia, 1,345 OpenScore Lieder, 368 OpenScore String Quartet movements).
 
 ## Completed checks
 
-- All 3,883 ABC entries parse without warnings, produce playable MIDI, and transpose by -12, +2, and +9 semitones without warnings. First MIDI pitches move by the requested amount; source concert pitches remain correct.
-- All 3,883 scores engrave to SVG in a real Chromium browser without rendering exceptions or warnings.
+- All 5,596 ABC entries parse without warnings, produce playable MIDI, and transpose by -12, +2, and +9 semitones without warnings. First MIDI pitches move by the requested amount; source concert pitches remain correct.
+- All 5,596 scores engrave to SVG in a real Chromium browser without rendering exceptions or warnings.
 - Every bundled PDF, original MIDI, and original ABC/LilyPond/source ZIP is checked against its recorded SHA-256. Original MIDI decodes to finite, nonempty playback.
 - All 841 original IDs and original ABC remain intact. Edition source URLs/IDs are deduplicated; distinct arrangements/settings of a shared title remain separate.
 - Existing `commonnote-scores-v1` and `commonnote-favorites-v1` records survive initialization and score operations; saving again updates a saved item rather than duplicating it.

@@ -160,6 +160,27 @@ assert.equal(
 );
 $('new-score').click();
 assert.equal($('next-up').hidden, true, 'No suggestions for a new score');
+// A new score is a blank sheet of whole-bar rests, sized by the Bars box; Add 4 bars extends it in the current meter.
+assert.equal(
+  $('abc').value.trim().split('\n').pop(),
+  'z4 | z4 | z4 | z4 | z4 | z4 | z4 | z4 |]',
+  'New score is eight blank bars'
+);
+assert.equal(run('scoreNotes().length'), 8);
+assert.ok(
+  run('selectedRange && selectedRange[0] === $("abc").value.indexOf("z4")'),
+  'The first bar is selected, ready for typing'
+);
+$('new-bars').value = '3';
+$('new-score').click();
+assert.equal($('abc').value.trim().split('\n').pop(), 'z4 | z4 | z4 |]', 'Bars box sets the sheet length');
+$('add-bars').click();
+assert.equal(
+  $('abc').value.trim().split('\n').pop(),
+  'z4 | z4 | z4 | z4 | z4 | z4 | z4 |]',
+  'Add 4 bars appends rests before the final barline'
+);
+$('new-bars').value = '8';
 
 // Source editions and saving.
 run('openScore(catalog.find(x=>x.pdf))');
@@ -194,7 +215,7 @@ assert.equal(
   assert.equal($('next-up').hidden, true, 'No suggestions for a shared copy');
   assert.equal(await run('openSharedLink("s=1garbage")'), false, 'A damaged link is refused');
   console.log(
-    'PASS (jsdom): share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
+    'PASS (jsdom): blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
   );
 })().catch(e => {
   console.error(e);
