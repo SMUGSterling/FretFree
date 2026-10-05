@@ -1,0 +1,16 @@
+X:8014
+T:Hole in the Wall
+T:Abdelazer Hornpipe
+R:Minuet
+C:Playford 1698, after Purcell 1695
+O:England
+Z:Paul Hardy's Session Tunebook 2016 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:3/2
+L:1/4
+Q:1/2=100
+K:G
+%%MIDI beatstring fpp
+%%MIDI gchord ccf
+"G"B>c B/c/d "D7"Ad|"Em"G>A G/A/B "B7"FB|"C"E>F E/F/G "G"DB|"G"G2 "D7"zF "G"G2:|
+"Em"g>f e/f/g fe|"B7"^d>e d/e/f Bf|"Em"g>f e/f/g fe|"B7"fe- e^d "Em"e2|
+"C"E>F E/F/G "D7"F/G/A|"G"G>A G/A/B "D7"A/B/c|"G"B>c B/c/d Dd|"G"B2 "D7"zA "G"G2|]

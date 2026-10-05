@@ -1,0 +1,15 @@
+X:13042
+T:Mr Beveridge's Maggot
+R:Triple Hornpipe
+C:Trad. Playford 1695
+O:England
+Z:Paul Hardy's Session Tunebook 2016 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:3/2
+L:1/8
+Q:1/2=80
+K:Em
+%%MIDI beatstring fpppmpppmppp
+%%MIDI gchord czfzczfzczfz
+"Em"e4 "B"^d2^cd "Em"e4|B2AG "B7"FG AF "Em"G2E2|"C"e4"D7"f2ef "G"g4|"D"d2cB "D7"AB c2"G"B2G2:|
+"G"B2d4 d2"D"d2cB|"Am"A2c4 c2"D7"c2BA|"Em"G2B4 B2 B2AG|"D"FG A2 "Em"G2FE "B"^D2B,2|
+"B"B2f4 f2 f2ef|"Em"g2"B"f2"Em"e2"B"^d2"Em"e4|"G"Bc d2 GA B2"D"FG A2|"Em"G2E2-"B"E2 ^D2"Em"E4||

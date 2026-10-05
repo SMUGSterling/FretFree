@@ -14,6 +14,7 @@ function buildSkills() {
     'catalog-licensed.js',
     'catalog-lieder.js',
     'catalog-quartets.js',
+    'catalog-pgh.js',
     'score-tools.js'
   ])
     vm.runInContext(fs.readFileSync(path.join(root, f), 'utf8'), context);

@@ -22,7 +22,7 @@ function openScore(item, id = null) {
   dirty = false;
   selectedRange = null;
   $('selection-status').textContent =
-    'Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag up/down to change pitch; chords move together.';
+    'Click a note to select its ABC text; Shift+click another to practice from the first to the second. Drag up/down to change pitch; chords move together.';
   $('start-measure').value = 1;
   $('end-measure').value = '';
   $('abc').value = item.abc;

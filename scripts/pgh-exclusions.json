@@ -1,0 +1,200 @@
+{
+ "edition": "2016",
+ "sha256": "5b39a17fd676481f39fd8d62cdd48fa69168e38cda36afa683729c439f2c1de7",
+ "tunes": 569,
+ "accepted": 537,
+ "excluded": [
+  {
+   "file": "X:1017",
+   "title": "Archie's Fancy",
+   "composer": "Billy Pigg 1902-1968",
+   "reason": "Composer credit \"Billy Pigg 1902-1968\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:1008",
+   "title": "Ashokan Farewell",
+   "composer": "Jay Ungar 1983",
+   "reason": "Composer credit \"Jay Ungar 1983\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:4005",
+   "title": "Da Slockit Light",
+   "composer": "Tom Anderson, 1969",
+   "reason": "Composer credit \"Tom Anderson, 1969\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:4003",
+   "title": "Dark Island, The",
+   "composer": "Ian MacLachlan 1958, or Allan MacCormack 1930?",
+   "reason": "Composer credit \"Ian MacLachlan 1958, or Allan MacCormack 1930?\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:5007",
+   "title": "Eric's Waltz",
+   "composer": "Eric Elsener",
+   "reason": "Composer credit \"Eric Elsener\" has no dates; composition status cannot be established"
+  },
+  {
+   "file": "X:6003",
+   "title": "Father Kelly's Reel",
+   "composer": "P J Kelly",
+   "reason": "Composer credit \"P J Kelly\" has no dates; composition status cannot be established"
+  },
+  {
+   "file": "X:6011",
+   "title": "Four Up",
+   "composer": "Barry Goodman, 2001",
+   "reason": "Composer credit \"Barry Goodman, 2001\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:7021",
+   "title": "Glen Aln",
+   "composer": "Will Atkinson (1908-2003)",
+   "reason": "Composer credit \"Will Atkinson (1908-2003)\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:7011",
+   "title": "Great North Run, The",
+   "composer": "Robert Whitehead, 1986",
+   "reason": "Composer credit \"Robert Whitehead, 1986\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:8016",
+   "title": "Halsway Schottische",
+   "composer": "Nigel Eaton 2011",
+   "reason": "Composer credit \"Nigel Eaton 2011\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:9004",
+   "title": "Inisheer",
+   "composer": "Thomas Walsh",
+   "reason": "Composer credit \"Thomas Walsh\" has no dates; composition status cannot be established"
+  },
+  {
+   "file": "X:10004",
+   "title": "Jump at the Sun",
+   "composer": "John Kirkpatrick",
+   "reason": "Composer credit \"John Kirkpatrick\" has no dates; composition status cannot be established"
+  },
+  {
+   "file": "X:11001",
+   "title": "Katyusha",
+   "composer": "Matvei Blanter 1938, after earlier trad.",
+   "reason": "Composer credit \"Matvei Blanter 1938, after earlier trad.\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:11021",
+   "title": "Kelso Accordion And Fiddle Club",
+   "composer": "Bob Liddle, 1983",
+   "reason": "Composer credit \"Bob Liddle, 1983\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:11004",
+   "title": "Kerfunten, The",
+   "composer": "Colin Hammy Hamilton, abt 1980",
+   "reason": "Composer credit \"Colin Hammy Hamilton, abt 1980\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:12004",
+   "title": "Lily Marlene",
+   "composer": "Norbert Schultze 1938",
+   "reason": "Composer credit \"Norbert Schultze 1938\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:12031",
+   "title": "Lunch in the Pub",
+   "composer": "Pete Lockwood 1986",
+   "reason": "Composer credit \"Pete Lockwood 1986\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:13035",
+   "title": "March of the Concertinas",
+   "composer": "Alan Day, 2014",
+   "reason": "Composer credit \"Alan Day, 2014\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:13008",
+   "title": "Margaret's Waltz",
+   "composer": "Pat Shaw",
+   "reason": "Composer credit \"Pat Shaw\" has no dates; composition status cannot be established"
+  },
+  {
+   "file": "X:13033",
+   "title": "Mrs Saggs",
+   "composer": "Chris Wood 1990",
+   "reason": "Composer credit \"Chris Wood 1990\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:14015",
+   "title": "Nancy Clough",
+   "composer": "Tom Clough (1881-1964)",
+   "reason": "Composer credit \"Tom Clough (1881-1964)\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:16012",
+   "title": "Plane Tree, The",
+   "composer": "U Hornby after J-F Heintzen",
+   "reason": "Composer credit \"U Hornby after J-F Heintzen\" has no dates; composition status cannot be established"
+  },
+  {
+   "file": "X:19006",
+   "title": "Scan Tester's No 1",
+   "composer": "Scan Tester",
+   "reason": "Composer credit \"Scan Tester\" has no dates; composition status cannot be established"
+  },
+  {
+   "file": "X:19007",
+   "title": "Scan Tester's No 2",
+   "composer": "Scan Tester",
+   "reason": "Composer credit \"Scan Tester\" has no dates; composition status cannot be established"
+  },
+  {
+   "file": "X:19057",
+   "title": "South Downs",
+   "composer": "Jim Harding, 1984",
+   "reason": "Composer credit \"Jim Harding, 1984\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:19049",
+   "title": "Spootiskerry",
+   "composer": "Ian Burns, 1980",
+   "reason": "Composer credit \"Ian Burns, 1980\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:19062",
+   "title": "Streamers and Confetti",
+   "composer": "Mats Edén",
+   "reason": "Composer credit \"Mats Edén\" has no dates; composition status cannot be established"
+  },
+  {
+   "file": "X:20006",
+   "title": "Tennessee Waltz, The",
+   "composer": "King & Stewart 1948",
+   "reason": "Composer credit \"King & Stewart 1948\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:20009",
+   "title": "Timothy March",
+   "composer": "Judi Morningstar 1985",
+   "reason": "Composer credit \"Judi Morningstar 1985\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:22003",
+   "title": "Valiant, The",
+   "composer": "Simon Ritchie abt1998",
+   "reason": "Composer credit \"Simon Ritchie abt1998\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:23028",
+   "title": "Will's Way",
+   "composer": "Will Ward 1979?",
+   "reason": "Composer credit \"Will Ward 1979?\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "X:23023",
+   "title": "William Taylor's Tabletop Hornpipe",
+   "composer": "Dave Shepherd 1984",
+   "reason": "Composer credit \"Dave Shepherd 1984\" carries a date of 1930 or later; composition may still be in copyright"
+  }
+ ]
+}

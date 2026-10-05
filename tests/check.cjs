@@ -18,6 +18,23 @@ const ABCJS = require('../vendor/abcjs-basic-min.js');
     `Assets changed or unstamped; run node scripts/bump-version.cjs (expected ?v=${expected})`
   );
 }
+// Admission policy (RIGHTS.md): PD, CC0, CC BY, CC BY-SA, CC BY-NC, CC BY-NC-SA and GPL, exact versions as declared.
+const ADMITTED_LICENSES = new Set([
+  'Public Domain',
+  'CC0-1.0',
+  'CC-BY-2.5',
+  'CC-BY-3.0',
+  'CC-BY-4.0',
+  'CC-BY-SA-2.0',
+  'CC-BY-SA-2.5',
+  'CC-BY-SA-3.0',
+  'CC-BY-SA-4.0',
+  'CC-BY-NC-3.0',
+  'CC-BY-NC-4.0',
+  'CC-BY-NC-SA-3.0',
+  'CC-BY-NC-SA-4.0',
+  'GPL-2.0-or-later'
+]);
 const context = {ABCJS, console, Uint8Array, DataView, Map, atob};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(require.resolve('../catalog.js'), 'utf8'), context);
@@ -30,6 +47,7 @@ vm.runInContext(
   fs.readFileSync(require.resolve('../catalog-licensed.js'), 'utf8') +
     fs.readFileSync(require.resolve('../catalog-lieder.js'), 'utf8') +
     fs.readFileSync(require.resolve('../catalog-quartets.js'), 'utf8') +
+    fs.readFileSync(require.resolve('../catalog-pgh.js'), 'utf8') +
     '\nglobalThis.library=catalog;',
   context
 );
@@ -49,9 +67,13 @@ for (const score of context.library) {
     const transposed = ABCJS.strTranspose(score.abc, parsed, step);
     assert.ok(!ABCJS.parseOnly(transposed)[0].warnings?.length);
     const shifted = context.parseMidi(context.midiBytes(transposed));
-    assert.equal(shifted.notes[0].note, data.notes[0].note + step);
+    assert.equal(context.melodyNotes(shifted.notes)[0].note, context.melodyNotes(data.notes)[0].note + step);
   }
   assert.ok(score.rights && /^https?:/.test(score.source));
+  assert.ok(
+    ADMITTED_LICENSES.has(context.scoreLicense(score)),
+    `${score.id}: edition license ${context.scoreLicense(score)} is outside the admission policy in RIGHTS.md`
+  );
   if (score.pdf) {
     assert.ok(
       [
@@ -65,7 +87,11 @@ for (const score of context.library) {
         'CC-BY-SA-4.0'
       ].includes(score.notationLicense)
     );
-    assert.equal(data.notes[0].note, score.firstNotePitch, 'Study remains at source concert pitch');
+    assert.equal(
+      context.melodyNotes(data.notes)[0].note,
+      score.firstNotePitch,
+      'Study remains at source concert pitch'
+    );
     const path = require('node:path'),
       crypto = require('node:crypto');
     for (const [file, hash] of [
