@@ -285,7 +285,8 @@ function suggestNext(item,catalog,skillsOf,played=new Set(),count=3){
  for(const x of catalog){
   if(x.id===item.id||x.title===item.title)continue;
   const step=LEVELS.indexOf(x.level)-level;if(step<0||step>1)continue;
-  const shared=skillsOf(x).filter(t=>mine.has(t));if(!shared.length&&mine.size)continue;
+  // A candidate must share at least one skill; a score with no tags gets no suggestions.
+  const shared=skillsOf(x).filter(t=>mine.has(t));if(!shared.length)continue;
   // Shared skills count most; each unfamiliar skill costs a little; played tunes drop down the list.
   const extra=skillsOf(x).length-shared.length;
   scored.push({item:x,shared,step,score:shared.length*2-Math.min(extra,3)*.5-(played.has(x.id)?4:0),tie:hashText(item.id+'|'+x.id)});

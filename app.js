@@ -9,7 +9,7 @@ if(!Array.isArray(saved))saved=[];if(!Array.isArray(favorites))favorites=[];
 function toast(msg){$('toast').textContent=msg;$('toast').style.display='block';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').style.display='none',3500)}
 function show(view){document.querySelectorAll('.view').forEach(el=>el.hidden=el.id!==view);document.querySelectorAll('.nav').forEach(el=>el.classList.toggle('active',el.dataset.view===view));if(view==='saved')renderSaved();if(view!=='studio')stop();if(view!=='library')stopPreview();history.replaceState(null,'','#'+view);window.scrollTo({top:0,behavior:'smooth'})}
 function allowReplace(){return !dirty||confirm('Replace your unsaved changes? Save or export first if you want to keep them.');}
-function openScore(item,id=null){if(!allowReplace())return;stop();stopPreview();current=item;savedId=id;dirty=false;selectedRange=null;$('selection-status').textContent='Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag up/down to change pitch; chords move together.';$('start-measure').value=1;$('end-measure').value='';$('abc').value=item.abc;inputLength=null;$('instrument').value=item.instrument||($('instrument-filter').value==='all'?'Flute':$('instrument-filter').value);resetHistory();syncFields();render();$('save-status').textContent='';if(catalog.includes(item)&&!played.has(item.id)){played.add(item.id);storage.set('fretfree-played',[...played]);renderCards()}renderNextUp();show('studio')}
+function openScore(item,id=null){if(!allowReplace())return;stop();stopPreview();current=item;savedId=id;dirty=false;selectedRange=null;$('selection-status').textContent='Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag up/down to change pitch; chords move together.';$('start-measure').value=1;$('end-measure').value='';$('abc').value=item.abc;inputLength=null;$('instrument').value=item.instrument||($('instrument-filter').value==='all'?'Flute':$('instrument-filter').value);resetHistory();syncFields();render();$('save-status').textContent='';if(catalog.includes(item)&&!played.has(item.id)){played.add(item.id);storage.set('fretfree-played',[...played]);markPlayedCard(item.id)}renderNextUp();show('studio')}
 function newScore(){openScore({title:'Untitled melody',composer:'',kind:'personal',abc:tune('Untitled melody','','4/4','C',100,'C D E F | G2 G2 | F E D C | C4 |]')})}
 // Skill tags come from catalog-skills.js (built by scripts/build-skills.cjs); a score missing from it is tagged on the spot.
 function scoreSkills(x){const masks=typeof catalogSkills==='object'?catalogSkills:{};if(!(x.id in masks)){try{masks[x.id]=skillMask(skillTags(ABCJS.parseOnly(x.abc)[0]))}catch{masks[x.id]=0}}return skillsFromMask(masks[x.id])}
@@ -730,6 +730,11 @@ $('note-names').value=storage.get('fretfree-note-names','off');if(noteNamesMode(
 // A remembered speed trainer needs the same below-goal start as a freshly ticked one.
 prepareTrainer();
 
+// Add the Played tag to a card that's already drawn, without redrawing the library's mini scores.
+function markPlayedCard(id){
+ const star=document.querySelector?.(`#cards [data-favorite="${id}"]`);
+ if(star&&!star.parentElement.querySelector('.played'))star.insertAdjacentHTML('beforebegin','<span class="tag played" title="You have opened this score">✓ Played</span>');
+}
 // "Try next": a few tunes that share this score's skills, shown under a library score.
 function renderNextUp(){
  const box=$('next-up');if(!box)return;

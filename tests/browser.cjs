@@ -162,6 +162,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  await page.evaluate(()=>{dirty=false;show('library')});await page.locator('#cards [data-open="ode"]').click();
  const titles=()=>page.evaluate(()=>[...document.querySelectorAll('#next-up .next-card h3')].map(h=>h.textContent));
  const first=await titles();assert.equal(first.length,3,'Three suggestions');assert.ok(await page.evaluate(()=>[...document.querySelectorAll('#next-up .chip')].some(c=>c.textContent==='Steps')),'Suggestions share the Steps skill');
+ assert.ok(await page.evaluate(()=>document.querySelector('#cards [data-favorite="ode"]').previousElementSibling?.classList.contains('played')),'The open card gets its Played tag in place, without a library redraw');
  await page.locator('#next-up [data-open]').first().click();assert.equal(await page.evaluate(()=>$('title').value.split(' · ')[0]),first[0].split(' · ')[0],'Opening a suggestion loads it');
  assert.deepEqual(await page.evaluate(()=>[played.has('ode'),JSON.parse(localStorage.getItem('fretfree-played')).includes('ode'),JSON.parse(localStorage.getItem('fretfree-played')).length>=2]),[true,true,true],'Opened scores are remembered as played');
  await page.click('#new-score');assert.equal(await page.evaluate(()=>$('next-up').hidden),true,'No suggestions for a new score');

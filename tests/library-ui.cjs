@@ -24,7 +24,8 @@ get('skill-filter').value='all';get('search').value='compound meter';assert.ok(r
 // Try next: suggestions share skills, sit at the same level or one up, skip the score itself and played scores; opening a score marks it played.
 {get('sort-filter').value='featured';run('libraryPage=0');run('openScore(catalog.find(x=>x.id==="ode"))');
  assert.ok(run('played.has("ode")'),'Opening a library score records it as played');assert.ok(JSON.parse(persisted.get('fretfree-played')).includes('ode'),'Played scores persist');
- assert.ok(get('cards').innerHTML.includes('✓ Played'),'Library cards mark played scores');
+ run('renderCards()');assert.ok(get('cards').innerHTML.includes('✓ Played'),'Library cards mark played scores');
+ assert.equal(run('suggestNext(catalog.find(x=>x.id==="mutopia-1006"),catalog,scoreSkills).length'),0,'A score with no skill tags gets no suggestions');
  const picks=run('suggestNext(catalog.find(x=>x.id==="ode"),catalog,scoreSkills,played).map(p=>[p.item.id,p.item.level,p.shared.join("/")])');
  assert.equal(picks.length,3);assert.ok(picks.every(([id,level,shared])=>id!=='ode'&&['Beginner','Intermediate'].includes(level)&&shared.includes('Steps')),'Suggestions share Steps and stay within one level: '+JSON.stringify(picks));
  const skip=run(`suggestNext(catalog.find(x=>x.id==="ode"),catalog,scoreSkills,new Set(${JSON.stringify(picks.map(p=>p[0]))})).map(p=>p.item.id)`);
