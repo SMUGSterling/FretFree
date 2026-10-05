@@ -159,6 +159,20 @@ assert.equal(
 $('new-score').click();
 assert.equal($('next-up').hidden, true, 'No suggestions for a new score');
 
+// Share by link without CompressionStream (jsdom): the plain-encoded link opens as a shared copy with the edition's credits.
+await(async () => {
+  const link = await run(
+    'encodeShare({v:1,a:catalog.find(x=>x.id==="ode").abc.replace("T:Ode to Joy","T:Ode (shared)"),i:"Violin",s:"ode"})'
+  );
+  assert.equal(link[0], '0', 'Falls back to plain base64url without CompressionStream');
+  assert.equal(await run(`openSharedLink("s=${link}")`), true);
+  assert.equal($('title').value, 'Ode (shared)');
+  assert.equal($('instrument').value, 'Violin');
+  assert.equal(run('current.kind'), 'shared');
+  assert.ok($('rights').textContent.includes('CC0'), 'Credits travel with the link');
+  assert.equal($('next-up').hidden, true, 'No suggestions for a shared copy');
+  assert.equal(await run('openSharedLink("s=1garbage")'), false, 'A damaged link is refused');
+})();
 // Source editions and saving.
 run('openScore(catalog.find(x=>x.pdf))');
 assert.equal($('source-edition').hidden, false);
@@ -177,5 +191,5 @@ assert.equal(
   'Saved scores persist under the legacy key'
 );
 console.log(
-  'PASS (jsdom): legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
+  'PASS (jsdom): share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
 );
