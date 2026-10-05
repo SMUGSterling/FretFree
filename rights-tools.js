@@ -12,13 +12,19 @@ function scoreCollection(item) {
         : 'FretFree teaching melodies')
   );
 }
+// Creative Commons NonCommercial editions: free for lessons, practice and free events, not for sale or paid use.
+function nonCommercial(item) {
+  return /-NC(-|$)/.test(scoreLicense(item));
+}
+const NON_COMMERCIAL_NOTE =
+  'Non-commercial edition: free to use, share and adapt with credit for lessons, practice and free events; not for sale, paid events or advertising-supported sites. Adaptations keep the same license.';
 function licenseLabel(item) {
   const license = scoreLicense(item);
   return license === 'Public Domain'
     ? 'PUBLIC-DOMAIN EDITION'
     : license === 'CC0-1.0'
       ? 'CC0 NOTATION'
-      : license + ' · LICENSED EDITION';
+      : license + (nonCommercial(item) ? ' · NON-COMMERCIAL EDITION' : ' · LICENSED EDITION');
 }
 function exportCredit(item) {
   if (!item?.rights) return '';
@@ -27,6 +33,7 @@ function exportCredit(item) {
     item.attribution || item.composer,
     'Collection: ' + scoreCollection(item),
     'Notation/edition license: ' + scoreLicense(item),
+    nonCommercial(item) ? NON_COMMERCIAL_NOTE : '',
     item.compositionStatus || 'See the source edition for composition history.',
     item.rights,
     item.studyTransform,

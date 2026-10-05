@@ -60,6 +60,7 @@ for (const f of [
   'catalog-licensed.js',
   'catalog-lieder.js',
   'catalog-quartets.js',
+  'catalog-pgh.js',
   'shared.js',
   'library.js',
   'editor.js',

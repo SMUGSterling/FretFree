@@ -43,6 +43,7 @@ for (const file of [
   'catalog-licensed.js',
   'catalog-lieder.js',
   'catalog-quartets.js',
+  'catalog-pgh.js',
   'catalog-skills.js',
   'prompts.js',
   'shared.js',

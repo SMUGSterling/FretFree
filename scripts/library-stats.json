@@ -1,7 +1,7 @@
 {
- "total": 5596,
+ "total": 6133,
  "baseline": 841,
- "added": 4755,
+ "added": 5292,
  "collections": {
   "FretFree teaching melodies": 4,
   "FretFree original studies": 8,
@@ -9,7 +9,8 @@
   "O’Neill’s Music of Ireland (1903)": 1828,
   "Open Hymnal": 272,
   "OpenScore Lieder": 1345,
-  "OpenScore String Quartets": 368
+  "OpenScore String Quartets": 368,
+  "Paul Hardy’s Session Tunebook": 537
  },
  "licenses": {
   "CC0-1.0": 1725,
@@ -21,7 +22,8 @@
   "CC-BY-SA-2.5": 59,
   "CC-BY-4.0": 66,
   "CC-BY-3.0": 60,
-  "CC-BY-2.5": 57
+  "CC-BY-2.5": 57,
+  "CC-BY-NC-SA-3.0": 537
  },
  "liederAdded": 1345,
  "liederSource": {
@@ -38,5 +40,16 @@
   "files": 122,
   "accepted": 368,
   "excluded": 27
+ },
+ "pghAdded": 537,
+ "pghSource": {
+  "edition": "2016",
+  "file": "pgh_session_tunebook.abc",
+  "sha256": "5b39a17fd676481f39fd8d62cdd48fa69168e38cda36afa683729c439f2c1de7",
+  "mirror": "https://github.com/danwatford/abc/blob/012724a7345d7cca7692f33d63b3d09c8ce336c0/parser/src/test/resources/pgh_session_tunebook.abc",
+  "commit": "012724a7345d7cca7692f33d63b3d09c8ce336c0",
+  "tunes": 569,
+  "accepted": 537,
+  "excluded": 32
  }
 }
