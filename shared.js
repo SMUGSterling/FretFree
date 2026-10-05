@@ -31,11 +31,14 @@ const storage = {
     }
   }
 };
-let saved = storage.get(KEYS.scores, []),
-  favorites = storage.get(KEYS.favorites, []),
-  played = new Set(storage.get(KEYS.played, []));
-if (!Array.isArray(saved)) saved = [];
-if (!Array.isArray(favorites)) favorites = [];
+// Stored values are checked for shape: a damaged entry must not stop the app from loading.
+const storedList = key => {
+  const value = storage.get(key, []);
+  return Array.isArray(value) ? value : [];
+};
+let saved = storedList(KEYS.scores),
+  favorites = storedList(KEYS.favorites),
+  played = new Set(storedList(KEYS.played));
 function toast(msg) {
   $('toast').textContent = msg;
   $('toast').style.display = 'block';

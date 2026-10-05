@@ -66,7 +66,9 @@ const persisted = new Map([
       }
     ])
   ],
-  ['commonnote-favorites-v1', '["ode"]']
+  ['commonnote-favorites-v1', '["ode"]'],
+  // Wrong shape on purpose: a damaged played list must not stop the app from loading.
+  ['fretfree-played', '{"unexpected":true}']
 ]);
 const events = {};
 const document = {
@@ -114,6 +116,7 @@ for (const file of [
 const run = code => vm.runInContext(code, context);
 assert.equal(run('saved[0].id'), 'legacy-score', 'Renaming preserves existing saved scores');
 assert.ok(run('favorites.includes("ode")'), 'Existing favorites preserved');
+assert.equal(run('played.size'), 0, 'A damaged played list is ignored instead of breaking start-up');
 assert.ok(run('filteredCatalog().length') >= 200);
 assert.equal(get('hero-count').textContent, '01 / ' + run('catalog.length'));
 get('search').value = 'The Entertainer';
