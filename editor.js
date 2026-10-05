@@ -595,6 +595,19 @@ const unitLength = () => {
   return n / d < 0.75 ? 1 / 16 : 1 / 8;
 };
 const beatLength = () => 1 / meterParts()[1];
+// Meter in force at a source position: the last M: field before it, on a header line or inline as [M:].
+function meterPartsAt(pos) {
+  let found = null;
+  for (const m of $('abc')
+    .value.slice(0, pos)
+    .matchAll(/(?:^|\n)M:[ \t]*([^\n%]*)|\[M:\s*([^\]]*)\]/g))
+    found = m;
+  const text = (found ? found[1] || found[2] : field('M', '4/4')).trim();
+  if (text === 'C') return [4, 4];
+  if (text === 'C|') return [2, 2];
+  const x = text.match(/(\d+)\s*\/\s*(\d+)/);
+  return x ? [+x[1], +x[2]] : [4, 4];
+}
 // Unit length in force at a source position: the last L: field before it, on a header line or inline as [L:].
 function unitLengthAt(pos) {
   let found = null;
@@ -706,13 +719,20 @@ function drawNote(t) {
     items.push({x: box.x + box.width / 2, entry});
   }
   items.sort((a, b) => a.x - b.x);
-  // A click in a bar that holds rests fills the nearest rest (a blank sheet fills bar by bar) instead of adding beats.
+  // A click in a bar that still holds a rest fills the nearest one (a blank sheet fills bar by bar) instead of
+  // adding beats beside the notes already there. Multimeasure rests (Z2) stand for whole bars and are left alone.
   const isBar = i => i.entry.element.el_type === 'bar',
     leftBar = items.filter(i => isBar(i) && i.x <= t.x).at(-1),
     rightBar = items.find(i => isBar(i) && i.x > t.x),
-    inBar = items.filter(i => !isBar(i) && (!leftBar || i.x > leftBar.x) && (!rightBar || i.x < rightBar.x)),
-    nearest = inBar.reduce((best, i) => (!best || Math.abs(i.x - t.x) < Math.abs(best.x - t.x) ? i : best), null);
-  if (nearest?.entry.element.rest) {
+    rests = items.filter(
+      i =>
+        i.entry.element.rest &&
+        i.entry.element.rest.type !== 'multimeasure' &&
+        (!leftBar || i.x > leftBar.x) &&
+        (!rightBar || i.x < rightBar.x)
+    ),
+    nearest = rests.reduce((best, i) => (!best || Math.abs(i.x - t.x) < Math.abs(best.x - t.x) ? i : best), null);
+  if (nearest) {
     fillRest(nearest.entry, pitchToken(t.written - Math.round((config.shift * 7) / 12)), beatLength());
     $('selection-status').textContent =
       `Added ${pitchName(t.written)} on the rest · right-click it to change accidental or length`;
@@ -775,21 +795,25 @@ $('notation').addEventListener('mousemove', e => {
   if (drawMode && !renderedTune?.engraver?.dragTarget) showGhost(onNote(e) ? null : drawTarget(e));
 });
 $('notation').addEventListener('mouseleave', () => showGhost(null));
-// Add blank bars (whole-bar rests in the current meter) before the closing barline, or at the end.
+// Add blank bars (whole-bar rests in the meter in force there) before the closing barline, or at the end.
 function addBars(count = 4) {
   flushTyping();
-  const [num, den] = meterParts(),
-    rest = 'z' + lengthText(num / den / unitLength()),
-    value = $('abc').value,
-    close = value.lastIndexOf('|]');
-  const bars = Array(count).fill(rest).join(' | ');
-  let at, text;
+  const value = $('abc').value,
+    close = value.lastIndexOf('|]'),
+    at = close >= 0 ? close : value.length,
+    [num, den] = meterPartsAt(at),
+    rest = 'z' + lengthText(num / den / unitLengthAt(at)),
+    bars = Array(count).fill(rest).join(' | ');
+  let text;
   if (close >= 0) {
-    at = close;
     text = (/\|\s*$/.test(value.slice(0, close)) ? '' : '| ') + bars + ' ';
   } else {
-    at = value.length;
-    text = (value.endsWith('\n') ? '' : '\n') + bars + ' |]';
+    // Without a closing barline the last measure may still be open: a newline does not end it, so close it first.
+    const last = [...noteSources.values()]
+      .filter(Boolean)
+      .reduce((a, e) => (!a || e.element.startChar > a.element.startChar ? e : a), null);
+    const open = last && last.element.el_type !== 'bar';
+    text = (value.endsWith('\n') ? '' : '\n') + (open ? '| ' : '') + bars + ' |]';
   }
   const first = at + text.indexOf(rest);
   applyNoteEdit(at, at, text, [first, first + rest.length]);

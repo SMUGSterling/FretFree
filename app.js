@@ -46,6 +46,8 @@ const DEFAULT_BARS = 8;
 function newScore(bars) {
   if (typeof bars !== 'number') bars = +$('new-bars')?.value || DEFAULT_BARS;
   bars = Math.max(1, Math.min(64, Math.round(bars) || DEFAULT_BARS));
+  if (!allowReplace()) return;
+  dirty = false;
   openScore({
     title: 'Untitled melody',
     composer: '',

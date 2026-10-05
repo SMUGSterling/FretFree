@@ -562,6 +562,15 @@ const {chromium} = require('playwright'),
     /^[A-Ga-g][,']* z3 \| z4 \| z4 \| z4 \| z4 \| z4 \| z4 \| z4 \|\]$/,
     'Drawing on a blank bar replaces the start of its rest'
   );
+  // A second click just right of the new note, nearer to it than to the rest, still fills the bar's rest.
+  const firstNote = await page.locator('#notation .abcjs-note').first().boundingBox();
+  await page.mouse.click(firstNote.x + firstNote.width + 6, firstNote.y - 12);
+  await page.waitForFunction(() => !/^[A-Ga-g][,']* z3 \|/.test($('abc').value.trim().split('\n').pop()));
+  assert.match(
+    await sheet(),
+    /^[A-Ga-g][,']* [A-Ga-g][,']* z2 \| z4 \| z4 \| z4 \| z4 \| z4 \| z4 \| z4 \|\]$/,
+    'Drawing beside a note in a part-filled bar consumes the rest rather than overfilling the bar'
+  );
   await page.click('#draw-mode');
   await page.click('#add-bars');
   assert.equal(await page.evaluate(() => $('measure-count').textContent), 'of 12', 'Add 4 bars extends the sheet');

@@ -180,6 +180,24 @@ assert.equal(
   'z4 | z4 | z4 | z4 | z4 | z4 | z4 |]',
   'Add 4 bars appends rests before the final barline'
 );
+// Appended bars take the meter and unit length in force at the end, and an open last measure is closed first.
+run(`$('abc').value = 'X:1\\nT:t\\nM:4/4\\nL:1/8\\nK:C\\nC2 D2 [M:3/4] [L:1/16] E4 F4 G4\\n'; syncFields(); render();`);
+$('add-bars').click();
+assert.equal(
+  $('abc').value.trim().split('\n').pop(),
+  '| z12 | z12 | z12 | z12 |]',
+  'Add 4 bars closes the open measure and sizes rests by the inline meter and unit'
+);
+// Cancelling the unsaved-changes prompt leaves the open score, its selection and status alone.
+run('dirty = true; selectedRange = [7, 9]');
+$('selection-status').textContent = 'before';
+w.confirm = () => false;
+$('new-score').click();
+w.confirm = () => true;
+assert.ok($('abc').value.includes('[M:3/4]'), 'Cancelled new score keeps the current score');
+assert.ok(run('selectedRange[0] === 7 && selectedRange[1] === 9'), 'Cancelled new score keeps the selection');
+assert.equal($('selection-status').textContent, 'before', 'Cancelled new score keeps the status line');
+run('dirty = false');
 $('new-bars').value = '8';
 
 // Source editions and saving.
