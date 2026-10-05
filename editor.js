@@ -221,7 +221,7 @@ function updateRights() {
   const r = current?.rights;
   if (r) {
     $('rights').innerHTML =
-      `<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${nonCommercial(current) ? `<em>${esc(NON_COMMERCIAL_NOTE)}</em><br>` : ''}${current.attribution ? `Credit: ${esc(current.attribution)}<br>` : ''}${current.licenseURL ? `<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>` : ''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty ? 'Your edits stay private. Export or save a copy to preserve them.' : 'Use, print, practice, and adapt this teaching version.'}</span>`;
+      `<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${nonCommercial(current) ? `<em>${esc(nonCommercialNote(current))}</em><br>` : ''}${current.attribution ? `Credit: ${esc(current.attribution)}<br>` : ''}${current.licenseURL ? `<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>` : ''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty ? 'Your edits stay private. Export or save a copy to preserve them.' : 'Use, print, practice, and adapt this teaching version.'}</span>`;
   } else if (current?.kind === 'shared') {
     $('rights').innerHTML =
       '<strong>Shared score</strong>Opened from a link. The music arrived inside the link itself; nothing was uploaded or stored elsewhere. Save it to My scores to keep a copy on this device.';

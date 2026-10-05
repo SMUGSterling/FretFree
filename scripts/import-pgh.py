@@ -8,7 +8,8 @@ Attribution Non-Commercial Share Alike (cc by-nc-sa) 3.0" and whose every tune c
 notation licence is therefore CC-BY-NC-SA-3.0 for every tune. Composition rights are judged per tune from the C:
 field under the US public-domain rule used elsewhere in the library: traditional or anonymous tunes and composers
 whose dates all fall before 1930 are admitted; tunes credited to a named composer with any year 1930 or later, or
-with no dates at all, are excluded and listed in scripts/pgh-exclusions.json.
+with no dates at all, are excluded and listed in scripts/pgh-exclusions.json, as are tunes in KNOWN_COMPOSITIONS, which
+the tunebook credits as traditional but are known later compositions.
 
 Each tune's original text is kept unchanged in scores/<id>/original.abc; the whole tunebook and its licence block are
 kept in licenses/. Candidates are validated by scripts/validate-candidates.cjs (parse, MIDI, transposition), which
@@ -23,6 +24,12 @@ LICENSE = 'CC-BY-NC-SA-3.0'
 LICENSE_URL = 'https://creativecommons.org/licenses/by-nc-sa/3.0/'
 SOURCE = 'https://www.paulhardy.net/'
 TRAD = re.compile(r'^\s*(trad\b|traditional\b|anon\b|music trad\b|from arbeau)', re.I)
+# Tunes the tunebook credits as traditional but which are known compositions of 1930 or later (reviewed by hand).
+KNOWN_COMPOSITIONS = {
+    '13003': 'Mairi’s Wedding: composed by Johnny Bannerman, 1934',
+    '19050': 'Stop the Cavalry: melody composed by Jona Lewie, 1980',
+    '23006': 'Wild Mountain Thyme: the version played is Francis McPeake’s, 1957 (after the traditional Braes o’ Balquhidder)',
+}
 
 
 def read_text(path):
@@ -106,6 +113,8 @@ def main():
         title = titles[0] if titles else f'Tune {x}'
         composer = field(tune, 'C', '')
         admitted, status, reason = composition_status(composer)
+        if x in KNOWN_COMPOSITIONS:
+            admitted, reason = False, 'Known later composition despite the traditional credit: ' + KNOWN_COMPOSITIONS[x]
         if not admitted:
             excluded.append({'file': f'X:{x}', 'title': title, 'composer': composer, 'reason': reason})
             continue

@@ -16,8 +16,12 @@ function scoreCollection(item) {
 function nonCommercial(item) {
   return /-NC(-|$)/.test(scoreLicense(item));
 }
-const NON_COMMERCIAL_NOTE =
-  'Non-commercial edition: free to use, share and adapt with credit for lessons, practice and free events; not for sale, paid events or advertising-supported sites. Adaptations keep the same license.';
+function nonCommercialNote(item) {
+  return (
+    'Non-commercial edition: free to use, share and adapt with credit for lessons, practice and free events; not for sale, paid events or advertising-supported sites.' +
+    (/-SA(-|$)/.test(scoreLicense(item)) ? ' Adaptations keep the same license.' : '')
+  );
+}
 function licenseLabel(item) {
   const license = scoreLicense(item);
   return license === 'Public Domain'
@@ -33,7 +37,7 @@ function exportCredit(item) {
     item.attribution || item.composer,
     'Collection: ' + scoreCollection(item),
     'Notation/edition license: ' + scoreLicense(item),
-    nonCommercial(item) ? NON_COMMERCIAL_NOTE : '',
+    nonCommercial(item) ? nonCommercialNote(item) : '',
     item.compositionStatus || 'See the source edition for composition history.',
     item.rights,
     item.studyTransform,
