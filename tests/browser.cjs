@@ -158,6 +158,11 @@ const {chromium} = require('playwright'),
     window.scrollTo({top: 0, behavior: 'instant'});
   });
   await page.locator('#notation .abcjs-notehead').nth(4).click({force: true});
+  assert.deepEqual(
+    await page.evaluate(() => [$('start-measure').value, $('end-measure').value]),
+    ['1', '4'],
+    'A plain click selects a note without moving the practice range'
+  );
   await page
     .locator('#notation .abcjs-notehead')
     .nth(9)
@@ -165,9 +170,34 @@ const {chromium} = require('playwright'),
   assert.deepEqual(
     await page.evaluate(() => [$('start-measure').value, $('end-measure').value]),
     ['2', '3'],
-    'Shift+click sets the loop end'
+    'Shift+click sets the range from the selected note to the clicked one'
   );
   assert.equal(await page.locator('#notation .range-shade').count(), 1, 'Practice range is shaded');
+  // "Practice from here" in the note menu moves the start and keeps the end unless it would fall before the start.
+  await page.locator('#notation .abcjs-notehead').nth(1).click({button: 'right', force: true});
+  await page.locator('#note-menu button', {hasText: 'Practice from here'}).click();
+  assert.deepEqual(
+    await page.evaluate(() => [$('start-measure').value, $('end-measure').value]),
+    ['1', '3'],
+    'Practice from here moves the start and keeps a later end'
+  );
+  await page.locator('#notation .abcjs-notehead').nth(12).click({button: 'right', force: true});
+  await page.locator('#note-menu button', {hasText: 'Practice from here'}).click();
+  assert.deepEqual(
+    await page.evaluate(() => [$('start-measure').value, $('end-measure').value]),
+    ['4', '4'],
+    'Practice from here past the end runs to the last measure'
+  );
+  await page.locator('#notation .abcjs-notehead').nth(4).click({force: true});
+  await page
+    .locator('#notation .abcjs-notehead')
+    .nth(9)
+    .click({force: true, modifiers: ['Shift']});
+  assert.deepEqual(
+    await page.evaluate(() => [$('start-measure').value, $('end-measure').value]),
+    ['2', '3'],
+    'Shift+click resets the range for the loop'
+  );
   await page.evaluate(() => {
     $('speed').value = 50;
     $('speed').oninput();

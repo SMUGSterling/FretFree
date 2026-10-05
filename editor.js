@@ -77,6 +77,7 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
     start = entry.element.startChar,
     end = entry.element.endChar;
   if (start == null || end == null) return;
+  const anchor = selectedNote()?.entry.measure;
   let nextEnd = end;
   // Bundled abcjs 6.5.2 reports SVG Y steps: negative is upward.
   if (drag?.step && entry.element.pitches?.length) {
@@ -94,16 +95,16 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
   selectedRange = [start, nextEnd];
   area.setSelectionRange(start, nextEnd);
   focusScore();
-  // Shift+click sets the end of the practice range; a plain click sets its start.
+  // A plain click only selects, so editing never moves the practice range. Shift+click sets the range from the
+  // selected note's measure to the clicked one (from the clicked measure to the end when nothing was selected).
   if (event?.shiftKey && !drag?.step) {
-    setRange(+$('start-measure').value, entry.measure);
+    const from = anchor ?? entry.measure,
+      to = anchor == null ? +$('end-measure').max : entry.measure;
+    setRange(from, to);
     return;
   }
-  $('start-measure').value = entry.measure;
-  if (+$('end-measure').value < entry.measure) $('end-measure').value = $('end-measure').max;
-  shadeRange();
   $('selection-status').textContent =
-    `Measure ${entry.measure} selected · type A–G to add notes after it, ↑↓ to change pitch · Shift+click another note to set the loop end`;
+    `Measure ${entry.measure} selected · type A–G to add notes after it, ↑↓ to change pitch · Shift+click another note to practice from here to there`;
 }
 function updateMeasures() {
   measureStarts = new Map();
@@ -769,7 +770,7 @@ function setDrawMode(on) {
   showGhost(null);
   $('selection-status').textContent = on
     ? 'Draw mode: click the staff to add a note. Right-click a note to change it.'
-    : 'Click a note to select its ABC text and starting measure. Drag up/down to change pitch; right-click for accidentals and length.';
+    : 'Click a note to select its ABC text. Drag up/down to change pitch; right-click for accidentals, length and practice range.';
 }
 $('draw-mode').onclick = () => setDrawMode(!drawMode);
 for (const type of ['mousedown', 'touchstart'])
@@ -888,7 +889,7 @@ function openNoteMenu(entry, display, x, y) {
     (isRest
       ? ''
       : `<button role="menuitemcheckbox" aria-checked="${/^-/.test(noteParts($('abc').value.slice(entry.element.startChar, entry.element.endChar))?.post || '')}" data-edit="tie">⁀ Tie to next note</button>`) +
-    `<button role="menuitem" data-edit="play-from">▶ Play from here</button>` +
+    `<div class="menu-row"><button role="menuitem" data-edit="play-from">▶ Play from here</button><button role="menuitem" data-edit="range-from">🔁 Practice from here</button></div>` +
     `<div class="menu-label">INSERT AFTER</div><div class="menu-row"><button role="menuitem" data-edit="rest-after">𝄽 Rest</button><button role="menuitem" data-edit="bar-after">| Bar line</button></div><hr><button role="menuitem" class="danger" data-edit="delete">Delete ${isRest ? 'rest' : 'note'}</button>`;
   const menu = $('note-menu');
   menu.hidden = false;
@@ -915,7 +916,7 @@ $('notation').addEventListener('contextmenu', e => {
   openNoteMenu(entry, display, e.clientX || box.right, e.clientY || box.bottom);
 });
 // One edit on one note, shared by the note menu and the keyboard. Actions: acc:<^|_|=|>, len:<whole>, dot, tie,
-// delete, rest-after, bar-after.
+// delete, rest-after, bar-after, play-from, range-from.
 function editNote(entry, display, action) {
   const area = $('abc'),
     v = area.value,
@@ -924,6 +925,11 @@ function editNote(entry, display, action) {
     old = v.slice(start, end);
   if (action === 'play-from') {
     playFromNote(display);
+    return;
+  }
+  if (action === 'range-from') {
+    const to = +$('end-measure').value;
+    setRange(entry.measure, to >= entry.measure ? to : +$('end-measure').max);
     return;
   }
   if (action.startsWith('acc:')) {
