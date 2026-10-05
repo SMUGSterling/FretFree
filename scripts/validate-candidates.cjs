@@ -1,4 +1,32 @@
-const fs=require('fs'),vm=require('vm'),ABCJS=require('../vendor/abcjs-basic-min.js');const ctx={ABCJS,atob,Uint8Array,DataView,Map};vm.createContext(ctx);vm.runInContext(fs.readFileSync(require('path').join(__dirname,'../score-tools.js'),'utf8'),ctx);
-const rows=JSON.parse(fs.readFileSync(process.argv[2]));let ready=[],errors=[];
-for(const row of rows){try{const parsed=ABCJS.parseOnly(row.abc);if(parsed.length!==1||parsed[0].warnings?.length)throw Error('ABC: '+parsed[0].warnings);let mid=ctx.midiBytes(row.abc),data=ctx.parseMidi(mid);if(!data.notes.length||!Number.isFinite(data.duration)||data.duration<=0)throw Error('No playable notes');for(const shift of [-12,2,9]){const trans=ABCJS.strTranspose(row.abc,parsed,shift),p=ABCJS.parseOnly(trans);if(p[0].warnings?.length)throw Error('Transposition: '+p[0].warnings);const d=ctx.parseMidi(ctx.midiBytes(trans));if(d.notes[0].note!==data.notes[0].note+shift)throw Error('Transposition pitch mismatch');}row.firstNotePitch=data.notes[0].note;ready.push(row);}catch(e){errors.push({id:row.id,title:row.title,error:e.message});}}
-fs.writeFileSync(process.argv[3],JSON.stringify(ready));fs.writeFileSync(process.argv[3]+'.errors.json',JSON.stringify(errors,null,2));console.log('Accepted',ready.length,'excluded',errors.length,JSON.stringify(errors.slice(0,8)));
+const fs = require('fs'),
+  vm = require('vm'),
+  ABCJS = require('../vendor/abcjs-basic-min.js');
+const ctx = {ABCJS, atob, Uint8Array, DataView, Map};
+vm.createContext(ctx);
+vm.runInContext(fs.readFileSync(require('path').join(__dirname, '../score-tools.js'), 'utf8'), ctx);
+const rows = JSON.parse(fs.readFileSync(process.argv[2]));
+let ready = [],
+  errors = [];
+for (const row of rows) {
+  try {
+    const parsed = ABCJS.parseOnly(row.abc);
+    if (parsed.length !== 1 || parsed[0].warnings?.length) throw Error('ABC: ' + parsed[0].warnings);
+    let mid = ctx.midiBytes(row.abc),
+      data = ctx.parseMidi(mid);
+    if (!data.notes.length || !Number.isFinite(data.duration) || data.duration <= 0) throw Error('No playable notes');
+    for (const shift of [-12, 2, 9]) {
+      const trans = ABCJS.strTranspose(row.abc, parsed, shift),
+        p = ABCJS.parseOnly(trans);
+      if (p[0].warnings?.length) throw Error('Transposition: ' + p[0].warnings);
+      const d = ctx.parseMidi(ctx.midiBytes(trans));
+      if (d.notes[0].note !== data.notes[0].note + shift) throw Error('Transposition pitch mismatch');
+    }
+    row.firstNotePitch = data.notes[0].note;
+    ready.push(row);
+  } catch (e) {
+    errors.push({id: row.id, title: row.title, error: e.message});
+  }
+}
+fs.writeFileSync(process.argv[3], JSON.stringify(ready));
+fs.writeFileSync(process.argv[3] + '.errors.json', JSON.stringify(errors, null, 2));
+console.log('Accepted', ready.length, 'excluded', errors.length, JSON.stringify(errors.slice(0, 8)));

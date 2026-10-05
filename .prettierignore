@@ -1,0 +1,9 @@
+vendor/
+catalog*.js
+prompts.js
+scores/
+licenses/
+provenance/
+*.min.js
+*.json
+*.md

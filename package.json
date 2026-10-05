@@ -10,10 +10,13 @@
   "test:all": "npm test && npm run test:browser",
   "serve": "python3 -m http.server 8000",
   "bump": "node scripts/bump-version.cjs",
-  "build:skills": "node scripts/build-skills.cjs"
+  "build:skills": "node scripts/build-skills.cjs",
+  "format": "prettier --write shared.js library.js editor.js playback.js app.js score-tools.js rights-tools.js 'scripts/*.cjs' 'tests/*.cjs'",
+  "format:check": "prettier --check shared.js library.js editor.js playback.js app.js score-tools.js rights-tools.js 'scripts/*.cjs' 'tests/*.cjs'"
  },
  "devDependencies": {
   "jsdom": "^29.1.1",
-  "playwright": "^1.56.1"
+  "playwright": "^1.56.1",
+  "prettier": "^3.8.1"
  }
 }
