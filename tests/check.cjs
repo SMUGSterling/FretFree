@@ -106,6 +106,22 @@ assert.ok(chords.notes.filter(x => x.start === 0).length === 3, 'chord playback 
   assert.equal(JSON.stringify(await context.decodeShare(fallback)), JSON.stringify(payload));
   assert.ok(packed.length < fallback.length, 'Compression shortens the link');
   assert.equal(await context.decodeShare('1garbage'), null);
+  assert.equal(await context.decodeShare('2' + packed.slice(1)), null, 'Unknown pack markers are refused');
+  assert.equal(
+    await context.decodeShare('0' + btoa('{"v":1,"a":"garbage K:"}')),
+    null,
+    'ABC needs real X: and K: header lines'
+  );
+  assert.equal(
+    await context.decodeShare('0' + btoa(JSON.stringify({...payload, v: 2}))),
+    null,
+    'Only payload version 1 opens'
+  );
+  const big = await context.encodeShare({...payload, a: payload.a + '\n' + 'C D E F | G A B c |\n'.repeat(20000)});
+  assert.ok(
+    big.length > 1000 && (await context.decodeShare(big)).a.length > 300000,
+    'A 400 KB score encodes without overflowing the stack'
+  );
   assert.equal(
     await context.decodeShare('0' + btoa('{"a":"not abc"}')),
     null,

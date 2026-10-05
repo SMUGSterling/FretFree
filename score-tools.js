@@ -712,11 +712,12 @@ function parseMidi(bytes) {
 // Payload {v, a: abc, i: instrument, s: library source id, p: prompt id}. The first character says how the rest
 // is packed: '1' deflate-raw + base64url, '0' plain base64url (for browsers without CompressionStream).
 const base64url = {
-  encode: bytes =>
-    btoa(String.fromCharCode(...bytes))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, ''),
+  // Built in chunks: spreading a large score into String.fromCharCode overflows the call stack.
+  encode: bytes => {
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  },
   decode: text => Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
 };
 const streamBytes = async (bytes, Transform, format) =>
@@ -727,12 +728,15 @@ async function encodeShare(payload) {
     return '1' + base64url.encode(await streamBytes(bytes, CompressionStream, 'deflate-raw'));
   return '0' + base64url.encode(bytes);
 }
+// A link opens only if its marker is known, its payload is version 1, and the ABC has real X: and K: header lines.
+const SHARE_ABC = /^X:[^\n]*\n[\s\S]*^K:/m;
 async function decodeShare(text) {
   try {
+    if (text[0] !== '1' && text[0] !== '0') return null;
     const packed = base64url.decode(text.slice(1));
     const bytes = text[0] === '1' ? await streamBytes(packed, DecompressionStream, 'deflate-raw') : packed;
     const payload = JSON.parse(new TextDecoder().decode(bytes));
-    return typeof payload?.a === 'string' && payload.a.includes('K:') ? payload : null;
+    return payload?.v === 1 && typeof payload.a === 'string' && SHARE_ABC.test(payload.a) ? payload : null;
   } catch {
     return null;
   }
