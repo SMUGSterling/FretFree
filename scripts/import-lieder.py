@@ -262,7 +262,8 @@ def convert(path, version):
                     has_tuplet = True
                 dtype = text_of(el, 'durationType')
                 if dtype == 'measure':
-                    dur = Fraction(text_of(el, 'duration', f'{meter[0]}/{meter[1]}'))
+                    # A whole-bar rest is as long as its bar: MuseScore's <duration>, else the measure's own len, else the meter.
+                    dur = Fraction(text_of(el, 'duration', m['len'] or f'{meter[0]}/{meter[1]}'))
                 else:
                     dur = DURATIONS.get(dtype, Fraction(1, 4))
                     dots = int(text_of(el, 'dots', '0') or 0)
@@ -440,11 +441,14 @@ def main():
     # library-stats.json
     stats_path = os.path.join(ROOT, 'scripts', 'library-stats.json')
     stats = json.load(open(stats_path, encoding='utf-8'))
+    # Idempotent: remove the previous Lieder contribution before adding this run's.
+    previous = stats.get('liederAdded', 0)
     stats['collections']['OpenScore Lieder'] = len(ready)
-    stats['licenses']['CC0-1.0'] = stats['licenses'].get('CC0-1.0', 0) - stats.get('lieder', 0) + len(ready)
-    stats['lieder'] = len(ready)
-    stats['total'] = stats['baseline'] + stats['added'] - stats.get('liederAdded', 0) + len(ready)
+    stats['licenses']['CC0-1.0'] = stats['licenses'].get('CC0-1.0', 0) - previous + len(ready)
+    stats['added'] = stats['added'] - previous + len(ready)
+    stats['total'] = stats['baseline'] + stats['added']
     stats['liederAdded'] = len(ready)
+    stats.pop('lieder', None)
     stats['liederSource'] = {'repo': REPO, 'commit': commit, 'files': len(files), 'accepted': len(ready), 'excluded': len(excluded)}
     with open(stats_path, 'w', encoding='utf-8') as fh:
         json.dump(stats, fh, ensure_ascii=False, indent=1)
