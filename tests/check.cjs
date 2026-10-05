@@ -33,6 +33,8 @@ vm.runInContext(fs.readFileSync(require.resolve('../score-tools.js'),'utf8'),con
  assert.equal(tags('X:1\nM:6/8\nL:1/8\nK:G\n|: (3GAB c/d/e/ f/g/a/ | [GBd]3 z3 :|'),'Steps, Eighth notes, Sixteenth notes, Dotted rhythms, Triplets, Compound meter, Chords, Repeats','Triplet eighths count as eighths; one short rest is not a rest study');
  assert.equal(tags('X:1\nM:4/4\nL:1/4\nK:C\nC C C C | D D D D |]'),'Repeated notes');
  assert.equal(tags('X:1\nM:4/4\nL:1/4\nK:D\nD ^D E =F | F ^F G ^G |]'),'Steps, Accidentals');
+ assert.equal(tags('X:1\nM:4/4\nL:1/4\nK:C\nF x F [K:G] F x2 [K:C] F x | F [K:G] F [K:C] F x |]'),'Steps, Repeated notes','Inline key changes alter the notes that follow; invisible rests are not rests or rhythms');
+ assert.equal(tags('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | [K:Am] A B c d |]'),'Steps, Minor key','An inline minor key tags the score');
  const {buildSkills,render}=require('../scripts/build-skills.cjs');
  assert.equal(fs.readFileSync(require.resolve('../catalog-skills.js'),'utf8'),render(buildSkills()),'catalog-skills.js is stale; run node scripts/build-skills.cjs');}
 {const own=context.library.filter(x=>x.kind==='historic'&&!x.collection||x.kind==='original').filter(x=>context.barProblems(ABCJS.parseOnly(x.abc)[0]).length).map(x=>x.id);

@@ -243,13 +243,17 @@ function skillTags(tune){
  for(const line of tune.lines)for(const staff of line.staff||[]){
   const meter=staff.meter?.value?.[0],num=+meter?.num,den=+meter?.den;
   if(num===3)tags.add('Triple meter');if(den===8&&num>3&&num%3===0)tags.add('Compound meter');
-  if(/^(m|min|minor|aeo|aeolian|dor|dorian|phr|phrygian)/i.test(staff.key?.mode||''))tags.add('Minor key');
-  const alters=keyAlters(staff.key);
+  const minor=key=>/^(m|min|minor|aeo|aeolian|dor|dorian|phr|phrygian)/i.test(key?.mode||'');
+  if(minor(staff.key))tags.add('Minor key');
   for(const voice of staff.voices||[]){
-   let last=null,carried=new Map();
+   let last=null,carried=new Map(),alters=keyAlters(staff.key);
    for(const e of voice){
     if(e.el_type==='bar'){if(/repeat/.test(e.type))tags.add('Repeats');carried=new Map();continue}
+    // An inline [K:] changes the key for the notes that follow.
+    if(e.el_type==='key'){alters=keyAlters(e);if(minor(e))tags.add('Minor key');continue}
     if(e.el_type!=='note')continue;
+    // Invisible rests (x, y) only space the layout; students never see them.
+    if(e.rest&&e.rest.type!=='rest'&&e.rest.type!=='multimeasure')continue;
     if(e.startTriplet)tags.add('Triplets');
     const d=e.duration;
     if(d>0){if(d<1/8+1e-9&&d>1/16+1e-9)tags.add('Eighth notes');if(d<=1/16+1e-9)tags.add('Sixteenth notes');
