@@ -98,11 +98,13 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
   // A plain click only selects, so editing never moves the practice range. Shift+click sets the range from the
   // selected note's measure to the clicked one (from the clicked measure to the end when nothing was selected).
   if (event?.shiftKey && !drag?.step) {
-    setRange(anchor ?? entry.measure, anchor == null ? +$('end-measure').max : entry.measure);
+    const from = anchor ?? entry.measure,
+      to = anchor == null ? +$('end-measure').max : entry.measure;
+    setRange(from, to);
     return;
   }
   $('selection-status').textContent =
-    `Measure ${entry.measure} selected · type A–G to add notes after it, ↑↓ to change pitch · Shift+click another note to practise from here to there`;
+    `Measure ${entry.measure} selected · type A–G to add notes after it, ↑↓ to change pitch · Shift+click another note to practice from here to there`;
 }
 function updateMeasures() {
   measureStarts = new Map();
@@ -887,7 +889,7 @@ function openNoteMenu(entry, display, x, y) {
     (isRest
       ? ''
       : `<button role="menuitemcheckbox" aria-checked="${/^-/.test(noteParts($('abc').value.slice(entry.element.startChar, entry.element.endChar))?.post || '')}" data-edit="tie">⁀ Tie to next note</button>`) +
-    `<div class="menu-row"><button role="menuitem" data-edit="play-from">▶ Play from here</button><button role="menuitem" data-edit="range-from">🔁 Practise from here</button></div>` +
+    `<div class="menu-row"><button role="menuitem" data-edit="play-from">▶ Play from here</button><button role="menuitem" data-edit="range-from">🔁 Practice from here</button></div>` +
     `<div class="menu-label">INSERT AFTER</div><div class="menu-row"><button role="menuitem" data-edit="rest-after">𝄽 Rest</button><button role="menuitem" data-edit="bar-after">| Bar line</button></div><hr><button role="menuitem" class="danger" data-edit="delete">Delete ${isRest ? 'rest' : 'note'}</button>`;
   const menu = $('note-menu');
   menu.hidden = false;

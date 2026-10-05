@@ -1,6 +1,6 @@
 # Selection leaves the practice range alone · 2026-10-05
 
-- Clicking a note (or typing notes, which moves the selection) no longer changes the practice start. Set the range with Shift+click: from the selected note's measure to the clicked one, or from the clicked measure to the end when nothing is selected. The note menu gains **🔁 Practise from here**, and the Start/End boxes still work.
+- Clicking a note (or typing notes, which moves the selection) no longer changes the practice start. Set the range with Shift+click: from the selected note's measure to the clicked one, or from the clicked measure to the end when nothing is selected. The note menu gains **🔁 Practice from here**, and the Start/End boxes still work.
 
 ---
 
