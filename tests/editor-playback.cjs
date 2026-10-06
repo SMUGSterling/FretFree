@@ -1986,7 +1986,7 @@ async function checkRecording() {
   await until(() => !run("memoryTakes.has('d1')"), 'the deleted score’s take to go');
   run("show('studio');newScore(2)");
   // Takes no score can reach (a deleted score's, closed unsaved work's) can be deleted from the panel. Library takes, the
-  // open score's, and takes of work kept in a draft stay.
+  // open score's, and takes of work kept in a draft or open in another tab stay.
   w.confirm = () => true;
   memoryTake('s1', 'saved:gone');
   memoryTake('s2', 'new:closed');
@@ -1994,8 +1994,25 @@ async function checkRecording() {
   memoryTake('s4', 'new:drafted');
   memoryTake('s5', run('recordKey()'));
   run("storage.set(KEYS.draft, [{abc:'X:1\\nK:C\\nC|]',tab:'other',at:1,takes:'new:drafted'}])");
+  // Unsaved work open in another tab, with no draft, holds a Web Lock for its takes, and this tab holds one for its own.
+  const locks = [];
+  Object.defineProperty(w.navigator, 'locks', {
+    configurable: true,
+    value: {
+      request(name, options, callback) {
+        const lock = `${name} (${options.mode})`;
+        locks.push(lock);
+        return Promise.resolve(callback()).then(() => locks.splice(locks.indexOf(lock), 1));
+      },
+      query: async () => ({held: locks.map(lock => ({name: lock.replace(/ \(\w+\)$/, '')})), pending: []})
+    }
+  });
+  locks.push('fretfree-takes new:elsewhere (shared)');
+  memoryTake('s6', 'new:elsewhere');
   run('updateTakes(true)');
   await until(() => run("$('takes-stray-text').textContent").startsWith('2 takes'), 'the stray takes');
+  const ownLock = `fretfree-takes ${run('recordKey()')} (shared)`;
+  assert.ok(locks.includes(ownLock), 'A tab with unsaved takes holds a lock for them');
   assert.equal(
     run("$('takes-stray-text').textContent"),
     '2 takes here belong to scores that were deleted or never saved.'
@@ -2003,15 +2020,17 @@ async function checkRecording() {
   w.confirm = message => ((asked = message), false);
   run("$('takes-stray-delete').click()");
   await new Promise(r => w.setTimeout(r, 20));
-  assert.equal(run('memoryTakes.size'), 5, 'Cancel keeps them');
+  assert.equal(run('memoryTakes.size'), 6, 'Cancel keeps them');
   assert.equal(asked, 'Delete the 2 takes of scores that were deleted or never saved? They can’t be brought back.');
   w.confirm = () => true;
   run("$('takes-stray-delete').click()");
   await until(() => run("$('takes-stray').hidden"), 'the stray takes to go');
-  assert.equal(run('[...memoryTakes.keys()].join()'), 's3,s4,s5');
+  assert.equal(run('[...memoryTakes.keys()].join()'), 's3,s4,s5,s6', 'Takes open in another tab stay');
   assert.equal(run("$('record-status').textContent"), '2 takes deleted.');
   assert.equal(run('document.activeElement.id'), 'record-start');
   run('memoryTakes.clear();storage.remove(KEYS.draft);updateTakes(true)');
+  await until(() => !locks.includes(ownLock), 'the lock to go with the takes');
+  delete w.navigator.locks;
   // Starting, then stopping before the microphone answers, records nothing and lets the microphone go.
   track.stopped = false;
   mic = () => new Promise(r => (allow = () => r(stream)));
@@ -2023,6 +2042,68 @@ async function checkRecording() {
   assert.equal(run('rec'), null);
   assert.equal(run("$('record-status').textContent"), 'No take was recorded.');
   assert.equal(run('memoryTakes.size'), 0);
+  // Stopping in the count-in (a false start) keeps no take. The count-in is 2 bars at 120, so the score starts at 14.07.
+  mic = () => Promise.resolve(stream);
+  const takeAbc = JSON.stringify('X:1\nT:Take test\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nC D E F | G4 |]');
+  run(`dirty=false;openScore({title:'Take test',abc:${takeAbc}})`);
+  run('audio.currentTime=10');
+  track.stopped = false;
+  await run('startRecording()');
+  assert.equal(run('rec.state'), 'live');
+  run("audio.currentTime=13.9;$('record-start').click()");
+  assert.equal(run('rec'), null);
+  assert.equal(recorders.at(-1).state, 'inactive');
+  assert.ok(track.stopped, 'The microphone is released');
+  assert.equal(run("$('record-status').textContent"), 'Stopped in the count-in, so no take was recorded.');
+  await new Promise(r => w.setTimeout(r, 20));
+  assert.equal(run('memoryTakes.size'), 0, 'A false start is not a take');
+  // Saving unsaved work while it records, while its take is saved (the tail), or while the take is stored, keeps the
+  // take with the saved score, and leaves nothing out of reach.
+  for (const when of ['recording', 'the tail', 'storing']) {
+    run(`dirty=false;openScore({title:'Take test',abc:${takeAbc}})`);
+    const unsaved = run('recordKey()');
+    run('audio.currentTime=10');
+    await run('startRecording()');
+    run('audio.currentTime=15');
+    if (when === 'recording') run("$('save').onclick()");
+    else {
+      run('stop()');
+      assert.equal(run('rec.state'), 'stopping');
+      if (when === 'the tail') run("$('save').onclick()");
+      else {
+        // The take's number is being worked out when the score is saved.
+        run(
+          'window.__list=listTakes;listTakes=async key=>{listTakes=__list;await new Promise(r=>(window.__go=r));return __list(key)};closeRecorder(rec)'
+        );
+        await until(() => run("typeof __go === 'function'"), 'the take to be stored');
+        assert.equal(run('rec'), null);
+        run("$('save').onclick();__go();delete window.__go");
+      }
+    }
+    await until(() => takeCount() === 1, `the take saved in ${when}`);
+    assert.equal(run('shownTakes[0].scoreKey'), 'saved:' + run('savedId'), `Saved in ${when}, the take is the score’s`);
+    assert.equal(await run(`listTakes(${JSON.stringify(unsaved)}).then(takes => takes.length)`), 0);
+    await run('indexTakes()');
+    assert.equal((await run('strayTakeKeys()')).length, 0, `Saved in ${when}, no take is out of reach`);
+    run('saved=saved.filter(x=>x.id!==savedId);storeScores(saved);memoryTakes.clear()');
+  }
+  // Saving one's own copy of a library edition takes along the takes recorded since it was opened. Takes recorded on
+  // the edition before (a teacher's model take on a shared computer) stay with it.
+  memoryTake('model', 'library:ode');
+  run("dirty=false;openScore(catalog.find(x=>x.id==='ode'))");
+  await until(() => takeCount() === 1, 'the edition’s take');
+  run('audio.currentTime=10');
+  await run('startRecording()');
+  run('audio.currentTime=30;stop()');
+  await until(() => takeCount() === 2, 'the take recorded on the edition');
+  run("selectEntry(scoreNotes()[0]);scoreKey({key:'c'});$('save').onclick()");
+  await until(() => run("shownKey.startsWith('saved:')") && takeCount() === 1, 'the saved copy’s take');
+  const copy = run('savedId');
+  assert.equal(run('shownTakes[0].n'), 2, 'The take recorded on the copy goes with it');
+  assert.equal(run("memoryTakes.get('model').scoreKey"), 'library:ode', 'The earlier take stays with the edition');
+  run("dirty=false;openScore(catalog.find(x=>x.id==='ode'))");
+  await until(() => run("shownTakes[0]?.id === 'model'") && takeCount() === 1, 'the edition’s take again');
+  run(`saved=saved.filter(x=>x.id!==${JSON.stringify(copy)});storeScores(saved);memoryTakes.clear();updateTakes(true)`);
   run("$('record-close').click()");
   assert.equal(run("$('record-panel').hidden"), true);
   assert.equal(run('document.activeElement.id'), 'record');
@@ -2659,7 +2740,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, recording yourself (no microphone, denied, count-in bars, one pass, the take and its length, playing alone and lined up with the score, calibration applied to older takes, downloads with credits, delete, a press while saving keeps the take, each unsaved score with takes of its own, takes back with a restored draft and kept through the first save, deleting a saved score with its takes, deleting takes no score can reach, cancelling), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, recording yourself (no microphone, denied, count-in bars, one pass, the take and its length, playing alone and lined up with the score, calibration applied to older takes, downloads with credits, delete, a press while saving keeps the take, each unsaved score with takes of its own, takes back with a restored draft and kept through the first save, deleting a saved score with its takes, deleting takes no score can reach but not those open in another tab, cancelling, a stop in the count-in keeping no take, a save while recording, in the tail or while the take is stored keeping the take with the saved score, a library copy taking only the takes recorded since it opened), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   // Let the takes list that the last save refreshes finish before the window goes.
   await new Promise(r => setTimeout(r, 20));

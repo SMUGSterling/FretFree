@@ -74,14 +74,29 @@ async function removeTake(id) {
     await takesRequest('readwrite', s => s.delete(id));
   } catch {}
 }
-// A score's takes follow it when it is first saved, as its key changes to its saved id.
-async function rekeyTakes(from, to) {
+// Storing a finished take and moving takes to a saved score run one after the other, so a take still being stored
+// when its score is saved moves with it.
+let takesTurn = Promise.resolve();
+function inTurn(job) {
+  const done = takesTurn.then(job);
+  takesTurn = done.catch(() => {});
+  return done;
+}
+// A score's takes follow it when it is first saved, as its key changes to its saved id: all of unsaved work's takes
+// and the recording in progress, but of a library edition only the takes recorded since it was opened. The edition's
+// other takes on this device (a teacher's model take, another student's) stay with the edition.
+function rekeyTakes(from, to) {
   if (!from || from === to) return;
-  for (const take of await listTakes(from)) {
-    memoryTakes.delete(take.id);
-    await putTake({...take, scoreKey: to});
-  }
-  updateTakes(true);
+  if (rec?.key === from) rec.key = to;
+  const all = !from.startsWith('library:');
+  return inTurn(async () => {
+    for (const take of await listTakes(from))
+      if (all || recordedHere.has(take.id)) {
+        memoryTakes.delete(take.id);
+        await putTake({...take, scoreKey: to});
+      }
+    await updateTakes(true);
+  });
 }
 // Deleting a saved score deletes its takes (app.js), and the panel can delete takes no score can reach any more.
 async function deleteTakesOf(keys) {
@@ -98,7 +113,9 @@ async function deleteTakesOf(keys) {
 // Which score the takes belong to: a saved score by its id, a library score by its id. Anything else (a new, imported
 // or shared score) gets an id of its own when it opens, which its unsaved-work draft keeps, so two blank sheets never
 // share takes and recovered work gets its takes back.
-let openedKey = null;
+let openedKey = null,
+  // The takes recorded since the open score was opened, by id.
+  recordedHere = new Set();
 const newTakesKey = () =>
   'new:' + (globalThis.crypto?.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2));
 function recordKey() {
@@ -108,6 +125,7 @@ function recordKey() {
 // openScore calls takesOpened with the score that opens, and restoreDraft calls takesRestored with its draft's key.
 function takesOpened(item) {
   openedKey = item?.id && typeof catalog !== 'undefined' && catalog.includes(item) ? 'library:' + item.id : null;
+  recordedHere = new Set();
 }
 function takesRestored(key) {
   if (typeof key !== 'string' || key.length > 200 || !/^(new|library):./.test(key)) return;
@@ -116,7 +134,7 @@ function takesRestored(key) {
 }
 // The score of every stored take, read without the recordings: how many takes a saved score has, so deleting it can
 // say so, and which takes no score here can reach (their saved score deleted, or their unsaved work closed or
-// discarded and not kept in any draft).
+// discarded, and neither kept in any draft nor open in another tab).
 let storedTakeKeys = [];
 async function indexTakes() {
   const keys = [...memoryTakes.values()].map(t => t.scoreKey),
@@ -139,13 +157,40 @@ async function indexTakes() {
   storedTakeKeys = keys;
 }
 const takeCount = key => storedTakeKeys.filter(k => k === key).length;
+// Unsaved work open in another tab may have no draft (a score opened unchanged, or a draft pushed out by newer ones).
+// While a tab's open score is unsaved work with takes, the tab holds a Web Lock named for their key, which the browser
+// lets go when the tab closes, so no other tab counts those takes as out of reach. It is held only then, as a held
+// lock stops the browser keeping the page for Back and Forward. Without Web Locks, only drafts show what is still open.
+const TAKES_LOCK = 'fretfree-takes ';
+let heldTakes = null;
+function holdTakes(key) {
+  if ((heldTakes?.key ?? null) === key || typeof navigator.locks?.request !== 'function') return;
+  heldTakes?.release();
+  heldTakes = null;
+  if (!key) return;
+  const hold = (heldTakes = {key}),
+    released = new Promise(resolve => (hold.release = resolve));
+  navigator.locks.request(TAKES_LOCK + key, {mode: 'shared'}, () => released).catch(() => {});
+}
+async function takesOpenElsewhere() {
+  try {
+    const {held = [], pending = []} = (await navigator.locks?.query?.()) || {};
+    return [...held, ...pending]
+      .map(lock => String(lock?.name))
+      .filter(name => name.startsWith(TAKES_LOCK))
+      .map(name => name.slice(TAKES_LOCK.length));
+  } catch {
+    return [];
+  }
+}
 let libraryKeys = null;
-function strayTakeKeys() {
+async function strayTakeKeys() {
   libraryKeys ||= new Set(typeof catalog === 'undefined' ? [] : catalog.map(x => 'library:' + x.id));
   const live = new Set([
     recordKey(),
     ...(typeof saved === 'undefined' ? [] : saved.map(x => 'saved:' + x.id)),
-    ...(typeof storedDrafts === 'function' ? storedDrafts().map(d => d.takes) : [])
+    ...(typeof storedDrafts === 'function' ? storedDrafts().map(d => d.takes) : []),
+    ...(await takesOpenElsewhere())
   ]);
   return storedTakeKeys.filter(k => !live.has(k) && !libraryKeys.has(k));
 }
@@ -294,7 +339,7 @@ function stopRecording() {
   if (rec?.state === 'live') stop();
   else if (rec?.state === 'starting') discardRecording(rec);
 }
-function discardRecording(session) {
+function discardRecording(session, why = 'No take was recorded.') {
   session.cancelled = true;
   session.state = 'done';
   closeRecorder(session);
@@ -302,20 +347,25 @@ function discardRecording(session) {
   stopLevel();
   if (rec === session) rec = null;
   showRecording();
-  recordStatus('No take was recorded.');
+  recordStatus(why);
 }
-// The hook stop() calls: a live recording winds down, and a take playing stops.
+// The hook stop() calls: a live recording winds down, and a take playing stops. Stopped during the count-in, before
+// the score's first note, the recording holds nothing of the score, so it is not kept (a false start).
 function takeStopped() {
   stopTake();
   if (rec?.state !== 'live') return;
   const session = rec;
+  if (audio.currentTime < session.startAudio + session.lead)
+    return discardRecording(session, 'Stopped in the count-in, so no take was recorded.');
   session.state = 'stopping';
   session.end = audio.currentTime + RECORD_TAIL_MS / 1000;
   recordStatus('Saving the take…');
   showRecording();
   setTimeout(() => closeRecorder(session), RECORD_TAIL_MS);
 }
-async function finishTake(session) {
+// The take is stored under the key of the score it was recorded on: if that score was saved while it recorded, the
+// save moved the key on (rekeyTakes), and a save from here on comes after the take in turn and moves it.
+function finishTake(session) {
   releaseMic(session.stream);
   stopLevel();
   if (rec === session) rec = null;
@@ -323,6 +373,10 @@ async function finishTake(session) {
   if (session.cancelled || session.lead == null) return;
   const blob = new Blob(session.chunks, {type: session.mime});
   if (!blob.size) return recordStatus('The microphone sent no sound, so no take was saved.');
+  const duration = Math.max(0, Math.max(session.end || 0, audio.currentTime) - session.startAudio);
+  return inTurn(() => storeTake(session, blob, duration));
+}
+async function storeTake(session, blob, duration) {
   const earlier = await listTakes(session.key),
     take = {
       id: globalThis.crypto?.randomUUID?.() || 'take-' + Date.now() + '-' + Math.random().toString(36).slice(2),
@@ -330,7 +384,7 @@ async function finishTake(session) {
       n: Math.max(0, ...earlier.map(t => t.n || 0)) + 1,
       title: session.title,
       at: Date.now(),
-      duration: Math.max(0, Math.max(session.end || 0, audio.currentTime) - session.startAudio),
+      duration,
       mime: session.mime,
       blob,
       latencyMs: session.latencyMs,
@@ -340,16 +394,17 @@ async function finishTake(session) {
       until: session.until,
       speed: session.speed
     };
+  recordedHere.add(take.id);
   const kept = await putTake(take);
   recordStatus(
     `Take ${take.n} saved (${clockText(take.duration)}).` +
       (!kept
         ? ' This browser can’t keep it after the tab closes, so download it to keep it.'
-        : take.scoreKey.startsWith('new:')
+        : take.scoreKey.startsWith('new:') && take.scoreKey === recordKey()
           ? ' Save the score to keep its takes with it.'
           : '')
   );
-  updateTakes(true);
+  await updateTakes(true);
 }
 // While the take is saved, Start recording is marked unavailable with aria-disabled, which keeps keyboard focus on it.
 function showRecording() {
@@ -474,6 +529,7 @@ async function updateTakes(force = false) {
   if (key !== shownKey) return;
   if (takePlayer && !takes.some(t => t.id === takePlayer.id)) stopTake();
   shownTakes = takes;
+  holdTakes(key.startsWith('new:') && takes.length ? key : null);
   const when = at =>
     new Date(at).toLocaleString(undefined, {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
   $('take-list').innerHTML = takes
@@ -522,7 +578,7 @@ async function showStorageUse() {
       text += ` FretFree is using ${(usage / 1048576).toFixed(usage < 10485760 ? 1 : 0)} MB of storage here.`;
   } catch {}
   $('record-storage').textContent = text;
-  const stray = strayTakeKeys().length;
+  const stray = (await strayTakeKeys()).length;
   $('takes-stray').hidden = !stray;
   $('takes-stray-text').textContent =
     stray === 1
@@ -530,7 +586,7 @@ async function showStorageUse() {
       : `${stray} takes here belong to scores that were deleted or never saved.`;
 }
 async function deleteStrayTakes() {
-  const keys = strayTakeKeys();
+  const keys = await strayTakeKeys();
   if (
     !keys.length ||
     !confirm(
