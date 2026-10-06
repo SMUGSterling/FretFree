@@ -531,7 +531,7 @@ const {chromium} = require('playwright'),
     newScore();
   });
   assert.ok(await page.locator('#prompt-check').isHidden(), 'No prompt panel on a plain score');
-  // Phase 1: play from a note, note names, guitar tab, recorder fingering.
+  // Phase 1: play from a note, note names, classroom colors, guitar tab, recorder fingering.
   await page.evaluate(() => {
     dirty = false;
     openScore({abc: 'X:1\nT:P\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nC D E F | G A B c |]', instrument: 'Flute'});
@@ -568,6 +568,123 @@ const {chromium} = require('playwright'),
   );
   assert.ok(!(await page.evaluate(() => $('abc').value)).includes('"_'), 'Labels never touch the ABC source');
   await page.selectOption('#note-names', 'off');
+  // Classroom colors and letters in noteheads: chosen from the keyboard, shown on screen, in print and in SVG export.
+  {
+    const before = await page.evaluate(() => $('abc').value),
+      abc = 'X:1\nT:Colors\nM:4/4\nL:1/4\nK:G\nC, c [CEG] g | G, ^c z [G^g] | {a}_B2 e2 |]';
+    await page.evaluate(abc => {
+      dirty = false;
+      openScore({abc, instrument: 'Flute'});
+    }, abc);
+    await page.focus('#note-colors');
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.inputValue('#note-colors'), 'classroom', 'Colors chosen from the keyboard');
+    const fillsOf = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll('#notation .abcjs-notehead')].map(
+          h =>
+            h
+              .getAttribute('data-name')
+              .replace(/[^A-G]/gi, '')
+              .toUpperCase() +
+            '=' +
+            getComputedStyle(h).fill
+        )
+      );
+    const byLetter = fills => Object.fromEntries(fills.map(f => f.split('=')));
+    let fills = await fillsOf();
+    assert.equal(fills.filter(f => f.startsWith('C=')).length, 4);
+    assert.ok(
+      fills.filter(f => /^[CG]=/.test(f)).every(f => f === 'C=rgb(214, 40, 40)' || f === 'G=rgb(76, 201, 240)'),
+      'Every C is red and every G light blue, in all octaves and chords: ' + fills
+    );
+    assert.ok(
+      await page.evaluate(() =>
+        [...document.querySelectorAll('#notation .abcjs-stem, #notation .abcjs-rest path')].every(
+          el => getComputedStyle(el).fill === getComputedStyle(document.querySelector('#notation .abcjs-bar path')).fill
+        )
+      ),
+      'Stems and rests keep the ink color'
+    );
+    await page.selectOption('#note-names', 'heads');
+    assert.equal(
+      await page.evaluate(() =>
+        [...document.querySelectorAll('#notation .notehead-letter')].map(t => t.textContent).join('')
+      ),
+      'CCCEGGGCGGBE',
+      'A letter inside every head but the grace note'
+    );
+    assert.equal(
+      await page.evaluate(() =>
+        document.querySelector('#notation .abcjs-notehead[data-name="a"]').getAttribute('fill')
+      ),
+      '#1d3fbb',
+      'The grace note is colored'
+    );
+    await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+    assert.equal(
+      await page.evaluate(() => getComputedStyle(document.querySelectorAll('#notation .abcjs-notehead')[1]).fill),
+      'rgb(49, 119, 97)',
+      'A selected colored note shows the selection color'
+    );
+    await page.evaluate(() => {
+      selectedRange = null;
+      render();
+    });
+    const svg = await page.evaluate(() => creditedSVG($('notation'), $('abc').value, current));
+    assert.ok(svg.includes('fill="#d62828"') && svg.includes('class="notehead-letter"'), 'Colors and letters export');
+    assert.deepEqual(
+      await page.evaluate(() => {
+        const heads = [...document.querySelectorAll('#notation .abcjs-notehead')],
+          fills = heads.map(h => h.getAttribute('fill'));
+        for (const h of heads) {
+          h.removeAttribute('data-name');
+          h.removeAttribute('fill');
+        }
+        document.querySelectorAll('#notation .notehead-letter').forEach(t => t.remove());
+        updateNoteColors();
+        const letters = [...document.querySelectorAll('#notation .notehead-letter')].map(t => t.textContent).join(''),
+          same = heads.every((h, i) => h.getAttribute('fill') === fills[i]);
+        render();
+        return [letters, same];
+      }),
+      ['CCCEGGGCGGBE', true],
+      'Without data-name, heads pair with pitches by height and grace heads with the grace notes'
+    );
+    await page.emulateMedia({media: 'print'});
+    assert.equal(byLetter(await fillsOf()).C, 'rgb(214, 40, 40)', 'Colors print');
+    assert.ok(await page.locator('#notation .notehead-letter').first().isVisible(), 'Letters print');
+    await page.emulateMedia({media: 'screen'});
+    assert.equal(await page.evaluate(() => $('abc').value), abc, 'The ABC source is byte-identical');
+    const later = await browser.newContext({storageState: await page.context().storageState()}),
+      again = await later.newPage();
+    await again.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    await again.evaluate(abc => {
+      show('studio');
+      openScore({abc, instrument: 'Clarinet in B♭'});
+    }, 'X:1\nL:1/4\nK:C\nC E G c|]');
+    assert.deepEqual(
+      [await again.inputValue('#note-colors'), await again.inputValue('#note-names')],
+      ['classroom', 'heads'],
+      'Settings persist'
+    );
+    assert.equal(
+      await again.evaluate(() =>
+        [...document.querySelectorAll('#notation .notehead-letter')].map(t => t.textContent).join('')
+      ),
+      'DFAD',
+      'Letters show the written pitch for a transposing instrument'
+    );
+    await later.close();
+    await page.selectOption('#note-colors', 'off');
+    await page.selectOption('#note-names', 'off');
+    assert.equal(await page.locator('#notation .notehead-letter, #notation .classroom-color').count(), 0);
+    await page.evaluate(abc => {
+      localStorage.removeItem('fretfree-note-colors');
+      dirty = false;
+      openScore({abc, instrument: 'Flute'});
+    }, before);
+  }
   await page.selectOption('#instrument', 'Recorder');
   await page.waitForTimeout(400);
   assert.equal(await page.textContent('#fingering-label'), 'Recorder fingering');
@@ -1164,6 +1281,8 @@ const {chromium} = require('playwright'),
   await page.click('#draw-mode');
   {
     const [x, y] = await page.evaluate(() => {
+      // The controls above the score push its staff to the bottom of a 900 px window; a mouse click needs it in view.
+      $('notation').scrollIntoView({block: 'center', behavior: 'instant'});
       const svg = $('notation').querySelector('svg'),
         st = renderedTune.engraver.staffgroups[0].staffs[0],
         rest = renderedTune.engraver.selectables.find(s => s.absEl.abcelem.rest).svgEl.getBBox();
@@ -1651,7 +1770,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
+    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

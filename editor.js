@@ -66,7 +66,21 @@ function writtenABC() {
   return labelSource(source, noteNamesMode());
 }
 // Note names under the score: off, letters or movable-do solfège; display only, never written to the ABC source.
-const noteNamesMode = () => $('note-names')?.value || 'off';
+// "Letters in noteheads" draws inside the heads instead (updateNoteColors), so it adds no labels under the score.
+const noteNamesMode = () => ($('note-names')?.value === 'heads' ? 'off' : $('note-names')?.value || 'off');
+const lettersInHeads = () => $('note-names')?.value === 'heads';
+// Classroom colors (Boomwhacker and handbell order) by written letter; accidentals keep their letter's color.
+// `ink` is the letter drawn inside a colored head; E's light yellow gets a dark outline so it shows on white paper.
+const NOTE_COLORS = {
+  C: {fill: '#d62828', ink: 'white'},
+  D: {fill: '#f77f00', ink: 'black'},
+  E: {fill: '#ffd60a', ink: 'black', stroke: '#6b5300'},
+  F: {fill: '#2b8a3e', ink: 'white'},
+  G: {fill: '#4cc9f0', ink: 'black'},
+  A: {fill: '#1d3fbb', ink: 'white'},
+  B: {fill: '#7b2cbf', ink: 'white'}
+};
+const noteColorsShown = () => $('note-colors')?.value === 'classroom';
 // Fingering under the score: guitar tab (abcjs) for Guitar, hole diagrams for Recorder; display only.
 const FINGERING = {
   Guitar: {kind: 'guitar', label: 'Guitar tab'},
@@ -172,6 +186,7 @@ function render() {
     renderedTune = ABCJS.renderAbc('notation', source, engraveOptions())[0];
     if (scoreFocused) focusScore();
     updateFingering(source);
+    updateNoteColors();
     indexDisplay(display);
     updateMeasures();
     updateBarCheck(original);
@@ -985,6 +1000,7 @@ function openNoteMenu(entry, display, x, y) {
   menu.style.left = Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8)) + 'px';
   menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + 'px';
   menu.querySelector('button')?.focus({preventScroll: true});
+  menu.dataset.scrollY = window.scrollY;
 }
 $('notation').addEventListener('contextmenu', e => {
   if (renderedSource !== $('abc').value) {
@@ -1140,7 +1156,9 @@ document.addEventListener('keydown', e => {
 window.addEventListener(
   'scroll',
   () => {
-    if (!$('note-menu').hidden) closeNoteMenu();
+    // The browser can nudge the page a few pixels when the status line above the score rewraps (scroll anchoring);
+    // only a real scroll moves the note away from the menu.
+    if (!$('note-menu').hidden && Math.abs(window.scrollY - +$('note-menu').dataset.scrollY) > 24) closeNoteMenu();
   },
   {passive: true}
 );
@@ -1513,6 +1531,73 @@ function updateFingering(source) {
     dot(g, x - 7, top, holes[0]);
     for (let i = 1; i < 8; i++) dot(g, x, top + 2 + i * 7.6 + (i > 3 ? 4 : 0), holes[i]);
     svg.appendChild(g);
+  }
+}
+// Classroom colors and letters in noteheads, drawn on the engraved SVG after each render. Both stay in print and SVG
+// export (worksheets), so they are set as attributes; the class only lets a selected or playing note show as one.
+// Each head names its written pitch in data-name ("^c", "A,"), which covers chords and grace notes; heads without
+// one pair with the pitches by height, lowest first, and grace heads with the grace notes in order.
+// abcjs shrinks grace heads with a CSS scale that getBBox() ignores, so they are found by that style instead.
+// Every head is read and measured before anything is drawn: measuring after each note's letter goes in would make
+// the browser lay out the whole score again for every note.
+function updateNoteColors() {
+  const colors = noteColorsShown(),
+    letters = lettersInHeads();
+  if (!colors && !letters) return;
+  const letter = pitch => (pitch == null ? null : 'CDEFGAB'[((pitch % 7) + 7) % 7]),
+    drawn = [];
+  for (const sel of renderedTune?.engraver?.selectables || []) {
+    const note = sel.absEl.abcelem;
+    if (note.el_type !== 'note' || note.rest || !note.pitches?.length) continue;
+    const heads = [...sel.svgEl.querySelectorAll('.abcjs-notehead')],
+      grace = heads.map(h => /scale\(/.test(h.getAttribute('style') || ''));
+    let names = heads.map(h => (h.getAttribute('data-name') || '').match(/[A-G]/i)?.[0].toUpperCase());
+    const unnamed = names.some(n => !n),
+      boxes = heads.map((h, i) => ((letters || unnamed) && !grace[i] && h.getBBox?.()) || null);
+    if (unnamed) {
+      const pitches = note.pitches.map(p => p.pitch).sort((a, b) => a - b),
+        graces = (note.gracenotes || []).map(g => g.pitch);
+      names = heads.map((h, i) => (grace[i] ? letter(graces.shift()) : null));
+      heads
+        .map((h, i) => [i, boxes[i]?.y || 0])
+        .filter(([i]) => !grace[i])
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([i], n) => (names[i] = letter(pitches[n])));
+    }
+    drawn.push({sel, heads, names, grace, boxes, hollow: note.duration >= 0.5});
+  }
+  const ns = 'http://www.w3.org/2000/svg';
+  // Half and whole heads are hollow, so their letter is drawn in ink; grace heads are too small for one.
+  for (const {sel, heads, names, grace, boxes, hollow} of drawn) {
+    heads.forEach((head, i) => {
+      const color = colors && NOTE_COLORS[names[i]];
+      if (color) {
+        head.setAttribute('fill', color.fill);
+        head.classList.add('classroom-color');
+        if (color.stroke) {
+          head.setAttribute('stroke', color.stroke);
+          head.setAttribute('stroke-width', '0.6');
+        }
+      }
+      const box = boxes[i];
+      if (!letters || !names[i] || grace[i] || !box) return;
+      // The letter goes last in the note's group so ledger lines do not cross it.
+      const cx = box.x + box.width / 2,
+        cy = box.y + box.height / 2,
+        text = document.createElementNS(ns, 'text');
+      text.setAttribute('class', hollow ? 'notehead-letter hollow' : 'notehead-letter');
+      text.setAttribute('x', cx);
+      text.setAttribute('y', cy);
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('dominant-baseline', 'central');
+      text.setAttribute('font-family', 'sans-serif');
+      text.setAttribute('font-weight', 'bold');
+      text.setAttribute('font-size', Math.max(5, box.height).toFixed(1));
+      text.setAttribute('fill', hollow ? 'black' : color ? color.ink : 'white');
+      text.setAttribute('aria-hidden', 'true');
+      text.textContent = names[i];
+      sel.svgEl.appendChild(text);
+    });
   }
 }
 // Writing prompts: a short assignment with a blank score (one whole-bar rest per bar) and goals that tick off live.

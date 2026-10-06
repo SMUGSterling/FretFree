@@ -9,6 +9,7 @@ const BACKUP_FORMAT = 1,
   BACKUP_SETTING_KEYS = () => [
     KEYS.fingering,
     KEYS.noteNames,
+    KEYS.noteColors,
     KEYS.audition,
     KEYS.piano,
     ...['loop', 'metronome', 'count-in', 'trainer'].map(KEYS.practice)
