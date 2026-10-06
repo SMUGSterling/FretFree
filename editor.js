@@ -1295,11 +1295,13 @@ function shownChord(sel) {
   if (!transposing() || !sel.display) return chordSymbolOf(v.slice(startChar, endChar));
   return chordSymbolOf(writtenNote(sel.display, (renderedSource === v && renderedWritten) || undefined).text);
 }
-// A typed (written) chord symbol in concert pitch, moved back by the letters the written key moved at that note.
+// A typed (written) chord symbol in concert pitch, moved back by the letters the written key moved at that note. Other
+// text stays as typed, as the written display leaves it (both go through transposeChordSymbol).
 function concertChord(name, sel) {
   const shift = transposing();
-  if (!shift || !parseChordSymbol(name)?.root) return name;
-  return transposeChordSymbol(name, -shift, -writtenSteps($('abc').value, sel.entry.element.startChar, shift));
+  return shift
+    ? transposeChordSymbol(name, -shift, -writtenSteps($('abc').value, sel.entry.element.startChar, shift))
+    : name;
 }
 // The box sits just above the note (below it near the top of the score), inside the score's scrolling paper.
 function placeChordEntry(display) {

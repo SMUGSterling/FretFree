@@ -1313,6 +1313,22 @@ async function checkChordSymbols() {
   type('Db/F');
   assert.equal(body(), '"F"C "Eb7"D "Cb/Eb"E F |]', 'Root and bass both move by the interval');
   assert.equal(shown(), 'G F7 D♭/F');
+  // Words are typed, stored and shown as they are; every chord name moves, including ones abcjs plays only as a triad.
+  run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nC D E F|G4|]')},instrument:'Clarinet in B♭'})`);
+  pick(0);
+  key('k');
+  type('Coda', 'Tab');
+  type('(End)', 'Tab');
+  type('Fine', 'Tab');
+  type('Cm(maj7)', 'Tab');
+  assert.equal(status(), 'Chord symbol Cm(maj7).');
+  type('C7alt');
+  assert.equal(body(), '"Coda"C "(End)"D "Fine"E "Bbm(maj7)"F|"Bb7alt"G4|]', 'Concert pitch in the source');
+  assert.equal(shown(), 'Coda (End) Fine Cm(maj7) C7alt', 'Written pitch on the score');
+  pick(0);
+  key('k');
+  assert.equal(box(), 'Coda', 'The box shows the word as typed');
+  run("$('chord-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
   // Chords: on by default; off leaves the accompaniment out of playback but not out of MIDI export; remembered and
   // backed up; switching it during playback carries on playing.
   run(
@@ -1696,7 +1712,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

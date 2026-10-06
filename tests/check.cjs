@@ -514,6 +514,18 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     'X:1\nL:1/4\nK:F#\n"C"A "(C#7)"A|]',
     'A key abcjs spells as Gb and FretFree respells as F# keeps its chords natural'
   );
+  // Text in chord-symbol position that is not a chord name stays as written, before notes and bar lines; abcjs moved
+  // anything starting with A–G (Coda to Doda, (End) to (F#nd), D.C. to E.C.). Chord names it does not know still move.
+  for (const [s, body] of [
+    [2, 'K:D\n"Coda"D "(End)"E "Fine"F "Dm(maj7)"G "D.C."|"D7alt"A4 "Fine"|]'],
+    [9, 'K:A\n"Coda"A "(End)"B "Fine"c "Am(maj7)"d "D.C."|"A7alt"e4 "Fine"|]'],
+    [-2, 'K:Bb\n"Coda"B, "(End)"C "Fine"D "Bbm(maj7)"E "D.C."|"Bb7alt"F4 "Fine"|]']
+  ])
+    assert.equal(
+      T('X:1\nL:1/4\nK:C\n"Coda"C "(End)"D "Fine"E "Cm(maj7)"F "D.C."|"C7alt"G4 "Fine"|]', s),
+      'X:1\nL:1/4\n' + body,
+      `Words stay and chords move, ${s} semitones`
+    );
   // Chord symbols: parseChordSymbol reads what abcjs can play; setChordSymbol replaces, adds or removes the first one.
   {
     const parse = t => JSON.stringify(context.parseChordSymbol(t));
@@ -521,8 +533,14 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
       assert.ok(context.parseChordSymbol(name), name + ' is a chord symbol');
     for (const name of ['Cm7(b5)', 'C7sus4', 'Cadd9', 'C6/9', 'C-7', 'Cø7', 'C°7', 'C+', 'C13#11', 'Ebmaj7/G', 'B♭7'])
       assert.ok(context.parseChordSymbol(name), name + ' is a chord symbol');
+    for (const name of ['Cm(maj7)', 'C7alt', 'Gm9(maj7)', 'Cm/maj7', 'CMaj7', 'CmM7', 'C7(b9,#11)', 'C(add9)', 'C7+'])
+      assert.ok(context.parseChordSymbol(name), name + ' is a chord symbol too');
     for (const name of ['H7', 'hello', '', 'c7', 'Cx', 'C/H', 'G7/', 'Am7 D7'])
       assert.equal(context.parseChordSymbol(name), null, JSON.stringify(name) + ' is not');
+    for (const name of ['Coda', 'Fine', '(End)', 'End', 'D.C.', 'DC', 'D.S.', 'Bridge', 'Emma', 'Ebb', 'C major'])
+      assert.equal(context.parseChordSymbol(name), null, name + ' is a word, not a chord symbol');
+    assert.equal(parse('(E7)'), parse('E7'), 'A chord in parentheses is a chord');
+    assert.equal(parse('(N.C.)'), parse('N.C.'));
     assert.equal(parse('F#m7b5'), '{"root":"F","accidental":"#","quality":"m7b5","bass":null}');
     assert.equal(parse('Bbmaj7'), '{"root":"B","accidental":"b","quality":"maj7","bass":null}');
     assert.equal(parse('G7/B'), '{"root":"G","accidental":"","quality":"7","bass":"B"}');
@@ -533,6 +551,11 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
       ['  Bb7 ', 'bb7', 'g/b', 'nc', 'n.c.', 'say "hi"', '^G', 'hello'].map(t => tidy(t)),
       ['Bb7', 'Bb7', 'G/B', 'N.C.', 'N.C.', 'say hi', 'G', 'hello'],
       'Typed symbols are tidied'
+    );
+    assert.deepEqual(
+      ['rit. 80%', 'C\\', 'B\\b7'].map(t => tidy(t)),
+      ['rit. 80', 'C', 'Bb7'],
+      'No % (a comment to abcjs) or backslash (an escape that can swallow the closing quote)'
     );
     const set = context.setChordSymbol;
     assert.equal(set('C', 'Bb7'), '"Bb7"C', 'A new symbol goes in front');
@@ -547,6 +570,14 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     assert.equal(set('x', 'D7'), '"D7"x', 'and so do invisible rests');
     assert.equal(set('|', 'D7'), '|', 'A bar line does not');
     assert.equal(set('C', 'say "hi"'), '"say hi"C', 'Quotes cannot end the symbol early');
+    for (const typed of ['rit. 80%', 'C\\'])
+      assert.equal(
+        ABCJS.parseOnly(`X:1\nL:1/4\nK:C\n${set('C', typed)} D E F|G A B c|]`)[0].lines[0].staff[0].voices[0].filter(
+          e => e.el_type === 'note'
+        ).length,
+        8,
+        JSON.stringify(typed) + ' leaves every note on the line'
+      );
     assert.equal(context.chordSymbolOf('"_C""^x""G7"!f!.C'), 'G7');
     assert.equal(context.chordSymbolOf('"^x"C'), null);
     const tc = (name, ...a) => context.transposeChordSymbol(name, ...a);
@@ -558,6 +589,11 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     assert.equal(tc('C7', -2, -1), 'Bb7', 'Written C7 on a B-flat instrument is concert Bb7');
     assert.equal(tc('Gmaj7', -9, -5), 'Bbmaj7', 'Written Gmaj7 on an E-flat instrument is concert Bbmaj7');
     assert.equal(tc('Cb', -2, -1), 'A', 'A name that would need a double flat (Bbb) takes the next letter');
+    assert.deepEqual(
+      ['Coda', 'Fine', '(End)', 'D.C.', 'Cm(maj7)', 'C7alt', ' G7'].map(n => tc(n, -2, -1)),
+      ['Coda', 'Fine', '(End)', 'D.C.', 'Bbm(maj7)', 'Bb7alt', ' F7'],
+      'Words stay; every chord parseChordSymbol reads moves'
+    );
     // Chords off leaves out the accompaniment channel; the melody is unchanged.
     const lead = 'X:1\nM:4/4\nL:1/4\nK:C\n"C"C D E F | "G7"G A B c |]',
       withChords = context.parseMidi(context.midiBytes(lead)).notes,
@@ -567,6 +603,28 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
       without.map(n => [n.ch, n.note, n.start.toFixed(4)]),
       context.melodyNotes(withChords).map(n => [n.ch, n.note, n.start.toFixed(4)]),
       'chordsOff plays only the melody'
+    );
+    // Only chord names play: abcjs played Coda as a C chord and D.C. as a D chord, and carried G on through N.C.
+    const accompaniment = music => {
+      const notes = context.parseMidi(context.midiBytes(`X:1\nM:4/4\nL:1/4\nK:C\n${music}`)).notes,
+        melody = new Set(context.melodyNotes(notes));
+      return notes.filter(n => !melody.has(n));
+    };
+    for (const word of ['Coda', 'Fine', '(End)', 'D.C.', 'hello'])
+      assert.equal(accompaniment(`"${word}"C D E F|G4|]`).length, 0, word + ' does not play');
+    for (const chord of ['(E7)', 'Cm(maj7)', 'C7alt'])
+      assert.ok(accompaniment(`"${chord}"C D E F|G4|]`).length > 0, chord + ' plays');
+    assert.ok(
+      accompaniment('"G"C D E F|"N.C."G4|]').every(n => n.start < 1),
+      'N.C. stops the accompaniment'
+    );
+    assert.ok(
+      accompaniment('"G"C D E F|"N.C."G2 "C"G2|]').some(n => n.start >= 1.25),
+      'until the next chord'
+    );
+    assert.ok(
+      accompaniment('"G"C D E F|"Fine"G4|]').some(n => n.start >= 1),
+      'A word leaves the chord playing'
     );
   }
   const W = (abc, s) => context.writtenSteps(abc, abc.length - 3, s);
@@ -1086,5 +1144,5 @@ for (const prompt of context.writingPrompts) {
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition, chords-off MIDI), public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
 );

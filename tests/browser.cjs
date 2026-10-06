@@ -646,6 +646,13 @@ const {chromium} = require('playwright'),
       ['F ', true],
       'and selects that note'
     );
+    await page.keyboard.press('k');
+    await page.keyboard.type('rit. 80%');
+    await page.keyboard.press('Enter');
+    assert.equal(await kbody(), '"F"C "Gm"D E "rit. 80"F | G4 |]', 'A % is dropped: abcjs would read a comment');
+    assert.equal(await page.locator('#notation .abcjs-notehead').count(), 5, 'so every note is still engraved');
+    await page.keyboard.press('Control+z');
+    assert.equal(await kbody(), '"F"C "Gm"D E F | G4 |]');
     const scheduled = () =>
       page.evaluate(async () => {
         $('metronome').checked = $('count-in').checked = false;
