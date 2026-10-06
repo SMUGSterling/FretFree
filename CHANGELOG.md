@@ -1,3 +1,12 @@
+# Dark theme · 2026-10-06
+
+- **Theme** in the header: Auto, Light or Dark. Auto follows the device's light or dark setting, and changes when the device does. Every view goes dark: library, Compose, My scores and About, with body text at a contrast of at least 4.5:1, dark form controls and scroll bars, and a dimmer piano strip.
+- The score stays black on white in the dark theme, and so do the music-stand sheet and the card previews in the library. **Dark paper** (beside Zoom, shown only in the dark theme) turns them light-on-dark, with lighter selection, drag and playback highlights, open recorder holes in the paper color, and letters in noteheads that stay readable.
+- Prints and SVG exports are black on white in every theme and with Dark paper; the score's SVG is not redrawn when the theme changes.
+- Both choices are remembered in the browser (`fretfree-theme`, `fretfree-dark-paper`) and included in backups. The page colors are now tokens on `:root` in style.css, redefined for the dark theme.
+
+---
+
 # Concert pitch view · 2026-10-06
 
 - **Concert pitch** (a checkbox under Instrument) appears for Clarinet in B♭, Trumpet in B♭ and Alto sax in E♭. Ticked, the score shows the key and pitches of the ABC source, as the instrument sounds; unticked, it shows the written part as before. The caption under the score says which one is shown.

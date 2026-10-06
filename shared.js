@@ -17,6 +17,8 @@ const KEYS = {
   measuresPerLine: 'fretfree-measures-per-line',
   piano: 'fretfree-piano',
   concertPitch: 'fretfree-concert-pitch',
+  theme: 'fretfree-theme',
+  darkPaper: 'fretfree-dark-paper',
   practice: id => 'fretfree-practice-' + id
 };
 let storageOK = true;
@@ -48,6 +50,38 @@ const storedList = key => {
   const value = storage.get(key, []);
   return Array.isArray(value) ? value : [];
 };
+// Theme: Auto follows the device's light or dark setting, and Light or Dark overrides it. style.css reads data-theme
+// and data-paper on <html>; they are set here, as the scripts start, so the library is drawn in the chosen theme.
+// Dark paper turns the score dark too, and only shows in the dark theme.
+const THEMES = ['auto', 'light', 'dark'],
+  storedTheme = () => {
+    const theme = storage.get(KEYS.theme, 'auto');
+    return THEMES.includes(theme) ? theme : 'auto';
+  },
+  darkScheme = (() => {
+    try {
+      return typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null;
+    } catch {
+      return null;
+    }
+  })(),
+  themeShown = () => (storedTheme() === 'auto' ? (darkScheme?.matches ? 'dark' : 'light') : storedTheme());
+function applyTheme() {
+  const root = document.documentElement,
+    theme = storedTheme(),
+    paper = storage.get(KEYS.darkPaper, false) === true;
+  if (theme === 'auto') root.removeAttribute('data-theme');
+  else root.dataset.theme = theme;
+  if (paper) root.dataset.paper = 'dark';
+  else root.removeAttribute('data-paper');
+  if ($('theme')) $('theme').value = theme;
+  if ($('dark-paper')) $('dark-paper').checked = paper;
+  if ($('dark-paper-option')) $('dark-paper-option').hidden = themeShown() !== 'dark';
+}
+applyTheme();
+// Auto follows the device as it switches; older Safari only has addListener.
+if (darkScheme?.addEventListener) darkScheme.addEventListener('change', applyTheme);
+else darkScheme?.addListener?.(applyTheme);
 let saved = storedList(KEYS.scores),
   favorites = storedList(KEYS.favorites),
   played = new Set(storedList(KEYS.played));

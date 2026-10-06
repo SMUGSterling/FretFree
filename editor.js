@@ -2503,7 +2503,7 @@ function updateNoteColors() {
       const cx = box.x + box.width / 2,
         cy = box.y + box.height / 2,
         text = document.createElementNS(ns, 'text');
-      text.setAttribute('class', hollow ? 'notehead-letter hollow' : 'notehead-letter');
+      text.setAttribute('class', 'notehead-letter' + (hollow ? ' hollow' : color ? '' : ' on-ink'));
       text.setAttribute('x', cx);
       text.setAttribute('y', cy);
       text.setAttribute('text-anchor', 'middle');

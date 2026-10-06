@@ -266,6 +266,7 @@ function applyStoredSettings() {
   $('audition').checked = storage.get(KEYS.audition, true) !== false;
   if (typeof setPiano === 'function') setPiano(storage.get(KEYS.piano, false) === true, false);
   applyStoredLayout();
+  applyTheme();
   prepareTrainer();
 }
 // Zoom, measures per line and Concert pitch view are read before the first render, so the start-up score is drawn
@@ -275,6 +276,15 @@ function applyStoredLayout() {
   showZoom(storage.get(KEYS.zoom, 100));
   $('measures-per-line').value = String(validMeasuresPerLine(storage.get(KEYS.measuresPerLine, 0)));
 }
+// Theme and Dark paper only change colors in style.css, so the score is not redrawn.
+$('theme').onchange = () => {
+  storage.set(KEYS.theme, $('theme').value);
+  applyTheme();
+};
+$('dark-paper').onchange = () => {
+  storage.set(KEYS.darkPaper, $('dark-paper').checked);
+  applyTheme();
+};
 $('zoom-out').onclick = () => stepZoom(-1);
 $('zoom-in').onclick = () => stepZoom(1);
 $('zoom-reset').onclick = () => stepZoom(0);

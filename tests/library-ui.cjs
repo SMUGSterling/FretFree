@@ -40,7 +40,7 @@ function boot(seed = () => {}, url = 'http://localhost:8000') {
   w.scrollTo = () => {};
   w.Element.prototype.scrollIntoView = () => {};
   w.confirm = () => true;
-  seed(w.localStorage);
+  seed(w.localStorage, w);
   for (const file of SCRIPTS) vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), ctx);
   return {w, run: s => vm.runInContext(s, ctx), $: id => w.document.getElementById(id)};
 }
@@ -811,8 +811,65 @@ assert.equal(
     );
     assert.equal(page.run('current.kind'), 'shared', 'Discard leaves the open score alone');
   }
+  // Theme: Auto, Light or Dark goes on <html> as the scripts start, persists, is backed up and restored. Dark paper
+  // shows only in the dark theme, and Auto follows the device as it switches.
+  {
+    const page = boot(storage => storage.setItem('fretfree-theme', '"purple"')),
+      html = page.w.document.documentElement;
+    assert.equal(page.$('theme').value, 'auto', 'A damaged theme falls back to Auto');
+    assert.equal(html.hasAttribute('data-theme'), false, 'Auto leaves the choice to the device');
+    assert.equal(page.$('dark-paper-option').hidden, true, 'No matchMedia: Auto is light, so Dark paper is hidden');
+    page.$('theme').value = 'dark';
+    page.$('theme').dispatchEvent(new page.w.Event('change'));
+    assert.equal(html.dataset.theme, 'dark');
+    assert.equal(page.run("storage.get('fretfree-theme')"), 'dark', 'The theme is remembered');
+    assert.equal(page.$('dark-paper-option').hidden, false, 'Dark paper is offered in the dark theme');
+    page.$('dark-paper').checked = true;
+    page.$('dark-paper').dispatchEvent(new page.w.Event('change'));
+    assert.equal(html.dataset.paper, 'dark');
+    assert.equal(page.run("storage.get('fretfree-dark-paper')"), true);
+    const settings = page.run('backupData().settings');
+    assert.equal(settings['fretfree-theme'], 'dark', 'The theme is backed up');
+    assert.equal(settings['fretfree-dark-paper'], true, 'Dark paper is backed up');
+    const before = page.$('notation').innerHTML;
+    page.$('theme').value = 'light';
+    page.$('theme').dispatchEvent(new page.w.Event('change'));
+    assert.equal(html.dataset.theme, 'light');
+    assert.equal(page.$('dark-paper-option').hidden, true, 'Dark paper is hidden in the light theme');
+    assert.equal(page.$('notation').innerHTML, before, 'A theme change does not redraw the score');
+    // Restoring a backup applies its theme straight away.
+    page.run(
+      `applyBackup(${JSON.stringify({app: 'FretFree', format: 1, scores: [], settings: {'fretfree-theme': 'dark', 'fretfree-dark-paper': false}})})`
+    );
+    page.run('applyStoredSettings()');
+    assert.deepEqual(
+      [html.dataset.theme, html.hasAttribute('data-paper'), page.$('theme').value, page.$('dark-paper').checked],
+      ['dark', false, 'dark', false],
+      'A restored theme applies at once'
+    );
+    // A device in dark mode: Auto is dark and offers Dark paper; switching the device back to light hides it.
+    const listeners = [];
+    let deviceDark = true;
+    const device = boot((storage, win) => {
+      win.matchMedia = query => ({
+        media: query,
+        get matches() {
+          return /dark/.test(query) && deviceDark;
+        },
+        addEventListener: (type, fn) => listeners.push(fn)
+      });
+      storage.setItem('fretfree-dark-paper', 'true');
+    });
+    assert.equal(device.$('theme').value, 'auto');
+    assert.equal(device.w.document.documentElement.dataset.paper, 'dark', 'Dark paper is applied at start-up');
+    assert.equal(device.$('dark-paper-option').hidden, false, 'Auto on a dark device offers Dark paper');
+    assert.equal(device.$('dark-paper').checked, true);
+    deviceDark = false;
+    listeners.forEach(fn => fn());
+    assert.equal(device.$('dark-paper-option').hidden, true, 'Auto follows the device back to light');
+  }
   console.log(
-    'PASS (jsdom): unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors and zoom), blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
+    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors and zoom), blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
   );
 })().catch(e => {
   console.error(e);
