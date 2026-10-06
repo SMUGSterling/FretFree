@@ -23,6 +23,7 @@ const SCRIPTS = [
   'library.js',
   'backup.js',
   'editor.js',
+  'measure-tools.js',
   'palette.js',
   'playback.js',
   'keyboard.js',

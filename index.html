@@ -8,28 +8,29 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=3df6c27c1868" />
-    <script defer src="vendor/abcjs-basic-min.js?v=3df6c27c1868"></script>
-    <script defer src="catalog.js?v=3df6c27c1868"></script>
-    <script defer src="catalog-expanded.js?v=3df6c27c1868"></script>
-    <script defer src="score-tools.js?v=3df6c27c1868"></script>
-    <script defer src="rights-tools.js?v=3df6c27c1868"></script>
-    <script defer src="musicxml.js?v=3df6c27c1868"></script>
-    <script defer src="catalog-licensed.js?v=3df6c27c1868"></script>
-    <script defer src="catalog-lieder.js?v=3df6c27c1868"></script>
-    <script defer src="catalog-quartets.js?v=3df6c27c1868"></script>
-    <script defer src="catalog-pgh.js?v=3df6c27c1868"></script>
-    <script defer src="catalog-skills.js?v=3df6c27c1868"></script>
-    <script defer src="prompts.js?v=3df6c27c1868"></script>
-    <script defer src="shared.js?v=3df6c27c1868"></script>
-    <script defer src="library.js?v=3df6c27c1868"></script>
-    <script defer src="backup.js?v=3df6c27c1868"></script>
-    <script defer src="editor.js?v=3df6c27c1868"></script>
-    <script defer src="palette.js?v=3df6c27c1868"></script>
-    <script defer src="playback.js?v=3df6c27c1868"></script>
-    <script defer src="keyboard.js?v=3df6c27c1868"></script>
-    <script defer src="assignments.js?v=3df6c27c1868"></script>
-    <script defer src="app.js?v=3df6c27c1868"></script>
+    <link rel="stylesheet" href="style.css?v=c0b2c6132a0f" />
+    <script defer src="vendor/abcjs-basic-min.js?v=c0b2c6132a0f"></script>
+    <script defer src="catalog.js?v=c0b2c6132a0f"></script>
+    <script defer src="catalog-expanded.js?v=c0b2c6132a0f"></script>
+    <script defer src="score-tools.js?v=c0b2c6132a0f"></script>
+    <script defer src="rights-tools.js?v=c0b2c6132a0f"></script>
+    <script defer src="musicxml.js?v=c0b2c6132a0f"></script>
+    <script defer src="catalog-licensed.js?v=c0b2c6132a0f"></script>
+    <script defer src="catalog-lieder.js?v=c0b2c6132a0f"></script>
+    <script defer src="catalog-quartets.js?v=c0b2c6132a0f"></script>
+    <script defer src="catalog-pgh.js?v=c0b2c6132a0f"></script>
+    <script defer src="catalog-skills.js?v=c0b2c6132a0f"></script>
+    <script defer src="prompts.js?v=c0b2c6132a0f"></script>
+    <script defer src="shared.js?v=c0b2c6132a0f"></script>
+    <script defer src="library.js?v=c0b2c6132a0f"></script>
+    <script defer src="backup.js?v=c0b2c6132a0f"></script>
+    <script defer src="editor.js?v=c0b2c6132a0f"></script>
+    <script defer src="measure-tools.js?v=c0b2c6132a0f"></script>
+    <script defer src="palette.js?v=c0b2c6132a0f"></script>
+    <script defer src="playback.js?v=c0b2c6132a0f"></script>
+    <script defer src="keyboard.js?v=c0b2c6132a0f"></script>
+    <script defer src="assignments.js?v=c0b2c6132a0f"></script>
+    <script defer src="app.js?v=c0b2c6132a0f"></script>
   </head>
   <body>
     <header>
@@ -681,6 +682,94 @@
                   <span class="glyph" aria-hidden="true">✕</span> Delete
                 </button>
               </div>
+              <div role="group" aria-label="Measure">
+                <button
+                  data-palette="measure"
+                  aria-expanded="false"
+                  aria-controls="palette-measure"
+                  title="Bars, bar lines, repeats, endings, form marks and changes of time, key or clef"
+                >
+                  Measure <span class="glyph" aria-hidden="true">▾</span>
+                </button>
+              </div>
+              <div id="palette-measure" class="palette-measure" hidden>
+                <div role="group" aria-label="Bars">
+                  <button data-palette="bar:before" title="Insert an empty bar before this measure">
+                    + Bar before
+                  </button>
+                  <button data-palette="bar:after" title="Insert an empty bar after this measure">+ Bar after</button>
+                  <button data-palette="bar:delete" class="danger" title="Delete this measure on every staff">
+                    Delete bar
+                  </button>
+                </div>
+                <div role="group" aria-label="Bar line after the measure">
+                  <button data-palette="barline:|" title="Single bar line after this measure">
+                    <span class="glyph" aria-hidden="true">𝄀</span> Single</button
+                  ><button data-palette="barline:||" title="Double bar line after this measure">
+                    <span class="glyph" aria-hidden="true">𝄁</span> Double</button
+                  ><button data-palette="barline:|]" title="Final bar line after this measure">
+                    <span class="glyph" aria-hidden="true">𝄂</span> Final
+                  </button>
+                </div>
+                <div role="group" aria-label="Repeats and endings">
+                  <button data-palette="repeat:start" title="Start a repeat at this measure">
+                    <span class="glyph" aria-hidden="true">𝄆</span> Start repeat</button
+                  ><button data-palette="repeat:end" title="End a repeat after this measure">
+                    <span class="glyph" aria-hidden="true">𝄇</span> End repeat</button
+                  ><button data-palette="ending:1" title="1st ending from this measure">1st ending</button
+                  ><button data-palette="ending:2" title="2nd ending from this measure">2nd ending</button>
+                </div>
+                <div role="group" aria-label="Form">
+                  <button data-palette="form:segno" title="Segno at the start of this measure">
+                    <span class="glyph" aria-hidden="true">𝄋</span> Segno</button
+                  ><button data-palette="form:coda" title="Coda sign at the start of this measure">
+                    <span class="glyph" aria-hidden="true">𝄌</span> Coda</button
+                  ><button data-palette="form:fine" title="Fine at the end of this measure">Fine</button
+                  ><button data-palette="form:D.C." title="D.C. (da capo) at the end of this measure">D.C.</button
+                  ><button data-palette="form:D.S." title="D.S. (dal segno) at the end of this measure">D.S.</button
+                  ><button data-palette="form:D.C.alfine" title="D.C. al Fine at the end of this measure">
+                    D.C. al Fine</button
+                  ><button data-palette="form:D.S.alcoda" title="D.S. al Coda at the end of this measure">
+                    D.S. al Coda
+                  </button>
+                </div>
+                <div role="group" aria-label="Rehearsal mark">
+                  <button data-palette="rehearsal:mark" title="Rehearsal letter at this measure (A, B, C in order)">
+                    <span class="glyph boxed" aria-hidden="true">A</span> Rehearsal mark
+                  </button>
+                </div>
+                <div class="measure-changes" role="group" aria-label="Changes from this measure on">
+                  <span class="measure-changes-label" aria-hidden="true">From here:</span>
+                  <label
+                    >Time
+                    <select id="measure-meter" aria-label="Time signature from this measure"></select></label
+                  ><label
+                    >Key
+                    <select id="measure-key" aria-label="Key from this measure"></select></label
+                  ><label
+                    >Clef
+                    <select id="measure-clef" aria-label="Clef from this measure">
+                      <option value="treble">Treble</option>
+                      <option value="bass">Bass</option>
+                      <option value="alto">Alto</option>
+                      <option value="tenor">Tenor</option>
+                      <option value="treble-8">Treble 8vb</option>
+                    </select></label
+                  >
+                </div>
+                <div
+                  id="measure-key-choice"
+                  class="key-choice measure-key-choice"
+                  role="group"
+                  aria-labelledby="measure-key-choice-text"
+                  hidden
+                >
+                  <p id="measure-key-choice-text" aria-live="polite"></p>
+                  <button id="measure-key-transpose" class="primary">Transpose notes</button
+                  ><button id="measure-key-keep" title="Change only the key signature">Keep notes</button
+                  ><button id="measure-key-cancel" aria-label="Cancel the key change">✕</button>
+                </div>
+              </div>
             </div>
             <div class="score-view" role="group" aria-label="Score view">
               <span class="zoom-controls" role="group" aria-label="Zoom"
@@ -811,7 +900,9 @@
           to respell a note, such as C♯ as D♭. Hear each note as you enter it, play the score with built-in synthesized
           tones, change tempo, loop playback, and export ABC, MIDI, SVG, or MusicXML (for MuseScore, Noteflight, Finale,
           Sibelius or Dorico). Open MusicXML from those programs too, converted to ABC on your device. Select a passage
-          to copy, cut, paste or repeat it, or to move or lengthen every note in it at once. Zoom in for larger
+          to copy, cut, paste or repeat it, or to move or lengthen every note in it at once. Measure in the toolbar
+          inserts and deletes bars, and adds double and final bar lines, repeats, 1st and 2nd endings, segno, coda,
+          D.C., D.S. and Fine, rehearsal letters, and changes of time signature, key or clef. Zoom in for larger
           notation, or choose how many measures go on each line. Use Print / PDF to produce a paper score, in large
           print if you zoom in first. Transpose a score or a few measures by any interval or to a new key. Choose a B♭
           or E♭ instrument for written-pitch transposition with concert-pitch playback, and tick Concert pitch to see

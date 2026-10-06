@@ -1130,6 +1130,469 @@ function measureSpans(tune, from, to) {
   }
   return spans;
 }
+// Measure and form tools. A voice ('staff:voice', as in scoreEvents) measure by measure, numbered as scoreEvents
+// numbers them (a bar line ends a measure only once it holds notes). Each measure has its notes and rests, the bar line
+// before it, the bar line that closes it (null for an open last measure), the line of the tune it starts on, and the
+// meter and clef in force at the bar line before it and at its first note. opens is true when the bar line before it
+// is one of its own, at the start of its line, rather than the one that closed the measure before.
+const clefName = clef =>
+  !clef?.type ? 'treble' : clef.type === 'alto' && clef.verticalPos === -8 ? 'tenor' : clef.type;
+function voiceMeasures(tune, voice) {
+  const [s, v] = voice.split(':').map(Number),
+    out = [];
+  let header = null,
+    meter = null,
+    clef = null,
+    atBar = null,
+    before = null,
+    cur = null;
+  for (const [line, row] of (tune.lines || []).entries()) {
+    for (const staff of row.staff || []) header ??= meterInfo(staff.meter);
+    const staff = row.staff?.[s];
+    if (!staff?.voices?.[v]) continue;
+    meter ??= meterInfo(staff.meter) ?? header ?? 'free';
+    if (staff.clef) clef = staff.clef;
+    atBar ??= {meter, clef};
+    for (const e of staff.voices[v]) {
+      if (e.el_type === 'meter') meter = meterInfo(e) || meter;
+      else if (e.el_type === 'clef') clef = e;
+      else if (e.el_type === 'note') {
+        cur ??= {
+          measure: out.length + 1,
+          line,
+          notes: [],
+          before,
+          opens: !!before && before !== out.at(-1)?.bar,
+          meterBefore: atBar.meter,
+          clefBefore: clefName(atBar.clef),
+          meter,
+          clef: clefName(clef)
+        };
+        cur.notes.push(e);
+      } else if (e.el_type === 'bar') {
+        if (cur) out.push({...cur, bar: e});
+        cur = null;
+        before = e;
+        atBar = {meter, clef};
+      }
+    }
+  }
+  if (cur) out.push({...cur, bar: null});
+  return out.map(m => ({...m, first: m.notes[0], last: m.notes.at(-1)}));
+}
+function measureBounds(tune, voice, measure) {
+  return voiceMeasures(tune, voice)[measure - 1] || null;
+}
+// The voices of a score in reading order, without & overlays: an overlay is written inside another voice's bars
+// (abcjs gives it the same bar lines), so measure edits to that voice cover it.
+function scoreVoices(tune, source = '') {
+  const order = [],
+    overlay = new Set(),
+    bars = new Map();
+  for (const {element: e, key} of scoreEvents(tune)) {
+    const id = key.split(':').slice(0, 2).join(':');
+    if (!order.includes(id)) {
+      order.push(id);
+      if (/&\s*$/.test(source.slice(Math.max(0, e.startChar - 40), e.startChar))) overlay.add(id);
+    }
+    if (e.el_type !== 'bar') continue;
+    if (!bars.has(e.startChar)) bars.set(e.startChar, id);
+    else if (bars.get(e.startChar) !== id) overlay.add(id);
+  }
+  return order.filter(id => !overlay.has(id));
+}
+const lineStartOf = (source, at) => source.lastIndexOf('\n', at - 1) + 1;
+// Where a measure's text starts: after the bar line before it when that is on the same line of text, otherwise at the
+// start of its line, after any [V:] field there. Inline fields at the start of the measure ([M:3/4], [P:A]) follow.
+function measureOpen(source, m) {
+  const first = m.first.startChar;
+  let at =
+    m.before && !source.slice(m.before.endChar, first).includes('\n') ? m.before.endChar : lineStartOf(source, first);
+  const voiceField = [...source.slice(at, first).matchAll(/\[V:[^\]\n]*\]/g)].at(-1);
+  if (voiceField) at += voiceField.index + voiceField[0].length;
+  return at;
+}
+// A bar line's text as its symbol and the ending it starts: '|1' is '|' and '1', ':| [2' is ':|' and '2', a bare '[1'
+// at the start of a line has no symbol.
+function barParts(text) {
+  const e = String(text).match(/\s*\[?(\d[\d,-]*)\s*$/);
+  return {glyph: (e ? text.slice(0, e.index) : text).trim(), ending: e ? e[1] : null};
+}
+function barLineText(glyph, ending) {
+  if (!ending) return glyph;
+  return glyph.endsWith('|') ? glyph + ending : (glyph ? glyph + ' ' : '') + '[' + ending;
+}
+// Replace a bar line's symbol with type (a bar line such as '||' or '|]'), keeping the ending it starts unless ending
+// is given ('2', or null for none). A bar line stays a bar line: with no symbol and no ending it is a plain '|'.
+function barLineEdit(abc, bar, type, ending) {
+  const old = barParts(abc.slice(bar.startChar, bar.endChar));
+  return {
+    start: bar.startChar,
+    end: bar.endChar,
+    text: barLineText(type ?? old.glyph, ending === undefined ? old.ending : ending) || '|'
+  };
+}
+function replaceBarLine(abc, bar, type, ending) {
+  return spliceAll(abc, [barLineEdit(abc, bar, type, ending)]);
+}
+// A bar line symbol with a start or end repeat turned on or off, keeping the other: '|' to '|:', ':|' to '::', '::'
+// to ':|'. A final bar cannot start a repeat, so it gives way to a plain one.
+const startsRepeat = glyph => /:$/.test(glyph),
+  endsRepeat = glyph => /^:/.test(glyph);
+function repeatGlyph(glyph, which, on) {
+  const start = which === 'start' ? on : startsRepeat(glyph),
+    end = which === 'end' ? on : endsRepeat(glyph);
+  if (start && end) return '::';
+  let core = glyph.replace(/^:+|:+$/g, '') || (start || end ? '|' : '');
+  if ((start && core === '|]') || (end && core === '[|')) core = '|';
+  return (end ? ':' : '') + core + (start ? ':' : '');
+}
+const onOneLine = (source, from, to) => !/\n|\[V:/.test(source.slice(from, to));
+// The bar line that opens a measure: the one before it on its line, or one ending the line before that already starts
+// a repeat or an ending. null when the measure starts its line, or the music, without one.
+function openBar(source, m) {
+  if (!m.before) return null;
+  if (onOneLine(source, m.before.endChar, m.first.startChar)) return m.before;
+  const {glyph, ending} = barParts(source.slice(m.before.startChar, m.before.endChar));
+  return startsRepeat(glyph) || ending ? m.before : null;
+}
+// Apply edits ({start, end, text}, none overlapping) to a source.
+function spliceAll(source, edits) {
+  let out = source;
+  for (const e of [...edits].sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.text + out.slice(e.end);
+  return out;
+}
+// Change the bar line on one side of a measure ('open' or 'close') in every voice, so all staves repeat and end
+// together. change({glyph, ending}) gives the new {glyph, ending}. A missing bar line is written when the change
+// gives one (a start repeat at the start of a line); a bar line of a measure's own at the start of its line goes when
+// nothing is left of it.
+function editBars(source, tune, measure, side, change) {
+  const edits = [];
+  for (const voice of scoreVoices(tune, source)) {
+    const m = measureBounds(tune, voice, measure);
+    if (!m) continue;
+    const bar = side === 'open' ? openBar(source, m) : m.bar,
+      old = bar ? barParts(source.slice(bar.startChar, bar.endChar)) : {glyph: '', ending: null},
+      next = change(old),
+      text = barLineText(next.glyph, next.ending);
+    if (bar) {
+      const lead = source.slice(lineStartOf(source, bar.startChar), bar.startChar);
+      if (bar === m.before && m.opens && (!text || text === '|') && /^(\s|\[[A-Za-z]:[^\]\n]*\])*$/.test(lead)) {
+        let end = bar.endChar;
+        while (source[end] === ' ') end++;
+        edits.push({start: bar.startChar, end, text: ''});
+      } else edits.push(barLineEdit(source, bar, next.glyph, next.ending));
+    } else if (text && side === 'open') {
+      const at = measureOpen(source, m);
+      edits.push({start: at, end: at, text: (at && !/\s/.test(source[at - 1]) ? ' ' : '') + text + ' '});
+    } else if (text) {
+      let at = m.last.endChar;
+      while (at > 0 && /\s/.test(source[at - 1])) at--;
+      edits.push({start: at, end: at, text: ' ' + text});
+    }
+  }
+  return spliceAll(source, edits);
+}
+// The unit note length (L:) in force at a position: the last L: field before it, or the default for the header meter
+// (1/16 below 3/4, 1/8 otherwise).
+function unitLengthIn(source, at) {
+  let found = null;
+  for (const m of source.slice(0, at).matchAll(/(?:^|\n)L:\s*(\d+)\s*\/\s*(\d+)|\[L:\s*(\d+)\s*\/\s*(\d+)\s*\]/g))
+    found = m;
+  if (found) return +(found[1] || found[3]) / +(found[2] || found[4]);
+  const meter = source.match(/(?:^|\n)M:[ \t]*(\d+)\s*\/\s*(\d+)/);
+  return meter && +meter[1] / +meter[2] < 0.75 ? 1 / 16 : 1 / 8;
+}
+// A whole-bar rest for a meter, written in the unit length at a position. A bar in free time takes the length of the
+// measure it is next to. abcjs cannot draw a rest shorter than a whole note that is no plain, dotted or double-dotted
+// value (5/8, 9/16), so such a bar gets several rests, longest first: z4 z for 5/8 in eighths.
+function barRest(source, at, meter, m) {
+  const unit = unitLengthIn(source, at),
+    fits = v => v > 1 - 1e-9 || [1, 1.5, 1.75].some(d => Number.isInteger(Math.round(Math.log2(d / v) * 1e6) / 1e6)),
+    rests = [];
+  let left = meter?.length || m.notes.reduce((sum, n) => sum + (n.duration || 0), 0) || 1;
+  while (left > 1e-9 && rests.length < 8) {
+    const part = fits(left) ? left : 2 ** Math.floor(Math.log2(left));
+    rests.push('z' + lengthText(part / unit));
+    left -= part;
+  }
+  return rests.join(' ');
+}
+// Insert an empty bar (a whole-bar rest in the meter in force there) before or after a measure, in every voice. The new
+// bar takes the measure's place, or follows it inside the same repeat, ending or section: before the measure it goes
+// after the bar line that opens it, and after it, before the bar line that closes it.
+function insertMeasure(source, tune, measure, after = false) {
+  const edits = [];
+  for (const voice of scoreVoices(tune, source)) {
+    const m = measureBounds(tune, voice, measure);
+    if (!m) continue;
+    if (!after) {
+      const at = measureOpen(source, m),
+        rest = barRest(source, at, m.meterBefore, m);
+      edits.push({
+        start: at,
+        end: at,
+        text: (at && !/\s/.test(source[at - 1]) ? ' ' : '') + rest + ' |' + (/\s/.test(source[at] || '') ? '' : ' ')
+      });
+    } else if (m.bar) {
+      const at = m.bar.startChar;
+      edits.push({
+        start: at,
+        end: at,
+        text: (at && !/\s/.test(source[at - 1]) ? ' ' : '') + '| ' + barRest(source, at, m.meter, m) + ' '
+      });
+    } else {
+      let at = m.last.endChar;
+      while (at > 0 && /\s/.test(source[at - 1])) at--;
+      edits.push({start: at, end: at, text: ' | ' + barRest(source, at, m.meter, m)});
+    }
+  }
+  return spliceAll(source, edits);
+}
+// Inline fields that change the music after them (key, meter, unit length, tempo, voice, instructions) outlive a
+// deleted measure; a rehearsal mark goes with it.
+const KEPT_FIELD = /\[[KMLQVIU]:[^\]\n]*\]/g;
+// Delete a measure from every voice, with the bar line that closes it. A repeat, double or final bar line closing it
+// moves to the measure before, in place of a plain bar line there. When nothing else is left on its line of text, the
+// line goes too: a blank line would end the tune.
+function deleteMeasure(source, tune, measure) {
+  const edits = [];
+  for (const voice of scoreVoices(tune, source)) {
+    const list = voiceMeasures(tune, voice),
+      m = list[measure - 1];
+    if (!m) continue;
+    if (list.length < 2) throw new Error('A staff needs at least one bar.');
+    let start = measureOpen(source, m),
+      end = m.bar ? m.bar.endChar : m.last.endChar;
+    // A measure may run on over a line break, but not past a field line, a comment or another voice.
+    if (/\n\s*(?:[A-Za-z+]:|%)|\[V:/.test(source.slice(start, end)))
+      throw new Error('This measure runs over a line of fields or another voice. Delete it in the ABC text.');
+    const closing = m.bar ? barParts(source.slice(m.bar.startChar, m.bar.endChar)) : null,
+      before = m.before && !m.opens ? barParts(source.slice(m.before.startChar, m.before.endChar)) : null;
+    if (closing && before && closing.glyph !== '|' && before.glyph === '|' && !before.ending)
+      edits.push({start: m.before.startChar, end: m.before.endChar, text: barLineText(closing.glyph, closing.ending)});
+    else if (!m.bar && m.before && onOneLine(source, m.before.endChar, m.first.startChar)) start = m.before.startChar;
+    const kept = (source.slice(start, end).match(KEPT_FIELD) || []).join(' ');
+    while (source[end] === ' ' || source[end] === '\t') end++;
+    const lineStart = lineStartOf(source, start),
+      lineEnd = source.indexOf('\n', end) < 0 ? source.length : source.indexOf('\n', end);
+    if (!(source.slice(lineStart, start) + kept + source.slice(end, lineEnd)).trim()) {
+      edits.push(
+        lineEnd < source.length
+          ? {start: lineStart, end: lineEnd + 1, text: ''}
+          : {start: Math.max(0, lineStart - 1), end: lineEnd, text: ''}
+      );
+      continue;
+    }
+    const lead = start > lineStart && !/\s/.test(source[start - 1]) ? ' ' : '';
+    edits.push({start, end, text: kept ? lead + kept + ' ' : start > lineStart && end < lineEnd ? lead : ''});
+  }
+  return spliceAll(source, edits);
+}
+// The inline fields written directly at a position, in order: [{name, value, start, end}].
+function fieldsAt(source, at) {
+  const out = [],
+    field = /\s*\[([A-Za-z]):([^\]\n]*)\]/y;
+  field.lastIndex = at;
+  let m;
+  while ((m = field.exec(source)))
+    out.push({name: m[1], value: m[2], start: m.index + m[0].indexOf('['), end: field.lastIndex});
+  return out;
+}
+// What a field sets: its letter, and for K: whether it names a key ('K:key') or only a clef ('K:clef').
+const fieldKind = (name, value) => (name === 'K' ? (keyParts(value).tonic ? 'K:key' : 'K:clef') : name);
+// The edit that writes an inline field ('M:3/4', 'K:clef=bass', 'P:A') at a position, in place of a field of the same
+// kind written there, or with field null removes that field: {start, end, text}, or null for no change. A key keeps the
+// clef written after the key it replaces.
+function inlineFieldEdit(abc, at, field, kind = field && fieldKind(field[0], field.slice(2))) {
+  const old = fieldsAt(abc, at).find(f => fieldKind(f.name, f.value) === kind);
+  if (old && kind === 'K:key') {
+    const rest = keyParts(old.value).rest.trim();
+    if (rest) field = field ? field + ' ' + rest : 'K:' + rest;
+  }
+  if (old && field) return {start: old.start, end: old.end, text: '[' + field + ']'};
+  if (old) {
+    const space = abc[old.end] === ' ' && (!old.start || /\s/.test(abc[old.start - 1]));
+    return {start: old.start, end: old.end + (space ? 1 : 0), text: ''};
+  }
+  if (!field) return null;
+  const text = (at && !/\s/.test(abc[at - 1]) ? ' ' : '') + '[' + field + ']' + (/\s/.test(abc[at] || '') ? '' : ' ');
+  return {start: at, end: at, text};
+}
+function insertInlineField(abc, at, field, kind) {
+  const edit = inlineFieldEdit(abc, at, field, kind);
+  return edit ? spliceAll(abc, [edit]) : abc;
+}
+// Set a header field (the first line starting with name:), or add it before K:. A new key keeps the clef and other
+// modifiers written after the old one.
+function headerField(source, name, value) {
+  if (name === 'K') source = withKey(source);
+  const lines = source.split('\n'),
+    i = lines.findIndex(x => x.startsWith(name + ':'));
+  let text = name + ':' + String(value).replace(/[\r\n]/g, ' ');
+  if (name === 'K' && i >= 0) text += keyParts(lines[i].slice(2)).rest.replace(/^(?=\S)/, ' ');
+  if (i >= 0) lines[i] = text;
+  else
+    lines.splice(
+      Math.max(
+        0,
+        lines.findIndex(x => x.startsWith('K:'))
+      ),
+      0,
+      text
+    );
+  return lines.join('\n');
+}
+// The fields of one voice: header fields (before any music) and fields in the music that the voice's own notes or bar
+// lines come after, in order.
+function voiceFields(source, tune, voice, name) {
+  const events = scoreEvents(tune)
+    .map(e => ({at: e.element.startChar, voice: e.key.split(':').slice(0, 2).join(':')}))
+    .sort((a, b) => a.at - b.at);
+  const start = events[0]?.at ?? source.length,
+    fields =
+      name === 'K'
+        ? keyFields(source)
+        : [...source.matchAll(new RegExp(`(^|\\n)${name}:([^\\n%]*)|\\[${name}:([^\\]\\n]*)\\]`, 'g'))].map(m => ({
+            start: m.index + (m[2] != null ? m[1].length + 2 : 3),
+            value: m[2] ?? m[3]
+          }));
+  return fields.filter(f => f.start < start || events.find(e => e.at >= f.start)?.voice === voice);
+}
+// The key in force in a voice at a position (as keyAt, for one voice), and the time signature as written.
+function voiceKeyAt(source, tune, voice, at) {
+  const found = voiceFields(source, tune, voice, 'K').filter(f => f.start < at && keyParts(f.value).tonic);
+  return found.length ? keyParts(found.at(-1).value).key : 'C';
+}
+function voiceMeterAt(source, tune, voice, at) {
+  return (
+    voiceFields(source, tune, voice, 'M')
+      .filter(f => f.start < at)
+      .at(-1)
+      ?.value.trim() || 'none'
+  );
+}
+const meterLabel = info => (info === 'free' || !info ? 'none' : info.label),
+  meterValueLabel = value => ({C: '4/4', 'C|': '2/2'})[value] || value;
+// A time signature from a measure on, in every voice. From measure 1 it is the header's M: field.
+function meterChange(source, tune, measure, value) {
+  if (measure === 1) return headerField(source, 'M', value);
+  let out = source;
+  const targets = scoreVoices(tune, source)
+    .map(voice => measureBounds(tune, voice, measure))
+    .filter(Boolean)
+    .map(m => ({at: measureOpen(source, m), same: meterLabel(m.meterBefore) === meterValueLabel(value)}))
+    .sort((a, b) => b.at - a.at);
+  for (const t of targets) out = insertInlineField(out, t.at, t.same ? null : 'M:' + value, 'M');
+  return out;
+}
+// Move a stretch of music from one key to another, written under the new key signature. Inline clef changes in it
+// are kept.
+function rekeySlice(slice, fromKey, toKey, unit) {
+  const move = keyInterval(fromKey, toKey);
+  if (!move) throw new Error('This key cannot be transposed.');
+  const mini = `X:1\nL:${unit}\nK:${keyParts(fromKey).key || 'C'}\n`,
+    moved = transposeABC(mini + slice, move.semitones, move.letters, 7),
+    head = moved.indexOf('\n', keyFields(moved)[0].start) + 1;
+  return rekeyMusic(moved, keyFifths(keyFields(moved)[0].value), keyFifths(toKey)).slice(head);
+}
+// A key signature from a measure on, in every voice: an inline [K:] field (the header's K: from measure 1), up to the
+// voice's next key change. With transpose the notes up to there move to the new key, the nearer way round; otherwise
+// they stay where they are on the staff. abcjs starts every staff of a line in the key the line's earlier staves
+// reached, so a staff whose line starts before the change names its own key at the start of that line.
+function keyChange(source, tune, measure, key, transpose = false) {
+  const voices = scoreVoices(tune, source),
+    edits = [];
+  let header = false;
+  for (const [i, voice] of voices.entries()) {
+    const list = voiceMeasures(tune, voice),
+      m = list[measure - 1];
+    if (!m) continue;
+    const at = measureOpen(source, m),
+      from = voiceKeyAt(source, tune, voice, m.first.startChar),
+      before = voiceKeyAt(source, tune, voice, at),
+      next = voiceFields(source, tune, voice, 'K').find(f => f.start > m.first.startChar && keyParts(f.value).tonic),
+      end = next ? next.start - 3 : source.length;
+    if (transpose && canonicalKey(from) !== canonicalKey(key))
+      for (const s of measureSpans(tune, measure, Infinity)) {
+        if (s.voice !== voice || s.start >= end) continue;
+        const stop = Math.min(s.end, end),
+          unit = '1/' + Math.round(1 / unitLengthIn(source, s.start));
+        edits.push({start: s.start, end: stop, text: rekeySlice(source.slice(s.start, stop), from, key, unit)});
+      }
+    if (measure === 1) header = true;
+    else {
+      const edit = inlineFieldEdit(source, at, canonicalKey(before) === canonicalKey(key) ? null : 'K:' + key, 'K:key');
+      if (edit) edits.push(edit);
+    }
+    const lineFirst = list.find(x => x.line === m.line);
+    if (i && lineFirst.measure < measure) {
+      const lineAt = measureOpen(source, lineFirst),
+        own = voiceKeyAt(source, tune, voice, lineFirst.first.startChar);
+      if (
+        canonicalKey(own) !== canonicalKey(key) &&
+        !fieldsAt(source, lineAt).some(f => fieldKind(f.name, f.value) === 'K:key')
+      )
+        edits.push(inlineFieldEdit(source, lineAt, 'K:' + own));
+    }
+  }
+  const out = spliceAll(source, edits);
+  return header ? headerField(out, 'K', key) : out;
+}
+// A clef from a measure on, in one voice: an inline [K:clef=...] field, or none when the clef before is the same.
+function clefChange(source, tune, voice, measure, clef) {
+  const m = measureBounds(tune, voice, measure);
+  if (!m) return source;
+  return insertInlineField(source, measureOpen(source, m), m.clefBefore === clef ? null : 'K:clef=' + clef, 'K:clef');
+}
+// Form marks: segno and coda go on a measure's first note, Fine and the jumps on its last. A note has at most one
+// jump, so a new one replaces another. abcjs's S and O shorthands count as segno and coda.
+const FORM_MARKS = ['segno', 'coda', 'fine', 'D.C.', 'D.S.', 'D.C.alfine', 'D.S.alcoda'],
+  JUMP_MARKS = FORM_MARKS.slice(2);
+const formName = item => ({S: 'segno', O: 'coda'})[item] ?? markName(item);
+function formMarks(text) {
+  const parts = markItems(text);
+  return parts ? parts.items.map(formName).filter(n => FORM_MARKS.includes(n)) : [];
+}
+function toggleFormMark(text, name) {
+  const parts = markItems(text);
+  if (!parts || !FORM_MARKS.includes(name)) return text;
+  const had = parts.items.some(i => formName(i) === name),
+    kept = parts.items.filter(i => {
+      const n = formName(i);
+      return n !== name && !(JUMP_MARKS.includes(name) && JUMP_MARKS.includes(n));
+    });
+  if (!had) kept.push(`!${name}!`);
+  return kept.join('') + parts.rest;
+}
+// Rehearsal marks: inline [P:] fields and P: lines in the tune body (a P: line in the header names the order of
+// parts). Marks lettered A to Z, then AA, BB and so on, are kept in order; other names are left as written.
+const rehearsalLetter = i => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[i % 26].repeat(Math.floor(i / 26) + 1);
+function rehearsalMarks(source) {
+  const k = /(^|\n)K:[^\n]*/.exec(source),
+    from = k ? k.index + k[0].length : 0;
+  return [...source.slice(from).matchAll(/\[P:([^\]\n]*)\]|\nP:([^\n%]*)/g)].map(m => {
+    const value = m[1] ?? m[2],
+      start = from + m.index + 3;
+    return {start, end: start + value.length, value};
+  });
+}
+function letterRehearsalMarks(source) {
+  let i = 0;
+  const edits = rehearsalMarks(source)
+    .filter(r => /^\s*([A-Z])\1*\s*$/.test(r.value))
+    .map(r => ({start: r.start, end: r.end, text: rehearsalLetter(i++)}));
+  return spliceAll(source, edits);
+}
+// Add a rehearsal mark at the start of a measure in the first voice, or take away the one there; the marks are then
+// lettered in order.
+function toggleRehearsal(source, tune, measure) {
+  const m = measureBounds(tune, scoreVoices(tune, source)[0], measure);
+  if (!m) return source;
+  const at = measureOpen(source, m),
+    has = fieldsAt(source, at).some(f => f.name === 'P');
+  return letterRehearsalMarks(insertInlineField(source, at, has ? null : 'P:A', 'P'));
+}
 // Teacher-written assignments: a prompt object built from a score and carried in saves, backups and share links.
 // Keys are written pitch, as for the built-in prompts. Goals name notes by the key's own degrees (minor adds the
 // raised 7th); only major and minor keys have a scale for the inKey goal.

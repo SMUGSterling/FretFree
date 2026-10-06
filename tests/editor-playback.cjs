@@ -76,6 +76,7 @@ for (const f of [
   'library.js',
   'backup.js',
   'editor.js',
+  'measure-tools.js',
   'palette.js',
   'playback.js',
   'keyboard.js',
@@ -1206,6 +1207,189 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
 }
 // Master bus and note audition: every note and click reaches the speakers through one gain node that follows the
 // Volume slider live; entering, selecting or moving a note sounds it once at concert pitch when Hear notes is on.
+// Measure tools: the Measure panel inserts and deletes bars, sets bar lines, repeats, endings, form marks and rehearsal
+// marks, and changes the time signature, key and clef from the selected measure, one undo step each.
+{
+  const abc = 'X:1\nM:4/4\nL:1/4\nQ:1/4=100\nK:C\nC D E F | G A B c | d e f g | c4 |]',
+    tune = 'C D E F | G A B c | d e f g | c4 |]';
+  run(`openScore({abc:${JSON.stringify(abc)},instrument:'Flute'})`);
+  const body = () => run("$('abc').value.trim().split('\\n').pop()"),
+    pick = i => run(`selectEntry(scoreNotes()[${i}])`),
+    pickBar = i =>
+      run(
+        `scoreClick(displayOf([...new Set(noteSources.values())].filter(e=>e.element.el_type==='bar')` +
+          `.sort((a,b)=>a.element.startChar-b.element.startChar)[${i}]),0,[],{},null)`
+      ),
+    press = action => run(`document.querySelector('[data-palette=${JSON.stringify(action)}]').click()`),
+    shown = sel =>
+      run(`[...document.querySelectorAll('#palette-measure [${sel}]')].map(b=>b.dataset.palette).join(' ')`),
+    pressed = () => shown('aria-pressed="true"'),
+    disabled = () => shown('aria-disabled="true"'),
+    selected = () => run("$('abc').value.slice(...selectedRange)").trim(),
+    status = () => run("$('selection-status').textContent"),
+    choose = (what, value) =>
+      run(
+        `$('measure-${what}').value=${JSON.stringify(value)};$('measure-${what}').dispatchEvent(new Event('change'))`
+      ),
+    undo = () => run('stepHistory(-1)');
+  assert.equal(run("$('palette-measure').hidden"), true, 'The Measure panel starts closed');
+  pick(0);
+  assert.equal(disabled(), '', 'Its buttons are left alone while it is closed');
+  press('measure');
+  assert.equal(run("$('palette-measure').hidden"), false);
+  assert.equal(run(`document.querySelector('[data-palette="measure"]').getAttribute('aria-expanded')`), 'true');
+  assert.equal(pressed(), 'barline:|', 'Measure 1 ends with a single bar line');
+  run("scoreKey({key:'Escape'})");
+  assert.ok(disabled().startsWith('bar:before bar:after bar:delete barline:|'), 'Nothing selected: nothing to act on');
+  assert.equal(run("$('measure-meter').disabled && $('measure-key').disabled && $('measure-clef').disabled"), true);
+  press('bar:before');
+  assert.equal(status(), 'Select a note or bar line on the score first.');
+  assert.equal(body(), tune);
+  // Insert a bar before measure 3: a whole-bar rest, selected so that typing writes over it. Delete removes measure 3.
+  pick(8);
+  assert.equal(
+    run("$('measure-meter').value + ' ' + $('measure-key').value + ' ' + $('measure-clef').value"),
+    '4/4 C treble'
+  );
+  press('bar:before');
+  assert.equal(body(), 'C D E F | G A B c | z4 | d e f g | c4 |]');
+  assert.equal(selected(), 'z4');
+  assert.equal(status(), 'Added a bar before measure 3. Type a letter to write over its rest.');
+  run("scoreKey({key:'e'})");
+  assert.equal(body(), 'C D E F | G A B c | e z3 | d e f g | c4 |]');
+  undo();
+  undo();
+  assert.equal(body(), tune, 'Inserting is one undo step');
+  pick(8);
+  press('bar:after');
+  assert.equal(body(), 'C D E F | G A B c | d e f g | z4 | c4 |]');
+  undo();
+  pick(8);
+  press('bar:delete');
+  assert.equal(body(), 'C D E F | G A B c | c4 |]');
+  assert.equal(status(), 'Deleted measure 3.');
+  assert.equal(selected(), 'c4', 'The next measure is selected');
+  undo();
+  assert.equal(body(), tune, 'Deleting is one undo step');
+  // Bar lines replace each other; a selected bar line is restyled itself.
+  pick(4);
+  press('barline:||');
+  assert.equal(body(), 'C D E F | G A B c || d e f g | c4 |]');
+  assert.equal(pressed(), 'barline:||');
+  assert.equal(status(), 'Double bar line after measure 2.');
+  press('barline:|]');
+  assert.equal(body(), 'C D E F | G A B c |] d e f g | c4 |]');
+  undo();
+  undo();
+  pickBar(0);
+  assert.equal(selected(), '|');
+  press('repeat:end');
+  press('repeat:start');
+  assert.equal(body(), 'C D E F :: G A B c | d e f g | c4 |]', 'Both repeats on the selected bar line');
+  assert.equal(selected(), '::', 'The bar line stays selected');
+  assert.equal(pressed(), 'repeat:start repeat:end');
+  undo();
+  undo();
+  // Repeats and 1st and 2nd endings engrave and play: measure 4 starts after measures 1 to 3 and 1 and 2 again.
+  pick(0);
+  press('repeat:start');
+  pick(8);
+  press('repeat:end');
+  press('ending:1');
+  assert.equal(status(), '1st ending from measure 3. It runs to the next repeat, double or final bar line.');
+  pick(12);
+  press('ending:2');
+  assert.equal(body(), '|: C D E F | G A B c |1 d e f g :|2 c4 |]');
+  assert.equal(pressed(), 'barline:|] ending:2');
+  assert.equal(run("$('warnings').textContent"), '');
+  assert.equal(run('measureStarts.get(3)'), 4.8);
+  assert.equal(run('measureStarts.get(4)'), 12, 'The 2nd ending plays after the repeat');
+  press('ending:2');
+  assert.equal(body(), '|: C D E F | G A B c |1 d e f g :| c4 |]', 'Pressed again, the ending goes');
+  for (let i = 0; i < 5; i++) undo();
+  assert.equal(body(), tune);
+  // Form marks and rehearsal letters.
+  pick(12);
+  press('form:D.C.alfine');
+  assert.equal(body(), 'C D E F | G A B c | d e f g | !D.C.alfine!c4 |]');
+  assert.match(status(), /^D\.C\. al Fine at the end of measure 4\. Playback does not follow/);
+  pick(4);
+  press('form:fine');
+  press('form:segno');
+  assert.equal(body(), 'C D E F | !segno!G A B !fine!c | d e f g | !D.C.alfine!c4 |]');
+  assert.equal(pressed(), 'barline:| form:segno form:fine');
+  press('rehearsal:mark');
+  pick(12);
+  press('rehearsal:mark');
+  assert.equal(body(), 'C D E F | [P:A] !segno!G A B !fine!c | d e f g | [P:B] !D.C.alfine!c4 |]');
+  assert.equal(status(), 'Rehearsal mark B at measure 4.');
+  for (let i = 0; i < 5; i++) undo();
+  assert.equal(body(), tune);
+  // A meter change at measure 3 writes [M:3/4]; the bar check counts 3/4 from there.
+  pick(8);
+  choose('meter', '3/4');
+  assert.equal(body(), 'C D E F | G A B c | [M:3/4] d e f g | c4 |]');
+  assert.equal(status(), 'Time signature 3/4 from measure 3.');
+  assert.deepEqual(json('barProblems(ABCJS.parseOnly($("abc").value)[0]).map(m=>m.measure)'), [3, 4]);
+  assert.equal(run("$('measure-meter').value"), '3/4');
+  undo();
+  assert.equal(body(), tune, 'One undo step');
+  // A key change asks whether the notes move, as the Key menu does.
+  pick(8);
+  choose('key', 'G');
+  assert.equal(run("$('measure-key-choice').hidden"), false);
+  assert.equal(run("$('measure-key-choice-text').textContent"), 'Change the key to G major (1♯) from measure 3:');
+  run("$('measure-key-keep').click()");
+  assert.equal(body(), 'C D E F | G A B c | [K:G] d e f g | c4 |]');
+  assert.equal(status(), 'Key: G major (1♯) from measure 3. The notes stay where they are.');
+  assert.equal(run("$('measure-key').value"), 'G');
+  undo();
+  pick(8);
+  choose('key', 'G');
+  run("$('measure-key-transpose').click()");
+  assert.equal(body(), 'C D E F | G A B c | [K:G] A B c d | G4 |]');
+  assert.equal(status(), 'Key: G major (1♯) from measure 3. The notes moved down a perfect 4th.');
+  undo();
+  pick(8);
+  choose('key', 'D');
+  run("$('measure-key-cancel').click()");
+  assert.equal(body(), tune, 'Cancel changes nothing');
+  assert.equal(run("$('measure-key').value"), 'C', 'and the menu shows the key again');
+  // Clef from measure 3, and back.
+  pick(8);
+  choose('clef', 'bass');
+  assert.equal(body(), 'C D E F | G A B c | [K:clef=bass] d e f g | c4 |]');
+  assert.equal(status(), 'Bass clef from measure 3.');
+  choose('clef', 'treble');
+  assert.equal(body(), tune, 'The clef before needs no field');
+  undo();
+  undo();
+  // On a piano score both staves get the bar and the repeat, in one undo step.
+  const piano =
+    'X:1\nM:3/4\nL:1/4\nK:C\n%%score {RH | LH}\nV:RH\nC D E | F G A |]\nV:LH clef=bass\nC, D, E, | F, G, A, |]';
+  run(`openScore({abc:${JSON.stringify(piano)},instrument:'Piano'})`);
+  pick(3);
+  press('bar:before');
+  assert.equal(
+    run("$('abc').value").split('\nV:RH\n')[1],
+    'C D E | z3 | F G A |]\nV:LH clef=bass\nC, D, E, | z3 | F, G, A, |]'
+  );
+  assert.equal(status(), 'Added a bar before measure 2 on every staff. Type a letter to write over its rest.');
+  undo();
+  assert.equal(run("$('abc').value"), piano);
+  // A transposing instrument: the clef shown is the written one, keys are concert pitch.
+  run(`openScore({abc:${JSON.stringify(abc)},instrument:'Cello'})`);
+  pick(8);
+  assert.equal(run("$('measure-clef').value"), 'bass');
+  run(`openScore({abc:${JSON.stringify(abc)},instrument:'Clarinet in B♭'})`);
+  pick(8);
+  choose('key', 'F');
+  run("$('measure-key-keep').click()");
+  assert.equal(body(), 'C D E F | G A B c | [K:F] d e f g | c4 |]');
+  assert.match(status(), /Keys are concert pitch\.$/);
+  press('measure');
+  assert.equal(run("$('palette-measure').hidden"), true);
+}
 async function checkAudio() {
   const hz = midi => 440 * 2 ** ((midi - 69) / 12),
     near = (a, b) => Math.abs(a - b) < 1e-6;
@@ -1820,7 +2004,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }
