@@ -3098,10 +3098,127 @@ const {chromium} = require('playwright'),
     await halt();
     fs.rmSync(profile, {recursive: true, force: true});
   }
+  // Record yourself in real Chromium. The "microphone" is a loopback of FretFree's own output, 120 ms late, so
+  // calibration has clicks to hear and the take holds the score as played: its first note must fall where the take is
+  // lined up with the score, within 50 ms.
+  {
+    await page.setViewportSize({width: 1280, height: 900});
+    const takeSource = 'X:1\nT:Browser take\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nC D E F | G4 |]',
+      offSite = [];
+    const watchRequests = request => {
+      if (!request.url().startsWith(new URL(page.url()).origin)) offSite.push(request.url());
+    };
+    page.on('request', watchRequests);
+    const openTakeScore = () =>
+      page.evaluate(source => {
+        openScore({title: 'Browser take', abc: source});
+        $('metronome').checked = false;
+        $('trainer').checked = false;
+        $('loop').checked = true;
+        $('speed').value = 100;
+        $('speed').oninput();
+        $('record-count-in').value = '1';
+        window.scrollTo({top: 0, behavior: 'instant'});
+      }, takeSource);
+    await openTakeScore();
+    await page.evaluate(() => {
+      navigator.mediaDevices.getUserMedia = async () => {
+        audioContext();
+        const loop = audio.createMediaStreamDestination(),
+          delay = audio.createDelay(1);
+        delay.delayTime.value = 0.12;
+        outputNode().connect(delay);
+        delay.connect(loop);
+        return loop.stream;
+      };
+    });
+    await page.click('#record');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'record-start');
+    await page.focus('#record-calibrate');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(
+      () => !calibrating && /^Calibrated|couldn’t/.test($('calibrate-status').textContent),
+      null,
+      {
+        timeout: 20000
+      }
+    );
+    const latency = await page.evaluate(() => storedLatency()?.ms);
+    assert.ok(latency >= 100 && latency <= 400, `Calibration hears its clicks (${latency} ms)`);
+    await page.focus('#record-start');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => rec?.state === 'live');
+    assert.equal(await page.textContent('#record'), '● Recording');
+    await page.waitForFunction(() => document.querySelector('#take-list li'), null, {timeout: 20000});
+    assert.match(
+      await page.textContent('#record-status'),
+      /^Take 1 saved \(0:0[6-8]\)\.$/,
+      'One pass, though Loop is on'
+    );
+    const lined = await page.evaluate(async () => {
+      const take = shownTakes[0],
+        buffer = await decodeBlob(take.blob),
+        rate = buffer.sampleRate,
+        at = takeOffset(take, takeLatency(take)),
+        from = Math.round((at - 0.3) * rate),
+        samples = buffer.getChannelData(0).subarray(from);
+      let peak = 0;
+      for (const v of samples) peak = Math.max(peak, Math.abs(v));
+      return {
+        at,
+        heard: samples.findIndex(v => Math.abs(v) > peak * 0.3) / rate + from / rate,
+        calibrated: take.calibrated
+      };
+    });
+    assert.ok(
+      lined.calibrated && Math.abs(lined.heard - lined.at) < 0.05,
+      `Take and score line up: ${JSON.stringify(lined)}`
+    );
+    // Takes are kept in IndexedDB: after a reload the score shows its take, which plays with the score and downloads.
+    await page.reload();
+    await page.waitForFunction(() => typeof recordKey === 'function' && renderedTune);
+    await openTakeScore();
+    await page.click('#record');
+    await page.waitForFunction(() => document.querySelector('#take-list li'));
+    assert.match(await page.textContent('#take-list'), /Take 1 0:0[6-8]/);
+    await page.click('[data-take-score]');
+    await page.waitForFunction(() => takePlayer?.withScore && playing);
+    assert.equal(await page.textContent('[data-take-score]'), '■ Stop');
+    await page.click('[data-take-score]');
+    await page.waitForFunction(() => !takePlayer && !playing);
+    const [file] = await Promise.all([page.waitForEvent('download'), page.click('[data-take-download]')]);
+    assert.equal(file.suggestedFilename(), 'Browser take take 1.webm');
+    // Phone width: the panel and its takes fit without scrolling the page sideways.
+    await page.setViewportSize({width: 390, height: 844});
+    await page.locator('#record-panel').scrollIntoViewIfNeeded();
+    assert.ok(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      'No sideways scroll at 390px'
+    );
+    const buttons = await page
+      .locator('#take-list button')
+      .evaluateAll(els =>
+        els.map(el => el.getBoundingClientRect()).map(r => r.right <= window.innerWidth && r.height >= 30)
+      );
+    assert.ok(buttons.length === 4 && buttons.every(Boolean), 'Take buttons stay on screen and easy to tap');
+    await page.focus('[data-take-delete]');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => !document.querySelector('#take-list li'));
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'record-start');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => $('record-panel').hidden), true, 'Escape closes the panel');
+    await page.setViewportSize({width: 1280, height: 900});
+    page.off('request', watchRequests);
+    assert.deepEqual(offSite, [], 'Recording makes no request off the site');
+    await page.evaluate(() => {
+      $('loop').checked = false;
+      storage.remove(KEYS.latency);
+    });
+  }
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
+    'PASS: dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, recording yourself (calibration by keyboard, a take lined up with the score within 50 ms, one pass with Loop on, kept after a reload, playing with the score, download, delete by keyboard, Escape, phone width, no off-site requests), offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

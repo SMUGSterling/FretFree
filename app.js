@@ -302,7 +302,8 @@ $('help-toggle').onclick = () => {
 };
 $('save').onclick = () => {
   const id = savedId || globalThis.crypto?.randomUUID?.() || 'score-' + Date.now(),
-    previous = saved.find(x => x.id === id);
+    previous = saved.find(x => x.id === id),
+    takesKey = typeof recordKey === 'function' ? recordKey() : null;
   // Turned-in work saved to My scores is a copy of one's own: "Turned in by" stays behind, and it can be turned in.
   const {submission, ...item} = current || {};
   // Each save of a score gets its own time, which names the version it later becomes.
@@ -321,6 +322,8 @@ $('save').onclick = () => {
     // The copy this save replaced goes into the score's History, if its music changed.
     if (previous && previous.abc !== entry.abc) keepVersion(previous);
     savedId = id;
+    // Takes recorded before the first save stay with the score.
+    if (takesKey) rekeyTakes(takesKey, recordKey());
     dirty = false;
     markClean();
     if (submission) {
@@ -414,6 +417,7 @@ function applyStoredSettings() {
   $('note-names').value = storage.get(KEYS.noteNames, 'off');
   $('note-colors').value = storage.get(KEYS.noteColors, 'off');
   $('audition').checked = storage.get(KEYS.audition, true) !== false;
+  if (typeof applyRecordSettings === 'function') applyRecordSettings();
   if (typeof setPiano === 'function') setPiano(storage.get(KEYS.piano, false) === true, false);
   applyStoredLayout();
   applyTheme();

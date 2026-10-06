@@ -2269,3 +2269,77 @@ function turnInCodes(text) {
     .filter(l => l.text)
     .map(l => ({line: l.line, code: (l.text.match(/(?:^|[#&?]s=)([01][A-Za-z0-9_-]{8,})$/) || [])[1] || null}));
 }
+
+// Record yourself: lining a take up with the score, finding click onsets for calibration, and naming takes.
+// A take's lead is the audio-clock time from the recorder starting to the score starting (the count-in and start-up).
+// The device's round-trip latency is how much later than that a sound played on time shows up in the recording:
+// output and input delays plus any lag in the recorder starting. Score time `from` is at their sum in the take.
+function takeOffset(take, latencyMs = take?.latencyMs) {
+  return Math.max(0, (+take?.lead || 0) + (+latencyMs || 0) / 1000);
+}
+// Where in a take a score time falls, at the take's speed (percent).
+function takePosition(take, scoreTime, latencyMs) {
+  return takeOffset(take, latencyMs) + (scoreTime - take.from) / ((take.speed || 100) / 100);
+}
+// Sound onsets in mono samples, in seconds: the first 0.5 ms block that rises above a threshold set well clear of the
+// recording's noise floor, at least `gap` seconds after the previous onset.
+function audioOnsets(samples, sampleRate, {gap = 0.15} = {}) {
+  const block = Math.max(1, Math.round(sampleRate / 2000)),
+    envelope = [];
+  for (let i = 0; i < samples.length; i += block) {
+    let peak = 0;
+    for (let j = i; j < Math.min(samples.length, i + block); j++) peak = Math.max(peak, Math.abs(samples[j]));
+    envelope.push(peak);
+  }
+  if (!envelope.length) return [];
+  const sorted = [...envelope].sort((a, b) => a - b),
+    floor = sorted[Math.floor(sorted.length / 2)],
+    top = sorted[sorted.length - 1],
+    threshold = Math.max(floor * 6, top * 0.25, 0.005),
+    onsets = [];
+  let last = -Infinity;
+  for (const [i, value] of envelope.entries()) {
+    const t = (i * block) / sampleRate;
+    if (value >= threshold && t - last >= gap) {
+      onsets.push(t);
+      last = t;
+    }
+  }
+  return onsets;
+}
+// Round-trip latency from calibration: each click (seconds into the recording, as scheduled) is matched with the first
+// onset up to `max` seconds after it. Most clicks must be heard, at delays within 15 ms of each other, or the result
+// is null: a noisy room or muted speakers must not set a wrong latency.
+function estimateLatency(clicks, onsets, {max = 0.55} = {}) {
+  const delays = clicks
+    .map(c => onsets.find(o => o >= c && o < c + max))
+    .map((o, i) => (o == null ? null : o - clicks[i]))
+    .filter(d => d != null)
+    .sort((a, b) => a - b);
+  const need = Math.ceil(clicks.length * 0.6);
+  if (delays.length < need) return null;
+  const median = delays[Math.floor(delays.length / 2)],
+    close = delays.filter(d => Math.abs(d - median) <= 0.015);
+  if (close.length < need) return null;
+  return {latencyMs: Math.round((close.reduce((a, b) => a + b, 0) / close.length) * 1000), heard: close.length};
+}
+// File names for a take and its credits: "<title> take 3.webm", with characters file systems refuse taken out.
+function takeExtension(mime) {
+  const type = String(mime || '').toLowerCase();
+  return /mp4|m4a|aac/.test(type) ? 'm4a' : /ogg/.test(type) ? 'ogg' : /wav/.test(type) ? 'wav' : 'webm';
+}
+function takeFileName(title, n, extension, suffix = '') {
+  const name =
+    String(title || '')
+      .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80)
+      .trim() || 'Recording';
+  return `${name} take ${n}${suffix}.${extension}`;
+}
+// A take's length as m:ss.
+function clockText(seconds) {
+  const s = Math.max(0, Math.round(+seconds || 0));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}

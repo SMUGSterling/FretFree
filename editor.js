@@ -295,6 +295,7 @@ function render() {
     updatePromptCheck(display);
     if (typeof updateAssignmentBuilder === 'function') updateAssignmentBuilder();
     if (typeof updateTurnIn === 'function') updateTurnIn();
+    if (typeof updateTakes === 'function') updateTakes();
     restoreSelection(display);
     if (typeof updatePiano === 'function') updatePiano(display);
     $('warnings').textContent = (renderedTune?.warnings || []).map(x => String(x).replace(/<[^>]+>/g, '')).join(' · ');

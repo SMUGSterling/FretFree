@@ -12,31 +12,32 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-    <script src="theme.js?v=eab3a4550c84"></script>
-    <link rel="stylesheet" href="style.css?v=eab3a4550c84" />
-    <script defer src="vendor/abcjs-basic-min.js?v=eab3a4550c84"></script>
-    <script defer src="vendor/qrcode.js?v=eab3a4550c84"></script>
-    <script defer src="catalog.js?v=eab3a4550c84"></script>
-    <script defer src="catalog-expanded.js?v=eab3a4550c84"></script>
-    <script defer src="score-tools.js?v=eab3a4550c84"></script>
-    <script defer src="rights-tools.js?v=eab3a4550c84"></script>
-    <script defer src="musicxml.js?v=eab3a4550c84"></script>
-    <script defer src="catalog-licensed.js?v=eab3a4550c84"></script>
-    <script defer src="catalog-lieder.js?v=eab3a4550c84"></script>
-    <script defer src="catalog-quartets.js?v=eab3a4550c84"></script>
-    <script defer src="catalog-pgh.js?v=eab3a4550c84"></script>
-    <script defer src="catalog-skills.js?v=eab3a4550c84"></script>
-    <script defer src="prompts.js?v=eab3a4550c84"></script>
-    <script defer src="shared.js?v=eab3a4550c84"></script>
-    <script defer src="library.js?v=eab3a4550c84"></script>
-    <script defer src="backup.js?v=eab3a4550c84"></script>
-    <script defer src="editor.js?v=eab3a4550c84"></script>
-    <script defer src="palette.js?v=eab3a4550c84"></script>
-    <script defer src="playback.js?v=eab3a4550c84"></script>
-    <script defer src="keyboard.js?v=eab3a4550c84"></script>
-    <script defer src="assignments.js?v=eab3a4550c84"></script>
-    <script defer src="turn-in.js?v=eab3a4550c84"></script>
-    <script defer src="app.js?v=eab3a4550c84"></script>
+    <script src="theme.js?v=3e1e92aebd13"></script>
+    <link rel="stylesheet" href="style.css?v=3e1e92aebd13" />
+    <script defer src="vendor/abcjs-basic-min.js?v=3e1e92aebd13"></script>
+    <script defer src="vendor/qrcode.js?v=3e1e92aebd13"></script>
+    <script defer src="catalog.js?v=3e1e92aebd13"></script>
+    <script defer src="catalog-expanded.js?v=3e1e92aebd13"></script>
+    <script defer src="score-tools.js?v=3e1e92aebd13"></script>
+    <script defer src="rights-tools.js?v=3e1e92aebd13"></script>
+    <script defer src="musicxml.js?v=3e1e92aebd13"></script>
+    <script defer src="catalog-licensed.js?v=3e1e92aebd13"></script>
+    <script defer src="catalog-lieder.js?v=3e1e92aebd13"></script>
+    <script defer src="catalog-quartets.js?v=3e1e92aebd13"></script>
+    <script defer src="catalog-pgh.js?v=3e1e92aebd13"></script>
+    <script defer src="catalog-skills.js?v=3e1e92aebd13"></script>
+    <script defer src="prompts.js?v=3e1e92aebd13"></script>
+    <script defer src="shared.js?v=3e1e92aebd13"></script>
+    <script defer src="library.js?v=3e1e92aebd13"></script>
+    <script defer src="backup.js?v=3e1e92aebd13"></script>
+    <script defer src="editor.js?v=3e1e92aebd13"></script>
+    <script defer src="palette.js?v=3e1e92aebd13"></script>
+    <script defer src="playback.js?v=3e1e92aebd13"></script>
+    <script defer src="keyboard.js?v=3e1e92aebd13"></script>
+    <script defer src="assignments.js?v=3e1e92aebd13"></script>
+    <script defer src="turn-in.js?v=3e1e92aebd13"></script>
+    <script defer src="record.js?v=3e1e92aebd13"></script>
+    <script defer src="app.js?v=3e1e92aebd13"></script>
   </head>
   <body>
     <header>
@@ -495,6 +496,13 @@
             <div class="transport">
               <button id="play" class="primary">▶ Play</button
               ><button id="stop" aria-label="Stop playback">■ Stop</button
+              ><button
+                id="record"
+                aria-expanded="false"
+                aria-controls="record-panel"
+                title="Record yourself along with the score"
+              >
+                ● Record</button
               ><label class="inline"><input type="checkbox" id="loop" /> Loop</label
               ><label class="inline"><input type="checkbox" id="metronome" /> Metronome</label
               ><label class="inline"><input type="checkbox" id="count-in" /> Count-in</label
@@ -571,6 +579,37 @@
                 ><input type="checkbox" id="audition" checked /> Hear notes</label
               >
             </div>
+            <section id="record-panel" class="share-panel record-panel" aria-labelledby="record-heading" hidden>
+              <div class="share-head">
+                <h2 id="record-heading">Record yourself</h2>
+                <button id="record-close" type="button" aria-label="Close recording">✕</button>
+              </div>
+              <p class="small">
+                The practice range plays once at the playback speed while the microphone records you. Wear headphones so
+                the take has only you in it.
+              </p>
+              <div class="record-row">
+                <button id="record-start" class="primary">● Start recording</button
+                ><label class="inline"
+                  >Count-in
+                  <select id="record-count-in">
+                    <option value="1">1 bar</option>
+                    <option value="2">2 bars</option>
+                  </select></label
+                ><label class="inline record-level"
+                  >Microphone
+                  <meter id="record-level" min="0" max="1" low="0.05" high="0.9" optimum="0.5" value="0"></meter
+                ></label>
+              </div>
+              <p id="record-status" class="small" role="status"></p>
+              <p id="takes-empty" class="small">No takes of this score yet.</p>
+              <ol id="take-list" class="take-list" aria-label="Takes" hidden></ol>
+              <div class="record-row">
+                <button id="record-calibrate">Calibrate timing</button>
+                <p id="calibrate-status" class="small" role="status"></p>
+              </div>
+              <p id="record-storage" class="small"></p>
+            </section>
             <p class="small keyboard-help">
               <strong>Keyboard:</strong> click a note, then <kbd>A</kbd>–<kbd>G</kbd> add notes · <kbd>R</kbd> rest ·
               Shift+<kbd>A</kbd>–<kbd>G</kbd> add to the chord · <kbd>3</kbd>–<kbd>7</kbd> length (16th to whole) ·
@@ -1101,9 +1140,12 @@
           Zoom in for larger notation, or choose how many measures go on each line. Use Print / PDF to produce a paper
           score, in large print if you zoom in first. Transpose a score or a few measures by any interval or to a new
           key. Choose a B♭ or E♭ instrument for written-pitch transposition with concert-pitch playback, and tick
-          Concert pitch to see the notes as they sound. Classroom colors and letters in noteheads help beginners read,
-          and both print. Theme in the header switches to a dark theme, or follows your device; the score stays black on
-          white unless you tick Dark paper, and prints stay black on white.
+          Concert pitch to see the notes as they sound. <strong>● Record</strong> records you playing or singing along
+          with the score after a count-in; takes stay on your device, play back alone or with the score, and download as
+          audio files. <strong>Calibrate timing</strong> lines takes up with the score on each device. Classroom colors
+          and letters in noteheads help beginners read, and both print. Theme in the header switches to a dark theme, or
+          follows your device; the score stays black on white unless you tick Dark paper, and prints stay black on
+          white.
         </p>
         <h2>Privacy and school access</h2>
         <p>
@@ -1117,10 +1159,11 @@
           <strong>embed code</strong> for a class website, Google Sites, Canvas or a blog, which shows the score
           read-only with Play and its credits and saves nothing on the visitor’s device, and a
           <strong>QR code</strong> of the link for students to scan from the projector. Library scores and the notation
-          engine ship with the site, so the core experience makes no third-party requests. Local storage can be cleared
-          by the browser or school device policy; export work you want to keep. Unsaved changes are kept as a draft in
-          the browser, so a closed or discarded tab offers them back on the next visit. Saving a changed score keeps the
-          copy it replaces: <strong>History</strong> in My scores previews, plays and restores earlier versions.
+          engine ship with the site, so the core experience makes no third-party requests. Recordings stay in the
+          browser too, and are not in backups. Local storage can be cleared by the browser or school device policy;
+          export work you want to keep. Unsaved changes are kept as a draft in the browser, so a closed or discarded tab
+          offers them back on the next visit. Saving a changed score keeps the copy it replaces:
+          <strong>History</strong> in My scores previews, plays and restores earlier versions.
         </p>
         <p>
           <strong>Offline and installing.</strong> After one visit, FretFree opens and works without internet: the

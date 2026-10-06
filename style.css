@@ -2462,3 +2462,60 @@ header {
   font-size: 12px;
   padding: 7px 12px;
 }
+/* Record yourself: the panel under the practice controls, its takes list and the recording state. */
+.record-panel h2 {
+  font-size: 20px;
+}
+.transport #record.recording,
+#record-start.recording {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--on-green);
+}
+.record-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 10px;
+}
+.record-panel .record-row p {
+  margin: 0;
+  flex: 1 1 220px;
+}
+.record-row label {
+  white-space: nowrap;
+}
+.record-level meter {
+  width: 90px;
+}
+.take-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.take-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.take-list li:last-child {
+  border-bottom: 1px solid var(--border);
+}
+.take-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.take-actions button {
+  font-size: 12px;
+}
+@media print {
+  .record-panel {
+    display: none !important;
+  }
+}

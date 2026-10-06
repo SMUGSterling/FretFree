@@ -18,6 +18,7 @@ const BACKUP_FORMAT = 1,
     KEYS.theme,
     KEYS.darkPaper,
     KEYS.studentName,
+    KEYS.recordCountIn,
     ...['loop', 'metronome', 'count-in', 'trainer', 'chords'].map(KEYS.practice)
   ];
 function backupData() {

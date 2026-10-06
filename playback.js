@@ -25,6 +25,8 @@ function stop() {
   nodes = [];
   $('play').textContent = '▶ Play';
   $('play-status').textContent = 'Ready to play';
+  // A recording ends with the playback it follows, and a take playing with the score stops with it.
+  if (typeof takeStopped === 'function') takeStopped();
 }
 // Where playback is, in score seconds, so a speed change or the Chords switch can carry on from there.
 const playPosition = () => (playing ? playOrigin + Math.max(0, audio.currentTime - playClock) * playSpeed : null);
@@ -231,7 +233,7 @@ function schedulePass(p, from, percent, base, pass) {
   const speed = percent / 100,
     notes = p.full.notes.filter(n => !(n.straightEnd <= from + 0.002)),
     data = playbackSlice({...p.full, notes}, from, percent, p.until),
-    looping = $('loop').checked || $('trainer').checked;
+    looping = !p.once && ($('loop').checked || $('trainer').checked);
   scheduleNotes(data.notes, base);
   if ($('metronome').checked)
     for (const c of clickTimes(from, p.until, p.full.duration)) click(base + (c.time - from) / speed, c.down);
@@ -242,7 +244,7 @@ function schedulePass(p, from, percent, base, pass) {
     playSpeed = speed;
     nodes = nodes.filter(n => !n.done);
     startFollow(p.generation);
-    if ($('trainer').checked) {
+    if (looping && $('trainer').checked) {
       $('speed').value = percent;
       $('speed-value').textContent = percent + '%';
     }
@@ -264,7 +266,10 @@ function schedulePass(p, from, percent, base, pass) {
       if (p.generation === playGeneration) stop();
     });
 }
-async function play(resumeFrom = null, {countIn = false} = {}) {
+// Options for recording and takes: countInBars counts in that many bars whatever the Count-in box says, once plays the
+// range a single time (no loop or trainer), percent and until replace the speed and the end, and onStart gets the audio
+// time where score time `from` sounds.
+async function play(resumeFrom = null, {countIn = false, countInBars = 0, once = false, percent, until, onStart} = {}) {
   if (playing) {
     stop();
     return;
@@ -291,8 +296,8 @@ async function play(resumeFrom = null, {countIn = false} = {}) {
     // A start inside the range ends at the range's end; a start past it plays to the end of the tune, and loops from there.
     const rangeStop = start == null ? full.duration : rangeEnd(range.to, full.duration, start),
       past = from >= rangeStop - 1e-6;
-    const until = past ? full.duration : rangeEnd(range.to, full.duration, from);
-    const percent = +$('speed').value;
+    until = Math.min(until ?? (past ? full.duration : rangeEnd(range.to, full.duration, from)), full.duration);
+    percent ??= +$('speed').value;
     if (!playbackSlice(full, from, percent, until).notes.length) {
       toast('Add some notes before playback.');
       return;
@@ -301,20 +306,28 @@ async function play(resumeFrom = null, {countIn = false} = {}) {
     $('play').textContent = '■ Playing';
     let base = audio.currentTime + 0.07;
     // Count-in: one bar of clicks at the starting tempo when starting fresh or from a chosen note, not on a speed change.
-    if ((resumeFrom == null || countIn) && $('count-in').checked) {
+    // A recording asks for its own number of bars.
+    if (countInBars > 0 || ((resumeFrom == null || countIn) && $('count-in').checked)) {
       // Beat length at the start: the spacing of the first full-bar clicks from the starting measure onward.
       const beats = beatsPerBar(),
+        bars = Math.max(1, Math.round(countInBars) || 1),
         grid = clickTimes(from, full.duration, full.duration),
         down = grid.findIndex((c, i) => c.down && grid[i + 1]);
       const step = (down >= 0 ? grid[down + 1].time - grid[down].time : 0.5) / (percent / 100);
-      for (let k = 0; k < beats; k++) click(base + k * step, k === 0);
-      $('play-status').textContent = 'Count-in…';
-      base += beats * step;
+      for (let k = 0; k < beats * bars; k++) click(base + k * step, k % beats === 0);
+      const counting = left => (bars > 1 ? `Count-in: ${left} ${left === 1 ? 'bar' : 'bars'} to go…` : 'Count-in…');
+      $('play-status').textContent = counting(bars);
+      for (let b = 1; b < bars; b++)
+        atAudioTime(base + b * beats * step, () => {
+          if (generation === playGeneration) $('play-status').textContent = counting(bars - b);
+        });
+      base += beats * bars * step;
     } else $('play-status').textContent = `Measures ${range.from}–${range.to} · ${percent}% speed`;
     playOrigin = from;
     playClock = base;
     playSpeed = percent / 100;
-    schedulePass({full, range, start: past ? from : start, until, generation}, from, percent, base, 1);
+    schedulePass({full, range, start: past ? from : start, until, generation, once}, from, percent, base, 1);
+    onStart?.({clock: base, from, until, percent});
   } catch (e) {
     stop();
     toast('Playback unavailable: ' + e.message);

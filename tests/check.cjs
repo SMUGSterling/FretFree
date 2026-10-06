@@ -2372,13 +2372,89 @@ async function musicXMLImportFiles() {
       'voices, instrument choice, part names, percent signs, damaged transpositions and imported rights links passed'
   );
 }
+// Record yourself: where the score sits in a take, calibration from recorded clicks, and take file names.
+{
+  const take = {lead: 2.1, latencyMs: 150, from: 3, speed: 50};
+  assert.equal(context.takeOffset(take), 2.25, 'Score time `from` is at the lead plus the latency');
+  assert.equal(context.takeOffset(take, 0), 2.1);
+  assert.equal(context.takePosition(take, 4), 4.25, 'One score second at 50% speed is two seconds of take');
+  // A simulated device: the recorder reports starting 30 ms after it does, output takes 90 ms and input 40 ms. Clicks
+  // and played notes are 20 ms bursts of a decaying tone over a little noise.
+  const rate = 48000,
+    roundTrip = 0.03 + 0.09 + 0.04;
+  let seed = 7;
+  const noise = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648 - 0.5) * 0.004;
+  const recording = (times, seconds, level = 0.5) => {
+    const samples = new Float32Array(Math.round(rate * seconds)).map(noise);
+    for (const t of times)
+      for (let i = 0; i < rate * 0.02; i++) {
+        const at = Math.round(t * rate) + i;
+        if (at < samples.length) samples[at] += level * Math.exp(-i / 200) * Math.sin((2 * Math.PI * 1000 * i) / rate);
+      }
+    return samples;
+  };
+  const clicks = [0, 0.7, 1.35, 2.15, 2.8, 3.65, 4.3, 5.1].map(t => 0.4 + t),
+    heard = context.audioOnsets(
+      recording(
+        clicks.map(c => c + roundTrip),
+        6.5
+      ),
+      rate
+    );
+  assert.equal(heard.length, 8, 'Each click is one onset');
+  const calibration = context.estimateLatency(clicks, heard);
+  assert.ok(Math.abs(calibration.latencyMs - 160) <= 1, `Calibration finds the round trip (${calibration.latencyMs})`);
+  assert.equal(calibration.heard, 8);
+  // A take: the score starts 2.07 s after the recorder (a count-in), at 80% speed from score time 1.5. The student
+  // plays each note as they hear it, so it lands one round trip after it was scheduled.
+  const score = [1.5, 2, 2.5, 3.25],
+    lead = 2.07,
+    recorded = context.audioOnsets(
+      recording(
+        score.map(s => lead + (s - 1.5) / 0.8 + roundTrip),
+        8
+      ),
+      rate
+    ),
+    played = {lead, latencyMs: calibration.latencyMs, from: 1.5, speed: 80};
+  for (const [i, s] of score.entries())
+    assert.ok(
+      Math.abs(context.takePosition(played, s) - recorded[i]) < 0.05,
+      `Note ${i + 1} of the take lines up with the score within 50 ms`
+    );
+  assert.ok(Math.abs(context.takePosition(played, 1.5) - recorded[0]) < 0.002, 'and, here, within 2 ms');
+  // Without calibration the take is off by the whole round trip.
+  assert.ok(Math.abs(context.takePosition({...played, latencyMs: 0}, 1.5) - recorded[0]) > 0.15);
+  // Silence, noise, missing clicks or clicks heard at scattered delays set no latency.
+  assert.equal(context.estimateLatency(clicks, context.audioOnsets(new Float32Array(rate * 6), rate)), null);
+  assert.equal(context.estimateLatency(clicks, context.audioOnsets(recording([], 6.5), rate)), null);
+  assert.equal(context.estimateLatency(clicks, heard.slice(0, 4)), null, 'Half the clicks are not enough');
+  assert.equal(
+    context.estimateLatency(
+      clicks,
+      clicks.map((c, i) => c + 0.05 + i * 0.03)
+    ),
+    null,
+    'Delays that wander are not a latency'
+  );
+  assert.equal(context.takeFileName('Ode to Joy', 3, 'webm'), 'Ode to Joy take 3.webm');
+  assert.equal(context.takeFileName(' A/B: "Duet"? ', 1, 'm4a'), 'A B Duet take 1.m4a');
+  assert.equal(context.takeFileName('', 2, 'txt', ' credits'), 'Recording take 2 credits.txt');
+  assert.equal(
+    ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg; codecs=opus', 'audio/wav', '']
+      .map(context.takeExtension)
+      .join(),
+    'webm,m4a,ogg,wav,webm'
+  );
+  assert.equal([0.4, 9.6, 65.4, 600].map(context.clockText).join(), '0:00,0:10,1:05,10:00');
+}
 musicXMLImportFiles()
   .then(offlineWorker)
   .then(() =>
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, swing feel (tempo text kept with other text, a written-out beat that keeps the tempo, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, swing feel (tempo text kept with other text, a written-out beat that keeps the tempo, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files), recording takes (offsets, calibration from recorded clicks, lining a take up within 50 ms, refusing noise and silence, file names) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {

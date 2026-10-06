@@ -83,6 +83,7 @@ for (const f of [
   'keyboard.js',
   'assignments.js',
   'turn-in.js',
+  'record.js',
   'app.js'
 ])
   run(fs.readFileSync(path.join(root, f), 'utf8'));
@@ -1712,6 +1713,231 @@ async function checkAudio() {
     'A note tied across a bar line sounds the held sharp'
   );
 }
+// Record yourself: plain messages without a microphone, the count-in and one pass of the range while recording, the
+// take listed with its length, playing it alone and lined up with the score, downloads with credits, and deleting.
+async function checkRecording() {
+  const wait = ms => new Promise(r => w.setTimeout(r, ms));
+  run(
+    `openScore({title:'Take test',abc:${JSON.stringify('X:1\nT:Take test\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nC D E F | G4 |]')}})`
+  );
+  run("$('metronome').checked=false;$('count-in').checked=false;$('loop').checked=true");
+  run("$('record').click()");
+  assert.equal(run("$('record-panel').hidden"), false, '● Record opens the panel');
+  assert.equal(run("$('record').getAttribute('aria-expanded')"), 'true');
+  assert.equal(run('document.activeElement.id'), 'record-start', 'Focus goes to Start recording');
+  assert.match(run("$('takes-empty').textContent"), /^No takes/);
+  assert.match(run("$('record-storage').textContent"), /can’t keep takes after the tab closes/, 'No IndexedDB here');
+  await run('startRecording()');
+  assert.match(run("$('record-status').textContent"), /^This browser can’t use a microphone here/);
+  let mic = () => Promise.reject(Object.assign(new Error('denied'), {name: 'NotAllowedError'})),
+    constraints = null;
+  Object.defineProperty(w.navigator, 'mediaDevices', {
+    configurable: true,
+    value: {getUserMedia: c => ((constraints = c), mic())}
+  });
+  await run('startRecording()');
+  assert.match(run("$('record-status').textContent"), /^This browser can’t record audio/, 'No MediaRecorder');
+  const recorders = [];
+  class FakeRecorder {
+    static isTypeSupported(type) {
+      return type === 'audio/webm;codecs=opus';
+    }
+    constructor(stream, options) {
+      Object.assign(this, {stream, mimeType: options?.mimeType || '', state: 'inactive', listeners: {}});
+      recorders.push(this);
+    }
+    addEventListener(type, f) {
+      (this.listeners[type] ||= []).push(f);
+    }
+    emit(type, e = {}) {
+      for (const f of this.listeners[type] || []) f(e);
+    }
+    start() {
+      this.state = 'recording';
+      w.setTimeout(() => this.emit('start'), 0);
+    }
+    stop() {
+      this.state = 'inactive';
+      this.emit('dataavailable', {data: new w.Blob(['take bytes'], {type: this.mimeType})});
+      this.emit('stop');
+    }
+  }
+  w.MediaRecorder = FakeRecorder;
+  await run('startRecording()');
+  assert.match(run("$('record-status').textContent"), /^Microphone access is blocked/, 'Denied permission');
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(constraints)),
+    {audio: {echoCancellation: false, noiseSuppression: false, autoGainControl: false}},
+    'The microphone is asked for without call processing'
+  );
+  mic = () => Promise.reject(Object.assign(new Error('none'), {name: 'NotFoundError'}));
+  await run('startRecording()');
+  assert.match(run("$('record-status').textContent"), /^No microphone was found/);
+  assert.equal(run('rec'), null);
+  // The microphone answers after a render (which stops playback); that must not end the recording before it starts.
+  const track = {
+      stopped: false,
+      stop() {
+        this.stopped = true;
+      },
+      getSettings: () => ({latency: 0.01})
+    },
+    stream = {getTracks: () => [track], getAudioTracks: () => [track]};
+  let allow;
+  mic = () => new Promise(r => (allow = () => r(stream)));
+  run("$('record-count-in').value='2';$('record-count-in').dispatchEvent(new Event('change'))");
+  assert.equal(w.localStorage.getItem('fretfree-record-count-in'), '2', 'The count-in choice is remembered');
+  oscillators.length = 0;
+  const started = run('startRecording()');
+  assert.equal(run("$('record-start').textContent"), '■ Stop recording');
+  run('render()');
+  allow();
+  await started;
+  assert.equal(run('rec.state'), 'live', 'Recording once the score plays');
+  assert.equal(recorders.at(-1).mimeType, 'audio/webm;codecs=opus');
+  const clicks = oscillators.filter(o => o.type === 'square'),
+    notes = oscillators.filter(o => o.type !== 'square');
+  assert.equal(clicks.length, 8, 'Two bars of count-in, though Count-in and Metronome are off');
+  assert.equal(clicks.filter((c, i) => i % 4 === 0).length, 2);
+  assert.equal(notes.length, 5, 'The range plays once');
+  assert.ok(Math.abs(notes[0].startAt - clicks[0].startAt - 4) < 1e-9, 'The first note follows two bars at 120');
+  assert.equal(run("$('play-status').textContent"), 'Count-in: 2 bars to go…');
+  assert.ok(Math.abs(run('rec.lead') - (run('playClock') - run('rec.startAudio'))) < 1e-9);
+  assert.ok(Math.abs(run('rec.lead') - 4.07) < 1e-9, 'The lead is the count-in and start-up');
+  assert.equal(run("$('record').textContent"), '● Recording');
+  // Playback ends (here, ■ Stop): the recorder runs on for a short tail, then the take is kept.
+  run('audio.currentTime=16.2;stop()');
+  assert.equal(recorders.at(-1).state, 'recording', 'A short tail for the last note');
+  assert.equal(run("$('record-status').textContent"), 'Saving the take…');
+  await wait(650);
+  assert.equal(recorders.at(-1).state, 'inactive');
+  assert.ok(track.stopped, 'The microphone is released');
+  assert.equal(
+    run("$('record-status').textContent"),
+    'Take 1 saved (0:07). This browser can’t keep it after the tab closes, so download it to keep it.'
+  );
+  assert.equal(run("$('record-start').textContent"), '● Start recording');
+  assert.equal(run("$('take-list').querySelectorAll('li').length"), 1);
+  assert.match(run("$('take-list').textContent"), /Take 1 0:07/);
+  assert.equal(run("$('takes-empty').hidden"), true);
+  const take = JSON.parse(run('JSON.stringify({...shownTakes[0], blob: undefined})'));
+  assert.equal(take.scoreKey, run('recordKey()'));
+  assert.equal(take.latencyMs, 10, 'Before calibration, the browser’s own latency estimate');
+  assert.deepEqual([take.from, take.speed, take.mime, take.calibrated], [0, 100, 'audio/webm;codecs=opus', false]);
+  // Playing the take, alone and with the score.
+  const sources = [];
+  w.AudioContext.prototype.createBufferSource = () => {
+    const source = {
+      connect(to) {
+        this.to = to;
+      },
+      start(when, offset) {
+        Object.assign(this, {when, offset});
+      },
+      stop() {
+        this.stopped = true;
+      }
+    };
+    sources.push(source);
+    return source;
+  };
+  w.AudioContext.prototype.decodeAudioData = (bytes, ok) => ok({duration: 7});
+  run("$('take-list').querySelector('[data-take-play]').click()");
+  await wait(10);
+  assert.equal(sources.length, 1);
+  assert.equal(sources[0].to, run('outputNode()'), 'Takes play through the master bus');
+  assert.deepEqual([sources[0].when, sources[0].offset], [16.25, 0], 'Alone, from the start');
+  assert.equal(run("$('take-list').querySelector('[data-take-play]').textContent"), '■ Stop');
+  assert.equal(run("$('take-list').querySelector('[data-take-play]').getAttribute('aria-label')"), 'Stop take 1');
+  run("$('take-list').querySelector('[data-take-play]').click()");
+  assert.ok(sources[0].stopped, 'Pressed again, it stops');
+  assert.equal(run("$('take-list').querySelector('[data-take-play]').textContent"), '▶ Play');
+  run("$('speed').value=50");
+  oscillators.length = 0;
+  run("$('take-list').querySelector('[data-take-score]').click()");
+  await wait(10);
+  assert.ok(
+    Math.abs(sources[1].when - run('playClock')) < 1e-9 && Math.abs(sources[1].offset - 4.08) < 1e-9,
+    'With the score, the take starts where the score’s first note was recorded'
+  );
+  assert.equal(run('playSpeed'), 1, 'at the speed it was recorded at');
+  assert.equal(oscillators.filter(o => o.type === 'square').length, 0, 'with no count-in');
+  run('stop()');
+  assert.ok(sources[1].stopped, 'Stopping the score stops the take');
+  run("$('speed').value=100");
+  // Calibrating afterwards lines up takes recorded before it.
+  w.localStorage.setItem('fretfree-latency', JSON.stringify({ms: 150, at: 1}));
+  run("$('take-list').querySelector('[data-take-score]').click()");
+  await wait(10);
+  assert.ok(Math.abs(sources[2].offset - 4.22) < 1e-9, 'An uncalibrated take uses the calibration made since');
+  run('stop()');
+  // Downloads: the audio, and for a library edition its credits.
+  w.__downloads = [];
+  run('download = (data, name, type) => __downloads.push({data, name, type})');
+  run("$('take-list').querySelector('[data-take-download]').click()");
+  assert.deepEqual(
+    w.__downloads.map(d => d.name),
+    ['Take test take 1.webm'],
+    'A personal score has no credits file'
+  );
+  run(`openScore(catalog.find(x => x.rights && x.licenseURL))`);
+  const library = run('current');
+  await wait(10);
+  assert.equal(run("$('take-list').hidden"), true, 'Takes belong to their score');
+  run("$('record-panel').hidden=true");
+  w.__downloads = [];
+  run(`shownTakes=[{id:'t9',n:4,title:${JSON.stringify(library.title)},at:0,mime:'audio/mp4',blob:new Blob(['x'])}]`);
+  run("downloadTake('t9')");
+  assert.deepEqual(
+    w.__downloads.map(d => d.name),
+    [`${run('takeFileName(current.title,4,"m4a")')}`, `${run('takeFileName(current.title,4,"txt"," credits")')}`]
+  );
+  assert.ok(w.__downloads[1].data.includes(library.licenseURL), 'The credits carry the licence');
+  assert.ok(w.__downloads[1].data.includes(run('scoreLicense(current)')));
+  // Back on the first score, deleting asks first and moves focus to Start recording when the list empties.
+  run(
+    `openScore({title:'Take test',abc:${JSON.stringify('X:1\nT:Take test\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nC D E F | G4 |]')}})`
+  );
+  await wait(10);
+  assert.equal(run("$('take-list').querySelectorAll('li').length"), 1, 'The take is back with its score');
+  run("$('record').click()");
+  w.confirm = () => false;
+  run("$('take-list').querySelector('[data-take-delete]').click()");
+  await wait(10);
+  assert.equal(run("$('take-list').querySelectorAll('li').length"), 1, 'Cancel keeps the take');
+  w.confirm = () => true;
+  run("$('take-list').querySelector('[data-take-delete]').click()");
+  await wait(10);
+  assert.equal(run("$('take-list').querySelectorAll('li').length"), 0);
+  assert.equal(run("$('record-status').textContent"), 'Take 1 deleted.');
+  assert.equal(run('document.activeElement.id'), 'record-start');
+  // A take recorded on an unsaved score stays with it when it is saved.
+  run(
+    "memoryTakes.set('t1',{id:'t1',scoreKey:recordKey(),n:1,at:1,duration:3,mime:'audio/webm',blob:new Blob(['x'])})"
+  );
+  run("$('save').onclick()");
+  await wait(10);
+  assert.match(run('recordKey()'), /^saved:/);
+  assert.equal(run("$('take-list').querySelectorAll('li').length"), 1, 'Saving keeps the takes');
+  run('saved=saved.filter(x=>x.id!==savedId);storage.set(KEYS.scores,saved);memoryTakes.clear()');
+  // Starting, then stopping before the microphone answers, records nothing and lets the microphone go.
+  track.stopped = false;
+  mic = () => new Promise(r => (allow = () => r(stream)));
+  const cancelled = run('startRecording()');
+  run("$('record-start').click()");
+  allow();
+  await cancelled;
+  assert.ok(track.stopped, 'The microphone is released');
+  assert.equal(run('rec'), null);
+  assert.equal(run("$('record-status').textContent"), 'No take was recorded.');
+  run("$('record-close').click()");
+  assert.equal(run("$('record-panel').hidden"), true);
+  assert.equal(run('document.activeElement.id'), 'record');
+  run("$('loop').checked=false");
+  w.localStorage.removeItem('fretfree-latency');
+  delete w.MediaRecorder;
+  delete w.navigator.mediaDevices;
+}
 async function checkPlayback() {
   run(`openScore({abc:${JSON.stringify(source)},instrument:'Flute'});$('start-measure').value=3;$('speed').value=50`);
   assert.equal(run('measureStarts.get(3)'), 9.6, 'Measure after repeated section uses performed timing');
@@ -2334,13 +2560,16 @@ async function checkPlayback() {
   }
   await checkChordSymbols();
   await checkAudio();
+  await checkRecording();
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-scores-v1')), [legacy]);
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-favorites-v1')), ['ode', 'mutopia-263']);
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, recording yourself (no microphone, denied, count-in bars, one pass, the take and its length, playing alone and lined up with the score, calibration applied to older takes, downloads with credits, delete, takes kept through the first save, cancelling), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
+  // Let the takes list that the last save refreshes finish before the window goes.
+  await new Promise(r => setTimeout(r, 20));
   w.close();
 }
 checkPlayback().catch(e => {
