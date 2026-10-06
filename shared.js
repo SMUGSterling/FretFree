@@ -19,6 +19,7 @@ const KEYS = {
   concertPitch: 'fretfree-concert-pitch',
   theme: 'fretfree-theme',
   darkPaper: 'fretfree-dark-paper',
+  versions: 'fretfree-versions',
   practice: id => 'fretfree-practice-' + id
 };
 let storageOK = true;

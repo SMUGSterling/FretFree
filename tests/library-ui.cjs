@@ -561,6 +561,241 @@ assert.equal(
   run('download = __realDownload');
   $('new-score').click();
 }
+// Version history: each changed save keeps the copy it replaces; History (n) on My scores lists them newest first with
+// times; Preview draws one read-only in written pitch; Restore opens it unsaved under the same score, and saving it
+// keeps the replaced copy. Versions travel in backups without duplicates, follow a deleted score out, keep to their
+// caps, and never stop a save when storage is full.
+{
+  const page = boot(),
+    {run: r, $: q} = page,
+    bars = n => `X:1\nT:Growing tune\nM:4/4\nL:1/4\nK:C\n${Array(n).fill('C D E F').join(' | ')} |]`,
+    edit = abc => r(`$('abc').value = ${JSON.stringify(abc)}; changed(); render();`),
+    json = s => JSON.parse(r(`JSON.stringify(${s})`)),
+    versions = () => json('storedVersions()');
+  q('new-score').click();
+  edit(bars(1));
+  q('save').click();
+  const id = r('savedId');
+  edit(bars(2));
+  q('save').click();
+  q('instrument').value = 'Clarinet in B♭';
+  edit(bars(3));
+  q('save').click();
+  assert.equal(r('saved.length'), 1, 'Three saves of one score keep one saved entry');
+  assert.deepEqual(
+    versions()[id].map(v => v.abc),
+    [bars(1), bars(2)],
+    'Saving three changed copies keeps the two earlier ones, oldest first'
+  );
+  const times = versions()[id].map(v => v.at);
+  assert.ok(times[0] < times[1] && times[1] < r('saved[0].updated'), 'Each version is timed by its own save');
+  assert.equal(versions()[id][0].instrument, 'Flute', 'A version keeps its instrument');
+  q('save').click();
+  assert.equal(versions()[id].length, 2, 'Saving unchanged music adds no version');
+  // A damaged history from an earlier visit is ignored instead of breaking the page.
+  assert.deepEqual(json('cleanVersions({a: "x", b: [{at: "1", abc: "X:1"}, null, {at: 5}], c: [1]})'), {});
+  assert.equal(
+    r(`cleanVersions(JSON.parse('{"__proto__": [{"at": 1, "abc": "X:1"}]}'))['__proto__'].length`),
+    1,
+    'Any score id is a plain key'
+  );
+  // History (n) on the card opens the panel, newest first, with times; focus moves to its heading.
+  r("show('saved')");
+  const history = q('saved-cards').querySelector(`[data-history="${id}"]`);
+  assert.equal(history.textContent, 'History (2)');
+  assert.equal(history.getAttribute('aria-label'), 'History of Growing tune: 2 earlier versions');
+  history.click();
+  assert.equal(q('history-panel').hidden, false);
+  assert.equal(q('history-heading').textContent, 'History: Growing tune');
+  assert.equal(page.w.document.activeElement.id, 'history-heading', 'Focus moves to the history heading');
+  const rows = [...q('history-list').querySelectorAll('li')].map(li => li.textContent);
+  assert.equal(rows.length, 2);
+  assert.match(rows[0], /^Version 2 · saved .+ · Flute/, 'The newest version comes first');
+  assert.match(rows[1], /^Version 1 · saved /);
+  assert.ok(
+    rows.every(t => t.includes(r(`draftTime(${times[0]})`))),
+    'Each row shows when the version was saved'
+  );
+  assert.match(q('history-current').textContent, /^2 earlier versions\. The saved score is from /);
+  // Preview draws the version (as the instrument reads it) without touching the editor.
+  const opened = r("$('abc').value");
+  q('history-list').querySelector(`[data-version-preview="${times[0]}"]`).click();
+  assert.equal(q('history-preview').hidden, false);
+  assert.ok(q('history-score').querySelector('svg'), 'Preview engraves the version');
+  assert.equal(
+    r('historyTune.lines[0].staff[0].voices[0].filter(e => e.el_type === "note").length'),
+    4,
+    'The preview is version 1, one bar'
+  );
+  assert.equal(
+    q('history-list').querySelector('[aria-pressed="true"]').dataset.versionPreview,
+    String(times[0]),
+    'The previewed version is marked'
+  );
+  assert.match(q('history-preview-title').textContent, /^Version 1, saved /);
+  assert.equal(r("$('abc').value"), opened, 'Preview leaves the editor alone');
+  assert.equal(r('versionSource("X:1\\nK:C\\nC4|]", "Clarinet in B♭")'), 'X:1\nK:D clef=treble\nD4|]');
+  // A version saved without an instrument (from an older score or backup) is drawn and played in the score's
+  // instrument: here an alto sax part, so concert C is drawn as a written A.
+  const keptVersions = r('localStorage.getItem(KEYS.versions)'),
+    keptInstrument = r('saved[0].instrument');
+  r(`localStorage.setItem(KEYS.versions, JSON.stringify({[savedId]: [{at: 1, abc: 'X:1\\nK:C\\nC4|]'}]}));
+     saved[0].instrument = 'Alto sax in E♭';
+     previewVersion(1);`);
+  assert.equal(r('historyTune.lines[0].staff[0].key.root'), 'A', 'A version without an instrument takes the score’s');
+  assert.equal(r('versionInstrument({abc: "X:1", instrument: "Cello"}, saved[0])'), 'Cello');
+  r(`saved[0].instrument = ${JSON.stringify(keptInstrument)};
+     localStorage.setItem(KEYS.versions, ${JSON.stringify(keptVersions)});
+     previewVersion(${times[0]});`);
+  // Escape closes the panel and returns focus to the card's History button.
+  q('history-panel').dispatchEvent(new page.w.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+  assert.equal(q('history-panel').hidden, true, 'Escape closes the history');
+  assert.equal(page.w.document.activeElement.dataset.history, id, 'Focus returns to History');
+  // Restore opens version 1 unsaved under the same score and changes nothing stored.
+  page.w.document.activeElement.click();
+  q('history-list').querySelector(`[data-version-restore="${times[0]}"]`).click();
+  assert.equal(q('studio').hidden, false, 'Restore opens Compose');
+  assert.equal(r("$('abc').value"), bars(1));
+  assert.equal(q('instrument').value, 'Flute', 'Restore brings back the version’s instrument');
+  assert.ok(
+    r('dirty') && r(`savedId === ${JSON.stringify(id)}`),
+    'The restored version is unsaved work on the same score'
+  );
+  assert.match(q('save-status').textContent, /^Opened the version saved .+\. Save to make it the current copy/);
+  assert.equal(r('saved[0].abc'), bars(3), 'Restoring changes nothing stored');
+  assert.equal(versions()[id].length, 2);
+  // Saving it makes it the current copy and keeps the copy it replaced.
+  q('save').click();
+  assert.equal(r('saved[0].abc'), bars(1));
+  assert.deepEqual(
+    versions()[id].map(v => v.abc),
+    [bars(1), bars(2), bars(3)],
+    'Restore, then Save, keeps the replaced version in the list'
+  );
+  assert.equal(versions()[id][2].instrument, 'Clarinet in B♭');
+  r("show('saved')");
+  assert.equal(q('saved-cards').querySelector('[data-history]').textContent, 'History (3)');
+  // Backups carry the versions; restoring the same file adds none, and a version from elsewhere is unioned in.
+  const backup = JSON.parse(JSON.stringify(r('backupData()')));
+  assert.equal(backup.versions[id].length, 3, 'Versions travel in backups');
+  assert.equal(r(`applyBackup(${JSON.stringify(backup)})`).versionsAdded, 0);
+  assert.equal(versions()[id].length, 3, 'Restoring the same backup adds no duplicates');
+  const elsewhere = {
+    ...backup,
+    versions: {
+      [id]: [...backup.versions[id], {at: times[0] - 5, abc: bars(4), instrument: 'Violin'}],
+      'no-such-score': [{at: 1, abc: bars(1)}]
+    }
+  };
+  const summary = r(`applyBackup(${JSON.stringify(elsewhere)})`);
+  assert.equal(summary.versionsAdded, 1);
+  assert.match(r(`restoreSummary(${JSON.stringify(summary)})`), /1 earlier version added/);
+  assert.deepEqual(
+    versions()[id].map(v => v.abc),
+    [bars(4), bars(1), bars(2), bars(3)],
+    'Versions merge by time without duplicates'
+  );
+  assert.equal(versions()['no-such-score'], undefined, 'Versions of scores this device lacks are left out');
+  // A newer copy from a backup replaces mine, and mine becomes a version.
+  const mine = r('saved[0]');
+  r(
+    `applyBackup(${JSON.stringify({app: 'FretFree', format: 1, scores: [{...mine, abc: bars(5), updated: mine.updated + 10}]})})`
+  );
+  assert.equal(r('saved[0].abc'), bars(5));
+  assert.equal(versions()[id].at(-1).abc, bars(1), 'The copy a newer backup replaces is kept as a version');
+  // Caps: 20 versions per score, about 1.5 MB in all, oldest dropped first.
+  for (let n = 6; n < 30; n++) {
+    r('dirty = false');
+    edit(bars(n));
+    q('save').click();
+  }
+  assert.equal(versions()[id].length, 20, 'At most 20 versions per score');
+  assert.equal(versions()[id].at(-1).abc, bars(28), 'The newest versions are kept');
+  const big = {
+    a: Array.from({length: 10}, (_, i) => ({at: 1000 + i, abc: 'x'.repeat(100000)})),
+    b: Array.from({length: 10}, (_, i) => ({at: 2000 + i, abc: 'y'.repeat(100000)}))
+  };
+  const trimmed = json(`trimVersions(${JSON.stringify(big)})`);
+  assert.ok(r(`versionsSize(${JSON.stringify(trimmed)})`) <= 1.5 * 1024 * 1024, 'Versions keep to about 1.5 MB');
+  assert.equal(trimmed.b.length, 10, 'The oldest versions go first');
+  assert.equal(trimmed.a.length, 5);
+  assert.equal(trimmed.a[0].at, 1005);
+  // Storage full: the oldest versions make room, so the save itself goes through.
+  r(
+    `localStorage.setItem(KEYS.versions, JSON.stringify(${JSON.stringify({...versions(), other: [{at: 5, abc: 'z'.repeat(50000)}]})}))`
+  );
+  // A quota just above what is stored now: the bigger score does not fit until versions give way.
+  r(`window.__realSet = storage.set;
+     window.__used = () => Object.values({...localStorage}).join('').length;
+     const quota = __used() + 50;
+     storage.set = (key, value) => {
+       const items = {...localStorage, [key]: JSON.stringify(value)};
+       return Object.values(items).join('').length > quota ? false : __realSet(key, value);
+     };`);
+  edit(bars(40));
+  q('save').click();
+  assert.match(q('save-status').textContent, /^Saved on this device/, 'A full storage still saves the score');
+  assert.equal(r('saved[0].abc'), bars(40));
+  assert.equal(versions().other, undefined, 'The oldest version made room');
+  assert.equal(versions()[id].at(-1).abc, bars(29), 'Newer versions stay');
+  // Restoring a backup when storage is short: the oldest versions make room for the restored scores, as when saving,
+  // and a restore that fails anyway puts them back with everything else.
+  const fromBackup = JSON.stringify({
+      app: 'FretFree',
+      format: 1,
+      scores: [{id: 'from-backup', title: 'From a backup', abc: bars(30), updated: 5}]
+    }),
+    stored = key => r(`localStorage.getItem(KEYS.${key})`),
+    before = {scores: stored('scores'), versions: stored('versions')};
+  r(`const restoreQuota = __used() + 200;
+     window.__quotaSet = (key, value) => {
+       const items = {...localStorage, [key]: JSON.stringify(value)};
+       return Object.values(items).join('').length > restoreQuota ? false : __realSet(key, value);
+     };
+     storage.set = (key, value) => (key === KEYS.played ? false : __quotaSet(key, value));`);
+  assert.throws(() => r(`applyBackup(${fromBackup})`), /Nothing was changed/);
+  assert.deepEqual(
+    {scores: stored('scores'), versions: stored('versions')},
+    before,
+    'A failed restore puts back the versions that made room'
+  );
+  assert.equal(r('saved.length'), 1);
+  r('storage.set = __quotaSet');
+  r(`applyBackup(${fromBackup})`);
+  assert.deepEqual(
+    json('saved.map(x => x.id)'),
+    [id, 'from-backup'],
+    'The oldest versions make room for a restored score'
+  );
+  assert.ok(versions()[id].length < 20 && versions()[id].at(-1).abc === bars(29), 'The newest versions stay');
+  r(`localStorage.setItem(KEYS.scores, ${JSON.stringify(before.scores)}); saved = storedList(KEYS.scores);`);
+  // A version that does not fit is dropped, and the save still counts.
+  r('storage.set = (key, value) => (key === KEYS.versions ? false : __realSet(key, value))');
+  edit(bars(41));
+  q('save').click();
+  assert.equal(r('saved[0].abc'), bars(41), 'Saving never fails because of versions');
+  assert.equal(r('localStorage.getItem(KEYS.versions)'), null, 'Versions that cannot be stored are let go');
+  r('storage.set = __realSet');
+  // A save that fails even once every version has made room puts the versions back: dropping them gained nothing.
+  edit(bars(42));
+  q('save').click();
+  r(`storage.set(KEYS.versions, {...storedVersions(), other: [{at: 5, abc: 'X:1'}]})`);
+  const allVersions = r('localStorage.getItem(KEYS.versions)');
+  r('storage.set = (key, value) => (key === KEYS.scores ? false : __realSet(key, value))');
+  edit(bars(43));
+  q('save').click();
+  r('storage.set = __realSet');
+  assert.match(q('save-status').textContent, /^This browser could not save/);
+  assert.equal(r('saved[0].abc'), bars(42), 'The failed save changes nothing saved');
+  assert.equal(r('localStorage.getItem(KEYS.versions)'), allVersions, 'A failed save keeps every version');
+  // Deleting a score deletes its versions and no others.
+  r("show('saved')");
+  assert.equal(versions()[id].length, 1);
+  q('saved-cards').querySelector(`[data-delete="${id}"]`).click();
+  assert.equal(r('saved.length'), 0);
+  assert.equal(versions()[id], undefined, 'Deleting a score deletes its versions');
+  assert.equal(versions().other.length, 1, 'Other scores keep theirs');
+}
 // Share by link without CompressionStream (jsdom): the plain-encoded link opens as a shared copy with the edition's credits.
 (async () => {
   const link = await run(
@@ -1244,7 +1479,7 @@ assert.equal(
     assert.match(page.$('import-file').accept, /\.musicxml,\.xml,\.mxl/);
   }
   console.log(
-    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors, zoom and the Chords switch), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, and opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files).'
+    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors, zoom and the Chords switch), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, and opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files).'
   );
 })().catch(e => {
   console.error(e);

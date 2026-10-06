@@ -8,29 +8,29 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <script src="theme.js?v=e0b93e3420f9"></script>
-    <link rel="stylesheet" href="style.css?v=e0b93e3420f9" />
-    <script defer src="vendor/abcjs-basic-min.js?v=e0b93e3420f9"></script>
-    <script defer src="catalog.js?v=e0b93e3420f9"></script>
-    <script defer src="catalog-expanded.js?v=e0b93e3420f9"></script>
-    <script defer src="score-tools.js?v=e0b93e3420f9"></script>
-    <script defer src="rights-tools.js?v=e0b93e3420f9"></script>
-    <script defer src="musicxml.js?v=e0b93e3420f9"></script>
-    <script defer src="catalog-licensed.js?v=e0b93e3420f9"></script>
-    <script defer src="catalog-lieder.js?v=e0b93e3420f9"></script>
-    <script defer src="catalog-quartets.js?v=e0b93e3420f9"></script>
-    <script defer src="catalog-pgh.js?v=e0b93e3420f9"></script>
-    <script defer src="catalog-skills.js?v=e0b93e3420f9"></script>
-    <script defer src="prompts.js?v=e0b93e3420f9"></script>
-    <script defer src="shared.js?v=e0b93e3420f9"></script>
-    <script defer src="library.js?v=e0b93e3420f9"></script>
-    <script defer src="backup.js?v=e0b93e3420f9"></script>
-    <script defer src="editor.js?v=e0b93e3420f9"></script>
-    <script defer src="palette.js?v=e0b93e3420f9"></script>
-    <script defer src="playback.js?v=e0b93e3420f9"></script>
-    <script defer src="keyboard.js?v=e0b93e3420f9"></script>
-    <script defer src="assignments.js?v=e0b93e3420f9"></script>
-    <script defer src="app.js?v=e0b93e3420f9"></script>
+    <script src="theme.js?v=ec286143538e"></script>
+    <link rel="stylesheet" href="style.css?v=ec286143538e" />
+    <script defer src="vendor/abcjs-basic-min.js?v=ec286143538e"></script>
+    <script defer src="catalog.js?v=ec286143538e"></script>
+    <script defer src="catalog-expanded.js?v=ec286143538e"></script>
+    <script defer src="score-tools.js?v=ec286143538e"></script>
+    <script defer src="rights-tools.js?v=ec286143538e"></script>
+    <script defer src="musicxml.js?v=ec286143538e"></script>
+    <script defer src="catalog-licensed.js?v=ec286143538e"></script>
+    <script defer src="catalog-lieder.js?v=ec286143538e"></script>
+    <script defer src="catalog-quartets.js?v=ec286143538e"></script>
+    <script defer src="catalog-pgh.js?v=ec286143538e"></script>
+    <script defer src="catalog-skills.js?v=ec286143538e"></script>
+    <script defer src="prompts.js?v=ec286143538e"></script>
+    <script defer src="shared.js?v=ec286143538e"></script>
+    <script defer src="library.js?v=ec286143538e"></script>
+    <script defer src="backup.js?v=ec286143538e"></script>
+    <script defer src="editor.js?v=ec286143538e"></script>
+    <script defer src="palette.js?v=ec286143538e"></script>
+    <script defer src="playback.js?v=ec286143538e"></script>
+    <script defer src="keyboard.js?v=ec286143538e"></script>
+    <script defer src="assignments.js?v=ec286143538e"></script>
+    <script defer src="app.js?v=ec286143538e"></script>
   </head>
   <body>
     <header>
@@ -798,7 +798,8 @@
             <p>
               Saved on this browser, on this device. <strong>Back up</strong> writes everything here to one file; choose
               a synced folder (OneDrive, Google Drive, iCloud) and it follows you. <strong>Restore</strong> merges a
-              backup into this device without deleting anything.
+              backup into this device without deleting anything. <strong>History</strong> on a score lists the copies
+              each save replaced.
             </p>
             <p id="backup-status" class="small"></p>
           </div>
@@ -814,6 +815,28 @@
             </button>
           </div>
         </div>
+        <section id="history-panel" class="history-panel" aria-labelledby="history-heading" hidden>
+          <div class="history-head">
+            <h2 id="history-heading" tabindex="-1">History</h2>
+            <button id="history-close" aria-label="Close history">✕</button>
+          </div>
+          <p id="history-current" class="small"></p>
+          <ol id="history-list" class="history-list"></ol>
+          <div id="history-preview" class="history-preview" hidden>
+            <div class="history-preview-head">
+              <strong id="history-preview-title"></strong
+              ><span class="history-actions"
+                ><button id="history-play" aria-pressed="false">▶ Play</button
+                ><button id="history-restore" class="primary">Restore this version</button></span
+              >
+            </div>
+            <div id="history-score" class="history-score" role="img" aria-labelledby="history-preview-title"></div>
+          </div>
+          <p class="small">
+            Restore opens a version in Compose as unsaved work. Saving it makes it the current copy, and the copy it
+            replaces is kept here.
+          </p>
+        </section>
         <div id="saved-cards" class="cards"></div>
       </section>
       <section id="about" class="view prose" hidden>
@@ -869,7 +892,8 @@
           write. Library scores and the notation engine ship with the site, so the core experience makes no third-party
           requests. Local storage can be cleared by the browser or school device policy; export work you want to keep.
           Unsaved changes are kept as a draft in the browser, so a closed or discarded tab offers them back on the next
-          visit.
+          visit. Saving a changed score keeps the copy it replaces: <strong>History</strong> in My scores previews,
+          plays and restores earlier versions.
         </p>
         <p>
           A school can still block any website or disable browser audio/downloads. This design makes the educational
