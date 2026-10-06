@@ -12,31 +12,31 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-    <script src="theme.js?v=1a41bca6a70c"></script>
-    <link rel="stylesheet" href="style.css?v=1a41bca6a70c" />
-    <script defer src="vendor/abcjs-basic-min.js?v=1a41bca6a70c"></script>
-    <script defer src="vendor/qrcode.js?v=1a41bca6a70c"></script>
-    <script defer src="catalog.js?v=1a41bca6a70c"></script>
-    <script defer src="catalog-expanded.js?v=1a41bca6a70c"></script>
-    <script defer src="score-tools.js?v=1a41bca6a70c"></script>
-    <script defer src="rights-tools.js?v=1a41bca6a70c"></script>
-    <script defer src="musicxml.js?v=1a41bca6a70c"></script>
-    <script defer src="catalog-licensed.js?v=1a41bca6a70c"></script>
-    <script defer src="catalog-lieder.js?v=1a41bca6a70c"></script>
-    <script defer src="catalog-quartets.js?v=1a41bca6a70c"></script>
-    <script defer src="catalog-pgh.js?v=1a41bca6a70c"></script>
-    <script defer src="catalog-skills.js?v=1a41bca6a70c"></script>
-    <script defer src="prompts.js?v=1a41bca6a70c"></script>
-    <script defer src="shared.js?v=1a41bca6a70c"></script>
-    <script defer src="library.js?v=1a41bca6a70c"></script>
-    <script defer src="backup.js?v=1a41bca6a70c"></script>
-    <script defer src="editor.js?v=1a41bca6a70c"></script>
-    <script defer src="palette.js?v=1a41bca6a70c"></script>
-    <script defer src="playback.js?v=1a41bca6a70c"></script>
-    <script defer src="keyboard.js?v=1a41bca6a70c"></script>
-    <script defer src="assignments.js?v=1a41bca6a70c"></script>
-    <script defer src="turn-in.js?v=1a41bca6a70c"></script>
-    <script defer src="app.js?v=1a41bca6a70c"></script>
+    <script src="theme.js?v=947b9dbc6739"></script>
+    <link rel="stylesheet" href="style.css?v=947b9dbc6739" />
+    <script defer src="vendor/abcjs-basic-min.js?v=947b9dbc6739"></script>
+    <script defer src="vendor/qrcode.js?v=947b9dbc6739"></script>
+    <script defer src="catalog.js?v=947b9dbc6739"></script>
+    <script defer src="catalog-expanded.js?v=947b9dbc6739"></script>
+    <script defer src="score-tools.js?v=947b9dbc6739"></script>
+    <script defer src="rights-tools.js?v=947b9dbc6739"></script>
+    <script defer src="musicxml.js?v=947b9dbc6739"></script>
+    <script defer src="catalog-licensed.js?v=947b9dbc6739"></script>
+    <script defer src="catalog-lieder.js?v=947b9dbc6739"></script>
+    <script defer src="catalog-quartets.js?v=947b9dbc6739"></script>
+    <script defer src="catalog-pgh.js?v=947b9dbc6739"></script>
+    <script defer src="catalog-skills.js?v=947b9dbc6739"></script>
+    <script defer src="prompts.js?v=947b9dbc6739"></script>
+    <script defer src="shared.js?v=947b9dbc6739"></script>
+    <script defer src="library.js?v=947b9dbc6739"></script>
+    <script defer src="backup.js?v=947b9dbc6739"></script>
+    <script defer src="editor.js?v=947b9dbc6739"></script>
+    <script defer src="palette.js?v=947b9dbc6739"></script>
+    <script defer src="playback.js?v=947b9dbc6739"></script>
+    <script defer src="keyboard.js?v=947b9dbc6739"></script>
+    <script defer src="assignments.js?v=947b9dbc6739"></script>
+    <script defer src="turn-in.js?v=947b9dbc6739"></script>
+    <script defer src="app.js?v=947b9dbc6739"></script>
   </head>
   <body>
     <header>
@@ -986,6 +986,7 @@
                 >
               </div>
               <button id="wav-make" type="button" class="primary">Make WAV file</button>
+              <progress id="wav-progress" max="1" aria-label="Making the audio file" hidden></progress>
               <p id="wav-status" class="small" role="status"></p>
             </section>
             <div id="source-edition" class="source-edition" hidden></div>

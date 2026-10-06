@@ -2475,3 +2475,9 @@ header {
 #wav-make {
   margin-top: 12px;
 }
+#wav-progress {
+  display: block;
+  width: min(320px, 100%);
+  margin-top: 10px;
+  accent-color: var(--green);
+}

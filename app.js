@@ -298,6 +298,7 @@ $('instrument').onchange = () => {
     selectedRange = null;
   }
   instrumentShown = currentInstrument();
+  updateWavSummary();
   changed();
 };
 // Concert pitch view is display only: the source, playback and the undo history stay as they are. An open note menu
@@ -481,6 +482,7 @@ $('trainer-goal').addEventListener('change', () => {
 $('speed').oninput = () => {
   const position = playPosition();
   $('speed-value').textContent = $('speed').value + '%';
+  updateWavSummary();
   if (position != null) {
     stop();
     play(position);
@@ -539,9 +541,11 @@ $('export-svg').onclick = () => {
   }
 };
 // WAV export: a panel says what goes in the file and makes it. Include metronome and Include chords start from the
-// transport's switches; Include chords shows only when the score's chord symbols play. Closing the panel, or opening
-// another score, drops a file still being made.
-let wavRun = 0;
+// transport's switches; Include chords shows only when the score's chord symbols play. The summary names the speed and
+// the instrument, so it follows them while the panel is open. A bar shows how far the file has got, where the browser
+// can tell. Closing the panel, or opening another score, stops a file still being made and drops it.
+let wavRun = 0,
+  wavStop = null;
 function playsChords(source) {
   try {
     return parseMidi(midiBytes(source)).notes.length > parseMidi(midiBytes(source, {chordsOff: true})).notes.length;
@@ -554,6 +558,9 @@ function showWavSummary() {
     ? `The whole score in the ${currentInstrument()} sound at ${$('speed').value}% speed, as Play sounds it. ` +
       'The file is made on this device; nothing is uploaded.'
     : 'This browser can’t make audio files. Export MIDI instead, or try Chrome, Edge, Firefox or Safari.';
+}
+function updateWavSummary() {
+  if (!$('wav-panel').hidden) showWavSummary();
 }
 function openWav() {
   $('wav-panel').hidden = false;
@@ -570,31 +577,45 @@ function openWav() {
 function closeWav() {
   if ($('wav-panel').hidden) return;
   wavRun++;
+  wavStop?.abort();
+  wavStop = null;
   $('wav-panel').hidden = true;
+  $('wav-progress').hidden = true;
   $('wav-panel').removeAttribute('aria-busy');
   $('export-wav').setAttribute('aria-expanded', 'false');
 }
-function wavLength(seconds) {
-  const s = Math.round(seconds);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-}
 async function makeWav() {
   const run = ++wavRun,
-    name = safeName() + '.wav';
+    name = safeName() + '.wav',
+    bar = $('wav-progress');
+  // Without AbortController (older browsers) closing the panel still drops the file, after it is made.
+  wavStop = typeof AbortController === 'function' ? new AbortController() : null;
   $('wav-make').disabled = true;
   $('wav-panel').setAttribute('aria-busy', 'true');
   $('wav-status').textContent = 'Making the audio file…';
+  // No value until the first report: a browser that cannot report progress shows a busy bar.
+  bar.removeAttribute('value');
+  bar.hidden = false;
   showWavSummary();
   try {
-    const wav = await renderWav({metronome: $('wav-metronome').checked, chords: $('wav-chords').checked});
+    const wav = await renderWav({
+      metronome: $('wav-metronome').checked,
+      chords: $('wav-chords').checked,
+      signal: wavStop?.signal,
+      progress: done => {
+        if (run === wavRun) bar.value = done;
+      }
+    });
     if (run !== wavRun) return;
     download(wav.bytes, name, 'audio/wav');
     $('wav-status').textContent =
-      `Downloaded ${name} (${wavLength(wav.seconds)}, ${(wav.bytes.length / 1048576).toFixed(1)} MB).`;
+      `Downloaded ${name} (${clockTime(wav.seconds)}, ${(wav.bytes.length / 1048576).toFixed(1)} MB).`;
   } catch (e) {
     if (run === wavRun) $('wav-status').textContent = e.message;
   } finally {
     if (run === wavRun) {
+      wavStop = null;
+      bar.hidden = true;
       $('wav-make').disabled = false;
       $('wav-panel').removeAttribute('aria-busy');
     }
