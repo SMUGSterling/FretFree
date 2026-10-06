@@ -1348,21 +1348,6 @@ input[type='range'] {
     display: none !important;
   }
 }
-.bars-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.bars-label input {
-  width: 56px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--paper);
-  color: var(--ink);
-}
 /* On-screen piano: a scrolling strip of keys under the score, kept in view at the bottom of the window. */
 #piano-toggle[aria-pressed='true'],
 #midi-toggle[aria-pressed='true'] {
@@ -1815,6 +1800,27 @@ input[type='range'] {
   .chord-entry {
     display: none !important;
   }
+}
+/* New score panel: the setup fields in a grid that drops to one column on a phone; title, summary and the button
+   take a whole row. It is a screen-only panel like the prompt picker. */
+.new-score-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.new-score-form > label:first-child,
+.new-score-summary,
+.new-score-form .assignment-actions {
+  grid-column: 1 / -1;
+}
+.new-score-form select,
+.new-score-form input {
+  padding: 9px;
+}
+.new-score-summary {
+  margin: 0;
+  color: var(--muted);
 }
 /* Concert pitch view: the checkbox sits under the instrument it belongs to, shown only for transposing instruments. */
 .instrument-field {

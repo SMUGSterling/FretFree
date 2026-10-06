@@ -209,6 +209,7 @@ function toggleAssignmentBuilder(open) {
   $('open-assignment').setAttribute('aria-expanded', open);
   if (open) {
     togglePrompts(false);
+    if (typeof toggleNewScore === 'function') toggleNewScore(false);
     fillAssignmentBuilder();
     $('assignment-builder').scrollIntoView({block: 'nearest', behavior: 'smooth'});
     $('assignment-title').focus({preventScroll: true});

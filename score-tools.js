@@ -690,6 +690,123 @@ function promptSource(prompt, key = prompt.key, body = null) {
     rest = 'z' + lengthText(n / d / (un / ud));
   return `X:1\nT:${prompt.title}\nC:\nM:${prompt.meter}\nL:${prompt.unit}\nQ:1/4=${prompt.tempo}\nK:${key}\n${body ?? Array(prompt.bars).fill(rest).join(' | ')} |]`;
 }
+// New score templates. Each staff is one voice block (V: with clef, name and short name) after K:; %%score groups
+// them with a brace (piano) or a bracket. instrument is the sound the app picks for a template whose staves have
+// fixed clefs, which must not transpose. The others keep the student's instrument: a duet's staves have no clef=, so
+// both take the clef the instrument puts on K: (bass for cello) and its transposition.
+const SCORE_TEMPLATES = [
+  {id: 'melody', name: 'Melody', words: 'one staff', staves: [{}]},
+  {id: 'lead', name: 'Lead sheet', words: 'one staff with chord symbols', staves: [{}], chords: true},
+  {
+    id: 'piano',
+    name: 'Piano',
+    words: 'right hand and left hand staves',
+    score: '{RH LH}',
+    instrument: 'Piano',
+    staves: [
+      {id: 'RH', clef: 'treble', name: 'Piano', snm: 'Pno.'},
+      {id: 'LH', clef: 'bass'}
+    ]
+  },
+  {
+    id: 'duet',
+    name: 'Duet',
+    words: 'two staves for the current instrument',
+    score: '[1 2]',
+    staves: [
+      {id: '1', name: 'Part 1', snm: '1'},
+      {id: '2', name: 'Part 2', snm: '2'}
+    ]
+  },
+  {
+    id: 'melody-bass',
+    name: 'Melody and bass',
+    words: 'a treble staff and a bass staff',
+    score: '[M B]',
+    instrument: 'Piano',
+    staves: [
+      {id: 'M', clef: 'treble', name: 'Melody', snm: 'Mel.'},
+      {id: 'B', clef: 'bass', name: 'Bass', snm: 'Bass'}
+    ]
+  },
+  {
+    id: 'satb',
+    name: 'SATB choir',
+    words: 'soprano, alto, tenor and bass staves',
+    score: '[S A T B]',
+    instrument: 'Piano',
+    staves: [
+      {id: 'S', clef: 'treble', name: 'Soprano', snm: 'S.'},
+      {id: 'A', clef: 'treble', name: 'Alto', snm: 'A.'},
+      {id: 'T', clef: 'treble-8', name: 'Tenor', snm: 'T.'},
+      {id: 'B', clef: 'bass', name: 'Bass', snm: 'B.'}
+    ]
+  },
+  {
+    id: 'quartet',
+    name: 'String quartet',
+    words: 'two violins, viola and cello',
+    score: '[V1 V2 Va Vc]',
+    instrument: 'Violin',
+    staves: [
+      {id: 'V1', clef: 'treble', name: 'Violin I', snm: 'Vln. I'},
+      {id: 'V2', clef: 'treble', name: 'Violin II', snm: 'Vln. II'},
+      {id: 'Va', clef: 'alto', name: 'Viola', snm: 'Vla.'},
+      {id: 'Vc', clef: 'bass', name: 'Cello', snm: 'Vc.'}
+    ]
+  }
+];
+// A time signature's bar and beat in whole notes. Compound meters (6/8, 9/8, 12/8) count dotted beats, so a pickup
+// of one beat in 6/8 is a dotted quarter. pickups is the longest pickup offered: up to 3 beats, shorter than a bar.
+function templateMeter(meter) {
+  const text = String(meter || '').trim(),
+    [num, den] =
+      text === 'C' ? [4, 4] : text === 'C|' ? [2, 2] : (text.match(/^(\d+)\/(\d+)$/) || [, 4, 4]).slice(1).map(Number),
+    compound = den === 8 && num > 3 && num % 3 === 0,
+    beat = (compound ? 3 : 1) / den,
+    beats = Math.round(num / den / beat);
+  return {bar: num / den, beat, beats, unit: den >= 8 ? '1/8' : '1/4', pickups: Math.max(0, Math.min(3, beats - 1))};
+}
+// The key's tonic chord, for the first bar of a lead sheet: C, Am, Bdim.
+function tonicChord(key) {
+  const k = keyParts(key);
+  if (!/^[A-G]/.test(k.tonic || '')) return 'C';
+  return k.tonic + ({m: 'm', Dor: 'm', Phr: 'm', Loc: 'dim'}[k.mode] || '');
+}
+// ABC for a new score: each staff gets the pickup rest, if any, then whole-bar rests, four bars to a line. A lead
+// sheet starts its chord line with the key's tonic chord on the first full bar.
+function templateSource({
+  template = 'melody',
+  title,
+  key = 'C',
+  meter = '4/4',
+  unit,
+  tempo = 100,
+  bars = 8,
+  pickup = 0
+}) {
+  const t = SCORE_TEMPLATES.find(x => x.id === template) || SCORE_TEMPLATES[0],
+    m = templateMeter(meter),
+    oneLine = s => String(s ?? '').replace(/[\r\n]+/g, ' '),
+    [un, ud] = String(unit || m.unit)
+      .split('/')
+      .map(Number),
+    restOf = length => 'z' + lengthText(length / (un / ud)),
+    count = Math.max(1, Math.min(64, Math.round(+bars) || 8)),
+    lead = Math.max(0, Math.min(m.pickups, Math.round(+pickup) || 0)),
+    speed = Math.max(40, Math.min(200, Math.round(+tempo) || 100)),
+    music = Array.from({length: count}, (_, i) => (t.chords && i === 0 ? `"${tonicChord(key)}"` : '') + restOf(m.bar)),
+    lines = [];
+  for (let i = 0; i < count; i += 4) lines.push(music.slice(i, i + 4));
+  if (lead) lines[0].unshift(restOf(lead * m.beat));
+  const body = lines.map((line, i) => line.join(' | ') + (i === lines.length - 1 ? ' |]' : ' |')).join('\n'),
+    head = `X:1\nT:${oneLine(title).trim() || 'Untitled'}\nC:\nM:${oneLine(meter)}\nL:${un}/${ud}\nQ:1/4=${speed}\n`;
+  if (t.staves.length === 1) return `${head}K:${oneLine(key)}\n${body}\n`;
+  const voices = t.staves.map(
+    s => `V:${s.id}${s.clef ? ` clef=${s.clef}` : ''}${s.name ? ` name="${s.name}" snm="${s.snm}"` : ''}\n${body}`
+  );
+  return `${head}%%score ${t.score}\nK:${oneLine(key)}\n${voices.join('\n')}\n`;
+}
 // Keys and transposition. A key is a tonic (C, F#, Bb) and a mode (m, Dor, Mix...); its place on the circle of
 // fifths gives the signature: positive counts sharps, negative flats.
 const LETTER_FIFTHS = {F: -1, C: 0, G: 1, D: 2, A: 3, E: 4, B: 5},

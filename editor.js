@@ -320,9 +320,10 @@ function indexDisplay(display) {
   noteDurations = new Map(shown.map(e => [e.element.startChar, lengths.get(e.element) || 0]));
   shownElements = new Map(shown.map(e => [e.element.startChar, e.element]));
   // Clefs per drawn line. abcjs re-parses a re-flowed score, so its lines (not the display's) match the staff groups.
+  // Guitar tablature adds a TAB staff to the line; it is left out, so these are the notation staves only.
   staffClefs = (renderedTune?.lines || display.lines)
     .filter(l => l.staff)
-    .map(l => l.staff.map(st => st.clef?.verticalPos || 0));
+    .map(l => l.staff.filter(st => st.clef?.type !== 'TAB').map(st => st.clef?.verticalPos || 0));
 }
 // Keep the selected note highlighted across a re-render.
 function restoreSelection(display) {
@@ -344,15 +345,20 @@ function restoreSelection(display) {
 }
 function updateCaption() {
   $('workspace-heading').textContent = field('T', 'Untitled melody');
-  const config = instruments[currentInstrument()];
+  const config = instruments[currentInstrument()],
+    staves = staffClefs[0]?.length || 1;
   const pitch = concertView()
     ? 'Concert pitch shown, as it sounds; turn off Concert pitch for the written part.'
     : transposesInstrument()
       ? 'Written pitch shown; ABC source and MIDI are concert pitch.'
       : config.shift === -12
-        ? 'Melody lowered one octave for bass range.'
-        : 'Concert pitch melody part.';
-  $('score-caption').textContent = `${currentInstrument()} · ${config.clef} clef · ${pitch}`;
+        ? `${staves > 1 ? 'Parts' : 'Melody'} lowered one octave for bass range.`
+        : staves > 1
+          ? 'Concert pitch.'
+          : 'Concert pitch melody part.';
+  // A score with several staves (a template or V: voices) has their own clefs, so it counts them instead.
+  $('score-caption').textContent =
+    `${currentInstrument()} · ${staves > 1 ? `${staves} staves` : `${config.clef} clef`} · ${pitch}`;
   if ($('concert-pitch-option')) $('concert-pitch-option').hidden = !transposesInstrument();
 }
 // Links to the complete source edition behind a library practice part.
@@ -782,11 +788,13 @@ function scorePoint(e) {
   const svg = $('notation').querySelector('svg');
   return svg && new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
 }
+// The drawn notation staves with their clefs. A tab staff sits under the staff it belongs to, so the notation staves
+// are counted without it to find their clefs.
 function staffList() {
   return (renderedTune?.engraver?.staffgroups || []).flatMap((g, gi) =>
     g.staffs
-      .map((st, si) => (st.isTabStaff ? null : {id: gi + ':' + si, y: st.absoluteY, clef: staffClefs[gi]?.[si] ?? 0}))
-      .filter(Boolean)
+      .filter(st => !st.isTabStaff)
+      .map((st, si) => ({id: gi + ':' + si, y: st.absoluteY, clef: staffClefs[gi]?.[si] ?? 0}))
   );
 }
 const nearestStaff = (staffs, y) =>
@@ -1008,6 +1016,7 @@ $('notation').addEventListener('mouseleave', () => showGhost(null));
 // Add blank bars (whole-bar rests in the meter in force there) before the closing barline, or at the end.
 function addBars(count = 4) {
   flushTyping();
+  if (addVoiceBars(count)) return;
   const value = $('abc').value,
     close = value.lastIndexOf('|]'),
     at = close >= 0 ? close : value.length,
@@ -1028,6 +1037,80 @@ function addBars(count = 4) {
   const first = at + text.indexOf(rest);
   applyNoteEdit(at, at, text, [first, first + rest.length]);
   $('selection-status').textContent = `Added ${count} blank bars at the end.`;
+}
+// With several voices, every voice gets the bars in one edit: before its closing |], or after its last note or bar
+// line, each sized by that voice's meter. An & overlay is a voice of its own in abcjs, but it is written inside its
+// staff's voice and shares that voice's bar lines, so it goes with that voice and gets no bars of its own. Returns
+// false for a score with one voice (and any overlays), which addBars handles as before.
+function addVoiceBars(count) {
+  const value = $('abc').value;
+  let tune;
+  try {
+    tune = ABCJS.parseOnly(value)[0];
+  } catch {
+    return false;
+  }
+  const events = scoreEvents(tune),
+    owner = new Map(),
+    barVoice = new Map(),
+    last = new Map(),
+    meters = new Map();
+  // An overlay meets the bar lines of the voice it is written in. One with no bar line of its own follows an &, so
+  // it goes with the voice of the nearest earlier note on its staff.
+  const staffOf = e => voiceOf(e).split(':')[0];
+  for (const e of events.filter(x => x.element.el_type === 'bar')) {
+    const at = staffOf(e) + '@' + e.element.startChar,
+      first = barVoice.get(at);
+    if (!first) barVoice.set(at, voiceOf(e));
+    else if (first !== voiceOf(e) && !owner.has(voiceOf(e))) owner.set(voiceOf(e), first);
+  }
+  for (const e of events) {
+    const voice = voiceOf(e),
+      at = e.element.startChar;
+    if (owner.has(voice) || !/&\s*$/.test(value.slice(Math.max(0, at - 40), at))) continue;
+    const before = events
+      .filter(x => staffOf(x) === staffOf(e) && voiceOf(x) !== voice && x.element.startChar < at)
+      .reduce((a, x) => (!a || x.element.startChar > a.element.startChar ? x : a), null);
+    if (before) owner.set(voice, owner.get(voiceOf(before)) ?? voiceOf(before));
+  }
+  // Each voice's last element in the source, its overlays included; a bar line wins over a rest at the same place.
+  for (const e of events) {
+    const voice = owner.get(voiceOf(e)) ?? voiceOf(e),
+      prev = last.get(voice),
+      el = e.element;
+    if (!prev || el.startChar > prev.startChar || (el.startChar === prev.startChar && el.el_type === 'bar'))
+      last.set(voice, el);
+  }
+  for (const m of barLengths(tune)) meters.set(m.voice, m.meter);
+  if (last.size < 2) return false;
+  const inserts = [...last].map(([voice, e]) => {
+    const closing = e.el_type === 'bar' && /^\s*\|\]\s*$/.test(value.slice(e.startChar, e.endChar)),
+      at = closing ? value.indexOf('|]', e.startChar) : e.endChar,
+      meter = meters.get(voice),
+      [num, den] = meterPartsAt(at),
+      rest = 'z' + lengthText((meter?.length || num / den) / unitLengthAt(at)),
+      bars = Array(count).fill(rest).join(' | ');
+    const text = closing
+      ? (/\|\s*$/.test(value.slice(0, at)) ? '' : '| ') + bars + ' '
+      : (e.el_type === 'bar' ? ' ' : ' | ') + bars + ' |]';
+    return {voice, at, text, rest};
+  });
+  inserts.sort((a, b) => a.at - b.at);
+  const start = inserts[0].at,
+    end = inserts.at(-1).at;
+  let text = '',
+    pos = start,
+    select = null;
+  for (const x of inserts) {
+    text += value.slice(pos, x.at);
+    const first = start + text.length + x.text.indexOf(x.rest);
+    if (!select || x.voice === '0:0') select = [first, first + x.rest.length];
+    text += x.text;
+    pos = x.at;
+  }
+  applyNoteEdit(start, end, text, select);
+  $('selection-status').textContent = `Added ${count} blank bars at the end of every staff.`;
+  return true;
 }
 $('add-bars').onclick = () => addBars(4);
 // Note properties menu. Lengths come from the parsed (effective) duration, so chords and broken rhythm read correctly.
@@ -1661,10 +1744,11 @@ function insertAt(at, token, select = true, hear = false, keep = false) {
   );
   return at + before.length;
 }
-// Where a new note goes with nothing selected: before the closing bar line, or at the end of the music.
+// Where a new note goes with nothing selected: before the closing bar line, or at the end of the music. In a score
+// with several voices that is the end of the first voice (the top staff).
 function tuneEndPosition() {
   const all = [...new Set(noteSources.values())]
-      .filter(Boolean)
+      .filter(e => e && voiceOf(e) === '0:0')
       .sort((a, b) => a.element.startChar - b.element.startChar),
     last = all.at(-1);
   if (!last) return $('abc').value.length;
@@ -1791,20 +1875,21 @@ function respellSelected(sel) {
   status.textContent = `${label ? 'Respelled as ' + label.text : 'Respelled the chord'}. Respell again (Z) for the next spelling.`;
 }
 // Note token for a letter as the staff shows it (written pitch, or concert in Concert pitch view), in the octave
-// nearest the last note before a source position.
+// nearest the last note before a source position in the same voice, or else the middle of that voice's staff.
 function letterToken(letter, at) {
   if (letter === 'z') return 'z';
-  const steps = writtenSteps($('abc').value, at, displayShift()),
-    prev = scoreNotes()
-      .filter(n => n.element.startChar < at && n.element.pitches?.length)
-      .pop();
-  const ref = prev ? prev.element.pitches[0].pitch + steps : 6 + (staffClefs[0]?.[0] || 0),
+  const notes = scoreNotes(),
+    here = notes.filter(n => n.element.startChar <= at).pop() || notes[0],
+    voice = here ? voiceOf(here) : '0:0',
+    steps = writtenSteps($('abc').value, at, displayShift()),
+    prev = notes.filter(n => n.element.startChar < at && n.element.pitches?.length && voiceOf(n) === voice).pop();
+  const ref = prev ? prev.element.pitches[0].pitch + steps : 6 + (staffClefs[0]?.[+voice.split(':')[0]] || 0),
     letterIndex = 'CDEFGAB'.indexOf(letter);
   return pitchToken(letterIndex + 7 * Math.round((ref - letterIndex) / 7) - steps);
 }
 // Put a note (its pitch token, without a length) at the start of a rest, taking its length from the rest; the rest
 // keeps what is left, which stays selected so the next note continues. A filled rest passes the selection on.
-// Returns where the note starts.
+// Chord symbols and text written on the rest mark that beat, so the note takes them. Returns where the note starts.
 function fillRest(rest, core, wanted = inputLength ?? beatLength(), keep = false) {
   const v = $('abc').value,
     start = rest.element.startChar,
@@ -1813,8 +1898,9 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength(), keep = false
     unit = unitLengthAt(start);
   const restLength = rest.element.duration || 0,
     length = Math.min(wanted, restLength || Infinity),
-    left = restLength - length;
-  const token = core + lengthText(length / unit),
+    left = restLength - length,
+    chords = (noteParts(old.trim())?.pre.match(/"[^"]*"/g) || []).join('');
+  const token = chords + core + lengthText(length / unit),
     trail = old.match(/\s*$/)[0],
     lead = old.match(/^\s*/)[0] || (start > 0 && !/\s/.test(v[start - 1]) ? ' ' : '');
   if (left > 1e-6) {
@@ -2699,6 +2785,7 @@ function togglePrompts(open) {
   $('open-prompts').setAttribute('aria-expanded', open);
   if (open) {
     if (typeof toggleAssignmentBuilder === 'function') toggleAssignmentBuilder(false);
+    if (typeof toggleNewScore === 'function') toggleNewScore(false);
     renderPromptCards();
     $('prompt-picker').scrollIntoView({block: 'nearest', behavior: 'smooth'});
   }

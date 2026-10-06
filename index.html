@@ -8,28 +8,28 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=2f19463ce6dd" />
-    <script defer src="vendor/abcjs-basic-min.js?v=2f19463ce6dd"></script>
-    <script defer src="catalog.js?v=2f19463ce6dd"></script>
-    <script defer src="catalog-expanded.js?v=2f19463ce6dd"></script>
-    <script defer src="score-tools.js?v=2f19463ce6dd"></script>
-    <script defer src="rights-tools.js?v=2f19463ce6dd"></script>
-    <script defer src="musicxml.js?v=2f19463ce6dd"></script>
-    <script defer src="catalog-licensed.js?v=2f19463ce6dd"></script>
-    <script defer src="catalog-lieder.js?v=2f19463ce6dd"></script>
-    <script defer src="catalog-quartets.js?v=2f19463ce6dd"></script>
-    <script defer src="catalog-pgh.js?v=2f19463ce6dd"></script>
-    <script defer src="catalog-skills.js?v=2f19463ce6dd"></script>
-    <script defer src="prompts.js?v=2f19463ce6dd"></script>
-    <script defer src="shared.js?v=2f19463ce6dd"></script>
-    <script defer src="library.js?v=2f19463ce6dd"></script>
-    <script defer src="backup.js?v=2f19463ce6dd"></script>
-    <script defer src="editor.js?v=2f19463ce6dd"></script>
-    <script defer src="palette.js?v=2f19463ce6dd"></script>
-    <script defer src="playback.js?v=2f19463ce6dd"></script>
-    <script defer src="keyboard.js?v=2f19463ce6dd"></script>
-    <script defer src="assignments.js?v=2f19463ce6dd"></script>
-    <script defer src="app.js?v=2f19463ce6dd"></script>
+    <link rel="stylesheet" href="style.css?v=ddf084d09b7c" />
+    <script defer src="vendor/abcjs-basic-min.js?v=ddf084d09b7c"></script>
+    <script defer src="catalog.js?v=ddf084d09b7c"></script>
+    <script defer src="catalog-expanded.js?v=ddf084d09b7c"></script>
+    <script defer src="score-tools.js?v=ddf084d09b7c"></script>
+    <script defer src="rights-tools.js?v=ddf084d09b7c"></script>
+    <script defer src="musicxml.js?v=ddf084d09b7c"></script>
+    <script defer src="catalog-licensed.js?v=ddf084d09b7c"></script>
+    <script defer src="catalog-lieder.js?v=ddf084d09b7c"></script>
+    <script defer src="catalog-quartets.js?v=ddf084d09b7c"></script>
+    <script defer src="catalog-pgh.js?v=ddf084d09b7c"></script>
+    <script defer src="catalog-skills.js?v=ddf084d09b7c"></script>
+    <script defer src="prompts.js?v=ddf084d09b7c"></script>
+    <script defer src="shared.js?v=ddf084d09b7c"></script>
+    <script defer src="library.js?v=ddf084d09b7c"></script>
+    <script defer src="backup.js?v=ddf084d09b7c"></script>
+    <script defer src="editor.js?v=ddf084d09b7c"></script>
+    <script defer src="palette.js?v=ddf084d09b7c"></script>
+    <script defer src="playback.js?v=ddf084d09b7c"></script>
+    <script defer src="keyboard.js?v=ddf084d09b7c"></script>
+    <script defer src="assignments.js?v=ddf084d09b7c"></script>
+    <script defer src="app.js?v=ddf084d09b7c"></script>
   </head>
   <body>
     <header>
@@ -173,18 +173,46 @@
               title="Write instructions and goals for this score, then share it as an assignment"
             >
               ✎ Assignment</button
-            ><label class="inline bars-label"
-              >Bars
-              <input
-                id="new-bars"
-                type="number"
-                min="1"
-                max="64"
-                value="8"
-                aria-label="Bars in a new blank score" /></label
-            ><button id="new-score">＋ New score</button>
+            ><button
+              id="new-score-open"
+              aria-expanded="false"
+              aria-controls="new-score-panel"
+              title="Start a score from a template: melody, lead sheet, piano, duet, choir or string quartet"
+            >
+              ＋ New score</button
+            ><button id="new-score" title="Start a blank 8-bar melody in 4/4 and C major">Blank melody</button>
           </div>
         </div>
+        <section id="new-score-panel" class="prompt-picker new-score-panel" aria-labelledby="new-score-heading" hidden>
+          <div class="prompt-picker-head">
+            <div>
+              <h2 id="new-score-heading">New score</h2>
+              <p class="small">
+                Pick a template and set up the score. Every bar starts as a rest you can write over, and you can change
+                the title, key, time signature and tempo later.
+              </p>
+            </div>
+            <button id="close-new-score" type="button" aria-label="Close new score">✕</button>
+          </div>
+          <form id="new-score-form" class="new-score-form" novalidate>
+            <label>Title<input id="new-title" maxlength="120" placeholder="Untitled" autocomplete="off" /></label
+            ><label>Template<select id="new-template"></select></label><label>Key<select id="new-key"></select></label
+            ><label>Time signature<select id="new-meter"></select></label
+            ><label>Tempo (BPM)<input id="new-tempo" type="number" min="40" max="200" value="100" /></label
+            ><label
+              >Pickup<select id="new-pickup">
+                <option value="0">None</option>
+                <option value="1">1 beat</option>
+                <option value="2">2 beats</option>
+                <option value="3">3 beats</option>
+              </select></label
+            ><label>Bars<input id="new-bars" type="number" min="1" max="64" value="8" /></label>
+            <p id="new-score-summary" class="small new-score-summary" aria-live="polite"></p>
+            <div class="assignment-actions">
+              <button type="submit" class="primary">Create score</button>
+            </div>
+          </form>
+        </section>
         <section id="prompt-picker" class="prompt-picker" aria-label="Writing prompts" hidden>
           <div class="prompt-picker-head">
             <div>
@@ -377,8 +405,8 @@
                 chord, and ^F is F sharp.
               </p>
               <p>
-                Headers: T:title, C:composer, M:meter, L:default note length, Q:tempo, K:key. Enter notes after K:. To
-                write multiple parts, use ABC V: voices.
+                Headers: T:title, C:composer, M:meter, L:default note length, Q:tempo, K:key. Enter notes after K:. For
+                several parts, start from a template under ＋ New score, or write ABC V: voices.
               </p>
             </div>
             <div class="editor-actions">
