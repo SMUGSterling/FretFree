@@ -3169,6 +3169,222 @@ function swingPlayback(data, amount, bars) {
   return {...data, notes: parts.flatMap((part, i) => swingNotes(part, bars[i].quarter, amount, bars[i].origin))};
 }
 
+// Road-map playback: D.C., D.S., coda, Fine and fermatas. abcjs plays repeats and 1st and 2nd endings but not the
+// jumps, and it does not hold fermatas. Playback keeps abcjs's timeline, where a measure inside a repeat is played
+// once per pass (each a "play"), and puts the plays in the order the road map gives; a fermata holds its note for
+// twice its length. The marks are decorations (!D.C.!, !D.S.alcoda!, !fine!, !segno!, !coda!, S and O) or text in
+// chord position or above or below the staff ("D.C.", "^Fine", "_To Coda"), as many library tunes write them.
+const ROAD_JUMPS = {
+  'D.C.': ['D.C.', null],
+  'D.S.': ['D.S.', null],
+  'D.C.alfine': ['D.C.', 'fine'],
+  'D.S.alfine': ['D.S.', 'fine'],
+  'D.C.alcoda': ['D.C.', 'coda'],
+  'D.S.alcoda': ['D.S.', 'coda']
+};
+function roadItem(item, text) {
+  if (!text) {
+    if (['segno', 'coda', 'fine'].includes(item)) return {kind: item};
+    return ROAD_JUMPS[item] ? {kind: 'jump', to: ROAD_JUMPS[item][0], al: ROAD_JUMPS[item][1]} : null;
+  }
+  const t = item.trim();
+  if (/^(?:segno|S)$/i.test(t)) return {kind: 'segno'};
+  if (/^to\s+coda\b/i.test(t)) return {kind: 'toCoda'};
+  if (/^coda\.?$/i.test(t)) return {kind: 'heading'};
+  if (/^fine\.?$/i.test(t)) return {kind: 'fine'};
+  const to = /^(?:D\.\s?C\.?(?![a-z])|da\s+capo\b)/i.test(t)
+    ? 'D.C.'
+    : /^(?:D\.\s?S\.?(?![a-z])|dal\s+segno\b)/i.test(t)
+      ? 'D.S.'
+      : null;
+  return to && {kind: 'jump', to, al: /\bal\s*fine\b/i.test(t) ? 'fine' : /\bal\s*coda\b/i.test(t) ? 'coda' : null};
+}
+// The road-map marks of a score from its scoreEvents, by measure: where a segno or a Coda heading starts, coda signs
+// and To Coda before or after a measure, Fine after one, and the jump after one (D.C. or D.S., al Fine or al Coda).
+// A mark on a measure's first note or on a bar line counts as before the measure that follows; a segno or a heading
+// starts the measure it is in. Fine and jumps end the measure they are in, or the one before an opening bar line.
+function roadMarks(events) {
+  const marks = new Map(),
+    open = new Map(),
+    at = measure => marks.get(measure) || marks.set(measure, {}).get(measure);
+  for (const {element, key, measure} of events) {
+    const voice = key.split(':').slice(0, 2).join(':'),
+      bar = element.el_type === 'bar',
+      inside = open.get(voice);
+    open.set(voice, !bar);
+    const start = bar && inside ? measure + 1 : measure,
+      before = bar || !inside,
+      ends = bar && !inside ? Math.max(1, measure - 1) : measure;
+    const items = [
+      ...(element.decoration || []).map(d => roadItem(d, false)),
+      ...(element.chord || []).map(c => roadItem(String(c.name || ''), true))
+    ];
+    for (const item of items.filter(Boolean)) {
+      if (item.kind === 'segno') at(start).segno = true;
+      else if (item.kind === 'heading') at(start).heading = true;
+      else if (item.kind === 'coda' || item.kind === 'toCoda')
+        at(before ? start : measure)[item.kind + (before ? 'Before' : 'After')] = true;
+      else if (item.kind === 'fine') at(ends).fine = true;
+      else at(ends).jump ||= {to: item.to, al: item.al};
+    }
+  }
+  return marks;
+}
+// The order of play through the road map. plays lists the measure of each play in abcjs's timeline; the result lists
+// the plays in the order they are heard, {play, measure, jump}, where jump names the mark that led to that play
+// ('D.C.', 'D.S.' or 'To Coda'), or null when no jump is taken (the score plays straight).
+// A jump is taken on the last pass through its measure, once. After it, repeats are not taken again: each measure is
+// played in its last pass (so the last ending), up to Fine, or up to the To Coda and then from the coda. A plain D.C.
+// or D.S. stops at a Fine and takes a coda if the score has them. With two or more coda signs the last starts the
+// coda and the others are To Coda; one coda sign starts the coda when there is a To Coda, or is the To Coda when
+// there is a Coda heading. A D.S. with no segno is not taken.
+function performanceOrder(plays, marks) {
+  const last = new Map(plays.map((m, i) => [m, i])),
+    measures = [...marks.keys()].sort((a, b) => a - b),
+    find = name => measures.filter(m => marks.get(m)[name]),
+    signs = [...find('codaBefore'), ...find('codaAfter')].sort((a, b) => a - b),
+    texts = [...find('toCodaBefore'), ...find('toCodaAfter')],
+    heading = find('heading')[0],
+    segno = find('segno')[0];
+  // The coda: its first measure, and the To Coda points before or after a measure.
+  let coda = null,
+    leaveBefore = new Set(find('toCodaBefore')),
+    leaveAfter = new Set(find('toCodaAfter'));
+  if (signs.length > 1 || (signs.length === 1 && texts.length)) {
+    const target = signs.at(-1);
+    coda = marks.get(target).codaBefore ? target : target + 1;
+    for (const m of signs.slice(0, -1)) (marks.get(m).codaBefore ? leaveBefore : leaveAfter).add(m);
+  } else if (heading != null) {
+    coda = heading;
+    for (const m of signs) (marks.get(m).codaBefore ? leaveBefore : leaveAfter).add(m);
+  }
+  if (!last.has(coda)) coda = null;
+  const fine = new Set(find('fine')),
+    out = [],
+    taken = new Set();
+  let i = 0,
+    mode = null,
+    jump = null;
+  while (i != null && i < plays.length && out.length < plays.length * 3 + 8) {
+    const m = plays[i];
+    if (mode?.coda && leaveBefore.has(m) && m !== coda) {
+      mode.coda = false;
+      [i, jump] = [last.get(coda), 'To Coda'];
+      continue;
+    }
+    out.push({play: i, measure: m, jump});
+    jump = null;
+    const mark = marks.get(m) || {};
+    if (mode?.fine && fine.has(m)) break;
+    if (mode?.coda && leaveAfter.has(m)) {
+      mode.coda = false;
+      [i, jump] = [last.get(coda), 'To Coda'];
+      continue;
+    }
+    const target = mark.jump && (mark.jump.to === 'D.C.' ? plays[0] : segno);
+    if (target != null && last.has(target) && !taken.has(m) && last.get(m) === i) {
+      taken.add(m);
+      mode = {
+        fine: mark.jump.al !== 'coda' && fine.size > 0,
+        coda: mark.jump.al !== 'fine' && coda != null && leaveBefore.size + leaveAfter.size > 0
+      };
+      [i, jump] = [last.get(target), mark.jump.to];
+      continue;
+    }
+    i = mode ? last.get(plays[i + 1]) : i + 1;
+  }
+  return taken.size ? out : null;
+}
+// Times for the order of play. times are the start of each play in abcjs's timeline and the end of the last, in
+// seconds of one clock (the note timings, or the MIDI); holds are the fermatas, {play, offset, length}: the play they
+// are in, from its start, and the held note's length. Consecutive plays become one piece, placed at `at` seconds into
+// the performance before holds; each hold doubles the time from its start to its end, merged where holds overlap,
+// and later times move by its length. Returns null when there is nothing to change: no jumps and no fermatas.
+function performancePlan(order, times, holds = []) {
+  if (!order && !holds.length) return null;
+  const count = times.length - 1,
+    pieces = [];
+  let at = 0;
+  for (const o of order || Array.from({length: count}, (_, play) => ({play}))) {
+    const piece = pieces.at(-1),
+      length = times[o.play + 1] - times[o.play];
+    if (piece && !o.jump && piece.last + 1 === o.play) {
+      piece.last = o.play;
+      piece.to = times[o.play + 1];
+    } else
+      pieces.push({
+        first: o.play,
+        last: o.play,
+        from: times[o.play],
+        to: times[o.play + 1],
+        at,
+        jump: o.jump || null,
+        measure: o.measure
+      });
+    at += length;
+  }
+  const held = [];
+  for (const piece of pieces)
+    for (const h of holds)
+      if (h.play >= piece.first && h.play <= piece.last) {
+        const start = piece.at + times[h.play] - piece.from + h.offset;
+        held.push({start, end: start + h.length});
+      }
+  held.sort((a, b) => a.start - b.start);
+  const merged = [];
+  for (const h of held)
+    if (merged.length && h.start <= merged.at(-1).end) merged.at(-1).end = Math.max(merged.at(-1).end, h.end);
+    else merged.push({...h});
+  const plan = {pieces, holds: merged, count, length: at};
+  plan.duration = planWarp(plan, at);
+  return plan;
+}
+// A time in the performance before holds, with the holds put in.
+function planWarp(plan, t) {
+  return t + plan.holds.reduce((sum, h) => sum + Math.max(0, Math.min(t, h.end) - h.start), 0);
+}
+// A time in a piece's plays (in the clock its plan was made with) as heard.
+function planTime(plan, piece, t) {
+  return planWarp(plan, piece.at + t - piece.from);
+}
+// Whether a time in the plays' clock falls in a piece. The first and last plays take everything before and after
+// them; edge allows for MIDI note times a little before the measure start (ticks are rounded).
+function inPiece(plan, piece, t, edge = 0) {
+  return (piece.first === 0 || t >= piece.from - edge) && (piece.last === plan.count - 1 || t < piece.to - edge);
+}
+// Decoded MIDI notes (parseMidi, after swing) in the order of play, with the fermatas held. A note in a piece played
+// twice sounds twice; one held over a jump keeps its length.
+function planNotes(plan, data, edge = 0.002) {
+  const notes = [];
+  for (const piece of plan.pieces)
+    for (const n of data.notes) {
+      if (!inPiece(plan, piece, n.start, edge)) continue;
+      const start = planTime(plan, piece, n.start),
+        note = {...n, start, duration: Math.max(0.025, planTime(plan, piece, n.start + n.duration) - start)};
+      if (n.straightEnd != null) note.straightEnd = planTime(plan, piece, n.straightEnd);
+      notes.push(note);
+    }
+  notes.sort((a, b) => a.start - b.start);
+  return {
+    ...data,
+    notes,
+    duration: Math.max(plan.duration, ...notes.map(n => n.start + n.duration), 0)
+  };
+}
+// abcjs's note timing events in the order of play, timed as heard (milliseconds) and before holds (unheld), ending
+// with an 'end' event. Each keeps its drawn elements, so the highlight follows the jumps.
+function planEvents(plan, timings) {
+  const out = [];
+  for (const piece of plan.pieces)
+    for (const e of timings)
+      if (e.type === 'event' && inPiece(plan, piece, e.milliseconds / 1000, 1e-6)) {
+        const unheld = piece.at + e.milliseconds / 1000 - piece.from;
+        out.push({...e, milliseconds: planWarp(plan, unheld) * 1000, unheld: unheld * 1000});
+      }
+  out.push({type: 'end', milliseconds: plan.duration * 1000, unheld: plan.length * 1000});
+  return out;
+}
+
 // Share links: the whole score rides in the URL hash (#s=…), so no server ever holds student work.
 // Payload {v, a: abc, i: instrument, s: library source id, p: built-in prompt id,
 // q: teacher-written assignment, checked by validPrompt}. A turned-in assignment adds n: the student's name,

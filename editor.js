@@ -300,10 +300,12 @@ function refreshPalette() {
 }
 function updateMeasures() {
   measureStarts = new Map();
+  // The sound's tempo (see settleTempo), so the highlight, ranges, metronome and count-in keep time with it. Each
+  // measure starts where it is first heard, through jumps and fermatas (updateRoadMap, in playback.js).
+  if (renderedTune?.engraver) settleTempo(renderedTune).setTiming();
+  if (typeof updateRoadMap === 'function') updateRoadMap();
   if (renderedTune?.engraver) {
-    // The sound's tempo (see settleTempo), so the highlight, ranges, metronome and count-in keep time with it.
-    settleTempo(renderedTune).setTiming();
-    for (const event of renderedTune.noteTimings || []) {
+    for (const event of typeof playEvents === 'function' ? playEvents() : renderedTune.noteTimings || []) {
       if (event.type !== 'event') continue;
       const entries = (event.startCharArray || []).map(c => noteSources.get(c)).filter(Boolean);
       for (const entry of entries)

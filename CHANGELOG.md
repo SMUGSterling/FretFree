@@ -1,3 +1,13 @@
+# Road-map playback and fermatas · 2026-10-06
+
+- Playback follows D.C., D.S., D.C. al Fine, D.S. al Coda, To Coda and Fine. It reads them as decorations, as Measure tools writes them (`!D.C.alfine!`, `!segno!`, `!coda!`, `!fine!`, and `S` and `O`), and as text in chord position, above or below the staff (`"D.C."`, `"^To Coda"`, `"Fine"`, `"^Coda"`), as 74 library tunes write them. A jump is taken on the last time through its measure, once. After it, repeats are not taken again, so the last ending plays; playback stops at Fine, or leaves at To Coda for the coda. With two coda signs the first is the To Coda and the second starts the coda; one coda sign is the To Coda when a "Coda" heading starts the coda. A plain D.C. or D.S. stops at a Fine and takes a coda if the score has them, and a D.S. with no segno is not taken.
+- The note highlight, the metronome and count-in, measure starts, practice ranges, loops and Play from here follow the jumps, and the status line names each jump as it is taken ("D.C.: back to measure 1"). A practice range stops where a jump leaves it, and plays on through a jump that stays inside it. A note heard twice starts from its first time.
+- A fermata note, chord or rest is held for twice its length, and the notes after it start later, on every staff and each time it is played. The highlight and the metronome wait for it. Ornaments, swing, dynamics and the Chords switch work as before.
+- Measure tools no longer says playback ignores these marks. Adding one says what playback still needs, if anything: a segno for D.S., a Fine for D.C. al Fine, or a second coda sign.
+- MIDI export stays in written order, and a score with no jumps and no fermatas plays exactly the notes it did before. The road map reorders abcjs's own timeline (repeats and endings played out) rather than rewriting the ABC, so the drawn notes stay paired with the sound. `roadMarks`, `performanceOrder`, `performancePlan`, `planNotes` and `planEvents` are pure helpers in score-tools.js.
+
+---
+
 # Screen-reader announcements and a shortcut sheet · 2026-10-06
 
 - Selecting a note names it in the status line under the score, which screen readers announce: its length, its pitch as the staff shows it, its measure and its beat, as in "Quarter note B♭4, measure 2, beat 1" or "Quarter note chord F4 A4, measure 2, beat 3". Pitches follow the key signature and the bar's accidentals, and are written pitch for transposing instruments (concert pitch in Concert pitch view). Ties, rests, invisible rests and multi-measure rests are named too.
