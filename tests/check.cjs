@@ -1201,7 +1201,8 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
 }
 // Lyrics: lyricUnits and alignLyrics read w: lines exactly as abcjs does (checked on generated music and words full of
 // rests, skips, bar jumps, holds and escapes), lyricText writes a verse back so abcjs reads the same syllables,
-// setSyllable changes one syllable and keeps every verse on its own row, and typeLyrics follows the typing keys.
+// setSyllable changes one syllable and keeps every verse on its own row (with key and time changes starting the next
+// line too), typeLyrics follows the typing keys, and the lieder take a word on every note.
 {
   const ABCJS_ = context.ABCJS,
     rows = (abc, voice = '0:0') => {
@@ -1347,6 +1348,70 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     {voice: '0:0', line: 0, notes: 4, words: 'hi'},
     {voice: '1:0', line: 0, notes: 4, words: '* lo'}
   ]);
+  // abcjs gives a field that starts the next line of music ([M:3/4], [K:G] or a K: line) to the line before, but that
+  // line's words go straight under its music, and the next line keeps its own.
+  const engraved = (abc, voice = '0:0') =>
+    ABCJS_.parseOnly(abc)[0]
+      .lines.flatMap(l => l.staff?.[voice[0]]?.voices?.[voice[2]] || [])
+      .filter(e => e.el_type === 'note' && e.rest === undefined)
+      .map(e => (e.lyric || []).map(x => x.syllable).join('/') || null);
+  for (const next of ['[M:3/4] d e f | a b c |', '[K:G] d e f g | a b c d |', 'K:G\nd e f g | a b c d |']) {
+    const music = 'X:1\nL:1/4\nK:C\nC D E F | G A B c |\n' + next + '\n',
+      worded = music + 'w: keep me safe here ok\n',
+      count = engraved(music).length,
+      one = context.setSyllable(worded, 0, 0, 0, 'hi');
+    assert.equal(one, worded.replace('c |\n', 'c |\nw: hi\n'), 'Words for a line go under it: ' + next);
+    assert.deepEqual(
+      engraved(one),
+      ['hi', ...Array(7).fill(null), 'keep', 'me', 'safe', 'here', 'ok', ...Array(count - 13).fill(null)],
+      'and the next line keeps its words'
+    );
+    const letters = [...'abcdefghijklmnop'];
+    typed = context.typeLyrics(music, '0:0', 0, 0, letters.join(' ') + ' ');
+    assert.deepEqual(engraved(typed.abc), letters.slice(0, count), 'Typing over both lines puts each word on its note');
+    assert.equal(typed.over, count < letters.length, 'and says when words were left over');
+  }
+  // Fields and comments between a line and its words are passed over, as abcjs does; a V: field ends them.
+  const field = 'X:1\nL:1/4\nK:C\nC D E F|\nK:G\n% words\nw: a b\nd e f g|\n';
+  assert.equal(context.setSyllable(field, 0, 0, 2, 'c'), field.replace('a b', 'a b c'));
+  assert.equal(context.setSyllable(field, 0, 1, 0, 'x'), field.replace('a b\n', 'a b\nw: x\n'));
+  assert.deepEqual(engraved(context.setSyllable(field, 0, 1, 0, 'x')), ['a/x', 'b', ...Array(6).fill(null)]);
+  assert.deepEqual(rows('X:1\nL:1/4\nK:C\nC D E F|\nV:2\nw: lo\nc d e f|\n'), [[], []], 'abcjs drops these');
+  // A voice written after & shares the staff's w: lines with the first voice, so it takes no words of its own; a voice
+  // of its own on the same staff does.
+  const overlay = 'X:1\nL:1/4\nK:C\nC D E F & c d e f|G A B c|\n(C D) & (c d)\n';
+  assert.equal(context.lyricSlots(ABCJS_.parseOnly(overlay)[0], '0:1', overlay).length, 0);
+  assert.equal(context.typeLyrics(overlay, '0:1', 0, 0, 'a b c d ').abc, overlay, 'Nothing is written for it');
+  assert.equal(context.setSyllable(overlay, 0, 0, 0, 'a', ' ', '0:1'), overlay);
+  const shared = 'X:1\nL:1/4\n%%score (1 2)\nV:1\nV:2\nK:C\nV:1\nC D E F|\nV:2\nc d e f|\n';
+  assert.equal(context.typeLyrics(shared, '0:1', 0, 0, 'a b ').abc, shared + 'w: a b\n');
+  assert.deepEqual(engraved(shared + 'w: a b\n', '0:1'), ['a', 'b', null, null]);
+  // A backslash makes the next character part of the syllable, as in a w: line.
+  typed = context.typeLyrics(twinkle, '0:0', 0, 0, 'mid\\-day a\\_b \\*c\\');
+  assert.deepEqual(
+    [typed.abc.split('\n')[5], typed.rest, syllables(typed.abc).slice(0, 2)],
+    ['w: mid\\-day a\\_b', '*c\\', ['mid-day', 'a_b']]
+  );
+  // Words for every note of the OpenScore lieder whose lines start with a key or time change: abcjs reads each on its
+  // note, the music and its warnings are unchanged, and editing one syllable changes only that one.
+  const lieder = context.library.filter(
+      s => s.id.startsWith('lieder-') && /\n\[?[KM]:/.test(s.abc.slice(s.abc.indexOf('\nK:') + 1))
+    ),
+    unworded = abc => abc.replace(/^w:.*\n?/gm, ''),
+    warnings = abc => (ABCJS_.parseOnly(abc)[0].warnings || []).length;
+  assert.ok(lieder.length > 150, 'Enough lieder checked');
+  for (const score of lieder) {
+    const words = engraved(score.abc).map((_, i) => 's' + i),
+      done = context.typeLyrics(score.abc, '0:0', 0, 0, words.join(' ') + ' ').abc;
+    assert.deepEqual(engraved(done), words, score.id + ': one word on each note');
+    assert.equal(unworded(done), unworded(score.abc), score.id + ': the music is unchanged');
+    assert.equal(warnings(done), warnings(score.abc), score.id + ': no new warnings');
+    const mid = words.length >> 1,
+      session = context.lyricSession(done, '0:0', 0);
+    session.set(mid, {syllable: 'X', divider: ' '});
+    words[mid] = 'X';
+    assert.deepEqual(engraved(session.text()), words, score.id + ': one syllable edited');
+  }
 }
 // Measure and form tools: bars inserted and deleted in every voice as whole-bar rests in the meter in force, bar lines
 // that replace each other, repeats and endings that toggle, form marks, rehearsal letters in order, and time, key and
@@ -3252,7 +3317,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, typing keys), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, key and time changes at line starts, voices after &, typing keys, every note of the lieder with line-start changes), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {

@@ -731,26 +731,42 @@ function alignLyrics(elements, units) {
   return out;
 }
 // The lines of music of one voice ('staff:voice') that have notes: [{line (abcjs line number), elements, notes}],
-// where notes are the notes and chords that take syllables.
-function lyricSlots(tune, voice = '0:0') {
+// where notes are the notes and chords that take syllables. Given the source, lines where the voice is written with &
+// over the staff's first voice are left out: abcjs gives the w: lines under that text to the first voice.
+function lyricSlots(tune, voice = '0:0', source = null) {
   const [s, v] = String(voice).split(':').map(Number),
     out = [];
   (tune?.lines || []).forEach((line, i) => {
     const elements = line.staff?.[s]?.voices?.[v];
     const notes = (elements || []).filter(e => e.el_type === 'note' && e.rest === undefined);
-    if (notes.length) out.push({line: i, elements, notes});
+    if (notes.length && !(v > 0 && source != null && lyricOverlay(source, line.staff[s].voices[0], elements)))
+      out.push({line: i, elements, notes});
   });
   return out;
+}
+// Whether a voice's elements on a line of music share a line of text with the notes or bar lines of the staff's first
+// voice there, as a voice written after & does.
+function lyricOverlay(source, first, elements) {
+  const lines = new Set(
+    (first || [])
+      .filter(e => (e.el_type === 'note' || e.el_type === 'bar') && e.startChar >= 0)
+      .map(e => lineStartOf(source, e.startChar))
+  );
+  return elements.some(e => e.el_type === 'note' && e.startChar >= 0 && lines.has(lineStartOf(source, e.startChar)));
 }
 // The syllables abcjs keeps on a note or chord: one {syllable, divider} for each verse that reaches it, in order.
 function readLyrics(element) {
   return (element?.lyric || []).map(({syllable, divider}) => ({syllable, divider}));
 }
 // The verses written under a slot's line of music: {at, verses: [{start, end, prefix, text}]}, where at is where a new
-// verse line goes (after the last one, or after the music) and each verse spans its w: lines. Comment lines between
-// them are passed over, as abcjs does.
+// verse line goes (after the last one, or after the music) and each verse spans its w: lines. The music ends with the
+// line of text that holds its last note or bar line: abcjs also gives it a field that starts the next line of text
+// ([K:G] or a K: line), and the words for this line go before the music after it. Comment lines and fields other
+// than V: between w: lines are passed over, as abcjs does.
 function lyricVerses(source, slot) {
-  const last = Math.max(...slot.elements.map(e => e.startChar ?? -1)),
+  const last = Math.max(
+      ...slot.elements.map(e => (e.el_type === 'note' || e.el_type === 'bar' ? (e.startChar ?? -1) : -1))
+    ),
     line = /\n([^\n]*)/y,
     verses = [];
   let at = source.indexOf('\n', last),
@@ -760,7 +776,7 @@ function lyricVerses(source, slot) {
   line.lastIndex = at;
   while ((m = line.exec(source))) {
     const text = m[1];
-    if (/^%/.test(text)) continue;
+    if (/^%/.test(text) || (/^[A-Za-z]:/.test(text) && !/^[Vw]:/.test(text))) continue;
     if (!/^w:/.test(text)) break;
     const [, prefix, body] = text.match(/^(w:[ \t]*)(.*)$/),
       more = /\\\s*$/.test(body),
@@ -871,7 +887,7 @@ function setLyricEntries(abc, slot, verse, change) {
 // Set one syllable: the index-th lyric note of a line of music (abcjs line number) in a voice, in a verse (0 is the
 // first). An empty syllable takes it away.
 function setSyllable(abc, line, verse, index, syllable, divider = ' ', voice = '0:0') {
-  const slot = lyricSlots(ABCJS.parseOnly(abc)[0], voice).find(s => s.line === line);
+  const slot = lyricSlots(ABCJS.parseOnly(abc)[0], voice, abc).find(s => s.line === line);
   if (!slot || index < 0 || index >= slot.notes.length) return abc;
   const word = tidyLyric(syllable);
   return setLyricEntries(abc, slot, verse, entries => {
@@ -882,7 +898,7 @@ function setSyllable(abc, line, verse, index, syllable, divider = ' ', voice = '
 // and set(pos, entry) read and change one verse; text() writes every changed line, one w: block at a time from the
 // last, so the places found for earlier lines still hold.
 function lyricSession(abc, voice, verse, tune = ABCJS.parseOnly(abc)[0]) {
-  const slots = lyricSlots(tune, voice),
+  const slots = lyricSlots(tune, voice, abc),
     notes = slots.flatMap((slot, k) => slot.notes.map((element, index) => ({k, index, element}))),
     rows = new Map(),
     changed = new Set();
@@ -919,9 +935,10 @@ function voiceLyrics(abc, voice = '0:0', verse = 0, tune = ABCJS.parseOnly(abc)[
 // note (passing a note with nothing typed leaves it as it is); - saves it with a hyphen to the next syllable, _ holds
 // it over the next note and * leaves the next note without one. With nothing typed, - and _ carry the syllable before
 // on through this note and * takes this note's syllable away. As in a w: line, a space straight after -, _ or *
-// only separates; after says the typing before this text ended with -, _ or *. Returns {abc, pos, rest, after}: the
-// text, the note typing has reached (the number of notes when past the last), what was typed after the last of these
-// keys, and whether the text ended with -, _ or *.
+// only separates; after says the typing before this text ended with -, _ or *. A backslash makes the next character
+// part of the syllable, as in a w: line. Returns {abc, pos, rest, after, over}: the text, the note typing has reached
+// (the number of notes when past the last), what was typed after the last of these keys, whether the text ended with
+// -, _ or *, and whether words typed past the last note were left out.
 function typeLyrics(abc, voice, verse, pos, typed, tune = ABCJS.parseOnly(abc)[0], after = false) {
   const s = lyricSession(abc, voice, verse, tune),
     count = s.notes.length;
@@ -933,12 +950,19 @@ function typeLyrics(abc, voice, verse, pos, typed, tune = ABCJS.parseOnly(abc)[0
       if (x) return s.set(q, {...x, divider});
     }
   };
-  let word = '';
-  for (const c of String(typed)) {
-    if (pos >= count) break;
-    if (!' -_*'.includes(c)) {
+  const chars = [...String(typed)];
+  let word = '',
+    escaped = false,
+    i = 0;
+  for (; i < chars.length && pos < count; i++) {
+    const c = chars[i];
+    if (escaped || !' -_*\\'.includes(c)) {
       word += c;
-      after = false;
+      after = escaped = false;
+      continue;
+    }
+    if (c === '\\') {
+      escaped = true;
       continue;
     }
     const w = tidyLyric(word),
@@ -962,7 +986,13 @@ function typeLyrics(abc, voice, verse, pos, typed, tune = ABCJS.parseOnly(abc)[0
     }
     pos++;
   }
-  return {abc: s.text(), pos: Math.min(pos, count), rest: word, after: after && !word};
+  return {
+    abc: s.text(),
+    pos: Math.min(pos, count),
+    rest: word + (escaped ? '\\' : ''),
+    after: after && !word,
+    over: /[^ \-_*\\]/.test(chars.slice(i).join(''))
+  };
 }
 // For the hint about lyrics that may no longer line up: each line of music with verses under it, as {voice, line,
 // notes (how many lyric notes), words (the verse text)}.
@@ -972,7 +1002,7 @@ function lyricLines(abc, tune = ABCJS.parseOnly(abc)[0]) {
     (line.staff || []).forEach((staff, s) => staff.voices.forEach((_, v) => voices.add(s + ':' + v)));
   const out = [];
   for (const voice of voices)
-    for (const slot of lyricSlots(tune, voice)) {
+    for (const slot of lyricSlots(tune, voice, abc)) {
       const {verses} = lyricVerses(abc, slot);
       if (verses.length)
         out.push({voice, line: slot.line, notes: slot.notes.length, words: verses.map(v => v.text).join('\n')});

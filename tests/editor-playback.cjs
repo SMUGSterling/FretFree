@@ -2435,7 +2435,8 @@ async function checkLyrics() {
   press('Tab', true);
   assert.equal(box(), 'TWIN', 'Shift+Tab moves back');
   press('Escape');
-  // A second line of music has its own w: line; Space at the last note closes the box.
+  // A second line of music has its own w: line; typing past the last note keeps the box open after it, where more
+  // words go nowhere (letters never reach the score) and Enter starts the next verse.
   pick(11);
   key('l');
   type('won-der what ');
@@ -2445,8 +2446,18 @@ async function checkLyrics() {
     'X:1\nT:Twinkle\nM:4/4\nL:1/4\nK:C\nCCGG|AAG2|\nw: Twin-kle TWIN-kle\nw: Up a-bove the\nFFEE|DDC2|]\nw: * * * * won-der what\n',
     'Notes before the first syllable of a line are skipped with *'
   );
-  assert.equal(box(), null, 'Typing past the last note closes the box');
-  assert.equal(status(), 'That was the last note. Lyrics saved.');
+  assert.equal(box(), '', 'Typing past the last note keeps the box open');
+  assert.equal(status(), 'That was the last note. Enter starts verse 2.');
+  assert.match(run("$('lyric-hint').textContent"), /^No more notes · Enter verse 2/);
+  const ended = abc();
+  type('and a b ');
+  assert.equal(abc(), ended, 'Words past the last note change nothing');
+  assert.equal(status(), 'No more notes for those words. Enter starts verse 2.');
+  assert.equal(selected(), 'C2', 'The last note stays selected');
+  press('Enter');
+  assert.deepEqual([run("$('lyric-verse').textContent"), selected(), box()], ['Verse 2', 'D', ''], 'Enter goes on');
+  press('Escape');
+  assert.equal(abc(), ended);
   // Backspace in an empty box goes back a note; an empty box takes a syllable away.
   pick(13);
   key('l');
@@ -2513,6 +2524,35 @@ async function checkLyrics() {
   pick(0);
   key('ArrowUp');
   assert.equal(run("$('lyric-check').hidden"), true, 'A pitch change hides it');
+  // Lines with the same words are told apart by their order.
+  run(
+    `openScore({abc:${JSON.stringify('X:1\nL:1/4\nK:C\nC D E F|\nw: la la la la\nG A B c d|\nw: la la la la\n')},instrument:'Flute'})`
+  );
+  pick(1);
+  key('g');
+  assert.equal(run("$('lyric-check').hidden"), false, 'A new note under a refrain shows the check');
+  // A syllable's own hyphen is shown as a look-alike, so it is not read as the hyphen key and stays in the syllable;
+  // a backslash typed before a mark keeps it in the syllable too.
+  run(`openScore({abc:${JSON.stringify('X:1\nL:1/4\nK:C\nC D E F|\nw: mid\\-day sun hot\n')},instrument:'Flute'})`);
+  pick(0);
+  key('l');
+  assert.equal(box(), 'mid\u2010day');
+  run("(i=>{i.value+='s';i.dispatchEvent(new Event('input'))})($('lyric-input'))");
+  assert.deepEqual([box(), words()], ['mid\u2010days', ['w: mid\\-day sun hot']], 'Typing at its end keeps it whole');
+  type(' ');
+  assert.deepEqual([words(), box()], [['w: mid\\-days sun hot'], 'sun']);
+  type('a\\-b ');
+  assert.deepEqual(words(), ['w: mid\\-days a\\-b hot'], 'A backslash keeps a mark in the syllable');
+  press('Escape');
+  // A voice written after & shares the words of the staff's first voice, so it cannot have its own.
+  run(`openScore({abc:${JSON.stringify('X:1\nL:1/4\nK:C\nC D E F & c d e f|]\n')},instrument:'Flute'})`);
+  run("selectEntry(scoreNotes().find(e => voiceOf(e) === '0:1'))");
+  key('l');
+  assert.deepEqual(
+    [box(), status()],
+    [null, 'Lyrics go under the first voice of a staff, not a voice written after &.'],
+    'L explains why a voice after & takes no words'
+  );
   // The words survive transposing, another instrument, saving, share links and exports.
   run(
     `openScore({abc:${JSON.stringify(twinkle.replace('G|AAG2|\n', 'G|AAG2|\nw: Twin-kle twin-kle lit-tle star\n'))},instrument:'Flute'})`
@@ -3282,7 +3322,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), lyrics (L, the Lyrics button and the note menu, Space, -, _ and * as typed, Enter for the next verse, Tab, Shift+Tab and Backspace, rests passed over, saving on blur, one undo per syllable, the check after notes change, and words kept through transposing, instruments, share links and ABC, MusicXML and SVG export), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), lyrics (L, the Lyrics button and the note menu, Space, -, _ and * as typed, Enter for the next verse, the box kept open past the last note, Tab, Shift+Tab and Backspace, rests passed over, saving on blur, one undo per syllable, the check after notes change (refrains too), marks kept inside a syllable, voices after &, and words kept through transposing, instruments, share links and ABC, MusicXML and SVG export), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

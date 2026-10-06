@@ -1859,14 +1859,22 @@ $('chord-next').addEventListener('click', () => commitChord(1));
 // on or back, Enter starts the next verse at the note where typing started, and Escape (or a click elsewhere) saves
 // and closes. Each save is one undo step. Words go under the notes of the selected note's voice, not under rests.
 let lyricEditing = null;
-// The selected voice's lyric notes for the current source: {notes, at (startChar to place)}, parsed once per text.
+// The selected voice's lyric notes for the current source: {notes, at (startChar to place), overlaid (startChars of
+// notes and rests in a voice written with &, which cannot have words)}, parsed once per text.
 let lyricMemo = {source: null, tune: null, voices: new Map()};
 function lyricPlaces(voice) {
   const source = $('abc').value;
   if (lyricMemo.source !== source) lyricMemo = {source, tune: ABCJS.parseOnly(source)[0], voices: new Map()};
   if (!lyricMemo.voices.has(voice)) {
-    const notes = lyricSlots(lyricMemo.tune, voice).flatMap(s => s.notes);
-    lyricMemo.voices.set(voice, {notes, at: new Map(notes.map((e, i) => [e.startChar, i]))});
+    const slots = lyricSlots(lyricMemo.tune, voice, source),
+      notes = slots.flatMap(s => s.notes),
+      kept = new Set(slots.map(s => s.line)),
+      overlaid = new Set(
+        lyricSlots(lyricMemo.tune, voice)
+          .filter(s => !kept.has(s.line))
+          .flatMap(s => s.elements.map(e => e.startChar))
+      );
+    lyricMemo.voices.set(voice, {notes, at: new Map(notes.map((e, i) => [e.startChar, i])), overlaid});
   }
   return lyricMemo.voices.get(voice);
 }
@@ -1874,9 +1882,9 @@ function lyricPlaces(voice) {
 function lyricStart(sel) {
   if (!sel) return null;
   const voice = voiceOf(sel.entry),
-    {notes, at} = lyricPlaces(voice),
+    {notes, at, overlaid} = lyricPlaces(voice),
     start = sel.entry.element.startChar,
-    pos = at.get(start) ?? notes.findIndex(e => e.startChar > start);
+    pos = overlaid.has(start) ? -1 : (at.get(start) ?? notes.findIndex(e => e.startChar > start));
   return pos >= 0 ? {voice, pos} : null;
 }
 // The syllable on a lyric note in a verse ({syllable, divider}), or null.
@@ -1894,7 +1902,17 @@ const lyricWhy = sel =>
     ? 'Select a note on the score first.'
     : lyricStart(sel)
       ? ''
-      : 'Lyrics go under notes. There is no note after this rest in its staff.';
+      : lyricPlaces(voiceOf(sel.entry)).overlaid.has(sel.entry.element.startChar)
+        ? 'Lyrics go under the first voice of a staff, not a voice written after &.'
+        : 'Lyrics go under notes. There is no note after this rest in its staff.';
+// A syllable's own -, _ and * are shown in the box as look-alikes, so they are not read as the typing keys, and are
+// written back as they were.
+const LYRIC_MARKS = {'-': '\u2010', _: '\u02cd', '*': '\u2217'},
+  LYRIC_PLAIN = Object.fromEntries(Object.entries(LYRIC_MARKS).map(([plain, shown]) => [shown, plain])),
+  shownSyllable = text => String(text).replace(/[-_*]/g, c => LYRIC_MARKS[c]),
+  // For typeLyrics, which reads a backslash as making the next character plain.
+  typedSyllable = (text, escape = true) =>
+    String(text).replace(/[\u2010\u02cd\u2217]/g, c => (escape ? '\\' : '') + LYRIC_PLAIN[c]);
 // The bottom of a drawn note's staff (the nearest one across from it), or of the words under it on that line, in page
 // pixels, or null.
 function lyricRowBottom(noteEl) {
@@ -1936,23 +1954,28 @@ function placeLyricEntry(element) {
 function lyricHint() {
   const e = lyricEditing;
   if (!e) return;
-  $('lyric-hint').textContent =
-    !$('lyric-input').value && e.had
+  $('lyric-hint').textContent = e.end
+    ? `No more notes · Enter verse ${e.verse + 2} · Backspace goes back · Esc done`
+    : !$('lyric-input').value && e.had
       ? 'Empty removes the syllable · Backspace goes back · * leaves this note out'
       : `Space next note · - hyphen · _ hold · * no syllable · Enter verse ${e.verse + 2} · Esc done`;
 }
 // Open the box on lyric note pos of a voice in a verse; run is the note where this run of typing started (Enter goes
 // back to it), and opener the toolbar button to give the keyboard back to. typed is text already typed for this note,
-// and after says the box came here by -, _ or * (a space typed next only separates, see typeLyrics).
+// and after says the box came here by -, _ or * (a space typed next only separates, see typeLyrics). Typing past the
+// last note leaves the box open after it (pos is then the number of notes), so Enter can still start the next verse
+// and keys typed there never reach the score.
 function openLyricAt({voice, verse, pos, run = pos, opener = null}, typed = null, after = false) {
-  const element = lyricPlaces(voice).notes[pos],
+  const {notes} = lyricPlaces(voice),
+    end = pos === notes.length,
+    element = notes[end ? pos - 1 : pos],
     entry = element && scoreNotes().find(e => e.element.startChar === element.startChar);
   if (!entry) return false;
   selectEntry(entry);
-  const had = lyricAt(voice, verse, pos);
-  lyricEditing = {voice, verse, pos, run, opener, had, after, source: $('abc').value};
+  const had = end ? null : lyricAt(voice, verse, pos);
+  lyricEditing = {voice, verse, pos, run, opener, had, after, end, source: $('abc').value};
   const input = $('lyric-input');
-  input.value = typed ?? had?.syllable ?? '';
+  input.value = typed ?? shownSyllable(had?.syllable ?? '');
   input.setAttribute('aria-label', `Lyrics, verse ${verse + 1}`);
   $('lyric-verse').textContent = `Verse ${verse + 1}`;
   $('lyric-entry').hidden = false;
@@ -1962,7 +1985,9 @@ function openLyricAt({voice, verse, pos, run = pos, opener = null}, typed = null
   if (typed) input.setSelectionRange(typed.length, typed.length);
   else input.select();
   $('lyric-entry').scrollIntoView?.({block: 'nearest'});
-  $('selection-status').textContent = `Lyrics, verse ${verse + 1}, measure ${entry.measure}.`;
+  $('selection-status').textContent = end
+    ? `That was the last note. Enter starts verse ${verse + 2}.`
+    : `Lyrics, verse ${verse + 1}, measure ${entry.measure}.`;
   return true;
 }
 function openLyricEntry(sel, opener = null, verse = 0) {
@@ -2007,13 +2032,13 @@ function typeLyric(typed) {
   if (!editing) return;
   lyricPlaces(editing.voice);
   const {voice, verse, pos, after} = editing,
-    done = typeLyrics(lyricMemo.source, voice, verse, pos, typed, lyricMemo.tune, after);
+    done = typeLyrics(lyricMemo.source, voice, verse, pos, typedSyllable(typed), lyricMemo.tune, after);
   lyricEditing = null;
   saveLyrics(done.abc);
-  if (!openLyricAt({...editing, pos: done.pos}, done.rest || null, done.after)) {
+  if (!openLyricAt({...editing, pos: done.pos}, done.rest ? shownSyllable(done.rest) : null, done.after))
     closeLyricEntry(editing);
-    $('selection-status').textContent = 'That was the last note. Lyrics saved.';
-  }
+  else if (done.over)
+    $('selection-status').textContent = `No more notes for those words. Enter starts verse ${verse + 2}.`;
 }
 // Save the box as it is (an empty box takes the syllable away), then move: step notes on or back, verse to the next
 // verse at the note where typing started, or close the box, sending the keyboard to focusTo. A note clicked while the
@@ -2021,7 +2046,7 @@ function typeLyric(typed) {
 function finishLyric({step = 0, verse = false, focusTo = null} = {}) {
   const editing = lyricCurrent();
   if (!editing) return;
-  const word = tidyLyric($('lyric-input').value),
+  const word = tidyLyric(typedSyllable($('lyric-input').value, false)),
     had = editing.had;
   lyricEditing = null;
   $('lyric-entry').hidden = true;
@@ -2032,13 +2057,15 @@ function finishLyric({step = 0, verse = false, focusTo = null} = {}) {
     session.set(editing.pos, word ? {syllable: word, divider: had?.divider || ' '} : null);
     saved = saveLyrics(session.text());
   }
-  const message = !saved ? '' : word ? `Lyric “${word}” saved.` : 'Syllable removed.';
+  let message = !saved ? '' : word ? `Lyric “${word}” saved.` : 'Syllable removed.';
+  if (editing.end && word) message = 'No more notes for those words.';
   if (verse && openLyricAt({...editing, verse: editing.verse + 1, pos: editing.run})) return;
   if (step) {
     if (openLyricAt({...editing, pos: editing.pos + step})) return;
-    $('selection-status').textContent =
-      (message ? message + ' ' : '') + (step > 0 ? 'That was the last note.' : 'That was the first note.');
     openLyricAt(editing);
+    $('selection-status').textContent =
+      (message ? message + ' ' : '') +
+      (step > 0 ? `That was the last note. Enter starts verse ${editing.verse + 2}.` : 'That was the first note.');
     return;
   }
   const clicked =
@@ -2048,7 +2075,8 @@ function finishLyric({step = 0, verse = false, focusTo = null} = {}) {
     );
   if (clicked) selectEntry(clicked);
   else {
-    const element = lyricPlaces(editing.voice).notes[editing.pos],
+    const {notes} = lyricPlaces(editing.voice),
+      element = notes[Math.min(editing.pos, notes.length - 1)],
       entry = element && scoreNotes().find(e => e.element.startChar === element.startChar);
     if (entry) selectEntry(entry);
   }
@@ -2095,14 +2123,21 @@ $('notation').addEventListener(
 $('lyric-next').addEventListener('mousedown', e => e.preventDefault());
 $('lyric-next').addEventListener('click', () => finishLyric({step: 1}));
 // After notes are added to or taken from a line with words under it, the words may no longer fit the notes: say so
-// until the next change. Lines are told apart by their words, so changing the words themselves says nothing, and
-// neither does opening another score (which starts a new undo history).
+// until the next change. Lines are told apart by their words (and, for lines with the same words, by their order), so
+// changing the words themselves says nothing, and neither does opening another score (which starts a new undo history).
 let lyricCounts = null;
 function checkLyricLines(original) {
   // The lyrics box and the toolbar read the notes from this parse too, rather than parsing the score again.
   if (lyricMemo.source !== renderedSource) lyricMemo = {source: renderedSource, tune: original, voices: new Map()};
   if (lyricCounts?.source === renderedSource && lyricCounts.history === editHistory) return;
-  const counts = new Map(lyricLines(renderedSource, original).map(l => [l.voice + '\u0000' + l.words, l.notes])),
+  const seen = new Map(),
+    counts = new Map(
+      lyricLines(renderedSource, original).map(l => {
+        const key = l.voice + '\u0000' + l.words;
+        seen.set(key, (seen.get(key) || 0) + 1);
+        return [key + '\u0000' + seen.get(key), l.notes];
+      })
+    ),
     before = lyricCounts?.history === editHistory ? lyricCounts.counts : null;
   lyricCounts = {history: editHistory, source: renderedSource, counts};
   $('lyric-check').hidden = !before || ![...counts].some(([key, n]) => before.has(key) && before.get(key) !== n);
