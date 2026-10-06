@@ -806,10 +806,11 @@ $('keyboard-help').open = foldState['keyboard-help'] === true;
 $('keyboard-help').addEventListener('toggle', e =>
   storage.set(KEYS.studioPanels, Object.assign(foldState, {'keyboard-help': e.target.open}))
 );
-// Opens the fold around el, for code that moves the focus into it (a deep link to Transpose…, say).
+// Opens the fold around el when the fold hides it, for code that moves the focus into it (the bar check's Show, which
+// selects a bar in the ABC text). Wide screens fold nothing, so there the remembered choice stays as it was.
 function revealFold(el) {
   const fold = el?.closest('.panel-body, #practice-panel, #view-options');
-  if (fold && !fold.classList.contains('open')) setFold(fold.id, true);
+  if (fold && !fold.classList.contains('open') && !el.getClientRects().length) setFold(fold.id, true);
 }
 // A folded toggle says when something inside it is on, so a student can see that Loop or a 70% speed is still active.
 function markFold(id, on, words) {

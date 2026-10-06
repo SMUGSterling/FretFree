@@ -4019,10 +4019,46 @@ const {chromium} = require('playwright'),
       assert.ok(await noSideways(wide), `No sideways scroll at ${width}px`);
     }
     assert.ok((await notationTop(wide)) <= 820, 'The score starts high on the page at 1440px');
-    // The keyboard keys open from their summary by keyboard and by pointer, and stay open after a reload.
+    // The palette's group headings are small text, so they need 4.5:1 against the page in both themes.
+    for (const colorScheme of ['light', 'dark']) {
+      await wide.emulateMedia({colorScheme});
+      const ratios = await wide.evaluate(() => {
+        const parse = c => c.match(/[\d.]+/g).map(Number),
+          channel = v => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4),
+          lum = ([r, g, b]) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b),
+          background = el => {
+            for (; el; el = el.parentElement) {
+              const c = parse(getComputedStyle(el).backgroundColor);
+              if (c.length < 4 || c[3] > 0) return c.slice(0, 3);
+            }
+            return [255, 255, 255];
+          };
+        return [...document.querySelectorAll('.palette [data-heading]')].map(group => {
+          const style = getComputedStyle(group, '::before'),
+            bg = background(group),
+            alpha = (parse(style.color)[3] ?? 1) * +style.opacity,
+            fg = parse(style.color)
+              .slice(0, 3)
+              .map((v, i) => v * alpha + bg[i] * (1 - alpha));
+          return (Math.max(lum(fg), lum(bg)) + 0.05) / (Math.min(lum(fg), lum(bg)) + 0.05);
+        });
+      });
+      assert.ok(ratios.length && Math.min(...ratios) >= 4.5, `Palette headings reach 4.5:1 (${colorScheme})`);
+    }
+    await wide.emulateMedia({colorScheme: 'light'});
+    // The note-entry bar wraps at 1280px; no divider is left hanging at the start of its second row.
+    assert.equal(
+      await wide.evaluate(() => getComputedStyle(document.querySelector('#edit-bar .selection-tools')).borderLeftStyle),
+      'none'
+    );
+    // The keyboard keys open from their summary by keyboard and by pointer, and stay open after a reload. The
+    // details element saves its state from its toggle event, which comes a moment after the key press.
     await wide.focus('#keyboard-help > summary');
     await wide.keyboard.press('Enter');
     assert.ok(await wide.isVisible('#keyboard-help .kb-groups'), 'Enter opens the keyboard keys');
+    await wide.waitForFunction(
+      () => JSON.parse(localStorage.getItem('fretfree-studio-panels') || '{}')['keyboard-help'] === true
+    );
     await openOde(wide);
     assert.ok(await wide.evaluate(() => $('keyboard-help').open), 'The keyboard keys stay open after a reload');
     await wide.click('#keyboard-help > summary');
@@ -4095,30 +4131,140 @@ const {chromium} = require('playwright'),
       1,
       "Practice's name says its settings are on"
     );
+    // Folded and in use looks different from open: a badge on the corner, no underline, and the mark points down.
+    const look = id =>
+      phone.evaluate(id => {
+        const b = $(id),
+          badge = b.querySelector('.disclose-badge');
+        return {
+          badge: badge.getClientRects().length > 0,
+          underline: getComputedStyle(b).boxShadow !== 'none',
+          up: getComputedStyle(b.querySelector('.disclose-mark')).transform !== 'none'
+        };
+      }, id);
+    assert.deepEqual(
+      await look('practice-toggle'),
+      {badge: true, underline: false, up: false},
+      'Folded with Loop on: the badge shows'
+    );
     await phone.evaluate(() => {
       $('loop').checked = false;
       $('loop').dispatchEvent(new Event('change', {bubbles: true}));
     });
     assert.equal(await phone.evaluate(() => $('practice-toggle').classList.contains('in-use')), false);
+    assert.deepEqual(await look('practice-toggle'), {badge: false, underline: false, up: false}, 'A plain toggle');
+    await phone.tap('#practice-toggle');
+    assert.deepEqual(
+      await look('practice-toggle'),
+      {badge: false, underline: true, up: true},
+      'Open: the underline, and the mark points up'
+    );
+    // Touch sizes on a phone: the practice band's buttons and boxes are 40px tall, and the sliders take the rest of
+    // their rows.
+    const sizes = await phone.evaluate(() =>
+      Object.fromEntries(
+        ['speed-reset', 'start-measure', 'end-measure', 'trainer-goal', 'speed', 'volume'].map(id => {
+          const r = $(id).getBoundingClientRect();
+          return [id, [r.width, r.height]];
+        })
+      )
+    );
+    for (const id of ['speed-reset', 'start-measure', 'end-measure', 'trainer-goal'])
+      assert.ok(sizes[id][1] >= 40, `${id} is at least 40px tall on a phone: ${sizes[id]}`);
+    assert.ok(sizes.speed[0] >= 150, `The speed slider takes the rest of its row: ${sizes.speed}`);
+    assert.ok(sizes.volume[0] > 72, `Volume takes the rest of its row: ${sizes.volume}`);
+    await phone.tap('#practice-toggle');
+    // Every selection button's label fits inside it, at 390 and 360px.
+    for (const width of [390, 360]) {
+      await phone.setViewportSize({width, height: 844});
+      assert.deepEqual(
+        await phone.evaluate(() =>
+          [...document.querySelectorAll('#edit-bar .selection-tools button')]
+            .filter(b => b.scrollWidth > b.clientWidth)
+            .map(b => b.id)
+        ),
+        [],
+        `The selection buttons' labels fit at ${width}px`
+      );
+    }
+    await phone.setViewportSize({width: 390, height: 844});
+    // Folded, Write notes & ABC shows that the ABC has warnings, and screen readers still have them (a live region).
+    await phone.evaluate(() => {
+      dirty = false;
+      openScore({abc: 'X:1\nT:Warning\nM:4/4\nL:1/4\nK:C\nC D E F | !nonsense! G A B c |]', instrument: 'Flute'});
+    });
+    await phone.waitForFunction(() => $('write-toggle').classList.contains('in-use'));
+    assert.equal(await phone.isVisible('#abc'), false, 'Write notes is folded');
+    assert.deepEqual(
+      await look('write-toggle'),
+      {badge: true, underline: false, up: false},
+      'The warnings badge shows'
+    );
+    assert.match(
+      await phone.locator('#write-notes').ariaSnapshot(),
+      /status: .*Unknown decoration/,
+      'The folded warnings stay in the accessibility tree'
+    );
+    assert.equal(
+      await phone.getByRole('button', {name: /Write notes & ABC \(check the ABC warnings\)/}).count(),
+      1,
+      "Write notes' name says so"
+    );
+    await openOde(phone);
+    assert.equal(await phone.evaluate(() => $('write-toggle').classList.contains('in-use')), false);
     // The palette's second tier waits behind More, and the arrow keys skip it while it is folded.
     const tier2 = () =>
       phone.locator('#palette > .tier-2').evaluateAll(els => els.filter(el => el.getClientRects().length).length);
     assert.equal(await tier2(), 0, 'The second tier is folded on a phone');
+    assert.ok(
+      (await phone.isVisible('[data-palette="chord"]')) && (await phone.isVisible('[data-palette="lyric"]')),
+      'Chord and Lyrics stay in view with the second tier folded'
+    );
     await phone.locator('#notation .abcjs-notehead').first().tap({force: true});
     await phone.focus('[data-palette="respell"]');
     await phone.keyboard.press('ArrowRight');
     assert.equal(
       await phone.evaluate(() => document.activeElement.dataset.palette),
+      'chord',
+      'ArrowRight from Respell skips the folded Beam, Articulation and Dynamics'
+    );
+    await phone.focus('[data-palette="lyric"]');
+    await phone.keyboard.press('ArrowRight');
+    assert.equal(
+      await phone.evaluate(() => document.activeElement.dataset.palette),
       'more',
-      'ArrowRight from Respell goes to More while the second tier is folded'
+      'ArrowRight from Lyrics skips the folded Lines and Grace notes'
     );
     await phone.keyboard.press('Enter');
-    assert.equal(await tier2(), 7, 'More shows the second tier');
+    assert.equal(await tier2(), 5, 'More shows the second tier');
     await phone.focus('[data-palette="respell"]');
     await phone.keyboard.press('ArrowRight');
     assert.equal(await phone.evaluate(() => document.activeElement.dataset.palette), 'beam:join');
     await phone.click('[data-palette="more"]');
     assert.equal(await tier2(), 0, 'Closing More folds the second tier again');
+    // More opens the second tier above itself, so the page scrolls by as much: More stays under the finger, and the
+    // marks it opens below it stay on screen.
+    const moreTop = () =>
+      phone.evaluate(() => document.querySelector('[data-palette="more"]').getBoundingClientRect().top);
+    await phone.evaluate(() => {
+      const more = document.querySelector('[data-palette="more"]');
+      window.scrollTo({top: more.getBoundingClientRect().top + scrollY - 500, behavior: 'instant'});
+    });
+    const moreAt = await moreTop();
+    await phone.tap('[data-palette="more"]');
+    assert.equal(await tier2(), 5);
+    assert.ok(Math.abs((await moreTop()) - moreAt) < 2, 'Opening More leaves it where it was');
+    assert.ok(
+      await phone.evaluate(
+        () =>
+          $('palette-more').querySelector('[data-palette="deco:arpeggio"]').getBoundingClientRect().bottom <=
+          innerHeight
+      ),
+      'The marks under More are on screen'
+    );
+    await phone.tap('[data-palette="more"]');
+    assert.equal(await tier2(), 0);
+    assert.ok(Math.abs((await moreTop()) - moreAt) < 2, 'Closing More leaves it where it was');
     await context.close();
 
     // iPad: one column, the folds work by touch, and Key still leads to its choice in tab order.
@@ -4128,6 +4274,22 @@ const {chromium} = require('playwright'),
     await openOde(ipad);
     assert.ok(await noSideways(ipad), 'No sideways scroll at 820px');
     assert.ok((await notationTop(ipad)) < 1000, 'The score starts within the first screen on an iPad');
+    // Turned upright, an iPad folds the second tier; if one of its buttons held the toolbar's tab stop, More takes it.
+    await ipad.setViewportSize({width: 1180, height: 820});
+    await ipad.focus('[data-palette="respell"]');
+    await ipad.keyboard.press('ArrowRight');
+    assert.equal(await ipad.evaluate(() => document.activeElement.dataset.palette), 'beam:join');
+    await ipad.setViewportSize({width: 820, height: 1180});
+    await ipad.waitForFunction(() => document.querySelector('[data-palette="more"]').tabIndex === 0, null, {
+      timeout: 5000
+    });
+    await ipad.focus('#duplicate-notes');
+    await ipad.keyboard.press('Tab');
+    assert.equal(
+      await ipad.evaluate(() => document.activeElement.dataset.palette),
+      'more',
+      'Tab from the selection tools reaches the toolbar'
+    );
     await ipad.tap('#settings-toggle');
     assert.ok(await ipad.isVisible('#key'), 'Score settings opens by touch');
     await ipad.selectOption('#key', 'G');
@@ -4135,6 +4297,24 @@ const {chromium} = require('playwright'),
     await ipad.keyboard.press('Tab');
     assert.equal(await ipad.evaluate(() => document.activeElement.id), 'key-transpose', 'Key → Transpose notes');
     await ipad.click('#key-cancel');
+    // The bar check's Show opens Write notes & ABC, then selects the bar in the ABC text.
+    await ipad.evaluate(() => {
+      dirty = false;
+      openScore({abc: 'X:1\nT:Bars\nM:4/4\nL:1/4\nK:C\nC D E F | G A B | c d e f g | a4 |]', instrument: 'Flute'});
+    });
+    await ipad.waitForSelector('[data-bar-fix="show"]');
+    assert.equal(await ipad.isVisible('#abc'), false, 'Write notes starts folded');
+    await ipad.tap('[data-bar-fix="show"]');
+    assert.deepEqual(
+      await ipad.evaluate(() => [
+        $('write-toggle').getAttribute('aria-expanded'),
+        document.activeElement.id,
+        $('abc').value.slice($('abc').selectionStart, $('abc').selectionEnd).trim()
+      ]),
+      ['true', 'abc', 'G A B |'],
+      'Show opens Write notes & ABC and selects the short bar'
+    );
+    assert.ok(await ipad.isVisible('#abc'));
     // Printing shows the score, not the layout's toggles and bands.
     await ipad.emulateMedia({media: 'print'});
     for (const selector of ['#edit-bar', '#help-row', '.panel-toggles', '#practice-toggle', '#view-toggle'])
@@ -4145,7 +4325,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: studio layout (every control shown at 1280 and 1440px, the score high on the page, keyboard keys by keyboard and pointer and remembered, folds by touch, pointer and keyboard at phone width, remembered after a reload, in-use marks, the palette’s second tier behind More and skipped by arrow keys, iPad tab order and touch, print), screen-reader note names on click, arrow keys and edits, the shortcut sheet (?, search, Enter, click, focus trap, Escape, over the note menu, fits the window and a phone) and an accessible name on every studio button, dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, road-map playback (the highlight and status line through a D.C. al Fine, from Play and from a note with Space), draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), tuplets and grace notes (T and letters filling and beaming the rests, staccato on and off and Delete in a triplet, the Tuplet menu by pointer, Grace, Grace ↑ and Slashed by pointer and keyboard, undo), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), lyrics (L, a verse typed with hyphens, Enter for the next verse with the box under it, undo, the toolbar button by keyboard, click away, a verse typed past the last note then Enter, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), WAV export (keyboard and pointer, a real download as long as playback at the chosen speed, 16-bit stereo at 44.1 kHz, sound from the first note, scaling, INFO credits, metronome, a summary that follows the Speed slider and the Instrument menu, the same file with progress checkpoints, Escape, a progress bar on a long score and closing the panel stopping its render at once, phone width), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, recording yourself (calibration by keyboard, a take lined up with the score within 50 ms, one pass with Loop on, not out of reach in another tab, kept with the score through a save and a reload, playing with the score, download, delete by keyboard, Escape, phone width, no off-site requests), offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
+    'PASS: studio layout (every control shown at 1280 and 1440px, the score high on the page, palette heading contrast, keyboard keys by keyboard and pointer and remembered, folds by touch, pointer and keyboard at phone width, remembered after a reload, in-use badges unlike the open look, warnings kept for screen readers while folded, phone touch sizes, the palette’s second tier behind More, skipped by arrow keys and More kept under the finger, Chord and Lyrics in view, the tab stop after an iPad turns, the bar check’s Show opening Write notes, iPad tab order and touch, print), screen-reader note names on click, arrow keys and edits, the shortcut sheet (?, search, Enter, click, focus trap, Escape, over the note menu, fits the window and a phone) and an accessible name on every studio button, dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, road-map playback (the highlight and status line through a D.C. al Fine, from Play and from a note with Space), draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), tuplets and grace notes (T and letters filling and beaming the rests, staccato on and off and Delete in a triplet, the Tuplet menu by pointer, Grace, Grace ↑ and Slashed by pointer and keyboard, undo), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), lyrics (L, a verse typed with hyphens, Enter for the next verse with the box under it, undo, the toolbar button by keyboard, click away, a verse typed past the last note then Enter, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), WAV export (keyboard and pointer, a real download as long as playback at the chosen speed, 16-bit stereo at 44.1 kHz, sound from the first note, scaling, INFO credits, metronome, a summary that follows the Speed slider and the Instrument menu, the same file with progress checkpoints, Escape, a progress bar on a long score and closing the panel stopping its render at once, phone width), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, recording yourself (calibration by keyboard, a take lined up with the score within 50 ms, one pass with Loop on, not out of reach in another tab, kept with the score through a save and a reload, playing with the score, download, delete by keyboard, Escape, phone width, no off-site requests), offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

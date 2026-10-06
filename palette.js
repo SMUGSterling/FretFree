@@ -135,6 +135,7 @@ function updatePalette() {
       ? `More marks (this note has ${listWords([...hidden.map(n => MARK_WORDS[n].toLowerCase()), ...folded])})`
       : 'More marks'
   );
+  keepPaletteTabStop();
   // Tuplet is marked while its menu is closed and the note is in a tuplet the menu holds, and its name says which.
   const tuplets = bar.querySelector('[data-palette="tuplets"]'),
     inMenu = $('palette-tuplets').hidden && state.tuplet && state.tuplet !== 3 ? tupletWord(state.tuplet) : '';
@@ -187,13 +188,17 @@ function pressPalette(b, keyboard = false) {
   const action = b.dataset.palette;
   if (action === 'more' || action === 'tuplets' || action === 'measure') {
     const panel = $(b.getAttribute('aria-controls')),
-      open = panel.hidden;
+      open = panel.hidden,
+      // In the compact layout More also opens or closes the second tier, which sits above it. The page scrolls by as
+      // much, so More stays under the finger and the marks it opens below it stay on screen.
+      top = action === 'more' && compactPalette() ? b.getBoundingClientRect().top : null;
     panel.hidden = !open;
     b.setAttribute('aria-expanded', open);
     $('palette').classList.toggle('more-open', !$('palette-more').hidden);
     // Closing hides buttons that may hold the tab stop, so the toggle takes it.
     paletteTabStop(b);
     updatePalette();
+    if (top !== null) window.scrollBy(0, b.getBoundingClientRect().top - top);
     if (!keyboard) focusScore();
     return;
   }
@@ -254,6 +259,14 @@ function pressPalette(b, keyboard = false) {
 function paletteTabStop(target) {
   for (const b of $('palette').querySelectorAll('[data-palette]')) b.tabIndex = b === target ? 0 : -1;
 }
+// When the compact layout folds the second tier while one of its buttons holds the tab stop (a window made narrower,
+// an iPad turned upright), More takes the stop, or Tab would pass the whole toolbar by.
+function keepPaletteTabStop() {
+  const stop = $('palette').querySelector('[data-palette][tabindex="0"]');
+  if (compactPalette() && $('palette-more').hidden && stop?.closest('.tier-2'))
+    paletteTabStop($('palette').querySelector('[data-palette="more"]'));
+}
+window.matchMedia?.('(max-width: 1100px)').addEventListener?.('change', keepPaletteTabStop);
 $('palette').addEventListener('keydown', e => {
   // Arrow keys skip hidden buttons, and in the compact layout the second tier while More is closed.
   const folded = compactPalette() && !$('palette').classList.contains('more-open'),

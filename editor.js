@@ -521,6 +521,7 @@ function insertToken(token) {
   const musicStart = keyLine.index + keyLine[0].length;
   if (start < musicStart) {
     toast('Place the cursor after the K: line to add notes.');
+    if (typeof revealFold === 'function') revealFold(area);
     area.focus();
     area.setSelectionRange(area.value.length, area.value.length);
     return;
@@ -3912,6 +3913,8 @@ $('bar-check').addEventListener('click', e => {
     start = m.notes[0].element.startChar,
     end = (m.bar || m.notes.at(-1).element).endChar;
   if (b.dataset.barFix === 'show') {
+    // Up to 1100px wide the ABC text may be folded away under Write notes & ABC (app.js); open it first.
+    if (typeof revealFold === 'function') revealFold(area);
     area.focus({preventScroll: true});
     area.setSelectionRange(start, end);
     const rect = $('notation').querySelector(`.bar-flag[data-measure="${m.measure}"]`);

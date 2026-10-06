@@ -12,34 +12,34 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-    <script src="theme.js?v=b548c3f354a0"></script>
-    <link rel="stylesheet" href="style.css?v=b548c3f354a0" />
-    <script defer src="vendor/abcjs-basic-min.js?v=b548c3f354a0"></script>
-    <script defer src="vendor/qrcode.js?v=b548c3f354a0"></script>
-    <script defer src="catalog.js?v=b548c3f354a0"></script>
-    <script defer src="catalog-expanded.js?v=b548c3f354a0"></script>
-    <script defer src="score-tools.js?v=b548c3f354a0"></script>
-    <script defer src="rights-tools.js?v=b548c3f354a0"></script>
-    <script defer src="musicxml.js?v=b548c3f354a0"></script>
-    <script defer src="catalog-licensed.js?v=b548c3f354a0"></script>
-    <script defer src="catalog-lieder.js?v=b548c3f354a0"></script>
-    <script defer src="catalog-quartets.js?v=b548c3f354a0"></script>
-    <script defer src="catalog-pgh.js?v=b548c3f354a0"></script>
-    <script defer src="catalog-skills.js?v=b548c3f354a0"></script>
-    <script defer src="prompts.js?v=b548c3f354a0"></script>
-    <script defer src="shared.js?v=b548c3f354a0"></script>
-    <script defer src="library.js?v=b548c3f354a0"></script>
-    <script defer src="backup.js?v=b548c3f354a0"></script>
-    <script defer src="editor.js?v=b548c3f354a0"></script>
-    <script defer src="measure-tools.js?v=b548c3f354a0"></script>
-    <script defer src="palette.js?v=b548c3f354a0"></script>
-    <script defer src="shortcuts.js?v=b548c3f354a0"></script>
-    <script defer src="playback.js?v=b548c3f354a0"></script>
-    <script defer src="keyboard.js?v=b548c3f354a0"></script>
-    <script defer src="assignments.js?v=b548c3f354a0"></script>
-    <script defer src="turn-in.js?v=b548c3f354a0"></script>
-    <script defer src="record.js?v=b548c3f354a0"></script>
-    <script defer src="app.js?v=b548c3f354a0"></script>
+    <script src="theme.js?v=78225761f4a9"></script>
+    <link rel="stylesheet" href="style.css?v=78225761f4a9" />
+    <script defer src="vendor/abcjs-basic-min.js?v=78225761f4a9"></script>
+    <script defer src="vendor/qrcode.js?v=78225761f4a9"></script>
+    <script defer src="catalog.js?v=78225761f4a9"></script>
+    <script defer src="catalog-expanded.js?v=78225761f4a9"></script>
+    <script defer src="score-tools.js?v=78225761f4a9"></script>
+    <script defer src="rights-tools.js?v=78225761f4a9"></script>
+    <script defer src="musicxml.js?v=78225761f4a9"></script>
+    <script defer src="catalog-licensed.js?v=78225761f4a9"></script>
+    <script defer src="catalog-lieder.js?v=78225761f4a9"></script>
+    <script defer src="catalog-quartets.js?v=78225761f4a9"></script>
+    <script defer src="catalog-pgh.js?v=78225761f4a9"></script>
+    <script defer src="catalog-skills.js?v=78225761f4a9"></script>
+    <script defer src="prompts.js?v=78225761f4a9"></script>
+    <script defer src="shared.js?v=78225761f4a9"></script>
+    <script defer src="library.js?v=78225761f4a9"></script>
+    <script defer src="backup.js?v=78225761f4a9"></script>
+    <script defer src="editor.js?v=78225761f4a9"></script>
+    <script defer src="measure-tools.js?v=78225761f4a9"></script>
+    <script defer src="palette.js?v=78225761f4a9"></script>
+    <script defer src="shortcuts.js?v=78225761f4a9"></script>
+    <script defer src="playback.js?v=78225761f4a9"></script>
+    <script defer src="keyboard.js?v=78225761f4a9"></script>
+    <script defer src="assignments.js?v=78225761f4a9"></script>
+    <script defer src="turn-in.js?v=78225761f4a9"></script>
+    <script defer src="record.js?v=78225761f4a9"></script>
+    <script defer src="app.js?v=78225761f4a9"></script>
   </head>
   <body>
     <header>
@@ -331,7 +331,8 @@
                 aria-controls="write-notes"
               >
                 Write notes &amp; ABC <span class="disclose-state sr-only"></span
-                ><span class="disclose-mark" aria-hidden="true">▾</span>
+                ><span class="disclose-mark" aria-hidden="true">▾</span
+                ><span class="disclose-badge warn" aria-hidden="true">!</span>
               </button>
             </div>
             <div id="score-settings" class="panel-body">
@@ -523,7 +524,8 @@
                 aria-controls="practice-panel"
               >
                 <span aria-hidden="true">⏱</span> Practice <span class="disclose-state sr-only"></span
-                ><span class="disclose-mark" aria-hidden="true">▾</span></button
+                ><span class="disclose-mark" aria-hidden="true">▾</span
+                ><span class="disclose-badge" aria-hidden="true">on</span></button
               ><span id="play-status" role="status">Ready to play</span>
             </div>
             <div id="practice-panel" class="practice-controls" role="group" aria-label="Practice">
@@ -805,12 +807,12 @@
                   sfz
                 </button>
               </div>
-              <div role="group" aria-label="Chord symbol" class="tier-2" data-heading="Text">
+              <div role="group" aria-label="Chord symbol" data-heading="Text">
                 <button data-palette="chord" aria-label="Chord symbol" aria-keyshortcuts="K" title="Chord symbol (K)">
                   Chord
                 </button>
               </div>
-              <div role="group" aria-label="Lyrics" class="tier-2">
+              <div role="group" aria-label="Lyrics">
                 <button
                   data-palette="lyric"
                   aria-label="Lyrics"
@@ -1054,7 +1056,8 @@
                 aria-controls="view-options"
               >
                 <span aria-hidden="true">👁</span> View <span class="disclose-state sr-only"></span
-                ><span class="disclose-mark" aria-hidden="true">▾</span>
+                ><span class="disclose-mark" aria-hidden="true">▾</span
+                ><span class="disclose-badge" aria-hidden="true">on</span>
               </button>
               <div id="view-options" class="view-options" role="group" aria-label="View options">
                 <label class="inline view-option"

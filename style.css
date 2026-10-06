@@ -1998,6 +1998,7 @@ input[type='range'] {
 }
 .disclose {
   display: none;
+  position: relative;
   min-height: 40px;
   padding: 6px 12px;
   font-size: 13px;
@@ -2006,10 +2007,42 @@ input[type='range'] {
   align-items: center;
   gap: 4px;
 }
-.disclose[aria-expanded='true'],
-.disclose.in-use {
+/* Open: the green underline, and the mark points up. */
+.disclose[aria-expanded='true'] {
   border-color: var(--green);
   box-shadow: inset 0 -3px 0 var(--green);
+}
+.disclose-mark {
+  display: inline-block;
+}
+.disclose[aria-expanded='true'] .disclose-mark {
+  transform: rotate(180deg);
+}
+/* Something inside is on (Loop, a slower speed, note names), or the ABC has warnings: a badge on the corner, so a
+   folded toggle shows it. Screen readers get the words from .disclose-state instead; the badge is aria-hidden. */
+.disclose-badge {
+  display: none;
+}
+.disclose.in-use .disclose-badge {
+  display: block;
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--green);
+  border-radius: 999px;
+  background: var(--green);
+  color: var(--on-green);
+  font:
+    700 10px/14px system-ui,
+    sans-serif;
+  text-align: center;
+}
+.disclose.in-use .disclose-badge.warn {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+  color: var(--danger);
 }
 .panel-toggles {
   display: none;
@@ -2095,11 +2128,13 @@ input[type='range'] {
   width: 3.8rem;
   min-height: 32px;
 }
+/* The wider column gap sets the selection tools apart from the entry tools. A rule between them would hang at the
+   start of the second row whenever the bar wraps. */
 .edit-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: 8px 28px;
   padding: 8px 0;
   margin-top: 6px;
   border-top: 1px solid var(--border);
@@ -2118,8 +2153,6 @@ input[type='range'] {
 }
 .edit-bar .selection-tools {
   margin: 0;
-  padding-left: 12px;
-  border-left: 1px solid var(--border);
 }
 .edit-bar #midi-status {
   flex-basis: 100%;
@@ -2215,7 +2248,8 @@ body.embed #practice-panel {
   display: flex;
 }
 /* Wide screens: small headings over the palette groups. Every group gets the top padding so the ones without a heading
-   line up. The empty alt text keeps the heading out of the accessibility tree; each group has its own label. */
+   line up. The empty alt text keeps the heading out of the accessibility tree; each group has its own label. Ink at
+   80% keeps the headings quieter than the buttons and above 4.5:1 in both themes (--muted is 4.2:1 on --bg). */
 @media (min-width: 1101px) {
   .palette {
     gap: 6px 10px;
@@ -2236,7 +2270,8 @@ body.embed #practice-panel {
       sans-serif;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--muted);
+    color: var(--ink);
+    opacity: 0.8;
     white-space: nowrap;
   }
 }
@@ -2283,6 +2318,22 @@ body.embed #practice-panel {
   }
   .panel-body:not(.open) {
     display: none;
+  }
+  /* Folded, Write notes keeps its warnings (a live region) for screen readers, so new ones are still announced; the
+     toggle's badge shows them on screen. */
+  #write-notes:not(.open) {
+    display: block;
+  }
+  #write-notes:not(.open) > :not(#warnings) {
+    display: none;
+  }
+  #write-notes:not(.open) > #warnings {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
   .panel-body.open {
     padding-top: 12px;
@@ -2335,7 +2386,12 @@ body.embed #practice-panel {
     padding: 0;
     margin: 0;
   }
+  /* Volume takes the rest of its row, so the slider is wider than its 72px minimum for fine touch adjustment. */
+  .transport .volume {
+    flex: 1 1 auto;
+  }
   .transport .volume input {
+    flex: 1 1 72px;
     width: 72px;
   }
   .transport #play-status {
@@ -2357,15 +2413,15 @@ body.embed #practice-panel {
     justify-content: center;
     min-width: 0;
   }
+  /* Each selection button is as wide as its label plus a share of the rest, so Duplicate fits on a 360px phone. */
   .edit-bar .selection-tools {
     grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    display: flex;
+    flex-wrap: wrap;
     gap: 4px;
-    padding: 0;
-    border: 0;
   }
   .edit-bar .selection-tools button {
+    flex: 1 1 auto;
     padding: 4px 2px;
   }
   .edit-bar #midi-status {
@@ -2375,6 +2431,20 @@ body.embed #practice-panel {
     border-radius: 8px;
     flex-wrap: wrap;
     padding: 4px 10px;
+  }
+  /* Touch sizes: 40px tall, and the speed slider takes the rest of its row. */
+  #speed-reset,
+  .practice-controls .range-inputs input[type='number'],
+  .practice-controls .trainer input[type='number'],
+  .practice-controls .trainer select {
+    min-height: 40px;
+  }
+  .practice-controls .speed-control {
+    flex: 1 1 auto;
+  }
+  .practice-controls .speed-control input[type='range'] {
+    flex: 1 1 7rem;
+    min-width: 7rem;
   }
   .palette {
     gap: 4px;
