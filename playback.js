@@ -141,13 +141,14 @@ function swingBars(midi) {
   });
 }
 // Master bus: every note and click goes through one gain node that follows the Volume slider live, then a limiter
-// (where the browser has one) so chords and accompaniment do not clip. Built once per audio context, on first use.
+// (where the browser has one) so chords and accompaniment do not clip. Built once per audio context, on first use; an
+// audio export builds its own at full level.
 const masterBuses = new WeakMap();
-function outputNode(ctx = audio) {
+function outputNode(ctx = audio, volume = +$('volume').value) {
   let bus = masterBuses.get(ctx);
   if (bus) return bus;
   bus = ctx.createGain();
-  bus.gain.value = +$('volume').value;
+  bus.gain.value = volume;
   let out = bus;
   if (typeof ctx.createDynamicsCompressor === 'function') {
     out = ctx.createDynamicsCompressor();
@@ -169,9 +170,9 @@ function updateVolume() {
     bus.gain.setTargetAtTime(volume, audio.currentTime, 0.02);
   } else bus.gain.value = volume;
 }
-function click(time, down) {
-  const osc = audio.createOscillator(),
-    gain = audio.createGain(),
+function click(time, down, ctx = audio, out = outputNode(ctx), into = nodes) {
+  const osc = ctx.createOscillator(),
+    gain = ctx.createGain(),
     level = down ? 0.5 : 0.3;
   osc.type = 'square';
   osc.frequency.value = down ? 1760 : 1320;
@@ -179,11 +180,11 @@ function click(time, down) {
   gain.gain.linearRampToValueAtTime(level, time + 0.002);
   gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.05);
   osc.connect(gain);
-  gain.connect(outputNode());
+  gain.connect(out);
   osc.start(time);
   osc.stop(time + 0.06);
   osc.onended = () => (osc.done = true);
-  nodes.push(osc);
+  into.push(osc);
 }
 // Each instrument's partials (catalog.js) as a periodic wave, made once per audio context. Without
 // createPeriodicWave (or if it fails) the instrument falls back to its basic `wave`.
@@ -204,16 +205,23 @@ function instrumentWave(ctx, name, config) {
   return waves.get(name);
 }
 // One oscillator and one gain per note: the instrument's wave, its octave (instrumentSound), its envelope and, where
-// the browser can automate detune, its vibrato.
-function scheduleNotes(notes, base, instrument = currentInstrument(), into = nodes) {
+// the browser can automate detune, its vibrato. ctx and out are the live context and its master bus unless an export
+// renders offline.
+function scheduleNotes(
+  notes,
+  base,
+  instrument = currentInstrument(),
+  into = nodes,
+  ctx = audio,
+  out = outputNode(ctx)
+) {
   if (!instruments[instrument]) instrument = 'Piano';
   const config = instruments[instrument],
-    output = outputNode(),
-    wave = instrumentWave(audio, instrument, config),
+    wave = instrumentWave(ctx, instrument, config),
     octave = instrumentSound(config);
   for (const n of notes) {
-    const osc = audio.createOscillator(),
-      gain = audio.createGain();
+    const osc = ctx.createOscillator(),
+      gain = ctx.createGain();
     if (wave) osc.setPeriodicWave(wave);
     else osc.type = config.wave;
     osc.frequency.value = 440 * 2 ** ((n.note + octave - 69) / 12);
@@ -229,7 +237,7 @@ function scheduleNotes(notes, base, instrument = currentInstrument(), into = nod
         osc.detune.setValueCurveAtTime(Float32Array.from(vibrato.values), start + vibrato.start, vibrato.length);
       } catch {}
     osc.connect(gain);
-    gain.connect(output);
+    gain.connect(out);
     osc.start(start);
     osc.stop(envelope.stop);
     osc.onended = () => (osc.done = true);
@@ -275,6 +283,7 @@ function schedulePass(p, from, percent, base, pass) {
     if (looping && $('trainer').checked) {
       $('speed').value = percent;
       $('speed-value').textContent = percent + '%';
+      if (typeof updateWavSummary === 'function') updateWavSummary();
     }
     $('play-status').textContent =
       `Measures ${p.range.from}–${p.range.to} · ${percent}% speed` + (looping ? ` · loop ${pass}` : '');
@@ -360,6 +369,98 @@ async function play(resumeFrom = null, {countIn = false, countInBars = 0, once =
     stop();
     toast('Playback unavailable: ' + e.message);
   }
+}
+// Audio export: the whole score as Play sounds it (instrument, swing, the Chords choice and the playback speed),
+// rendered offline into a stereo WAV, with the metronome if asked and no count-in. The export's master bus is at full
+// level, not the Volume slider, and the mix is scaled so its loudest sample is 1 dB under full scale. An offline render
+// holds the whole recording in memory, so a score that would play for more than 10 minutes is refused before it starts;
+// the refusal points to MIDI, which has no such limit.
+const WAV_RATE = 44100,
+  WAV_MAX_SECONDS = 600,
+  WAV_TAIL = 1,
+  WAV_STEP = 5;
+const offlineAudio = () => window.OfflineAudioContext || window.webkitOfflineAudioContext;
+const clockTime = seconds => {
+  const s = Math.round(seconds);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+// progress(done) hears how far the render has got, from 0 to 1, every WAV_STEP seconds of audio, where the browser can
+// suspend an offline render. An offline render cannot be stopped, so an abort from signal cuts the export's bus off and
+// stops its notes: the rest renders as silence, quickly, and nothing is scaled or encoded.
+async function renderWav({metronome = false, chords = true, signal = null, progress = null} = {}) {
+  const Offline = offlineAudio();
+  if (!Offline) throw Error('This browser cannot make audio files.');
+  if (renderedSource !== $('abc').value) {
+    clearTimeout(renderTimer);
+    render();
+  }
+  const source = $('abc').value,
+    midi = parseMidi(midiBytes(source, {chordsOff: !chords})),
+    full = swingPlayback(midi, swingAmount(source), swingBars(midi)),
+    percent = +$('speed').value,
+    data = playbackSlice(full, 0, percent, full.duration);
+  if (!data.notes.length) throw Error('Add some notes before making an audio file.');
+  if (data.duration > WAV_MAX_SECONDS)
+    throw Error(
+      `At this speed the score plays for ${clockTime(data.duration)}, and an audio file can be up to 10 minutes. ` +
+        ((full.duration * 100) / +$('speed').max <= WAV_MAX_SECONDS
+          ? 'Choose a faster speed, or export MIDI instead.'
+          : 'Export MIDI instead.')
+    );
+  const cancelled = () => Error('The audio file was cancelled.');
+  if (signal?.aborted) throw cancelled();
+  const length = Math.ceil((data.duration + WAV_TAIL) * WAV_RATE),
+    ctx = new Offline(2, length, WAV_RATE),
+    out = outputNode(ctx, 1),
+    made = [];
+  scheduleNotes(data.notes, 0, currentInstrument(), made, ctx, out);
+  if (metronome)
+    for (const c of clickTimes(0, full.duration, full.duration))
+      click(c.time / (percent / 100), c.down, ctx, out, made);
+  const resume = () => {
+    try {
+      ctx.resume?.()?.catch?.(() => {});
+    } catch {}
+  };
+  if (progress && typeof ctx.suspend === 'function')
+    for (let t = WAV_STEP; t < length / WAV_RATE; t += WAV_STEP)
+      try {
+        ctx
+          .suspend(t)
+          .then(() => {
+            resume();
+            if (!signal?.aborted) progress((t * WAV_RATE) / length);
+          })
+          .catch(() => {});
+      } catch {}
+  let cancel;
+  // Older Safari finishes through oncomplete instead of a promise.
+  const buffer = await new Promise((resolve, reject) => {
+    cancel = () => {
+      try {
+        out.disconnect();
+      } catch {}
+      for (const node of made)
+        try {
+          node.stop();
+        } catch {}
+      resume();
+      reject(cancelled());
+    };
+    signal?.addEventListener('abort', cancel);
+    ctx.oncomplete = e => resolve(e.renderedBuffer);
+    ctx.startRendering()?.then?.(resolve, reject);
+  }).finally(() => signal?.removeEventListener('abort', cancel));
+  if (signal?.aborted) throw cancelled();
+  const channels = Array.from({length: buffer.numberOfChannels}, (_, i) => buffer.getChannelData(i));
+  let peak = 0;
+  for (const c of channels) for (let i = 0; i < c.length; i++) peak = Math.max(peak, Math.abs(c[i]));
+  if (peak > 0) for (const c of channels) for (let i = 0; i < c.length; i++) c[i] *= 0.89 / peak;
+  return {
+    bytes: wavBytes(channels, WAV_RATE, creditedWavInfo(source, current)),
+    seconds: buffer.length / WAV_RATE,
+    notes: data.notes.length
+  };
 }
 // Light up sounding notes (and their keys on the on-screen piano). Score time comes from the audio clock, so speed
 // changes and resumes stay in sync.

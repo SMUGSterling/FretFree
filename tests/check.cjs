@@ -35,7 +35,7 @@ const ADMITTED_LICENSES = new Set([
   'CC-BY-NC-SA-4.0',
   'GPL-2.0-or-later'
 ]);
-const context = {ABCJS, console, Uint8Array, DataView, Map, atob};
+const context = {ABCJS, console, Uint8Array, DataView, Map, atob, TextEncoder};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(require.resolve('../catalog.js'), 'utf8'), context);
 vm.runInContext(
@@ -821,6 +821,89 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
   assert.ok(context.exportCredit(nc).includes('Non-commercial edition'), 'Exports carry the NC note');
   assert.ok(!context.exportCredit(sa).includes('Non-commercial edition'), 'SA-only exports do not');
 }
+// WAV export: wavBytes writes a 16-bit PCM RIFF file whose chunk sizes add up, with the INFO text before the samples;
+// creditedWavInfo gives a library edition its license and full credit, and a score of your own only its title and
+// composer.
+{
+  const readWav = bytes => {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+      text = (at, n) => String.fromCharCode(...bytes.slice(at, at + n)),
+      chunks = [];
+    assert.equal(text(0, 4) + text(8, 4), 'RIFFWAVE');
+    assert.equal(view.getUint32(4, true), bytes.length - 8, 'RIFF size');
+    for (let at = 12; at < bytes.length;) {
+      const size = view.getUint32(at + 4, true);
+      chunks.push({id: text(at, 4), at: at + 8, size});
+      at += 8 + size + (size & 1);
+      assert.ok(at <= bytes.length, 'Chunks fit the file');
+    }
+    const fmt = chunks.find(c => c.id === 'fmt '),
+      data = chunks.find(c => c.id === 'data'),
+      list = chunks.find(c => c.id === 'LIST'),
+      info = {};
+    if (list) {
+      assert.equal(text(list.at, 4), 'INFO');
+      for (let at = list.at + 4; at < list.at + list.size;) {
+        const size = view.getUint32(at + 4, true),
+          value = bytes.slice(at + 8, at + 8 + size);
+        assert.equal(value[size - 1], 0, 'INFO text ends in a zero byte');
+        info[text(at, 4)] = Buffer.from(value.slice(0, -1)).toString('utf8');
+        at += 8 + size + (size & 1);
+      }
+    }
+    return {
+      ids: chunks.map(c => c.id),
+      format: [
+        view.getUint16(fmt.at, true),
+        view.getUint16(fmt.at + 2, true),
+        view.getUint32(fmt.at + 4, true),
+        view.getUint32(fmt.at + 8, true),
+        view.getUint16(fmt.at + 12, true),
+        view.getUint16(fmt.at + 14, true)
+      ],
+      fmtSize: fmt.size,
+      samples: Array.from({length: data.size / 2}, (_, i) => view.getInt16(data.at + i * 2, true)),
+      info
+    };
+  };
+  const left = Float32Array.from([0, 1, -1, 0.5, 2]),
+    right = Float32Array.from([0, -0.5, 1, -2, -1]);
+  const wav = readWav(context.wavBytes([left, right], 44100, {title: 'Ode to Joy ♫', artist: 'Beethoven'}));
+  assert.deepEqual(wav.ids, ['fmt ', 'LIST', 'data'], 'INFO comes before the samples');
+  assert.equal(wav.fmtSize, 16);
+  assert.deepEqual(wav.format, [1, 2, 44100, 176400, 4, 16], 'PCM, stereo, 44.1 kHz, 16-bit');
+  assert.deepEqual(
+    wav.samples,
+    [0, 0, 32767, -16384, -32768, 32767, 16384, -32768, 32767, -32768],
+    'Interleaved, scaled and clipped'
+  );
+  assert.deepEqual(wav.info, {INAM: 'Ode to Joy ♫', IART: 'Beethoven'}, 'UTF-8 title, odd lengths padded');
+  const mono = readWav(context.wavBytes([new Float32Array(3)], 22050));
+  assert.deepEqual(mono.ids, ['fmt ', 'data'], 'No INFO chunk without text');
+  assert.deepEqual(mono.format, [1, 1, 22050, 44100, 2, 16]);
+  // A score of your own: title and composer only; an imported copyright line still travels.
+  const own = 'X:1\nT:My Waltz\nC:A. Student\nM:3/4\nK:G\nG3 |]';
+  assert.deepEqual(
+    {...context.creditedWavInfo(own, {title: 'My Waltz', abc: own})},
+    {title: 'My Waltz', artist: 'A. Student'}
+  );
+  assert.deepEqual({...context.creditedWavInfo('X:1\nK:C\nC', null)}, {title: '', artist: ''});
+  assert.equal(
+    context.creditedWavInfo('%%abc-copyright © 2024 A. Arranger\nX:1\nT:Kept\nK:C\nC', {}).copyright,
+    '© 2024 A. Arranger'
+  );
+  // Every catalog license reaches ICOP, and the full credit and ABC source reach ICMT; GPL editions carry the license.
+  const licenses = new Map(context.library.map(item => [context.scoreLicense(item), item]));
+  for (const [license, item] of licenses) {
+    const {info} = readWav(context.wavBytes([new Float32Array(2)], 44100, context.creditedWavInfo(item.abc, item)));
+    assert.equal(info.ICOP, license, license + ' in ICOP');
+    assert.ok(info.ICMT.startsWith(context.exportCredit(item)), license + ': the full credit in ICMT');
+    assert.ok(info.ICMT.includes('Corresponding editable ABC source:\n% FretFree-Notice-Begin'));
+    assert.equal(info.IART, item.attribution || item.composer);
+    if (license.startsWith('GPL')) assert.ok(info.ICMT.includes('GNU GENERAL PUBLIC LICENSE'));
+  }
+  assert.ok(licenses.size >= 10, 'Checked WAV credits for ' + licenses.size + ' licenses');
+}
 // Skill tags are read from the music; catalog-skills.js must match what skillTags() says about every score today.
 {
   const tags = abc => context.skillTags(ABCJS.parseOnly(abc)[0]).join(', ');
@@ -1295,6 +1378,220 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     ' E F  /  e f ',
     'One stretch per voice'
   );
+}
+// Lyrics: lyricUnits and alignLyrics read w: lines exactly as abcjs does (checked on generated music and words full of
+// rests, skips, bar jumps, holds and escapes), lyricText writes a verse back so abcjs reads the same syllables,
+// setSyllable changes one syllable and keeps every verse on its own row (with key and time changes starting the next
+// line too), typeLyrics follows the typing keys, and the lieder take a word on every note.
+{
+  const ABCJS_ = context.ABCJS,
+    rows = (abc, voice = '0:0') => {
+      const tune = ABCJS_.parseOnly(abc)[0];
+      return JSON.parse(
+        JSON.stringify(
+          context
+            .lyricSlots(tune, voice)
+            .map(slot =>
+              context
+                .lyricVerses(abc, slot)
+                .verses.map(v => context.verseLyrics(slot, v.text).map(x => x?.syllable || null))
+            )
+        )
+      );
+    },
+    syllables = (abc, verse = 0, voice = '0:0') =>
+      JSON.parse(JSON.stringify(context.voiceLyrics(abc, voice, verse).map(x => x && x.syllable)));
+  let seed = 7;
+  const random = n => ((seed = (seed * 1103515245 + 12345) % 2147483648), seed % n),
+    pick = list => list[random(list.length)];
+  let checked = 0;
+  for (let t = 0; t < 300; t++) {
+    let music = '';
+    for (let i = 0; i < 4 + random(10); i++)
+      music += pick(['C', 'D', 'z', 'E2', 'z/', '[CE]', 'F-', 'y', 'x', '{g}A', '(3ABc', '|']) + (random(2) ? ' ' : '');
+    const verses = [];
+    for (let v = 0; v < 1 + random(3); v++) {
+      let w = '';
+      for (let i = 0; i < random(12); i++)
+        w += pick(['la', 'Twin', ' ', ' ', '-', '_', '*', '|', '~', 'a~b', '\\-', 'x', ' - ', '__']);
+      verses.push('w:' + w);
+    }
+    const abc = 'X:1\nK:C\nL:1/8\n' + music + '|\n' + verses.join('\n') + '\n',
+      tune = ABCJS_.parseOnly(abc)[0];
+    for (const slot of context.lyricSlots(tune, '0:0')) {
+      const found = context.lyricVerses(abc, slot).verses,
+        stacked = new Map();
+      for (const v of found)
+        for (const [e, x] of context.alignLyrics(slot.elements, context.lyricUnits(v.text)))
+          stacked.set(e, [...(stacked.get(e) || []), x]);
+      for (const e of slot.elements)
+        assert.equal(
+          JSON.stringify(stacked.get(e) || []),
+          JSON.stringify(context.readLyrics(e)),
+          'Syllables as abcjs reads them in ' + JSON.stringify(abc)
+        );
+      for (const v of found) {
+        const only = list => list.map(x => (x?.syllable ? x : null)),
+          entries = only(context.verseLyrics(slot, v.text)),
+          // A hold (_) cannot be kept when the next note has a syllable of its own.
+          kept = list => list.map((x, i) => x && {...x, divider: x.divider === '_' && list[i + 1] ? ' ' : x.divider});
+        assert.deepEqual(
+          kept(only(context.verseLyrics(slot, context.lyricText(slot, entries)))),
+          kept(entries),
+          'A verse written back reads the same: ' + JSON.stringify(v.text)
+        );
+        checked++;
+      }
+    }
+  }
+  assert.ok(checked > 300, 'Enough verses checked');
+  const twinkle = 'X:1\nM:4/4\nL:1/4\nK:C\nCCGG|AAG2|\nFFEE|DDC2|]\n';
+  let abc = twinkle;
+  for (const [i, s, d] of [
+    [0, 'Twin', '-'],
+    [1, 'kle', ' '],
+    [2, 'twin', '-'],
+    [3, 'kle', ' ']
+  ])
+    abc = context.setSyllable(abc, 0, 0, i, s, d);
+  assert.equal(abc, twinkle.replace('G2|\n', 'G2|\nw: Twin-kle twin-kle\n'), 'Four syllables under four notes');
+  abc = context.setSyllable(abc, 0, 1, 1, 'a', '-');
+  assert.equal(abc.split('\n')[6], 'w: * a-', 'A second verse pads the notes before it with *');
+  abc = context.setSyllable(abc, 0, 2, 6, 'star', ' ');
+  assert.deepEqual(
+    abc.split('\n').slice(5, 9),
+    ['w: Twin-kle twin-kle * * *', 'w: * a- * * * * *', 'w: * * * * * * star', 'FFEE|DDC2|]'],
+    'Earlier verses reach as far as later ones, so abcjs keeps each on its own row'
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(ABCJS_.parseOnly(abc)[0].lines[0].staff[0].voices[0].at(-2).lyric)).map(l => l.syllable),
+    ['', '', 'star']
+  );
+  const edited = context.setSyllable(abc, 0, 0, 2, 'TWIN', '-');
+  assert.equal(edited.replace('TWIN', 'twin'), abc, 'Editing one syllable changes only that syllable');
+  abc = context.setSyllable(abc, 0, 2, 6, '', ' ');
+  abc = context.setSyllable(abc, 0, 1, 1, '', ' ');
+  assert.equal(abc, twinkle.replace('G2|\n', 'G2|\nw: Twin-kle twin-kle * * *\n'), 'Empty verses at the end go');
+  assert.equal(context.setSyllable(twinkle, 1, 0, 0, 'How', ' '), twinkle + 'w: How\n', 'The second line has its own');
+  assert.equal(context.setSyllable(twinkle, 0, 0, 9, 'x'), twinkle, 'A note past the line changes nothing');
+  // Rests are passed over; a skip that a rest would take gets one of its own; marks typed in a syllable stay plain.
+  const rests = 'X:1\nL:1/4\nK:C\nC z D E|z F G z|]';
+  assert.equal(context.setSyllable(rests, 0, 0, 3, 'la'), rests + '\nw: * * * * la', 'The rests between take a * each');
+  assert.deepEqual(syllables(rests + '\nw: * * * * la'), [null, null, null, 'la', null]);
+  assert.equal(context.setSyllable(rests, 0, 0, 1, 'mid-day'), rests + '\nw: * mid\\-day');
+  assert.deepEqual(syllables(rests + '\nw: * mid\\-day'), [null, 'mid-day', null, null, null]);
+  assert.equal(context.setSyllable(rests, 0, 0, 0, 'O 100%'), rests + '\nw: O~100', 'Spaces as ~, % dropped');
+  // Words already written stay as written in the lines and verses not changed, + lines and comments included.
+  const kept = 'X:1\nL:1/4\nK:C\nC D E F|\n% words\nw: do | re\nw:mi fa\nG A B c|]\nw: sol';
+  assert.equal(
+    context.setSyllable(kept, 0, 1, 3, 'so'),
+    kept.replace('w:mi fa', 'w:mi fa * so'),
+    'Only the changed verse is written again'
+  );
+  assert.deepEqual(rows(kept), [
+    [
+      ['do', null, null, null],
+      ['mi', 'fa', null, null]
+    ],
+    [['sol', null, null, null]]
+  ]);
+  // Two voices: each voice's line takes its own w: lines.
+  const duet = 'X:1\nL:1/4\nV:1\nV:2\nK:C\nV:1\nC D E F|\nV:2\nC, D, E, F,|]\n';
+  const both = context.setSyllable(context.setSyllable(duet, 0, 0, 0, 'hi', ' ', '0:0'), 0, 0, 1, 'lo', ' ', '1:0');
+  assert.equal(both, 'X:1\nL:1/4\nV:1\nV:2\nK:C\nV:1\nC D E F|\nw: hi\nV:2\nC, D, E, F,|]\nw: * lo\n');
+  assert.deepEqual(syllables(both, 0, '1:0'), [null, 'lo', null, null]);
+  // Typing: space, -, _ and * from a note, across lines, and the space after -, _ or * that only separates.
+  let typed = context.typeLyrics(twinkle, '0:0', 0, 0, 'Twin-kle twin-kle lit-tle star How I won');
+  assert.deepEqual(
+    [typed.abc.split('\n').filter(l => l.startsWith('w:')), typed.pos, typed.rest],
+    [['w: Twin-kle twin-kle lit-tle star', 'w: How I'], 9, 'won'],
+    'Typing goes on to the next line'
+  );
+  typed = context.typeLyrics(twinkle, '0:0', 0, 0, 'Ah_ men * * so-');
+  assert.deepEqual(
+    [typed.abc.split('\n')[5], typed.pos, typed.after],
+    ['w: Ah_ men * * so-', 6, true],
+    '_ holds a syllable over the next note, * leaves a note out, a space after them only separates'
+  );
+  typed = context.typeLyrics(twinkle, '0:0', 0, 0, 'Ky- - ri ');
+  assert.equal(typed.abc.split('\n')[5], 'w: Ky - ri', '- with nothing typed carries the word on');
+  typed = context.typeLyrics(twinkle + 'w: a b c d e f g\n', '0:0', 0, 11, ' *');
+  assert.deepEqual(
+    [typed.abc.split('\n').at(-2), typed.pos],
+    ['w: a b c d e * g', 13],
+    'A space passes a note as it is; * takes a syllable away'
+  );
+  typed = context.typeLyrics(twinkle, '0:0', 0, 12, 'star end more ');
+  assert.deepEqual([typed.abc.split('\n').at(-2), typed.pos], ['w: * * * * * star end', 14], 'and stops at the end');
+  // The hint about notes added under words compares the notes of each line that has words.
+  assert.deepEqual(JSON.parse(JSON.stringify(context.lyricLines(both))), [
+    {voice: '0:0', line: 0, notes: 4, words: 'hi'},
+    {voice: '1:0', line: 0, notes: 4, words: '* lo'}
+  ]);
+  // abcjs gives a field that starts the next line of music ([M:3/4], [K:G] or a K: line) to the line before, but that
+  // line's words go straight under its music, and the next line keeps its own.
+  const engraved = (abc, voice = '0:0') =>
+    ABCJS_.parseOnly(abc)[0]
+      .lines.flatMap(l => l.staff?.[voice[0]]?.voices?.[voice[2]] || [])
+      .filter(e => e.el_type === 'note' && e.rest === undefined)
+      .map(e => (e.lyric || []).map(x => x.syllable).join('/') || null);
+  for (const next of ['[M:3/4] d e f | a b c |', '[K:G] d e f g | a b c d |', 'K:G\nd e f g | a b c d |']) {
+    const music = 'X:1\nL:1/4\nK:C\nC D E F | G A B c |\n' + next + '\n',
+      worded = music + 'w: keep me safe here ok\n',
+      count = engraved(music).length,
+      one = context.setSyllable(worded, 0, 0, 0, 'hi');
+    assert.equal(one, worded.replace('c |\n', 'c |\nw: hi\n'), 'Words for a line go under it: ' + next);
+    assert.deepEqual(
+      engraved(one),
+      ['hi', ...Array(7).fill(null), 'keep', 'me', 'safe', 'here', 'ok', ...Array(count - 13).fill(null)],
+      'and the next line keeps its words'
+    );
+    const letters = [...'abcdefghijklmnop'];
+    typed = context.typeLyrics(music, '0:0', 0, 0, letters.join(' ') + ' ');
+    assert.deepEqual(engraved(typed.abc), letters.slice(0, count), 'Typing over both lines puts each word on its note');
+    assert.equal(typed.over, count < letters.length, 'and says when words were left over');
+  }
+  // Fields and comments between a line and its words are passed over, as abcjs does; a V: field ends them.
+  const field = 'X:1\nL:1/4\nK:C\nC D E F|\nK:G\n% words\nw: a b\nd e f g|\n';
+  assert.equal(context.setSyllable(field, 0, 0, 2, 'c'), field.replace('a b', 'a b c'));
+  assert.equal(context.setSyllable(field, 0, 1, 0, 'x'), field.replace('a b\n', 'a b\nw: x\n'));
+  assert.deepEqual(engraved(context.setSyllable(field, 0, 1, 0, 'x')), ['a/x', 'b', ...Array(6).fill(null)]);
+  assert.deepEqual(rows('X:1\nL:1/4\nK:C\nC D E F|\nV:2\nw: lo\nc d e f|\n'), [[], []], 'abcjs drops these');
+  // A voice written after & shares the staff's w: lines with the first voice, so it takes no words of its own; a voice
+  // of its own on the same staff does.
+  const overlay = 'X:1\nL:1/4\nK:C\nC D E F & c d e f|G A B c|\n(C D) & (c d)\n';
+  assert.equal(context.lyricSlots(ABCJS_.parseOnly(overlay)[0], '0:1', overlay).length, 0);
+  assert.equal(context.typeLyrics(overlay, '0:1', 0, 0, 'a b c d ').abc, overlay, 'Nothing is written for it');
+  assert.equal(context.setSyllable(overlay, 0, 0, 0, 'a', ' ', '0:1'), overlay);
+  const shared = 'X:1\nL:1/4\n%%score (1 2)\nV:1\nV:2\nK:C\nV:1\nC D E F|\nV:2\nc d e f|\n';
+  assert.equal(context.typeLyrics(shared, '0:1', 0, 0, 'a b ').abc, shared + 'w: a b\n');
+  assert.deepEqual(engraved(shared + 'w: a b\n', '0:1'), ['a', 'b', null, null]);
+  // A backslash makes the next character part of the syllable, as in a w: line.
+  typed = context.typeLyrics(twinkle, '0:0', 0, 0, 'mid\\-day a\\_b \\*c\\');
+  assert.deepEqual(
+    [typed.abc.split('\n')[5], typed.rest, syllables(typed.abc).slice(0, 2)],
+    ['w: mid\\-day a\\_b', '*c\\', ['mid-day', 'a_b']]
+  );
+  // Words for every note of the OpenScore lieder whose lines start with a key or time change: abcjs reads each on its
+  // note, the music and its warnings are unchanged, and editing one syllable changes only that one.
+  const lieder = context.library.filter(
+      s => s.id.startsWith('lieder-') && /\n\[?[KM]:/.test(s.abc.slice(s.abc.indexOf('\nK:') + 1))
+    ),
+    unworded = abc => abc.replace(/^w:.*\n?/gm, ''),
+    warnings = abc => (ABCJS_.parseOnly(abc)[0].warnings || []).length;
+  assert.ok(lieder.length > 150, 'Enough lieder checked');
+  for (const score of lieder) {
+    const words = engraved(score.abc).map((_, i) => 's' + i),
+      done = context.typeLyrics(score.abc, '0:0', 0, 0, words.join(' ') + ' ').abc;
+    assert.deepEqual(engraved(done), words, score.id + ': one word on each note');
+    assert.equal(unworded(done), unworded(score.abc), score.id + ': the music is unchanged');
+    assert.equal(warnings(done), warnings(score.abc), score.id + ': no new warnings');
+    const mid = words.length >> 1,
+      session = context.lyricSession(done, '0:0', 0);
+    session.set(mid, {syllable: 'X', divider: ' '});
+    words[mid] = 'X';
+    assert.deepEqual(engraved(session.text()), words, score.id + ': one syllable edited');
+  }
 }
 // Measure and form tools: bars inserted and deleted in every voice as whole-bar rests in the meter in force, bar lines
 // that replace each other, repeats and endings that toggle, form marks, rehearsal letters in order, and time, key and
@@ -3276,7 +3573,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files), recording takes (offsets, calibration from recorded clicks, lining a take up within 50 ms, refusing noise and silence, file names) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, key and time changes at line starts, voices after &, typing keys, every note of the lieder with line-start changes), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files), recording takes (offsets, calibration from recorded clicks, lining a take up within 50 ms, refusing noise and silence, file names) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {

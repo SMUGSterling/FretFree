@@ -12,34 +12,34 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-    <script src="theme.js?v=0f633b8409c9"></script>
-    <link rel="stylesheet" href="style.css?v=0f633b8409c9" />
-    <script defer src="vendor/abcjs-basic-min.js?v=0f633b8409c9"></script>
-    <script defer src="vendor/qrcode.js?v=0f633b8409c9"></script>
-    <script defer src="catalog.js?v=0f633b8409c9"></script>
-    <script defer src="catalog-expanded.js?v=0f633b8409c9"></script>
-    <script defer src="score-tools.js?v=0f633b8409c9"></script>
-    <script defer src="rights-tools.js?v=0f633b8409c9"></script>
-    <script defer src="musicxml.js?v=0f633b8409c9"></script>
-    <script defer src="catalog-licensed.js?v=0f633b8409c9"></script>
-    <script defer src="catalog-lieder.js?v=0f633b8409c9"></script>
-    <script defer src="catalog-quartets.js?v=0f633b8409c9"></script>
-    <script defer src="catalog-pgh.js?v=0f633b8409c9"></script>
-    <script defer src="catalog-skills.js?v=0f633b8409c9"></script>
-    <script defer src="prompts.js?v=0f633b8409c9"></script>
-    <script defer src="shared.js?v=0f633b8409c9"></script>
-    <script defer src="library.js?v=0f633b8409c9"></script>
-    <script defer src="backup.js?v=0f633b8409c9"></script>
-    <script defer src="editor.js?v=0f633b8409c9"></script>
-    <script defer src="measure-tools.js?v=0f633b8409c9"></script>
-    <script defer src="palette.js?v=0f633b8409c9"></script>
-    <script defer src="shortcuts.js?v=0f633b8409c9"></script>
-    <script defer src="playback.js?v=0f633b8409c9"></script>
-    <script defer src="keyboard.js?v=0f633b8409c9"></script>
-    <script defer src="assignments.js?v=0f633b8409c9"></script>
-    <script defer src="turn-in.js?v=0f633b8409c9"></script>
-    <script defer src="record.js?v=0f633b8409c9"></script>
-    <script defer src="app.js?v=0f633b8409c9"></script>
+    <script src="theme.js?v=fc2a512ff2a0"></script>
+    <link rel="stylesheet" href="style.css?v=fc2a512ff2a0" />
+    <script defer src="vendor/abcjs-basic-min.js?v=fc2a512ff2a0"></script>
+    <script defer src="vendor/qrcode.js?v=fc2a512ff2a0"></script>
+    <script defer src="catalog.js?v=fc2a512ff2a0"></script>
+    <script defer src="catalog-expanded.js?v=fc2a512ff2a0"></script>
+    <script defer src="score-tools.js?v=fc2a512ff2a0"></script>
+    <script defer src="rights-tools.js?v=fc2a512ff2a0"></script>
+    <script defer src="musicxml.js?v=fc2a512ff2a0"></script>
+    <script defer src="catalog-licensed.js?v=fc2a512ff2a0"></script>
+    <script defer src="catalog-lieder.js?v=fc2a512ff2a0"></script>
+    <script defer src="catalog-quartets.js?v=fc2a512ff2a0"></script>
+    <script defer src="catalog-pgh.js?v=fc2a512ff2a0"></script>
+    <script defer src="catalog-skills.js?v=fc2a512ff2a0"></script>
+    <script defer src="prompts.js?v=fc2a512ff2a0"></script>
+    <script defer src="shared.js?v=fc2a512ff2a0"></script>
+    <script defer src="library.js?v=fc2a512ff2a0"></script>
+    <script defer src="backup.js?v=fc2a512ff2a0"></script>
+    <script defer src="editor.js?v=fc2a512ff2a0"></script>
+    <script defer src="measure-tools.js?v=fc2a512ff2a0"></script>
+    <script defer src="palette.js?v=fc2a512ff2a0"></script>
+    <script defer src="shortcuts.js?v=fc2a512ff2a0"></script>
+    <script defer src="playback.js?v=fc2a512ff2a0"></script>
+    <script defer src="keyboard.js?v=fc2a512ff2a0"></script>
+    <script defer src="assignments.js?v=fc2a512ff2a0"></script>
+    <script defer src="turn-in.js?v=fc2a512ff2a0"></script>
+    <script defer src="record.js?v=fc2a512ff2a0"></script>
+    <script defer src="app.js?v=fc2a512ff2a0"></script>
   </head>
   <body>
     <header>
@@ -617,6 +617,7 @@
               double-click it) · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> or Shift+click select more ·
               <kbd>Ctrl</kbd>+<kbd>A</kbd> all · <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd> <kbd>V</kbd> copy, cut, paste
               · <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>[</kbd> <kbd>]</kbd> halve, double lengths ·
+              <kbd>L</kbd> lyrics ·
               <button
                 id="shortcuts-open"
                 class="shortcuts-open"
@@ -646,8 +647,8 @@
             <p class="small" id="selection-status" role="status">
               Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag
               up/down to change pitch; use the toolbar above the score or right-click a note for length, accidentals,
-              ties, tuplets, grace notes, articulations, dynamics and chord symbols. Playback speed leaves the score
-              tempo unchanged.
+              ties, tuplets, grace notes, articulations, dynamics, chord symbols and lyrics. Playback speed leaves the
+              score tempo unchanged.
             </p>
             <div id="feedback-note" class="feedback-note" hidden>
               <strong>Feedback from your teacher</strong>
@@ -655,6 +656,9 @@
             </div>
             <div id="prompt-check" class="prompt-check" aria-live="polite" hidden></div>
             <div id="bar-check" class="bar-check" aria-live="polite" hidden></div>
+            <p id="lyric-check" class="bar-check lyric-check" role="status" hidden>
+              Notes changed in a line with lyrics. Check that the words still line up.
+            </p>
             <div id="palette" class="palette" role="toolbar" aria-label="Notation" aria-controls="notation">
               <div role="group" aria-label="Length">
                 <button data-palette="len:1" aria-label="Whole note" aria-keyshortcuts="7" title="Whole note (7)">
@@ -799,6 +803,16 @@
               <div role="group" aria-label="Chord symbol">
                 <button data-palette="chord" aria-label="Chord symbol" aria-keyshortcuts="K" title="Chord symbol (K)">
                   Chord
+                </button>
+              </div>
+              <div role="group" aria-label="Lyrics">
+                <button
+                  data-palette="lyric"
+                  aria-label="Lyrics"
+                  aria-keyshortcuts="L"
+                  title="Lyrics under the notes (L)"
+                >
+                  Lyrics
                 </button>
               </div>
               <div role="group" aria-label="Lines">
@@ -1007,6 +1021,25 @@
                 </button>
                 <p id="chord-hint" class="chord-hint" aria-live="polite">Enter saves · Tab next note · Esc cancels</p>
               </div>
+              <div id="lyric-entry" class="chord-entry lyric-entry" role="group" aria-label="Lyrics" hidden>
+                <span id="lyric-verse" class="lyric-verse">Verse 1</span
+                ><input
+                  id="lyric-input"
+                  type="text"
+                  maxlength="400"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  enterkeyhint="next"
+                  aria-label="Lyrics, verse 1"
+                  aria-describedby="lyric-hint"
+                /><button id="lyric-next" type="button" tabindex="-1" title="Save and go to the next note (Tab)">
+                  Next ▸
+                </button>
+                <p id="lyric-hint" class="chord-hint" aria-live="polite">
+                  Space next note · - hyphen · _ hold · * no syllable · Enter verse 2 · Esc done
+                </p>
+              </div>
             </div>
             <div
               id="piano"
@@ -1062,6 +1095,13 @@
             <div class="export-bar">
               <span>Take your music with you</span><button id="print">Print / PDF</button
               ><button id="export-abc">ABC</button><button id="export-midi">MIDI</button
+              ><button
+                id="export-wav"
+                aria-expanded="false"
+                aria-controls="wav-panel"
+                title="An audio file of the score as playback sounds it"
+              >
+                WAV</button
               ><button id="export-svg">SVG</button
               ><button id="export-musicxml" title="For MuseScore, Noteflight, Finale, Sibelius or Dorico">
                 MusicXML</button
@@ -1182,6 +1222,22 @@
                 </p>
                 <button id="turn-in-download">Download file (.json)</button>
               </div>
+            </section>
+            <section id="wav-panel" class="share-panel wav-panel" aria-labelledby="wav-heading" hidden>
+              <div class="share-head">
+                <h2 id="wav-heading">Audio file (WAV)</h2>
+                <button id="wav-close" type="button" aria-label="Close audio file">✕</button>
+              </div>
+              <p id="wav-summary" class="small"></p>
+              <div class="wav-options">
+                <label class="inline"><input type="checkbox" id="wav-metronome" /> Include metronome</label
+                ><label class="inline" id="wav-chords-option"
+                  ><input type="checkbox" id="wav-chords" checked /> Include chords</label
+                >
+              </div>
+              <button id="wav-make" type="button" class="primary">Make WAV file</button>
+              <progress id="wav-progress" max="1" aria-label="Making the audio file" hidden></progress>
+              <p id="wav-status" class="small" role="status"></p>
             </section>
             <div id="source-edition" class="source-edition" hidden></div>
             <div class="rights-box" id="rights"></div>
@@ -1317,7 +1373,9 @@
           after a count-in; takes stay on your device, play back alone or with the score, and download as audio files.
           <strong>Calibrate timing</strong> lines takes up with the score on each device. Classroom colors and letters
           in noteheads help beginners read, and both print. Theme in the header switches to a dark theme, or follows
-          your device; the score stays black on white unless you tick Dark paper, and prints stay black on white.
+          your device; the score stays black on white unless you tick Dark paper, and prints stay black on white. WAV
+          makes an audio file of the score as playback sounds it, made on your device, to hand in or to practice along
+          with. Press L on a note to type lyrics under it, a syllable at a time, with more verses below.
         </p>
         <h2>Privacy and school access</h2>
         <p>
