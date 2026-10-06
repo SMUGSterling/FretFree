@@ -542,6 +542,135 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
       }
     assert.deepEqual(wrong, [], 'Every listed key moves every note by the interval, -12 to 12 semitones');
   }
+  // Chord symbols move by the interval's letters, not abcjs's spelling (it gives D# for Eb and A#/D for Bb/D).
+  assert.equal(
+    T('X:1\nL:1/4\nK:F\n"Eb"C "Db"C "Ab/C"C "C#dim"C|]', 2),
+    'X:1\nL:1/4\nK:G\n"F"D "Eb"D "Bb/D"D "D#dim"D|]',
+    'Chord symbols up a major 2nd'
+  );
+  assert.equal(
+    T('X:1\nL:1/4\nK:C\n"Eb"C "Db"C "Bb7"C "N.C."C|]', 9),
+    'X:1\nL:1/4\nK:A\n"C"A "Bb"A "G7"A "N.C."A|]',
+    'Up a major 6th; N.C. stays'
+  );
+  assert.equal(
+    T('X:1\nL:1/4\nK:A\n"Eb"C "(E7)"C|]', 9),
+    'X:1\nL:1/4\nK:F#\n"C"A "(C#7)"A|]',
+    'A key abcjs spells as Gb and FretFree respells as F# keeps its chords natural'
+  );
+  // Text in chord-symbol position that is not a chord name stays as written, before notes and bar lines; abcjs moved
+  // anything starting with A–G (Coda to Doda, (End) to (F#nd), D.C. to E.C.). Chord names it does not know still move.
+  for (const [s, body] of [
+    [2, 'K:D\n"Coda"D "(End)"E "Fine"F "Dm(maj7)"G "D.C."|"D7alt"A4 "Fine"|]'],
+    [9, 'K:A\n"Coda"A "(End)"B "Fine"c "Am(maj7)"d "D.C."|"A7alt"e4 "Fine"|]'],
+    [-2, 'K:Bb\n"Coda"B, "(End)"C "Fine"D "Bbm(maj7)"E "D.C."|"Bb7alt"F4 "Fine"|]']
+  ])
+    assert.equal(
+      T('X:1\nL:1/4\nK:C\n"Coda"C "(End)"D "Fine"E "Cm(maj7)"F "D.C."|"C7alt"G4 "Fine"|]', s),
+      'X:1\nL:1/4\n' + body,
+      `Words stay and chords move, ${s} semitones`
+    );
+  // Chord symbols: parseChordSymbol reads what abcjs can play; setChordSymbol replaces, adds or removes the first one.
+  {
+    const parse = t => JSON.stringify(context.parseChordSymbol(t));
+    for (const name of ['C', 'Cm', 'C7', 'Cmaj7', 'Cm7b5', 'Cdim', 'Caug', 'Csus4', 'C6', 'C9', 'C/E', 'F#m', 'Bb7'])
+      assert.ok(context.parseChordSymbol(name), name + ' is a chord symbol');
+    for (const name of ['Cm7(b5)', 'C7sus4', 'Cadd9', 'C6/9', 'C-7', 'Cø7', 'C°7', 'C+', 'C13#11', 'Ebmaj7/G', 'B♭7'])
+      assert.ok(context.parseChordSymbol(name), name + ' is a chord symbol');
+    for (const name of ['Cm(maj7)', 'C7alt', 'Gm9(maj7)', 'Cm/maj7', 'CMaj7', 'CmM7', 'C7(b9,#11)', 'C(add9)', 'C7+'])
+      assert.ok(context.parseChordSymbol(name), name + ' is a chord symbol too');
+    for (const name of ['H7', 'hello', '', 'c7', 'Cx', 'C/H', 'G7/', 'Am7 D7'])
+      assert.equal(context.parseChordSymbol(name), null, JSON.stringify(name) + ' is not');
+    for (const name of ['Coda', 'Fine', '(End)', 'End', 'D.C.', 'DC', 'D.S.', 'Bridge', 'Emma', 'Ebb', 'C major'])
+      assert.equal(context.parseChordSymbol(name), null, name + ' is a word, not a chord symbol');
+    assert.equal(parse('(E7)'), parse('E7'), 'A chord in parentheses is a chord');
+    assert.equal(parse('(N.C.)'), parse('N.C.'));
+    assert.equal(parse('F#m7b5'), '{"root":"F","accidental":"#","quality":"m7b5","bass":null}');
+    assert.equal(parse('Bbmaj7'), '{"root":"B","accidental":"b","quality":"maj7","bass":null}');
+    assert.equal(parse('G7/B'), '{"root":"G","accidental":"","quality":"7","bass":"B"}');
+    assert.equal(parse('D/F♯'), '{"root":"D","accidental":"","quality":"","bass":"F#"}');
+    assert.equal(parse('N.C.'), '{"root":null,"accidental":"","quality":"N.C.","bass":null}', 'N.C. is no chord');
+    const tidy = context.tidyChordSymbol;
+    assert.deepEqual(
+      ['  Bb7 ', 'bb7', 'g/b', 'nc', 'n.c.', 'say "hi"', '^G', 'hello'].map(t => tidy(t)),
+      ['Bb7', 'Bb7', 'G/B', 'N.C.', 'N.C.', 'say hi', 'G', 'hello'],
+      'Typed symbols are tidied'
+    );
+    assert.deepEqual(
+      ['rit. 80%', 'C\\', 'B\\b7'].map(t => tidy(t)),
+      ['rit. 80', 'C', 'Bb7'],
+      'No % (a comment to abcjs) or backslash (an escape that can swallow the closing quote)'
+    );
+    const set = context.setChordSymbol;
+    assert.equal(set('C', 'Bb7'), '"Bb7"C', 'A new symbol goes in front');
+    assert.equal(set(' C2 ', 'G'), ' "G"C2 ', 'after any leading space');
+    assert.equal(set('"F"!f!(C', 'G7'), '"G7"!f!(C', 'An existing symbol is replaced');
+    assert.equal(set('"^intro""F"C', 'G'), '"^intro""G"C', 'A text annotation is left alone');
+    assert.equal(set('"^intro"C', 'G'), '"G""^intro"C', 'and is not taken for a chord symbol');
+    assert.equal(set('"F"!f!C-', null), '!f!C-', 'null removes it');
+    assert.equal(set('"F"C', ''), 'C', 'and so does an empty name');
+    assert.equal(set('"F""G"[CEG]2', 'Am'), '"Am""G"[CEG]2', 'Only the first one changes');
+    assert.equal(set('z2', 'N.C.'), '"N.C."z2', 'Rests take symbols');
+    assert.equal(set('x', 'D7'), '"D7"x', 'and so do invisible rests');
+    assert.equal(set('|', 'D7'), '|', 'A bar line does not');
+    assert.equal(set('C', 'say "hi"'), '"say hi"C', 'Quotes cannot end the symbol early');
+    for (const typed of ['rit. 80%', 'C\\'])
+      assert.equal(
+        ABCJS.parseOnly(`X:1\nL:1/4\nK:C\n${set('C', typed)} D E F|G A B c|]`)[0].lines[0].staff[0].voices[0].filter(
+          e => e.el_type === 'note'
+        ).length,
+        8,
+        JSON.stringify(typed) + ' leaves every note on the line'
+      );
+    assert.equal(context.chordSymbolOf('"_C""^x""G7"!f!.C'), 'G7');
+    assert.equal(context.chordSymbolOf('"^x"C'), null);
+    const tc = (name, ...a) => context.transposeChordSymbol(name, ...a);
+    assert.deepEqual(
+      ['C7', 'Bb7/D', 'F#m7b5', 'Db', 'N.C.', 'hello', '(A7)'].map(n => tc(n, 2)),
+      ['D7', 'C7/E', 'G#m7b5', 'Eb', 'N.C.', 'hello', '(B7)'],
+      'Up a major 2nd'
+    );
+    assert.equal(tc('C7', -2, -1), 'Bb7', 'Written C7 on a B-flat instrument is concert Bb7');
+    assert.equal(tc('Gmaj7', -9, -5), 'Bbmaj7', 'Written Gmaj7 on an E-flat instrument is concert Bbmaj7');
+    assert.equal(tc('Cb', -2, -1), 'A', 'A name that would need a double flat (Bbb) takes the next letter');
+    assert.deepEqual(
+      ['Coda', 'Fine', '(End)', 'D.C.', 'Cm(maj7)', 'C7alt', ' G7'].map(n => tc(n, -2, -1)),
+      ['Coda', 'Fine', '(End)', 'D.C.', 'Bbm(maj7)', 'Bb7alt', ' F7'],
+      'Words stay; every chord parseChordSymbol reads moves'
+    );
+    // Chords off leaves out the accompaniment channel; the melody is unchanged.
+    const lead = 'X:1\nM:4/4\nL:1/4\nK:C\n"C"C D E F | "G7"G A B c |]',
+      withChords = context.parseMidi(context.midiBytes(lead)).notes,
+      without = context.parseMidi(context.midiBytes(lead, {chordsOff: true})).notes;
+    assert.ok(withChords.length > 8 && new Set(withChords.map(n => n.ch)).size === 2, 'Chord symbols play');
+    assert.deepEqual(
+      without.map(n => [n.ch, n.note, n.start.toFixed(4)]),
+      context.melodyNotes(withChords).map(n => [n.ch, n.note, n.start.toFixed(4)]),
+      'chordsOff plays only the melody'
+    );
+    // Only chord names play: abcjs played Coda as a C chord and D.C. as a D chord, and carried G on through N.C.
+    const accompaniment = music => {
+      const notes = context.parseMidi(context.midiBytes(`X:1\nM:4/4\nL:1/4\nK:C\n${music}`)).notes,
+        melody = new Set(context.melodyNotes(notes));
+      return notes.filter(n => !melody.has(n));
+    };
+    for (const word of ['Coda', 'Fine', '(End)', 'D.C.', 'hello'])
+      assert.equal(accompaniment(`"${word}"C D E F|G4|]`).length, 0, word + ' does not play');
+    for (const chord of ['(E7)', 'Cm(maj7)', 'C7alt'])
+      assert.ok(accompaniment(`"${chord}"C D E F|G4|]`).length > 0, chord + ' plays');
+    assert.ok(
+      accompaniment('"G"C D E F|"N.C."G4|]').every(n => n.start < 1),
+      'N.C. stops the accompaniment'
+    );
+    assert.ok(
+      accompaniment('"G"C D E F|"N.C."G2 "C"G2|]').some(n => n.start >= 1.25),
+      'until the next chord'
+    );
+    assert.ok(
+      accompaniment('"G"C D E F|"Fine"G4|]').some(n => n.start >= 1),
+      'A word leaves the chord playing'
+    );
+  }
   const W = (abc, s) => context.writtenSteps(abc, abc.length - 3, s);
   assert.deepEqual(
     [W('X:1\nK:E\nC|]', 2), W('X:1\nK:F#\nC|]', 2), W('X:1\nK:C#\nC|]', 9), W('X:1\nK:C\nC|]', -12)],
@@ -590,6 +719,138 @@ for (const prompt of context.writingPrompts) {
     goals(otherMeter)[0].ok,
     false,
     `Prompt ${prompt.id}: changing the meter must not satisfy the bars goal`
+  );
+}
+// New score templates: every template, meter and pickup parses without warnings, has its staves (one voice each),
+// and is all whole-bar rests that pass the bar check, the pickup bar excused.
+{
+  const json = x => JSON.parse(JSON.stringify(x));
+  assert.deepEqual(
+    json(['4/4', '3/4', '2/4', '6/8', '2/2', 'C|', '12/8', '7/8', '5/4'].map(m => context.templateMeter(m).pickups)),
+    [3, 2, 1, 1, 1, 1, 3, 3, 3],
+    'Pickups are up to 3 beats and shorter than a bar'
+  );
+  assert.deepEqual(json(context.templateMeter('6/8')), {bar: 0.75, beat: 0.375, beats: 2, unit: '1/8', pickups: 1});
+  assert.deepEqual(json(context.templateMeter('C')), {bar: 1, beat: 0.25, beats: 4, unit: '1/4', pickups: 3});
+  assert.deepEqual(
+    ['C', 'Am', 'EDor', 'BLoc', 'FLyd', 'F#m', 'Bb', 'GMix'].map(k => context.tonicChord(k)),
+    ['C', 'Am', 'Em', 'Bdim', 'F', 'F#m', 'Bb', 'G']
+  );
+  const templates = vm.runInContext('SCORE_TEMPLATES', context);
+  assert.deepEqual(json(templates.map(t => t.id)), [
+    'melody',
+    'lead',
+    'piano',
+    'duet',
+    'melody-bass',
+    'satb',
+    'quartet'
+  ]);
+  let built = 0;
+  for (const t of templates)
+    for (const meter of ['4/4', '3/4', '2/4', '6/8', '2/2', 'C', 'C|', '3/8', '5/4', '7/8', '9/8', '12/8'])
+      for (const pickup of [0, 1, 2, 3])
+        for (const bars of [1, 5, 9]) {
+          const m = context.templateMeter(meter);
+          if (pickup > m.pickups) continue;
+          const source = context.templateSource({
+              template: t.id,
+              title: 'T',
+              key: 'Eb',
+              meter,
+              tempo: 90,
+              bars,
+              pickup
+            }),
+            label = `${t.id} ${meter} pickup ${pickup} bars ${bars}`,
+            tune = ABCJS.parseOnly(source)[0];
+          assert.ok(!tune.warnings?.length, `${label}: ${tune.warnings}`);
+          assert.ok(
+            tune.lines.every(l => l.staff.length === t.staves.length && l.staff.every(st => st.voices.length === 1)),
+            `${label}: one voice on each of ${t.staves.length} staves`
+          );
+          const events = context.scoreEvents(tune).filter(e => e.element.el_type === 'note');
+          assert.ok(events.length && events.every(e => e.element.rest), `${label}: rests only`);
+          assert.deepEqual(json(context.barProblems(tune)), [], `${label}: bar check`);
+          const measures = context.barLengths(tune);
+          for (let v = 0; v < t.staves.length; v++) {
+            const mine = measures.filter(x => x.voice === v + ':0');
+            assert.equal(mine.length, bars + (pickup ? 1 : 0), `${label}: bars in staff ${v + 1}`);
+            mine.forEach((x, i) =>
+              assert.ok(
+                Math.abs(x.length - (pickup && i === 0 ? pickup * m.beat : m.bar)) < 1e-9,
+                `${label}: staff ${v + 1} bar ${i + 1} length`
+              )
+            );
+          }
+          assert.equal(Buffer.from(context.midiBytes(source).slice(0, 4)).toString(), 'MThd', `${label}: MIDI`);
+          built++;
+        }
+  assert.ok(built > 500, 'Template combinations checked');
+  const piano = context.templateSource({template: 'piano', title: 'Study', key: 'G', meter: '3/4', bars: 6});
+  assert.equal(
+    piano,
+    'X:1\nT:Study\nC:\nM:3/4\nL:1/4\nQ:1/4=100\n%%score {RH LH}\nK:G\n' +
+      'V:RH clef=treble name="Piano" snm="Pno."\nz3 | z3 | z3 | z3 |\nz3 | z3 |]\n' +
+      'V:LH clef=bass\nz3 | z3 | z3 | z3 |\nz3 | z3 |]\n'
+  );
+  const staves = id =>
+    ABCJS.parseOnly(context.templateSource({template: id}))[0].lines[0].staff.map(st => [
+      st.clef.type,
+      st.title?.[0] || ''
+    ]);
+  assert.deepEqual(json(staves('satb')), [
+    ['treble', 'Soprano'],
+    ['treble', 'Alto'],
+    ['treble-8', 'Tenor'],
+    ['bass', 'Bass']
+  ]);
+  assert.deepEqual(json(staves('quartet')), [
+    ['treble', 'Violin I'],
+    ['treble', 'Violin II'],
+    ['alto', 'Viola'],
+    ['bass', 'Cello']
+  ]);
+  assert.deepEqual(json(staves('melody-bass')), [
+    ['treble', 'Melody'],
+    ['bass', 'Bass']
+  ]);
+  // A duet keeps the student's instrument: its staves name no clef, so both take the one the app puts on K: for a
+  // bass instrument.
+  const duet = context.templateSource({template: 'duet', key: 'F', bars: 1});
+  assert.equal(
+    duet,
+    'X:1\nT:Untitled\nC:\nM:4/4\nL:1/4\nQ:1/4=100\n%%score [1 2]\nK:F\n' +
+      'V:1 name="Part 1" snm="1"\nz4 |]\nV:2 name="Part 2" snm="2"\nz4 |]\n'
+  );
+  assert.deepEqual(json(staves('duet')), [
+    ['treble', 'Part 1'],
+    ['treble', 'Part 2']
+  ]);
+  assert.deepEqual(
+    json(ABCJS.parseOnly(duet.replace('K:F', 'K:F clef=bass'))[0].lines[0].staff.map(st => st.clef.type)),
+    ['bass', 'bass'],
+    'Both duet staves follow the clef on K:'
+  );
+  // The quick 8-bar melody and the Melody template write the same bars; a lead sheet puts the tonic chord on the
+  // first full bar, after the pickup.
+  assert.match(context.templateSource({}), /^K:C\nz4 \| z4 \| z4 \| z4 \|\nz4 \| z4 \| z4 \| z4 \|]\n$/m);
+  assert.ok(
+    context
+      .templateSource({template: 'lead', key: 'Dm', meter: '6/8', pickup: 1, bars: 2})
+      .endsWith('\nz3 | "Dm"z6 | z6 |]\n')
+  );
+  // Out-of-range choices are brought into range, and a title cannot add header lines.
+  const odd = context.templateSource({title: 'One\nK:G', bars: 100, pickup: 3, meter: '2/4', tempo: 999});
+  assert.match(odd, /^T:One K:G$/m);
+  assert.match(odd, /^Q:1\/4=200$/m);
+  assert.equal(ABCJS.parseOnly(odd)[0].lines.length, 16, '64 bars at most, four to a line');
+  assert.match(odd, /^z \| z2 \| /m, 'A 2/4 pickup is one beat');
+  assert.match(context.templateSource({title: '  '}), /^T:Untitled$/m);
+  assert.equal(
+    context.barLengths(ABCJS.parseOnly(context.templateSource({bars: -3}))[0]).length,
+    1,
+    'At least one bar'
   );
 }
 // Teacher-written assignments: goals name notes spelled in the written key, every built-in prompt rebuilt as an
@@ -1055,9 +1316,435 @@ for (const prompt of context.writingPrompts) {
     'Form feeds in the GPL text are dropped; XML 1.0 forbids them'
   );
   console.log(`MusicXML: ${own.length} FretFree scores, a ${sample.length}-score library sample and fixtures passed`);
+
+  // MusicXML import, round trip: ABC to MusicXML to ABC. For the FretFree scores, abcjs must sound the same notes at
+  // the same times (pitch, start and length, ties included), with the same chord symbols and lyrics. For the library
+  // sample, exporting the imported ABC again must give the same notes, rests, lyrics and chord symbols as the first
+  // export (whose own check above ties it to the parse), and the rights metadata must come back.
+  const importXML = (xml, name) =>
+    context.musicXMLToABC(new DOMParser().parseFromString(xml, 'application/xml'), {name});
+  const heard = source => {
+    const tune = ABCJS.parseOnly(source)[0];
+    tune.setUpAudio();
+    const voices = new Map();
+    for (const {element: e, key} of context.scoreEvents(tune)) {
+      const id = key.split(':').slice(0, 2).join(':');
+      if (!voices.has(id)) voices.set(id, {notes: [], chords: [], lyrics: []});
+      const v = voices.get(id);
+      if (e.el_type !== 'note') continue;
+      for (const p of e.midiPitches || []) v.notes.push(`${p.start.toFixed(4)}:${p.pitch}:${p.duration.toFixed(4)}`);
+      for (const c of e.chord || []) if (c.position === 'default') v.chords.push(c.name);
+      if (!e.rest) (e.lyric || []).forEach((l, i) => l?.syllable && v.lyrics.push(`${i}:${l.syllable}:${l.divider}`));
+    }
+    return [...voices.keys()].sort().map(k => voices.get(k));
+  };
+  // Notes of each voice in an export, read straight from the text: consecutive rests are summed and hidden ones
+  // (ABC's x) are skipped, since the import writes space as x and a part's silent measure as a rest.
+  const exportedNotes = xml => {
+    const divisions = +/<divisions>(\d+)/.exec(xml)[1],
+      tag = (n, name) => new RegExp(`<${name}>([^<]*)</${name}>`).exec(n)?.[1],
+      voices = [];
+    for (const part of xml.split('<part id=').slice(1)) {
+      const byVoice = new Map(),
+        transpose = {};
+      for (const [n] of part.matchAll(/<transpose[^>]*>.*?<\/transpose>|<note[^>]*>.*?<\/note>/g)) {
+        if (n.startsWith('<transpose')) {
+          transpose[/number="(\d)"/.exec(n)?.[1] || 'all'] =
+            +tag(n, 'chromatic') + 12 * +(tag(n, 'octave-change') || 0);
+          continue;
+        }
+        if (n.includes('<grace') || (n.includes('print-object="no"') && n.includes('<rest'))) continue;
+        const voice = +tag(n, 'voice'),
+          step = tag(n, 'step'),
+          length = +tag(n, 'duration') / divisions,
+          midi =
+            step &&
+            12 * (+tag(n, 'octave') + 1) +
+              SEMITONES[step] +
+              +(tag(n, 'alter') || 0) +
+              (transpose[tag(n, 'staff')] ?? transpose.all ?? 0);
+        if (!byVoice.has(voice)) byVoice.set(voice, {notes: [], lyrics: []});
+        const v = byVoice.get(voice);
+        for (const [l] of n.matchAll(/<lyric.*?<\/lyric>/g))
+          v.lyrics.push(
+            [/number="(\d+)"/.exec(l)[1], tag(l, 'syllabic'), tag(l, 'text'), l.includes('<extend')].join()
+          );
+        if (n.includes('<chord/>')) v.notes[v.notes.length - 1].pitches.push(midi);
+        else if (!step && v.notes.at(-1)?.rest) v.notes.at(-1).length += length;
+        else v.notes.push({rest: !step, pitches: step ? [midi] : [], length});
+      }
+      voices.push(
+        ...[...byVoice.keys()]
+          .sort((a, b) => a - b)
+          .map(k => ({
+            notes: byVoice.get(k).notes.map(x => (x.rest ? 'rest ' : x.pitches.join(',') + ' ') + x.length.toFixed(4)),
+            lyrics: byVoice.get(k).lyrics
+          }))
+      );
+    }
+    return {voices, harmony: [...xml.matchAll(/<harmony.*?<\/harmony>/g)].map(([h]) => h.replace(/<[^>]+>/g, ''))};
+  };
+  for (const score of own) {
+    const {abc, metadata, skipped} = importXML(context.abcToMusicXML(score.abc, {item: score}), score.id);
+    assert.deepEqual(ABCJS.parseOnly(abc)[0].warnings || [], [], `${score.id}: the imported ABC parses cleanly`);
+    assert.deepEqual(
+      heard(abc),
+      heard(score.abc),
+      `${score.id}: notes, chord symbols and lyrics survive the round trip`
+    );
+    assert.equal(skipped.join(), '', `${score.id}: nothing is left out`);
+    const {abc: _, ...meta} = score;
+    assert.equal(JSON.stringify(metadata), JSON.stringify(meta), `${score.id}: rights metadata comes back`);
+  }
+  for (const score of sample) {
+    let xml;
+    try {
+      xml = context.abcToMusicXML(score.abc, {item: score});
+    } catch {
+      continue;
+    }
+    const {abc, metadata} = importXML(xml, score.id);
+    assert.deepEqual(ABCJS.parseOnly(abc)[0].warnings || [], [], `${score.id}: the imported ABC parses cleanly`);
+    assert.deepEqual(
+      exportedNotes(context.abcToMusicXML(abc, {item: score})),
+      exportedNotes(xml),
+      `${score.id}: exporting the import again gives the same music`
+    );
+    const {abc: _, ...meta} = score;
+    assert.equal(JSON.stringify(metadata), JSON.stringify(meta), `${score.id}: rights metadata comes back`);
+  }
+  console.log(
+    `MusicXML import: ${own.length} FretFree scores and a ${sample.length}-score library sample round-trip correctly`
+  );
 }
-console.log(
-  'PASS: ' +
-    context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
-);
+// MusicXML import from files: a MuseScore .mxl (zip) and its uncompressed .musicxml, a hand-written timewise file
+// full of things ABC cannot show, damaged files, and a copyright line that must survive later exports.
+async function musicXMLImportFiles() {
+  const {JSDOM} = require(process.env.JSDOM_PATH || 'jsdom');
+  const {DOMParser} = new JSDOM('').window,
+    fixture = name => new Uint8Array(fs.readFileSync(require.resolve('./fixtures/' + name))),
+    parse = text => new DOMParser().parseFromString(text, 'application/xml');
+  Object.assign(context, {TextDecoder, TextEncoder, DecompressionStream});
+  const open = async (bytes, name) =>
+    context.musicXMLToABC(parse(context.musicXMLText(bytes[0] === 0x50 ? await context.mxlScore(bytes) : bytes)), {
+      name
+    });
+  // morning-walk.abc in tests/fixtures, through MuseScore 3.2.3: flute, B♭ clarinet, and a two-staff piano whose right
+  // hand has two voices, with a repeat and 1st/2nd endings, a key, meter and clef change, chord symbols and lyrics.
+  const walk = await open(fixture('morning-walk.mxl'), 'morning-walk.mxl'),
+    plain = await open(fixture('morning-walk.musicxml'), 'morning-walk.musicxml');
+  assert.equal(walk.abc, plain.abc, 'The .mxl and the .musicxml give the same ABC');
+  assert.deepEqual([walk.parts, walk.measures, walk.skipped.length, walk.instrument], [3, 5, 0, 'Flute']);
+  const tune = ABCJS.parseOnly(walk.abc)[0],
+    lines = walk.abc.split('\n');
+  assert.deepEqual(tune.warnings || [], []);
+  for (const field of ['T:Morning Walk', 'C:FretFree test fixture (CC0)', 'M:4/4', 'Q:"Moderato" 1/4=96', 'K:G'])
+    assert.ok(lines.includes(field), field);
+  assert.ok(lines.includes('%%score 1 2 {(3 4) | 5}'), 'Parts, a braced piano and two voices on one staff');
+  assert.ok(lines.includes('V:2 name="Clarinet in Bb" clef=treble') && lines.includes('V:5 clef=bass'));
+  assert.deepEqual(
+    tune.lines.map(l => l.staff.map(s => s.voices.length).join('')),
+    ['1121', '1121'],
+    'Two systems, as MuseScore laid them out'
+  );
+  const voice = n => lines[lines.indexOf('V:' + n, lines.indexOf('K:G')) + 1];
+  // The parts' keys differ (the clarinet's is F at concert pitch), so each voice's line names its own key.
+  assert.equal(
+    voice(1),
+    '[K:G] |: "G"!mf!G2 AB c2 Bc | "Em"(d2 e2) !crescendo(!d4 | (3:2:3"C"cBA "D7"!crescendo)!d2- d4 :|'
+  );
+  assert.equal(lines[lines.indexOf(voice(1)) + 1], 'w: Sing a long and car- ry on the way_ _');
+  assert.equal(voice(2), '[K:F] |: F4 G4 | A4 B4 | G4 E4 :|', 'The B♭ clarinet is written at concert pitch');
+  assert.ok(walk.abc.includes('[K:G] [1 !p!{a}g2 .f.e d2 c2 |[2 [K:D] [M:3/4] !f!d6 |]'), 'Endings and changes');
+  assert.ok(walk.abc.includes('[K:D clef=treble] [1 G,8 |[2 [K:clef=bass] D,6 |]'), 'A clef change and back');
+
+  // A timewise file with a B♭ trumpet, a guitar on an octave clef, and a tablature part that repeats the guitar.
+  const odd = await open(fixture('left-out.musicxml'), 'left-out.musicxml');
+  assert.deepEqual(ABCJS.parseOnly(odd.abc)[0].warnings || [], []);
+  // The trumpet is in B♭ and the guitar is not, so the score opens at concert pitch.
+  assert.deepEqual([odd.parts, odd.measures, odd.instrument], [2, 2, 'Piano']);
+  for (const text of [
+    'T:Odds & Ends',
+    'C:Words: Lee Poet',
+    '%%abc-copyright © 2026 Sam Writer. CC BY 4.0',
+    'Q:"Brightly" 3/8=60',
+    'V:2 name="Guitar" clef=treble-8',
+    // Written D major and F♯ sound C major and E; the chord symbol moves too, and the quarter-tone F is rounded.
+    '[K:C] "Dm7/A"E2 _E2 !fermata!=E2- | [K:C exp _a] [P:B] E2 .A2 A x :|',
+    'w: Hel- lo_ _ _ _ _',
+    'w: Two',
+    '[K:C] {/D}E2 E2 x2 | b4 x2 |'
+  ])
+    assert.ok(odd.abc.split('\n').includes(text), text);
+  assert.deepEqual([...odd.skipped].sort(), [
+    '8va lines (the notes keep their pitch)',
+    'caesuras',
+    'chords in grace notes (the first note is kept)',
+    'cue notes (left as space)',
+    'figured bass',
+    'fret numbers',
+    'notes that overlap in one voice',
+    'pedal marks',
+    'percussion notes (written and played as pitched notes)',
+    'quarter tones (rounded to the nearest note)',
+    'repeat counts other than two',
+    'special noteheads',
+    'string numbers',
+    'tablature staves (the notation staff is kept)',
+    'tremolos'
+  ]);
+  // The copyright line is kept in later exports of the score: MusicXML rights and the MIDI copyright event.
+  const again = context.abcToMusicXML(odd.abc, {item: {kind: 'personal', abc: odd.abc}});
+  assert.ok(again.includes('<rights>© 2026 Sam Writer. CC BY 4.0</rights>'));
+  const midi = Buffer.from(context.creditedMidi(context.midiBytes(odd.abc), odd.abc, {kind: 'personal'}));
+  assert.ok(midi.includes(Buffer.from('© 2026 Sam Writer. CC BY 4.0')), 'MIDI export keeps the copyright');
+
+  // Damaged and unexpected files fail with a plain message instead of throwing anything else.
+  const fails = async (bytes, pattern) => {
+    let message = '';
+    try {
+      await open(bytes, 'bad.musicxml');
+    } catch (e) {
+      message = e.message;
+    }
+    assert.match(message, pattern);
+  };
+  const text = value => new TextEncoder().encode(value);
+  await fails(text('X:1\nK:C\nCDE|'), /could not be read as MusicXML/);
+  await fails(text('<score-partwise><part-list/></score-partwise>'), /no music/);
+  await fails(
+    text(
+      '<score-partwise><part id="P1"><measure><note><rest/><duration>4</duration></note></measure></part></score-partwise>'
+    ),
+    /no music/
+  );
+  await fails(text('<html><body>Hello</body></html>'), /not a MusicXML score/);
+  await fails(text('<opus><score/></opus>'), /list of scores/);
+  await fails(fixture('morning-walk.mxl').slice(0, 900), /could not be opened/);
+  // A stored (uncompressed) zip without a container file still opens its score; one without a score says so.
+  const zip = files => {
+    const local = [],
+      central = [];
+    let offset = 0;
+    for (const [name, data] of files) {
+      const n = text(name),
+        head = new Uint8Array(30 + n.length),
+        dir = new Uint8Array(46 + n.length),
+        h = new DataView(head.buffer),
+        d = new DataView(dir.buffer);
+      h.setUint32(0, 0x04034b50, true);
+      h.setUint32(18, data.length, true);
+      h.setUint32(22, data.length, true);
+      h.setUint16(26, n.length, true);
+      head.set(n, 30);
+      d.setUint32(0, 0x02014b50, true);
+      d.setUint32(20, data.length, true);
+      d.setUint32(24, data.length, true);
+      d.setUint16(28, n.length, true);
+      d.setUint32(42, offset, true);
+      dir.set(n, 46);
+      local.push(head, data);
+      central.push(dir);
+      offset += head.length + data.length;
+    }
+    const size = central.reduce((sum, x) => sum + x.length, 0),
+      end = new Uint8Array(22),
+      e = new DataView(end.buffer);
+    e.setUint32(0, 0x06054b50, true);
+    e.setUint16(10, files.length, true);
+    e.setUint32(12, size, true);
+    e.setUint32(16, offset, true);
+    return new Uint8Array(Buffer.concat([...local, ...central, end]));
+  };
+  const stored = await open(zip([['score.xml', fixture('morning-walk.musicxml')]]), 'stored.mxl');
+  assert.equal(stored.abc, walk.abc, 'A stored entry is read without inflating');
+  await fails(zip([['notes.txt', text('hello')]]), /no MusicXML score inside/);
+  // Keys and pitches: modes on the circle of fifths, and a written pitch moved to concert pitch.
+  assert.deepEqual(
+    [
+      {fifths: 3, mode: 'm'},
+      {fifths: -2, mode: 'Dor'},
+      {fifths: -6, mode: ''},
+      {fifths: 1, mode: 'Mix'}
+    ].map(context.mxiKeyText),
+    ['F#m', 'CDor', 'Gb', 'DMix']
+  );
+  assert.equal(
+    JSON.stringify(context.mxiTranspose({step: 'C', alter: 1, octave: 5}, -5, -9)),
+    JSON.stringify({step: 'E', octave: 4, alter: 0}),
+    'C♯ on an E♭ alto sax sounds E a sixth lower'
+  );
+
+  // abcjs carries an inline [K:] into every voice written after it, from the start of that voice's line. In this
+  // hand-written file a flute and a cello in F major change to D major in bar 3 of a four-bar line, and the cello goes
+  // to the tenor clef and back inside bars: what abcjs plays must be the file's own pitches, voice by voice.
+  const keyChange = fixture('key-change.musicxml'),
+    changed = await open(keyChange, 'key-change.musicxml'),
+    semitones = {C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11},
+    written = new TextDecoder()
+      .decode(keyChange)
+      .split('<part id=')
+      .slice(1)
+      .map(part =>
+        [...part.matchAll(/<step>(\w)<\/step>(?:<alter>(-?\d)<\/alter>)?<octave>(\d)<\/octave>/g)].map(
+          ([, step, alter, octave]) => 12 * (+octave + 1) + semitones[step] + (+alter || 0)
+        )
+      ),
+    played = source => {
+      const tune = ABCJS.parseOnly(source)[0],
+        voices = new Map();
+      tune.setUpAudio();
+      for (const {element: e, key} of context.scoreEvents(tune)) {
+        const id = key.split(':').slice(0, 2).join(':');
+        if (!voices.has(id)) voices.set(id, []);
+        if (e.el_type === 'note') voices.get(id).push(...(e.midiPitches || []).map(p => p.pitch));
+      }
+      return [...voices.keys()].sort().map(k => voices.get(k));
+    };
+  assert.deepEqual(ABCJS.parseOnly(changed.abc)[0].warnings || [], []);
+  assert.deepEqual(played(changed.abc), written, 'Every voice plays its own key on both sides of the change');
+  for (const line of [
+    '[K:F] B4 F4 | B2 c2 f4 | [K:D] f4 c2 B2 | d8 |]',
+    '[K:F] B,,4 F,,4 | F,2 [K:clef=tenor] C2 B,4 | [K:D] F,4 B,4 | C,4 [K:clef=bass] D,,4 |]'
+  ])
+    assert.ok(changed.abc.split('\n').includes(line), line);
+
+  // Small one-measure files: part names, instruments, percent signs, and transpositions too large to be real.
+  const whole = '<note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration></note>',
+    score = (parts, head = '') =>
+      text(
+        `<score-partwise>${head}<part-list>` +
+          parts.map(([name], i) => `<score-part id="P${i + 1}"><part-name>${name}</part-name></score-part>`).join('') +
+          '</part-list>' +
+          parts
+            .map(
+              ([, attributes = '', notes = whole], i) =>
+                `<part id="P${i + 1}"><measure number="1"><attributes><divisions>1</divisions>${attributes}` +
+                `<time><beats>4</beats><beat-type>4</beat-type></time></attributes>${notes}</measure></part>`
+            )
+            .join('') +
+          '</score-partwise>'
+      ),
+    trumpet = '<transpose><diatonic>-1</diatonic><chromatic>-2</chromatic></transpose>',
+    bass = '<clef><sign>F</sign><line>4</line></clef>';
+  // The instrument setting shows every voice for that instrument, so a B♭ one is chosen only when every part is in B♭.
+  const instrumentOf = async parts => (await open(score(parts), 'parts.musicxml')).instrument;
+  assert.equal(await instrumentOf([['Trumpet in Bb', trumpet]]), 'Trumpet in B♭');
+  assert.equal(
+    await instrumentOf([
+      ['Trumpet 1', trumpet],
+      ['Trumpet 2', trumpet]
+    ]),
+    'Trumpet in B♭'
+  );
+  assert.equal(
+    await instrumentOf([
+      ['Trumpet', trumpet],
+      ['Trombone', bass],
+      ['Tuba', bass]
+    ]),
+    'Piano'
+  );
+  assert.equal(await instrumentOf([['Flute'], ['Clarinet', trumpet]]), 'Flute', 'A concert-pitch first part');
+  assert.equal(await instrumentOf([['Oboe'], ['Horn']]), '', 'No guess');
+  // One voice is a plain melody without a staff name, in any clef; several parts are named.
+  const alto = await open(
+    score([['Alto Saxophone', '<transpose><diatonic>-5</diatonic><chromatic>-9</chromatic></transpose>']]),
+    'alto.musicxml'
+  );
+  assert.deepEqual([alto.instrument, /^V:/m.test(alto.abc)], ['Alto sax in E♭', false]);
+  const bassoon = await open(score([['Bassoon', bass]]), 'bassoon.musicxml');
+  assert.ok(bassoon.abc.split('\n').includes('V:1 clef=bass'), 'A bass-clef melody has its clef and no name');
+  assert.ok(!bassoon.abc.includes('Bassoon'));
+  // abcjs reads % as the start of a comment and cuts \% short, so a percent sign is written as the full-width ％,
+  // and the title and copyright survive the next export whole.
+  const percent = await open(
+    score(
+      [['Flute']],
+      '<work><work-title>100% Fun &amp; "Games"</work-title></work>' +
+        '<identification><creator type="composer">Ten% Tunes</creator>' +
+        '<rights>© 2020 Someone 50% share</rights></identification>'
+    ),
+    'percent.musicxml'
+  );
+  const percentTune = ABCJS.parseOnly(percent.abc)[0];
+  assert.deepEqual(
+    [percentTune.metaText.title, percentTune.metaText.composer, percentTune.metaText['abc-copyright']],
+    ['100％ Fun & "Games"', 'Ten％ Tunes', '© 2020 Someone 50％ share']
+  );
+  const percentXML = context.abcToMusicXML(percent.abc, {item: {kind: 'personal', abc: percent.abc}});
+  assert.ok(percentXML.includes('<work-title>100％ Fun &amp; &quot;Games&quot;</work-title>'));
+  assert.ok(percentXML.includes('<rights>© 2020 Someone 50％ share</rights>'), 'The whole copyright line is kept');
+  // A damaged <transpose> or chord root is held to a few octaves, so the file opens at once instead of hanging.
+  for (const amount of ['1e300', '2000000000', '-1e300', 'Infinity']) {
+    const started = Date.now(),
+      wild = await open(
+        score([
+          [
+            'Clarinet',
+            `<key><fifths>2</fifths></key><transpose><diatonic>${amount}</diatonic><chromatic>${amount}</chromatic>` +
+              `<octave-change>${amount}</octave-change></transpose>`,
+            '<harmony><root><root-step>C</root-step><root-alter>1e300</root-alter></root><kind>major</kind></harmony>' +
+              whole
+          ]
+        ]),
+        'wild.musicxml'
+      );
+    assert.ok(Date.now() - started < 1000, `A transposition of ${amount} is read at once`);
+    assert.match(wild.abc, /^K:[A-G]/m);
+    assert.deepEqual(ABCJS.parseOnly(wild.abc)[0].warnings || [], []);
+  }
+
+  // Rights metadata from an opened file keeps the credit and source fields, as text, and links that open web pages.
+  Object.assign(context, {URL});
+  for (const item of context.library) {
+    const back = context.importedRights(JSON.parse(JSON.stringify(item)));
+    assert.equal(context.exportCredit(back), context.exportCredit(item), `${item.id}: the credit comes back whole`);
+    assert.equal(context.scoreLicense(back), context.scoreLicense(item));
+    for (const key of ['pdf', 'originalMidi', 'originalSource', 'originalSourceDownload'])
+      assert.equal(back[key], item[key], `${item.id}: ${key}`);
+  }
+  // The objects come from the test context, so they are copied before they are compared.
+  assert.deepEqual(
+    {
+      ...context.importedRights({
+        rights: 'CC0',
+        source: 'https://example.org/tune',
+        pdf: 'scores/x/score.pdf',
+        licenseURL: 'javascript:alert(1)',
+        originalMidi: ' JavaScript:alert(1)',
+        originalSource: 'java\tscript:alert(1)',
+        sourceFile: 'data:text/html,hello',
+        originalSourceDownload: 'vbscript:x',
+        title: {toString: () => 'x'},
+        composer: 7,
+        prompt: 'first',
+        instrument: 'Flute',
+        kind: 'original',
+        id: 'ode',
+        abc: 'X:1'
+      })
+    },
+    {rights: 'CC0', source: 'https://example.org/tune', pdf: 'scores/x/score.pdf'}
+  );
+  assert.deepEqual(
+    [null, [], 'text', 3].map(x => ({...context.importedRights(x)})),
+    [{}, {}, {}, {}]
+  );
+  console.log(
+    'MusicXML import files: a MuseScore .mxl, a timewise file with left-out marks, damaged files, key changes across ' +
+      'voices, instrument choice, part names, percent signs, damaged transpositions and imported rights links passed'
+  );
+}
+musicXMLImportFiles()
+  .then(() =>
+    console.log(
+      'PASS: ' +
+        context.library.length +
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits) and MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files).'
+    )
+  )
+  .catch(e => {
+    console.error(e);
+    process.exit(1);
+  });

@@ -851,7 +851,7 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.equal(
     disabled(),
     'dot tie to-rest acc:^ acc:_ acc:= acc: respell beam:join beam:break deco:staccato deco:tenuto deco:accent ' +
-      'deco:marcato deco:fermata dyn:ppp dyn:pp dyn:p dyn:mp dyn:mf dyn:f dyn:ff dyn:fff dyn:sfz deco:wedge ' +
+      'deco:marcato deco:fermata dyn:ppp dyn:pp dyn:p dyn:mp dyn:mf dyn:f dyn:ff dyn:fff dyn:sfz chord deco:wedge ' +
       'deco:upbow deco:downbow deco:breath deco:trill deco:mordent deco:turn deco:arpeggio delete'
   );
   assert.equal(pressed(), 'len:0.5', 'Shows the length new notes get: the last one chosen (key 6 above)');
@@ -1207,6 +1207,179 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
 }
 // Master bus and note audition: every note and click reaches the speakers through one gain node that follows the
 // Volume slider live; entering, selecting or moving a note sounds it once at concert pitch when Hear notes is on.
+// Chord symbols: K, the toolbar's Chord button and the note menu open the box; Enter saves, Tab moves on, Escape
+// cancels, empty removes; written pitch on transposing instruments; the Chords switch silences the accompaniment.
+async function checkChordSymbols() {
+  const body = () => run("$('abc').value.trim().split('\\n').pop()"),
+    pick = i => run(`selectEntry(scoreNotes()[${i}])`),
+    key = (k, o = {}) => run(`scoreKey(${JSON.stringify({key: k, ...o})})`),
+    status = () => run("$('selection-status').textContent"),
+    box = () => run("$('chord-entry').hidden ? null : $('chord-input').value"),
+    type = (text, k = 'Enter', shiftKey = false) =>
+      run(
+        `$('chord-input').value=${JSON.stringify(text)};$('chord-input').dispatchEvent(new Event('input'));` +
+          `$('chord-input').dispatchEvent(new KeyboardEvent('keydown',{key:${JSON.stringify(k)},shiftKey:${shiftKey},bubbles:true}))`
+      ),
+    music = '"^Verse"C "F"D E z | G4 |]';
+  run(`dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\n' + music)},instrument:'Flute'})`);
+  run('selectedRange=null;selectionAnchor=null');
+  key('k');
+  assert.equal(box(), null, 'K needs a selected note');
+  assert.equal(status(), 'Select a note on the score first.');
+  pick(0);
+  key('k');
+  assert.equal(box(), '', 'K opens an empty box on a note without a symbol');
+  assert.equal(run('document.activeElement.id'), 'chord-input', 'The box takes the keyboard');
+  assert.equal(run("$('chord-hint').textContent"), 'Enter saves · Tab next note · Esc cancels');
+  type('Bb7');
+  assert.equal(body(), '"Bb7""^Verse"C "F"D E z | G4 |]', 'Enter writes the symbol before the note');
+  assert.equal(box(), null, 'and closes the box');
+  assert.equal(run('document.activeElement.id'), 'notation', 'The keyboard goes back to the score');
+  assert.equal(status(), 'Chord symbol Bb7.');
+  assert.equal(run("$('abc').value.slice(...selectedRange)"), '"Bb7""^Verse"C ', 'The note stays selected');
+  run('stepHistory(-1)');
+  assert.equal(body(), music, 'One undo step');
+  run('stepHistory(1)');
+  pick(0);
+  key('K');
+  assert.equal(box(), 'Bb7', 'The box shows the symbol the note has');
+  type('C', 'Tab');
+  assert.equal(body(), '"C""^Verse"C "F"D E z | G4 |]', 'Editing replaces the symbol; the annotation stays');
+  assert.equal(box(), 'F', 'Tab moves on to the next note');
+  assert.equal(run("$('abc').value.slice(...selectedRange)"), '"F"D ');
+  assert.equal(status(), 'Chord symbol C.');
+  run("$('chord-input').value='';$('chord-input').dispatchEvent(new Event('input'))");
+  assert.equal(run("$('chord-hint').textContent"), 'Empty removes the chord symbol.');
+  type('', 'Tab');
+  assert.equal(body(), '"C""^Verse"C D E z | G4 |]', 'An empty box removes the symbol');
+  assert.equal(status(), 'Chord symbol removed.');
+  type('', 'Tab');
+  assert.equal(body(), '"C""^Verse"C D E z | G4 |]', 'Tab past a note without a symbol changes nothing');
+  run("$('chord-input').value='hello';$('chord-input').dispatchEvent(new Event('input'))");
+  assert.equal(run("$('chord-hint').textContent"), 'Not a chord name: it will print but not play.');
+  type('n.c.', 'Tab', true);
+  assert.equal(body(), '"C""^Verse"C D E "N.C."z | G4 |]', 'Shift+Tab saves and moves back; n.c. is N.C.');
+  assert.equal(box(), '', 'The box is on the note before');
+  run("$('chord-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
+  assert.equal(box(), null, 'Escape closes the box');
+  assert.equal(body(), '"C""^Verse"C D E "N.C."z | G4 |]', 'and saves nothing');
+  pick(3);
+  key('k');
+  assert.equal(box(), 'N.C.', 'A rest can carry a symbol');
+  type('hello');
+  assert.equal(body(), '"C""^Verse"C D E "hello"z | G4 |]', 'Text that is not a chord is still written');
+  assert.match(status(), /prints but does not play/);
+  pick(4);
+  key('k');
+  type('d7', 'Tab');
+  assert.equal(body(), '"C""^Verse"C D E "hello"z | "D7"G4 |]', 'A lower-case root is capitalized');
+  assert.equal(box(), null, 'Tab on the last note closes the box');
+  assert.equal(status(), 'Chord symbol D7. That was the last note.');
+  // The toolbar button and the note menu open the same box; the button names the symbol the note has.
+  pick(4);
+  const button = '[data-palette="chord"]';
+  assert.equal(run(`document.querySelector('${button}').getAttribute('aria-label')`), 'Chord symbol (D7)');
+  assert.equal(run(`document.querySelector('${button}').classList.contains('in-use')`), true);
+  run(`document.querySelector('${button}').click()`);
+  assert.equal(box(), 'D7', 'The Chord button opens the box');
+  type('G7');
+  assert.match(body(), /"G7"G4 \|\]$/);
+  pick(1);
+  assert.equal(run(`document.querySelector('${button}').getAttribute('aria-label')`), 'Chord symbol');
+  assert.equal(run(`document.querySelector('${button}').getAttribute('aria-disabled')`), 'false');
+  run('(e=>openNoteMenu(e,displayOf(e),0,0))(scoreNotes()[0])');
+  assert.equal(run(`document.querySelector('#note-menu [data-edit="chord"]').textContent`), 'Chord symbol: C…');
+  run(`document.querySelector('#note-menu [data-edit="chord"]').click()`);
+  assert.equal(box(), 'C', 'The note menu opens the box on its note');
+  type('Am');
+  assert.match(body(), /^"Am""\^Verse"C D/);
+  // On a range selection the box opens on the first note.
+  run('selectNotesBetween(scoreNotes()[1],scoreNotes()[2])');
+  key('k');
+  assert.equal(box(), '', 'A range selection opens the box on its first note');
+  type('F');
+  assert.match(body(), /"\^Verse"C "F"D E/);
+  // Clicking away saves the box.
+  pick(2);
+  key('k');
+  run("$('chord-input').value='E7';$('chord-input').dispatchEvent(new FocusEvent('blur',{relatedTarget:$('abc')}))");
+  assert.match(body(), /"F"D "E7"E/, 'Leaving the box saves it');
+  // On a B-flat clarinet the box shows and takes written pitch; the source stays concert.
+  run(
+    `openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:F\n"F"C "Bb"D "C7"E F |]')},instrument:'Clarinet in B♭'})`
+  );
+  const shown = () => run(`[...document.querySelectorAll('#notation .abcjs-chord')].map(e=>e.textContent).join(' ')`);
+  assert.equal(shown(), 'G C D7', 'Symbols are drawn in written pitch');
+  pick(1);
+  key('k');
+  assert.equal(box(), 'C', 'The box shows the written symbol');
+  type('F7', 'Tab');
+  assert.equal(body(), '"F"C "Eb7"D "C7"E F |]', 'Written F7 is concert Eb7 in the source');
+  assert.equal(box(), 'D7');
+  type('Db/F');
+  assert.equal(body(), '"F"C "Eb7"D "Cb/Eb"E F |]', 'Root and bass both move by the interval');
+  assert.equal(shown(), 'G F7 D♭/F');
+  // In Concert pitch view the box shows and takes concert pitch, as the score does.
+  run("$('concert-pitch').checked=true;$('concert-pitch').onchange()");
+  assert.equal(shown(), 'F E♭7 C♭/E♭', 'Concert pitch view draws the source symbols');
+  pick(1);
+  key('k');
+  assert.equal(box(), 'Eb7', 'The box shows the concert symbol');
+  type('Ab7');
+  assert.equal(body(), '"F"C "Ab7"D "Cb/Eb"E F |]', 'A symbol typed in concert pitch is stored as typed');
+  run("$('concert-pitch').checked=false;$('concert-pitch').onchange()");
+  assert.equal(shown(), 'G B♭7 D♭/F', 'and shown in written pitch with the view off');
+  // Words are typed, stored and shown as they are; every chord name moves, including ones abcjs plays only as a triad.
+  run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nC D E F|G4|]')},instrument:'Clarinet in B♭'})`);
+  pick(0);
+  key('k');
+  type('Coda', 'Tab');
+  type('(End)', 'Tab');
+  type('Fine', 'Tab');
+  type('Cm(maj7)', 'Tab');
+  assert.equal(status(), 'Chord symbol Cm(maj7).');
+  type('C7alt');
+  assert.equal(body(), '"Coda"C "(End)"D "Fine"E "Bbm(maj7)"F|"Bb7alt"G4|]', 'Concert pitch in the source');
+  assert.equal(shown(), 'Coda (End) Fine Cm(maj7) C7alt', 'Written pitch on the score');
+  pick(0);
+  key('k');
+  assert.equal(box(), 'Coda', 'The box shows the word as typed');
+  run("$('chord-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
+  // Chords: on by default; off leaves the accompaniment out of playback but not out of MIDI export; remembered and
+  // backed up; switching it during playback carries on playing.
+  run(
+    `openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\n"C"C D E F | "G7"G A B c |]')},instrument:'Flute'})`
+  );
+  run("$('metronome').checked=false;$('count-in').checked=false");
+  assert.equal(run("$('chords').checked"), true, 'Chords is on by default');
+  oscillators.length = 0;
+  await run('play()');
+  const withChords = oscillators.length;
+  run('stop()');
+  run("$('chords').checked=false;$('chords').dispatchEvent(new Event('change'))");
+  assert.equal(w.localStorage.getItem('fretfree-practice-chords'), 'false', 'The setting is remembered');
+  assert.ok(run('BACKUP_SETTING_KEYS()').includes('fretfree-practice-chords'), 'and backed up');
+  oscillators.length = 0;
+  await run('play()');
+  assert.equal(oscillators.length, 8, 'Without chords only the eight melody notes play');
+  assert.ok(withChords > 8, 'With chords the accompaniment plays too');
+  run("$('chords').checked=true;$('chords').dispatchEvent(new Event('change'))");
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(run('playing'), true, 'Switching Chords keeps playing');
+  run('stop()');
+  let exported = null;
+  run('var keepDownload=download;download=d=>{window.__exported=d}');
+  run("$('chords').checked=false;$('export-midi').onclick();download=keepDownload");
+  exported = run('__exported');
+  assert.equal(
+    new Set(run('parseMidi')(exported).notes.map(n => n.ch)).size,
+    2,
+    'MIDI export keeps the chords with Chords off'
+  );
+  w.localStorage.setItem('fretfree-practice-chords', 'true');
+  run('applyStoredSettings()');
+  assert.equal(run("$('chords').checked"), true, 'Restored settings apply Chords');
+}
 async function checkAudio() {
   const hz = midi => 440 * 2 ** ((midi - 69) / 12),
     near = (a, b) => Math.abs(a - b) < 1e-6;
@@ -1815,13 +1988,14 @@ async function checkPlayback() {
     assert.equal(run("$('midi-status').hidden"), true);
     delete w.navigator.requestMIDIAccess;
   }
+  await checkChordSymbols();
   await checkAudio();
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-scores-v1')), [legacy]);
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-favorites-v1')), ['ode', 'mutopia-263']);
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }
