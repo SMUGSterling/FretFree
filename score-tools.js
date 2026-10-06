@@ -799,6 +799,134 @@ function barProblems(tune) {
   }
   return problems;
 }
+// A first measure (of barLengths) shaped like a pickup: shorter than the meter and closed by a bar line.
+const shortStart = m => m.measure === 1 && m.meter !== 'free' && !!m.bar && m.length < m.expected - 1e-6;
+// The voices (barLengths' ids) that open with that shape and have more music after it.
+function openingPickups(tune) {
+  const starts = new Set(),
+    more = new Set();
+  for (const m of barLengths(tune)) (shortStart(m) ? starts : more).add(m.voice);
+  return new Set([...starts].filter(v => more.has(v)));
+}
+// Where each note and rest starts in its measure, as a beat counted from 1 (2.5 is halfway through beat 2), keyed by
+// startChar. A beat is the meter's lower note, or three of them in 6/8, 9/8 and 12/8. Free meter (M:none) has no beats.
+// A short first measure is a pickup, so it ends on the last beat, when a short bar that closes a section or the tune
+// makes up the rest of it, or when its voice is in opened (openingPickups of the score as it was opened). A first bar
+// that is short only because a note was deleted from it while writing starts on beat 1. A short bar after a short bar
+// that closes a section is the next section's pickup when the two make one full bar (G2G2 G2z || G | in 2/4), unless
+// it starts a second ending, which follows the bar before the first.
+function noteBeats(tune, opened = new Set()) {
+  const out = new Map(),
+    measures = barLengths(tune),
+    first = new Map(),
+    last = new Map(),
+    pickups = new Map(),
+    near = (a, b) => Math.abs(a - b) < 1e-6,
+    short = m => !m.multi && m.length < m.expected - 1e-6;
+  for (const m of measures) last.set(m.voice, m);
+  for (const m of measures) {
+    if (m.measure === 1) {
+      if (shortStart(m)) first.set(m.voice, m);
+      continue;
+    }
+    const f = first.get(m.voice);
+    if (
+      f &&
+      (opened.has(m.voice) || ((m.sectionEnd || m === last.get(m.voice)) && near(m.length + f.length, m.expected)))
+    )
+      pickups.set(m.voice, f.expected - f.length);
+  }
+  const before = new Map();
+  for (const m of measures) {
+    const p = before.get(m.voice);
+    before.set(m.voice, m);
+    if (m.meter === 'free') continue;
+    const count = Math.round(m.meter.length * m.meter.den),
+      beat = m.meter.den >= 8 && count > 3 && count % 3 === 0 ? 3 / m.meter.den : 1 / m.meter.den,
+      pickup =
+        m.measure === 1
+          ? pickups.get(m.voice) || 0
+          : p?.sectionEnd &&
+              m.bar &&
+              short(p) &&
+              short(m) &&
+              near(p.length + m.length, m.expected) &&
+              !(p.ending && m.ending && p.ending !== m.ending)
+            ? m.expected - m.length
+            : 0;
+    // A spacer (y) takes no time when played, though barLengths counts it.
+    let start = 0,
+      spacers = 0;
+    for (const n of m.notes) {
+      out.set(n.element.startChar, Math.round((1 + (pickup + start - spacers) / beat) * 1e6) / 1e6);
+      if (n.element.rest?.type === 'spacer') spacers += n.at - start;
+      start = n.at;
+    }
+  }
+  return out;
+}
+// A note, chord or rest in words for the status line that screen readers announce: "Quarter note G4, measure 3,
+// beat 2". names are the pitches as the staff spells them (noteLabels' names, which follow the key and the bar's
+// accidentals); without them the letters and octaves are named with the note's own accidentals.
+const LENGTH_WORDS = [
+  [2, 'double whole'],
+  [1, 'whole'],
+  [1 / 2, 'half'],
+  [1 / 4, 'quarter'],
+  [1 / 8, 'eighth'],
+  [1 / 16, '16th'],
+  [1 / 32, '32nd'],
+  [1 / 64, '64th']
+];
+function lengthWords(duration) {
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  for (const [v, word] of LENGTH_WORDS) {
+    if (near(duration, v)) return word;
+    if (near(duration, v * 1.5)) return 'dotted ' + word;
+    if (near(duration, v * 1.75)) return 'double-dotted ' + word;
+  }
+  return '';
+}
+// Beat 2, beat 2½ for the eighth after it in 4/4, beat 2⅓ for the second eighth of a beat in 6/8 or of a triplet,
+// and "after beat 2" for anything finer.
+const BEAT_PARTS = [
+  [1 / 4, '¼'],
+  [1 / 3, '⅓'],
+  [1 / 2, '½'],
+  [2 / 3, '⅔'],
+  [3 / 4, '¾']
+];
+function beatText(beat) {
+  const whole = Math.floor(beat + 1e-6),
+    part = beat - whole;
+  if (part < 1e-6) return `beat ${whole}`;
+  const named = BEAT_PARTS.find(([v]) => Math.abs(part - v) < 1e-6);
+  return named ? `beat ${whole}${named[1]}` : `after beat ${whole}`;
+}
+function describeNote(element, measure, beat, names) {
+  const where = `measure ${measure}` + (beat ? ', ' + beatText(beat) : ''),
+    rest = element.rest,
+    pitches = element.pitches || [];
+  // A spacer (y) is only room on the staff: it is not a note and takes no time, so it has no description.
+  if (rest?.type === 'spacer' && !pitches.length) return '';
+  if (rest?.type === 'multimeasure')
+    return `Rest for ${rest.text} measure${+rest.text === 1 ? '' : 's'}, measure ${measure}`;
+  const length = lengthWords(element.duration || 0);
+  let what;
+  if (!pitches.length) what = [rest?.type === 'invisible' ? 'invisible' : '', length, 'rest'];
+  else {
+    names ??= pitches.map(
+      p =>
+        'CDEFGAB'[((p.pitch % 7) + 7) % 7] +
+        ({sharp: '♯', flat: '♭', natural: '♮', dblsharp: '𝄪', dblflat: '𝄫'}[p.accidental] || '') +
+        (4 + Math.floor(p.pitch / 7))
+    );
+    what = [length, pitches.length < 2 ? 'note' : length ? 'note chord' : 'chord', names.join(' ')];
+  }
+  const text = what.filter(Boolean).join(' '),
+    tied = pitches.some(p => p.startTie) ? ', tied to the next note' : '';
+  return text[0].toUpperCase() + text.slice(1) + tied + ', ' + where;
+}
 // The first voice as written, bar by bar: each note's MIDI pitch (null for rests) and sounding length. Accidentals
 // follow ABC rules: the key signature, inline key changes, and accidentals carried to the end of the bar.
 const LETTER_SEMIS = [0, 2, 4, 5, 7, 9, 11],
@@ -2455,9 +2583,10 @@ function validPrompt(q) {
 // Note-name labels for every voice, as written: letters (F♯) or movable-do solfège (do-based major,
 // la-based minor; notes raised against the key signature use sharp syllables, lowered ones flat syllables).
 // Each voice keeps its own key and bar accidentals; a note tied across a bar line keeps the accidental it was tied
-// from. Each label also has `midis`: every pitch of the note as playback sounds it (see playbackShift), and
-// `written`: every pitch as the staff shows it, before that shift.
-const SOLFEGE_SHARP = ['do', 'di', 're', 'ri', 'mi', 'fa', 'fi', 'sol', 'si', 'la', 'li', 'ti'],
+// from. Each label also has `midis`: every pitch of the note as playback sounds it (see playbackShift), `written`:
+// every pitch as the staff shows it, before that shift, and `names`: every pitch spelled with its octave (F♯4).
+const ACCIDENTAL_SIGNS = {1: '♯', 2: '𝄪', '-1': '♭', '-2': '𝄫'},
+  SOLFEGE_SHARP = ['do', 'di', 're', 'ri', 'mi', 'fa', 'fi', 'sol', 'si', 'la', 'li', 'ti'],
   SOLFEGE_FLAT = ['do', 'ra', 're', 'me', 'mi', 'fa', 'se', 'sol', 'le', 'la', 'te', 'ti'];
 function noteLabels(tune, mode) {
   const labels = [],
@@ -2503,7 +2632,13 @@ function noteLabels(tune, mode) {
             const alter =
               (p.accidental || !p.endTie ? null : state.tied[p.pitch]) ?? state.carried[p.pitch] ?? key[name] ?? 0;
             if (p.startTie) tied[p.pitch] = alter;
-            return {letter, name, alter, midi: 60 + 12 * Math.floor(p.pitch / 7) + LETTER_SEMIS[letter] + alter};
+            return {
+              letter,
+              name,
+              alter,
+              octave: 4 + Math.floor(p.pitch / 7),
+              midi: 60 + 12 * Math.floor(p.pitch / 7) + LETTER_SEMIS[letter] + alter
+            };
           });
           state.tied = tied;
           const {letter, name, alter, midi} = spelled[0],
@@ -2512,13 +2647,14 @@ function noteLabels(tune, mode) {
           const text =
             mode === 'solfege'
               ? (alter < (key[name] ?? 0) ? SOLFEGE_FLAT : SOLFEGE_SHARP)[(pc - (state.doPc || 0) + 12) % 12]
-              : name + ({1: '♯', 2: '𝄪', '-1': '♭', '-2': '𝄫'}[alter] || '');
+              : name + (ACCIDENTAL_SIGNS[alter] || '');
           labels.push({
             at: e.startChar,
             text,
             midi,
             midis: spelled.map(x => x.midi + state.shift),
-            written: spelled.map(x => x.midi)
+            written: spelled.map(x => x.midi),
+            names: spelled.map(x => x.name + (ACCIDENTAL_SIGNS[x.alter] || '') + x.octave)
           });
         }
       }

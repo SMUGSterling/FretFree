@@ -100,8 +100,8 @@ function updatePalette() {
   if (paletteMessage && paletteMessage.at !== (selectedRange?.[0] ?? null)) {
     if (status.textContent === paletteMessage.text)
       status.textContent = state.sel
-        ? `Measure ${state.sel.entry.measure} selected.`
-        : 'Nothing selected. Letters add notes at the end.';
+        ? (noteDescription(state.sel.entry) || `Measure ${state.sel.entry.measure} selected`) + '.'
+        : NOTHING_SELECTED;
     paletteMessage = null;
   }
   // While More is closed, its label names the marks under it that the selected note has.
@@ -155,7 +155,11 @@ function updatePalette() {
 }
 $('palette').addEventListener('click', e => {
   const b = e.target.closest('[data-palette]');
-  if (!b) return;
+  if (b) pressPalette(b, e.detail === 0);
+});
+// A press on a palette button, from a pointer, the keyboard (keyboard) or the shortcut sheet's command search (a
+// pointer press, so the score gets the keyboard back).
+function pressPalette(b, keyboard = false) {
   const action = b.dataset.palette;
   if (action === 'more' || action === 'tuplets' || action === 'measure') {
     const panel = $(b.getAttribute('aria-controls')),
@@ -165,7 +169,7 @@ $('palette').addEventListener('click', e => {
     // Closing hides buttons that may hold the tab stop, so the toggle takes it.
     paletteTabStop(b);
     updatePalette();
-    if (e.detail !== 0) focusScore();
+    if (!keyboard) focusScore();
     return;
   }
   if (renderedSource !== $('abc').value) {
@@ -176,7 +180,7 @@ $('palette').addEventListener('click', e => {
     blocked = paletteBlocked(action, state);
   // The chord box takes the keyboard; it hands it back to this button after a keyboard press, else to the score.
   if (action === 'chord' && !blocked) {
-    openChordEntry(state.sel, e.detail === 0 ? b : null);
+    openChordEntry(state.sel, keyboard ? b : null);
     return;
   }
   if (blocked) $('selection-status').textContent = blocked;
@@ -214,9 +218,9 @@ $('palette').addEventListener('click', e => {
   paletteMessage = {text: $('selection-status').textContent, at: selectedRange?.[0] ?? null};
   updatePalette();
   // Pointer presses hand the keyboard back to the score so letters and keys reach it; keyboard presses stay on the button.
-  if (e.detail === 0) b.focus({preventScroll: true});
+  if (keyboard) b.focus({preventScroll: true});
   else focusScore();
-});
+}
 // One tab stop for the toolbar: the last button used. Arrow keys, Home and End move between the shown buttons.
 function paletteTabStop(target) {
   for (const b of $('palette').querySelectorAll('[data-palette]')) b.tabIndex = b === target ? 0 : -1;

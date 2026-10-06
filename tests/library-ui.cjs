@@ -27,6 +27,7 @@ const SCRIPTS = [
   'editor.js',
   'measure-tools.js',
   'palette.js',
+  'shortcuts.js',
   'playback.js',
   'keyboard.js',
   'assignments.js',
