@@ -2226,8 +2226,10 @@ function swingPlayback(data, amount, bars) {
 
 // Share links: the whole score rides in the URL hash (#s=…), so no server ever holds student work.
 // Payload {v, a: abc, i: instrument, s: library source id, p: built-in prompt id,
-// q: teacher-written assignment, checked by validPrompt}. The first character says how the rest
-// is packed: '1' deflate-raw + base64url, '0' plain base64url (for browsers without CompressionStream).
+// q: teacher-written assignment, checked by validPrompt}. A turned-in assignment adds n: the student's name,
+// t: the time (ms), x: the assignment's id and g: each goal met (1) or not (0); a teacher's return link adds
+// c: feedback text. The first character says how the rest is packed: '1' deflate-raw + base64url, '0' plain
+// base64url (for browsers without CompressionStream).
 const base64url = {
   // Built in chunks: spreading a large score into String.fromCharCode overflows the call stack.
   encode: bytes => {
@@ -2257,4 +2259,58 @@ async function decodeShare(text) {
   } catch {
     return null;
   }
+}
+
+// Turning in and the teacher's inbox. Everything here comes from a link or a file, so it is checked field by field.
+// A name keeps printable characters and single spaces, up to 80 characters; anything else is no name.
+const STUDENT_NAME_MAX = 80,
+  FEEDBACK_MAX = 2000;
+function cleanStudentName(name) {
+  if (typeof name !== 'string') return '';
+  const clean = name
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return clean.length <= STUDENT_NAME_MAX ? clean : '';
+}
+// The turn-in parts of a link (n, t, x), read against the assignment the link carries: x must be its id. Returns
+// {name, at, assignment} or null. g is not read: the inbox works the goals out again from the music, so a link stays
+// readable after a built-in prompt's goals change.
+function readSubmission(payload, prompt) {
+  if (!payload || typeof payload !== 'object' || !prompt || typeof prompt.id !== 'string') return null;
+  const name = cleanStudentName(payload.n),
+    {t, x} = payload;
+  if (!name || !Number.isInteger(t) || t <= 0 || t > 8.64e15 || x !== prompt.id) return null;
+  return {name, at: t, assignment: x};
+}
+// A teacher's feedback (c): text up to 2,000 characters, or null.
+function readFeedback(c) {
+  return typeof c === 'string' && c.trim() && c.length <= FEEDBACK_MAX ? c.trim() : null;
+}
+// What the inbox shows for a submission: goals met (checked in written pitch, as the student's checklist is) and how
+// many bars do not match the time signature. shift is the instrument's written-pitch shift.
+function submissionChecks(abc, prompt, shift = 0) {
+  let written = abc;
+  if (shift)
+    try {
+      written = transposeABC(abc, shift);
+    } catch {
+      written = ABCJS.strTranspose(abc, ABCJS.parseOnly(abc), shift);
+    }
+  const goals = prompt ? checkPrompt(prompt, melodyBars(ABCJS.parseOnly(written)[0])) : [];
+  return {
+    goals,
+    met: goals.filter(g => g.ok).length,
+    total: goals.length,
+    bars: barProblems(ABCJS.parseOnly(abc)[0]).length
+  };
+}
+// The share codes in pasted text, one per line: a full link (…#s=CODE), or a bare code. Blank lines are skipped; a line
+// with no code gives code null, so it can be reported by its line number.
+function turnInCodes(text) {
+  return String(text)
+    .split(/\r?\n/)
+    .map((line, i) => ({line: i + 1, text: line.trim()}))
+    .filter(l => l.text)
+    .map(l => ({line: l.line, code: (l.text.match(/(?:^|[#&?]s=)([01][A-Za-z0-9_-]{8,})$/) || [])[1] || null}));
 }

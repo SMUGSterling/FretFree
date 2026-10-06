@@ -34,9 +34,21 @@ const {chromium} = require('playwright'),
       midi: Array.from(creditedMidi(midiBytes($('abc').value), $('abc').value, current)),
       svg: creditedSVG($('notation'), $('abc').value, current),
       notes: parseMidi(midiBytes($('abc').value)).notes,
-      musicxml: abcToMusicXML($('abc').value, {item: current})
+      musicxml: abcToMusicXML($('abc').value, {item: current}),
+      turnIn: JSON.parse(
+        turnInFile({
+          name: 'A student',
+          at: Date.now(),
+          title: 'Practice',
+          met: 0,
+          total: 0,
+          url: '',
+          abc: $('abc').value
+        })
+      ).abc
     }));
     assert.ok(exported.abc.includes(license));
+    assert.ok(exported.turnIn.includes(license), 'The turn-in file carries the credits');
     assert.equal(
       await page.evaluate(abc => creditedABC(abc, current), exported.abc),
       exported.abc,
@@ -70,6 +82,7 @@ const {chromium} = require('playwright'),
       assert.ok(exported.abc.includes('GNU GENERAL PUBLIC LICENSE'));
       assert.ok(Buffer.from(exported.midi).toString().includes('GNU GENERAL PUBLIC LICENSE'));
       assert.ok(exported.musicxml.includes('GNU GENERAL PUBLIC LICENSE'));
+      assert.ok(exported.turnIn.includes('GNU GENERAL PUBLIC LICENSE'));
     }
     await page.evaluate(() => {
       window.print = () => {};
@@ -173,7 +186,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: every catalog score engraves; collection/exact-license filters; ABC, MIDI, SVG, MusicXML and print credits; GPL license/source embedding (MusicXML too); exported MIDI preserves playback; the highlight keeps time with the sound in cut time, 3/2, 6/4 and other meters, and through tempo and meter changes.'
+    'PASS: every catalog score engraves; collection/exact-license filters; ABC, MIDI, SVG, MusicXML, turn-in file and print credits; GPL license/source embedding (MusicXML too); exported MIDI preserves playback; the highlight keeps time with the sound in cut time, 3/2, 6/4 and other meters, and through tempo and meter changes.'
   );
 })().catch(e => {
   console.error(e);

@@ -11,6 +11,16 @@
 
 ---
 
+# Turn in and Submissions · 2026-10-06
+
+- **Turn in** appears next to Share link on a score with an assignment or a writing prompt. The student writes their name once (it is remembered on the device, and selected so the next student on a shared computer types over it) and gets a link to paste where the teacher collects work, plus a `.json` file to attach. The link adds the name, the time, the assignment's id and which goals were met to the usual payload (`n`, `t`, `x`, `g`; `v` stays 1). Editing after turning in takes the link away, so the newest work is what goes in. The file carries the credited ABC, so library credits and licences travel with it.
+- **My scores → Submissions** is the teacher's inbox. Paste the links, one per line, or drop the files: each is decoded and checked, goals and bar checks are worked out again from the music, and lines that are not turn-in links are listed by number (files over 1 MB by name) while the rest are added. Submissions are grouped by assignment, with the student, time, goals met and bars to fix, and sort by name, goals met or time.
+- **Open** shows a submission in Compose under "Turned in by …", with the checklist, **Previous** and **Next** through the class and a feedback box. Feedback is kept per student as it is typed, even if the tab closes with the box still focused, and recovering unsaved work brings a submission back with its bar. **Save** makes a copy of your own, without the bar, that can be turned in. **Copy return link** sends the music back with the feedback (`c`); the student sees it above the checklist, keeps it when saving, and can revise and turn in again. A turned-in link opened directly shows the same bar with **Add to submissions**, after which stepping through the class no longer asks about unsaved changes.
+- The inbox keeps up to 200 submissions (`fretfree-inbox`) with Delete and Clear all, and backups now include it and the remembered name. Names, feedback and everything else from links, files and backups are checked field by field and shown escaped.
+- My scores' buttons wrap on a phone instead of widening the page.
+
+---
+
 # Install as an app and work offline · 2026-10-06
 
 - After one visit FretFree opens and works without internet: the library, saved scores, a score opened before, the editor and playback. A PDF or MIDI file from the library works offline once it has been opened; one never opened does not.
