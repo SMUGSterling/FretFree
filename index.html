@@ -8,28 +8,28 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=a5d8acd642d6" />
-    <script defer src="vendor/abcjs-basic-min.js?v=a5d8acd642d6"></script>
-    <script defer src="catalog.js?v=a5d8acd642d6"></script>
-    <script defer src="catalog-expanded.js?v=a5d8acd642d6"></script>
-    <script defer src="score-tools.js?v=a5d8acd642d6"></script>
-    <script defer src="rights-tools.js?v=a5d8acd642d6"></script>
-    <script defer src="musicxml.js?v=a5d8acd642d6"></script>
-    <script defer src="catalog-licensed.js?v=a5d8acd642d6"></script>
-    <script defer src="catalog-lieder.js?v=a5d8acd642d6"></script>
-    <script defer src="catalog-quartets.js?v=a5d8acd642d6"></script>
-    <script defer src="catalog-pgh.js?v=a5d8acd642d6"></script>
-    <script defer src="catalog-skills.js?v=a5d8acd642d6"></script>
-    <script defer src="prompts.js?v=a5d8acd642d6"></script>
-    <script defer src="shared.js?v=a5d8acd642d6"></script>
-    <script defer src="library.js?v=a5d8acd642d6"></script>
-    <script defer src="backup.js?v=a5d8acd642d6"></script>
-    <script defer src="editor.js?v=a5d8acd642d6"></script>
-    <script defer src="palette.js?v=a5d8acd642d6"></script>
-    <script defer src="playback.js?v=a5d8acd642d6"></script>
-    <script defer src="keyboard.js?v=a5d8acd642d6"></script>
-    <script defer src="assignments.js?v=a5d8acd642d6"></script>
-    <script defer src="app.js?v=a5d8acd642d6"></script>
+    <link rel="stylesheet" href="style.css?v=3df6c27c1868" />
+    <script defer src="vendor/abcjs-basic-min.js?v=3df6c27c1868"></script>
+    <script defer src="catalog.js?v=3df6c27c1868"></script>
+    <script defer src="catalog-expanded.js?v=3df6c27c1868"></script>
+    <script defer src="score-tools.js?v=3df6c27c1868"></script>
+    <script defer src="rights-tools.js?v=3df6c27c1868"></script>
+    <script defer src="musicxml.js?v=3df6c27c1868"></script>
+    <script defer src="catalog-licensed.js?v=3df6c27c1868"></script>
+    <script defer src="catalog-lieder.js?v=3df6c27c1868"></script>
+    <script defer src="catalog-quartets.js?v=3df6c27c1868"></script>
+    <script defer src="catalog-pgh.js?v=3df6c27c1868"></script>
+    <script defer src="catalog-skills.js?v=3df6c27c1868"></script>
+    <script defer src="prompts.js?v=3df6c27c1868"></script>
+    <script defer src="shared.js?v=3df6c27c1868"></script>
+    <script defer src="library.js?v=3df6c27c1868"></script>
+    <script defer src="backup.js?v=3df6c27c1868"></script>
+    <script defer src="editor.js?v=3df6c27c1868"></script>
+    <script defer src="palette.js?v=3df6c27c1868"></script>
+    <script defer src="playback.js?v=3df6c27c1868"></script>
+    <script defer src="keyboard.js?v=3df6c27c1868"></script>
+    <script defer src="assignments.js?v=3df6c27c1868"></script>
+    <script defer src="app.js?v=3df6c27c1868"></script>
   </head>
   <body>
     <header>
@@ -410,8 +410,18 @@
               </p>
             </div>
             <div class="editor-actions">
-              <button class="primary" id="save">Save to my scores</button><button id="import">Open .abc</button
-              ><input type="file" id="import-file" accept=".abc,text/plain" hidden />
+              <button class="primary" id="save">Save to my scores</button
+              ><button
+                id="import"
+                title="ABC (.abc) or MusicXML (.musicxml, .xml, .mxl) from MuseScore, Noteflight, Finale, Sibelius or Dorico"
+              >
+                Open ABC or MusicXML</button
+              ><input
+                type="file"
+                id="import-file"
+                accept=".abc,.musicxml,.xml,.mxl,text/plain,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml"
+                hidden
+              />
             </div>
             <p class="small" id="save-status" role="status"></p>
           </aside>
@@ -800,12 +810,12 @@
           articulations, dynamics and ornaments; dynamics, accents and staccato change the playback. Press Z or Respell
           to respell a note, such as C♯ as D♭. Hear each note as you enter it, play the score with built-in synthesized
           tones, change tempo, loop playback, and export ABC, MIDI, SVG, or MusicXML (for MuseScore, Noteflight, Finale,
-          Sibelius or Dorico). Select a passage to copy, cut, paste or repeat it, or to move or lengthen every note in
-          it at once. Zoom in for larger notation, or choose how many measures go on each line. Use Print / PDF to
-          produce a paper score, in large print if you zoom in first. Transpose a score or a few measures by any
-          interval or to a new key. Choose a B♭ or E♭ instrument for written-pitch transposition with concert-pitch
-          playback, and tick Concert pitch to see the notes as they sound. Classroom colors and letters in noteheads
-          help beginners read, and both print.
+          Sibelius or Dorico). Open MusicXML from those programs too, converted to ABC on your device. Select a passage
+          to copy, cut, paste or repeat it, or to move or lengthen every note in it at once. Zoom in for larger
+          notation, or choose how many measures go on each line. Use Print / PDF to produce a paper score, in large
+          print if you zoom in first. Transpose a score or a few measures by any interval or to a new key. Choose a B♭
+          or E♭ instrument for written-pitch transposition with concert-pitch playback, and tick Concert pitch to see
+          the notes as they sound. Classroom colors and letters in noteheads help beginners read, and both print.
         </p>
         <h2>Privacy and school access</h2>
         <p>

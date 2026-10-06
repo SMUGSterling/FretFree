@@ -307,33 +307,65 @@ $('save').onclick = () => {
   }
 };
 $('import').onclick = () => $('import-file').click();
+// Opening a file: ABC as it is, or MusicXML (.musicxml, .xml, or compressed .mxl) converted to ABC on this device.
+const MUSICXML_FILE = /\.(musicxml|xml|mxl)$/i;
+function importReport(result) {
+  const size = `${result.parts} ${result.parts === 1 ? 'part' : 'parts'}, ${result.measures} ${
+    result.measures === 1 ? 'measure' : 'measures'
+  }`;
+  return (
+    `Imported from MusicXML (${size}). Save or export to keep a copy.` +
+    (result.skipped.length ? ' Left out: ' + listWords(result.skipped) + '.' : '')
+  );
+}
 $('import-file').onchange = async () => {
   const file = $('import-file').files[0];
   if (!file) return;
-  if (file.size > 1024 * 1024) {
-    toast('Please use an ABC file smaller than 1 MB.');
+  const musicXML = MUSICXML_FILE.test(file.name);
+  if (file.size > (musicXML ? 5 : 1) * 1024 * 1024) {
+    toast(musicXML ? 'Please use a MusicXML file smaller than 5 MB.' : 'Please use an ABC file smaller than 1 MB.');
+    $('import-file').value = '';
     return;
   }
   try {
-    const source = await file.text();
-    if (ABCJS.numberOfTunes(source) !== 1) throw new Error('Please import one ABC tune at a time.');
-    if (!/^K:/m.test(source) || !/^X:/m.test(source)) throw new Error('Expected an ABC score with X: and K: headers.');
+    let source,
+      metadata = {},
+      result = null;
+    if (musicXML) {
+      try {
+        result = await readMusicXMLFile(file);
+      } catch (e) {
+        // Messages written for people pass through; anything else means the file was not what it claimed.
+        throw /^(This|There)\b/.test(e.message) ? e : Error('This MusicXML file could not be read. It may be damaged.');
+      }
+      source = result.abc;
+      metadata = importedRights(result.metadata);
+    } else {
+      source = await file.text();
+      if (ABCJS.numberOfTunes(source) !== 1) throw new Error('Please import one ABC tune at a time.');
+      if (!/^K:/m.test(source) || !/^X:/m.test(source))
+        throw new Error('Expected an ABC score with X: and K: headers.');
+      const notice = source.match(/^% FretFree-Rights: (.*)$/m);
+      if (notice) {
+        try {
+          metadata = importedRights(JSON.parse(notice[1]));
+        } catch {}
+      }
+    }
     if (!allowReplace()) return;
     dirty = false;
-    const notice = source.match(/^% FretFree-Rights: (.*)$/m);
-    let metadata = {};
-    if (notice) {
-      try {
-        metadata = JSON.parse(notice[1]);
-        if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) metadata = {};
-      } catch {}
-    }
-    openScore({...metadata, kind: 'personal', abc: source});
+    openScore({
+      ...metadata,
+      kind: 'personal',
+      abc: source,
+      ...(result?.instrument && instruments[result.instrument] ? {instrument: result.instrument} : {})
+    });
     dirty = true;
     scheduleDraft();
-    $('save-status').textContent = 'Imported locally. Save or export to keep a copy.';
+    $('save-status').textContent = result ? importReport(result) : 'Imported locally. Save or export to keep a copy.';
   } catch (e) {
     toast(e.message);
+    $('save-status').textContent = e.message;
   } finally {
     $('import-file').value = '';
   }
