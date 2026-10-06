@@ -1,3 +1,11 @@
+# Unsaved-work recovery · 2026-10-06
+
+- While a score has unsaved changes, FretFree keeps a draft copy in the browser, two seconds after each edit and straight away when the tab is hidden. If the tab is closed or a Chromebook discards it, the next visit offers **Unsaved work from 3:42 PM: Title. Restore / Discard**.
+- **Restore** brings back the exact ABC, instrument, writing prompt and library credits, marked unsaved, and saving updates the same saved score. Saving, Discard, replacing the score, or undoing back to the opened text clears the draft. A share link opened at start-up opens first; the offer follows and the shared copy does not overwrite the draft until it is edited.
+- One draft is kept under `fretfree-draft`. Drafts over 500 KB are skipped, a full storage quota is ignored, and drafts stay out of backups.
+
+---
+
 # Backup and restore · 2026-10-06
 
 - **My scores → ⬇ Back up** writes every saved score, favorite, played mark and practice setting to one JSON file. Where the browser offers a Save As dialog (Chrome, Edge) the file can go in a synced folder and is remembered for one-click repeat backups; elsewhere it downloads.

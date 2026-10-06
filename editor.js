@@ -162,6 +162,7 @@ function render() {
   } catch (e) {
     $('warnings').textContent = 'Could not render this score: ' + e.message;
   }
+  scheduleDraft();
 }
 // abcjs options for the main score. Guitar adds a tab staff; recorder leaves room below for the fingering diagrams.
 function engraveOptions() {
@@ -1442,6 +1443,7 @@ async function openSharedLink(hash) {
   cleanKey = '';
   $('save-status').textContent = 'Shared copy, not yet saved on this device. Save it to My scores to keep it.';
   toast('Opened a shared score. Save it to My scores to keep a copy.');
+  scheduleDraft();
   return true;
 }
 $('share-link').onclick = () => shareLink().catch(e => toast('Could not make a link: ' + e.message));
@@ -1455,3 +1457,122 @@ $('share-copy').onclick = async () => {
   }
 };
 $('share-close').onclick = () => ($('share-panel').hidden = true);
+
+// Unsaved-work recovery. While the score has unsaved changes, a copy goes to one local draft slot two seconds later
+// (at once when the tab is hidden), so a discarded tab or a closed window does not lose the work. Saving, undoing
+// back to the opened text, or replacing the score clears it; render() runs after each of these, so it is the hook.
+// A draft found at start-up waits in pendingDraft until it is restored or discarded. Until then it goes back in
+// the slot whenever this session's own draft is cleared, and only a real edit in this session replaces it.
+const DRAFT_DELAY = 2000,
+  DRAFT_MAX_LENGTH = 500 * 1024;
+let draftTimer = null,
+  draftOwned = false,
+  pendingDraft = null;
+function draftData() {
+  return {
+    abc: $('abc').value,
+    instrument: currentInstrument(),
+    title: field('T', current?.title || 'Untitled'),
+    prompt: current?.prompt,
+    sourceId: shareSourceId(),
+    savedId,
+    kind: current?.kind,
+    at: Date.now()
+  };
+}
+function writeDraft() {
+  clearTimeout(draftTimer);
+  draftTimer = null;
+  // A shared link or an imported file opens as unsaved without an edit; that alone must not replace a draft
+  // the student has not seen yet.
+  if (!dirty || (pendingDraft && historyIndex === 0)) return;
+  const data = draftData();
+  // Very long scores are skipped rather than crowding saved scores out of storage; a full quota is ignored.
+  if (JSON.stringify(data).length > DRAFT_MAX_LENGTH) return;
+  if (storage.set(KEYS.draft, data)) draftOwned = true;
+}
+function scheduleDraft() {
+  if (!dirty) clearDraft();
+  else if (!draftTimer) draftTimer = setTimeout(writeDraft, DRAFT_DELAY);
+}
+function flushDraft() {
+  if (draftTimer) writeDraft();
+}
+function clearDraft() {
+  clearTimeout(draftTimer);
+  draftTimer = null;
+  if (!draftOwned) return;
+  draftOwned = false;
+  if (pendingDraft) storage.set(KEYS.draft, pendingDraft);
+  else storage.remove(KEYS.draft);
+}
+// The stored draft, unless it is damaged or matches the saved score it came from.
+function readDraft() {
+  const draft = storage.get(KEYS.draft, null);
+  if (!draft || typeof draft !== 'object' || typeof draft.abc !== 'string' || !draft.abc.trim()) return null;
+  const entry = draft.savedId && saved.find(x => x.id === draft.savedId);
+  if (entry && entry.abc === draft.abc && (!entry.instrument || entry.instrument === draft.instrument)) {
+    storage.remove(KEYS.draft);
+    return null;
+  }
+  return draft;
+}
+function draftTime(at) {
+  const when = new Date(at);
+  if (!Number.isFinite(when.getTime())) return 'earlier';
+  return when.toDateString() === new Date().toDateString()
+    ? when.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})
+    : when.toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
+}
+// Shown once at start-up. Focus moves to Restore so the choice is announced and one key away; the start-up score
+// would otherwise hold focus, with every note a tab stop before the banner. The reload's scroll restoration is
+// turned off so the banner at the top stays in view.
+function offerDraft() {
+  const banner = $('draft-banner');
+  banner.hidden = !pendingDraft;
+  if (!pendingDraft) return;
+  $('draft-text').textContent =
+    `Unsaved work from ${draftTime(pendingDraft.at)}: ${String(pendingDraft.title || 'Untitled')}.`;
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  $('draft-restore').focus({preventScroll: true});
+}
+// Restoring rebuilds the score as a shared link does: the library edition's credits, the saved entry it belongs to,
+// and the draft's own text, instrument and prompt, marked unsaved.
+function restoreDraft() {
+  const draft = pendingDraft;
+  if (!draft || !allowReplace()) return;
+  pendingDraft = null;
+  $('draft-banner').hidden = true;
+  dirty = false;
+  const source = catalog.find(x => x.id === draft.sourceId),
+    entry = draft.savedId ? saved.find(x => x.id === draft.savedId) : null,
+    title = String(draft.title || 'Untitled');
+  openScore(
+    {
+      ...(source || {}),
+      ...(entry || {}),
+      title,
+      composer: entry?.composer ?? source?.composer ?? (draft.abc.match(/^C:(.*)$/m)?.[1]?.trim() || ''),
+      kind: draft.kind || source?.kind || 'personal',
+      abc: draft.abc,
+      instrument: instruments[draft.instrument] ? draft.instrument : undefined,
+      prompt: draft.prompt
+    },
+    entry ? entry.id : null
+  );
+  dirty = true;
+  cleanKey = '';
+  updateRights();
+  $('save-status').textContent = `Restored unsaved work from ${draftTime(draft.at)}. Save it to keep it.`;
+  focusScore();
+  writeDraft();
+}
+// Discarding drops only the old draft; this session's own unsaved work keeps its slot.
+function discardDraft() {
+  if (!pendingDraft) return;
+  pendingDraft = null;
+  if (!draftOwned) storage.remove(KEYS.draft);
+  $('draft-banner').hidden = true;
+  document.querySelector('.nav.active')?.focus();
+  toast('Unsaved work discarded.');
+}

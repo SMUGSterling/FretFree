@@ -8,24 +8,24 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=bffa221202e1" />
-    <script defer src="vendor/abcjs-basic-min.js?v=bffa221202e1"></script>
-    <script defer src="catalog.js?v=bffa221202e1"></script>
-    <script defer src="catalog-expanded.js?v=bffa221202e1"></script>
-    <script defer src="score-tools.js?v=bffa221202e1"></script>
-    <script defer src="rights-tools.js?v=bffa221202e1"></script>
-    <script defer src="catalog-licensed.js?v=bffa221202e1"></script>
-    <script defer src="catalog-lieder.js?v=bffa221202e1"></script>
-    <script defer src="catalog-quartets.js?v=bffa221202e1"></script>
-    <script defer src="catalog-pgh.js?v=bffa221202e1"></script>
-    <script defer src="catalog-skills.js?v=bffa221202e1"></script>
-    <script defer src="prompts.js?v=bffa221202e1"></script>
-    <script defer src="shared.js?v=bffa221202e1"></script>
-    <script defer src="library.js?v=bffa221202e1"></script>
-    <script defer src="backup.js?v=bffa221202e1"></script>
-    <script defer src="editor.js?v=bffa221202e1"></script>
-    <script defer src="playback.js?v=bffa221202e1"></script>
-    <script defer src="app.js?v=bffa221202e1"></script>
+    <link rel="stylesheet" href="style.css?v=7b1babd636b8" />
+    <script defer src="vendor/abcjs-basic-min.js?v=7b1babd636b8"></script>
+    <script defer src="catalog.js?v=7b1babd636b8"></script>
+    <script defer src="catalog-expanded.js?v=7b1babd636b8"></script>
+    <script defer src="score-tools.js?v=7b1babd636b8"></script>
+    <script defer src="rights-tools.js?v=7b1babd636b8"></script>
+    <script defer src="catalog-licensed.js?v=7b1babd636b8"></script>
+    <script defer src="catalog-lieder.js?v=7b1babd636b8"></script>
+    <script defer src="catalog-quartets.js?v=7b1babd636b8"></script>
+    <script defer src="catalog-pgh.js?v=7b1babd636b8"></script>
+    <script defer src="catalog-skills.js?v=7b1babd636b8"></script>
+    <script defer src="prompts.js?v=7b1babd636b8"></script>
+    <script defer src="shared.js?v=7b1babd636b8"></script>
+    <script defer src="library.js?v=7b1babd636b8"></script>
+    <script defer src="backup.js?v=7b1babd636b8"></script>
+    <script defer src="editor.js?v=7b1babd636b8"></script>
+    <script defer src="playback.js?v=7b1babd636b8"></script>
+    <script defer src="app.js?v=7b1babd636b8"></script>
   </head>
   <body>
     <header>
@@ -43,6 +43,12 @@
       <span class="privacy">● No account needed</span>
     </header>
     <main>
+      <section id="draft-banner" class="draft-banner" aria-label="Unsaved work" hidden>
+        <p id="draft-text" aria-live="polite"></p>
+        <div class="draft-actions">
+          <button id="draft-restore" class="primary">Restore</button><button id="draft-discard">Discard</button>
+        </div>
+      </section>
       <section id="library" class="view">
         <div class="hero">
           <div>
@@ -447,7 +453,8 @@
           score inside the link itself, so a teacher can hand out an assignment, or a student can hand work back,
           through whatever the school already uses; nothing is uploaded. Library scores and the notation engine ship
           with the site, so the core experience makes no third-party requests. Local storage can be cleared by the
-          browser or school device policy; export work you want to keep.
+          browser or school device policy; export work you want to keep. Unsaved changes are kept as a draft in the
+          browser, so a closed or discarded tab offers them back on the next visit.
         </p>
         <p>
           A school can still block any website or disable browser audio/downloads. This design makes the educational

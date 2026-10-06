@@ -10,6 +10,7 @@ const KEYS = {
   played: 'fretfree-played',
   fingering: 'fretfree-fingering',
   noteNames: 'fretfree-note-names',
+  draft: 'fretfree-draft',
   practice: id => 'fretfree-practice-' + id
 };
 let storageOK = true;
@@ -29,6 +30,11 @@ const storage = {
       storageOK = false;
       return false;
     }
+  },
+  remove(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch {}
   }
 };
 // Stored values are checked for shape: a damaged entry must not stop the app from loading.

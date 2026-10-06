@@ -6,35 +6,7 @@ const fs = require('node:fs'),
   assert = require('node:assert/strict');
 const {JSDOM} = require(process.env.JSDOM_PATH || 'jsdom');
 const root = path.resolve(__dirname, '..');
-const dom = new JSDOM(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), {
-  runScripts: 'outside-only',
-  url: 'http://localhost:8000'
-});
-const w = dom.window,
-  ctx = dom.getInternalVMContext(),
-  run = s => vm.runInContext(s, ctx),
-  $ = id => w.document.getElementById(id);
-w.SVGElement.prototype.getBBox = function () {
-  return {x: 0, y: 0, width: Math.max(1, (this.textContent || '').length * 7), height: 14};
-};
-w.scrollTo = () => {};
-w.Element.prototype.scrollIntoView = () => {};
-w.confirm = () => true;
-// Storage written by the app's previous name must still load; a damaged played list must not stop start-up.
-w.localStorage.setItem(
-  'commonnote-scores-v1',
-  JSON.stringify([
-    {
-      id: 'legacy-score',
-      title: 'Existing saved tune',
-      abc: 'X:1\nT:Existing saved tune\nM:4/4\nL:1/4\nK:C\nC4 |]',
-      updated: 1
-    }
-  ])
-);
-w.localStorage.setItem('commonnote-favorites-v1', '["ode"]');
-w.localStorage.setItem('fretfree-played', '{"unexpected":true}');
-for (const file of [
+const SCRIPTS = [
   'vendor/abcjs-basic-min.js',
   'catalog.js',
   'catalog-expanded.js',
@@ -52,8 +24,38 @@ for (const file of [
   'editor.js',
   'playback.js',
   'app.js'
-])
-  run(fs.readFileSync(path.join(root, file), 'utf8'));
+];
+// A fresh page load: `seed` fills localStorage before the scripts run, as a previous visit would have left it.
+function boot(seed = () => {}, url = 'http://localhost:8000') {
+  const dom = new JSDOM(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), {runScripts: 'outside-only', url});
+  const w = dom.window,
+    ctx = dom.getInternalVMContext();
+  w.SVGElement.prototype.getBBox = function () {
+    return {x: 0, y: 0, width: Math.max(1, (this.textContent || '').length * 7), height: 14};
+  };
+  w.scrollTo = () => {};
+  w.Element.prototype.scrollIntoView = () => {};
+  w.confirm = () => true;
+  seed(w.localStorage);
+  for (const file of SCRIPTS) vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), ctx);
+  return {w, run: s => vm.runInContext(s, ctx), $: id => w.document.getElementById(id)};
+}
+// Storage written by the app's previous name must still load; a damaged played list must not stop start-up.
+const {w, run, $} = boot(storage => {
+  storage.setItem(
+    'commonnote-scores-v1',
+    JSON.stringify([
+      {
+        id: 'legacy-score',
+        title: 'Existing saved tune',
+        abc: 'X:1\nT:Existing saved tune\nM:4/4\nL:1/4\nK:C\nC4 |]',
+        updated: 1
+      }
+    ])
+  );
+  storage.setItem('commonnote-favorites-v1', '["ode"]');
+  storage.setItem('fretfree-played', '{"unexpected":true}');
+});
 const cards = () => $('cards').innerHTML,
   setFilter = (id, value) => {
     $(id).value = value;
@@ -314,8 +316,160 @@ assert.equal(
   assert.ok($('rights').textContent.includes('CC0'), 'Credits travel with the link');
   assert.equal($('next-up').hidden, true, 'No suggestions for a shared copy');
   assert.equal(await run('openSharedLink("s=1garbage")'), false, 'A damaged link is refused');
+
+  // Unsaved-work recovery: an edit leaves a draft in one local slot; undoing to the opened text or saving clears it.
+  const draft = () => JSON.parse(w.localStorage.getItem('fretfree-draft'));
+  const edit = js => run(`${js}; changed(); clearTimeout(renderTimer); render(); flushDraft()`);
+  run('dirty = false; openScore(catalog.find(x => x.id === "ode"))');
+  assert.equal(draft(), null, 'Opening a score leaves the draft slot empty');
+  $('instrument').value = 'Violin';
+  edit("$('abc').value = $('abc').value.replace('E E F G', 'G G F G')");
+  assert.deepEqual(
+    (({abc, instrument, title, sourceId, kind}) => ({
+      edited: abc.includes('G G F G'),
+      instrument,
+      title,
+      sourceId,
+      kind
+    }))(draft()),
+    {edited: true, instrument: 'Violin', title: 'Ode to Joy', sourceId: 'ode', kind: 'historic'},
+    'The draft holds the text, instrument, title and the edition id'
+  );
+  assert.ok(Math.abs(draft().at - Date.now()) < 60000, 'The draft is timed');
+  $('undo').click();
+  assert.equal(draft(), null, 'Undoing back to the opened text clears the draft');
+  $('redo').click();
+  run('flushDraft()');
+  assert.ok(draft(), 'Redoing the edit writes the draft again');
+  $('save').click();
+  assert.equal(draft(), null, 'Saving clears the draft');
+  edit("$('abc').value += '\\n%' + 'x'.repeat(600000)");
+  assert.equal(draft(), null, 'Drafts over 500 KB are skipped');
+  {
+    const setItem = w.Storage.prototype.setItem;
+    w.Storage.prototype.setItem = () => {
+      throw new w.DOMException('full', 'QuotaExceededError');
+    };
+    assert.doesNotThrow(
+      () => edit("$('abc').value = $('abc').value.replace(/\\n%x+$/, '')"),
+      'A full quota is ignored'
+    );
+    w.Storage.prototype.setItem = setItem;
+    assert.equal(draft(), null);
+  }
+  // A damaged draft, or one that matches the saved score it came from, is not offered.
+  w.localStorage.setItem('fretfree-draft', '[1]');
+  assert.equal(run('readDraft()'), null, 'A damaged draft is ignored');
+  w.localStorage.setItem(
+    'fretfree-draft',
+    JSON.stringify({
+      abc: run('saved.at(-1).abc'),
+      instrument: run('saved.at(-1).instrument'),
+      savedId: run('saved.at(-1).id')
+    })
+  );
+  assert.equal(run('readDraft()'), null, 'A draft that matches its saved score is not offered');
+  assert.equal(draft(), null, 'and is cleared');
+  run('dirty = false');
+
+  // Reloading with a draft of a library edition: the banner offers it; Restore brings back the exact text,
+  // instrument and credits, marked unsaved; the legacy keys are untouched.
+  const odeAbc = run('catalog.find(x => x.id === "ode").abc').replace('E E F G', 'G G F G'),
+    legacy = storage => {
+      storage.setItem('commonnote-scores-v1', '[]');
+      storage.setItem('commonnote-favorites-v1', '["ode"]');
+    };
+  {
+    const at = new Date(2026, 9, 6, 15, 42).getTime();
+    const page = boot(storage => {
+      legacy(storage);
+      storage.setItem(
+        'fretfree-draft',
+        JSON.stringify({abc: odeAbc, instrument: 'Violin', title: 'Ode to Joy', sourceId: 'ode', kind: 'historic', at})
+      );
+    });
+    assert.equal(page.$('draft-banner').hidden, false, 'Start-up offers the draft');
+    assert.match(page.$('draft-text').textContent, /^Unsaved work from .*3:42.*: Ode to Joy\.$/);
+    assert.equal(page.$('library').hidden, false, 'The start view is unchanged');
+    page.$('draft-restore').click();
+    assert.deepEqual(
+      [
+        ...page.run(`[$('abc').value, $('instrument').value, current.rights === catalog.find(x => x.id === 'ode').rights,
+        dirty, $('studio').hidden, $('draft-banner').hidden]`)
+      ],
+      [odeAbc, 'Violin', true, true, false, true],
+      'Restore brings back the exact text, instrument and credits, marked unsaved'
+    );
+    assert.ok(page.$('rights').textContent.includes('CC0'), 'Library credits are shown');
+    assert.match(page.$('save-status').textContent, /Restored unsaved work/);
+    assert.equal(
+      JSON.parse(page.w.localStorage.getItem('fretfree-draft')).abc,
+      odeAbc,
+      'The restored work stays drafted'
+    );
+    assert.deepEqual(
+      [page.w.localStorage.getItem('commonnote-scores-v1'), page.w.localStorage.getItem('commonnote-favorites-v1')],
+      ['[]', '["ode"]'],
+      'Legacy keys are untouched'
+    );
+  }
+  // A draft of a saved prompt score restores its prompt and saved entry, so saving updates that entry.
+  {
+    const prompt = run('writingPrompts[0].id'),
+      base = run(`promptSource(writingPrompts[0])`);
+    const page = boot(storage => {
+      storage.setItem(
+        'commonnote-scores-v1',
+        JSON.stringify([{id: 'mine', title: 'My first melody', abc: base, instrument: 'Flute', prompt, updated: 1}])
+      );
+      storage.setItem(
+        'fretfree-draft',
+        JSON.stringify({
+          abc: base.replace('z4', 'C D E F'),
+          instrument: 'Flute',
+          title: 'My first melody',
+          prompt,
+          savedId: 'mine',
+          kind: 'personal',
+          at: Date.now()
+        })
+      );
+    });
+    page.$('draft-restore').click();
+    assert.deepEqual(
+      [...page.run('[savedId, current.prompt, $("prompt-check").hidden, $("abc").value.includes("C D E F")]')],
+      ['mine', prompt, false, true],
+      'Prompt and saved entry come back'
+    );
+    page.$('save').click();
+    assert.equal(page.run('saved.length'), 1, 'Saving updates the saved entry');
+    assert.equal(page.w.localStorage.getItem('fretfree-draft'), null, 'Saving clears the draft');
+  }
+  // A share link opened at start-up opens first; the banner follows, and the unedited shared copy does not replace
+  // the draft. Discard removes it.
+  {
+    const link = await run('encodeShare({v: 1, a: catalog.find(x => x.id === "mozart").abc, i: "Flute"})');
+    const page = boot(storage => {
+      legacy(storage);
+      storage.setItem('fretfree-draft', JSON.stringify({abc: odeAbc, title: 'Ode to Joy', kind: 'personal', at: 1}));
+    }, 'http://localhost:8000/#s=' + link);
+    for (let i = 0; i < 100 && page.run('current?.kind') !== 'shared'; i++) await new Promise(r => setTimeout(r, 20));
+    assert.equal(page.run('current.kind'), 'shared', 'The shared score opens');
+    assert.equal(page.$('studio').hidden, false);
+    assert.equal(page.$('draft-banner').hidden, false, 'The banner follows the shared score');
+    page.run('flushDraft(); writeDraft()');
+    assert.equal(
+      JSON.parse(page.w.localStorage.getItem('fretfree-draft')).abc,
+      odeAbc,
+      'The unedited shared copy keeps the earlier draft'
+    );
+    page.$('draft-discard').click();
+    assert.equal(page.$('draft-banner').hidden, true, 'Discard hides the banner');
+    assert.equal(page.w.localStorage.getItem('fretfree-draft'), null, 'Discard clears the draft');
+    assert.equal(page.run('current.kind'), 'shared', 'Discard leaves the open score alone');
+  }
   console.log(
-    'PASS (jsdom): backup and restore, blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
+    'PASS (jsdom): unsaved-work recovery, backup and restore, blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
   );
 })().catch(e => {
   console.error(e);

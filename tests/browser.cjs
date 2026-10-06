@@ -841,6 +841,59 @@ const {chromium} = require('playwright'),
     'ode',
     'mutopia-263'
   ]);
+  // Unsaved-work recovery: an edit made with the keyboard survives a reload; Restore (keyboard) brings it back with
+  // its instrument and credits, Save clears it, and on a phone the banner fits and Discard removes the draft.
+  {
+    const tab = await browser.newPage({viewport: {width: 1280, height: 900}});
+    tab.on('pageerror', e => errors.push(e.message));
+    tab.on('dialog', dialog => dialog.accept());
+    await tab.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    await tab.locator('#cards [data-open="ode"]').click();
+    await tab.selectOption('#instrument', 'Violin');
+    await tab.locator('#notation .abcjs-notehead').first().click({force: true});
+    await tab.keyboard.press('ArrowUp');
+    const edited = await tab.evaluate(() => $('abc').value);
+    assert.notEqual(edited, await tab.evaluate(() => catalog.find(x => x.id === 'ode').abc), 'The key edits the score');
+    await tab.waitForFunction(() => JSON.parse(localStorage.getItem('fretfree-draft'))?.abc === $('abc').value, null, {
+      timeout: 5000
+    });
+    await tab.reload();
+    await tab.waitForSelector('#draft-banner:not([hidden])');
+    assert.match(await tab.locator('#draft-text').textContent(), /^Unsaved work from .+: Ode to Joy\.$/);
+    assert.equal(await tab.evaluate(() => document.activeElement.id), 'draft-restore', 'Restore has focus');
+    await tab.keyboard.press('Enter');
+    assert.deepEqual(
+      await tab.evaluate(() => [
+        $('abc').value,
+        $('instrument').value,
+        current.rights === catalog.find(x => x.id === 'ode').rights,
+        dirty,
+        $('studio').hidden,
+        $('draft-banner').hidden
+      ]),
+      [edited, 'Violin', true, true, false, true],
+      'Restore brings back the edit, instrument and credits, marked unsaved'
+    );
+    await tab.click('#save');
+    assert.equal(await tab.evaluate(() => localStorage.getItem('fretfree-draft')), null, 'Saving clears the draft');
+    await tab.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+    await tab.keyboard.press('ArrowDown');
+    await tab.evaluate(() => flushDraft());
+    await tab.setViewportSize({width: 390, height: 844});
+    await tab.reload();
+    await tab.waitForSelector('#draft-banner:not([hidden])');
+    assert.ok(
+      await tab.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+      'The banner fits a phone screen'
+    );
+    await tab.click('#draft-discard');
+    assert.deepEqual(
+      await tab.evaluate(() => [$('draft-banner').hidden, localStorage.getItem('fretfree-draft'), saved.length]),
+      [true, null, 1],
+      'Discard removes the draft and keeps the saved score'
+    );
+    await tab.close();
+  }
   await page.setViewportSize({width: 390, height: 844});
   assert.ok(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
@@ -849,7 +902,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.'
+    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);
