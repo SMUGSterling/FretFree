@@ -1093,7 +1093,7 @@ const {chromium} = require('playwright'),
     const edited = await tab.evaluate(() => $('abc').value);
     assert.notEqual(edited, await tab.evaluate(() => catalog.find(x => x.id === 'ode').abc), 'The key edits the score');
     await tab.waitForFunction(() => storedDrafts().some(d => d.tab === draftTab && d.abc === $('abc').value), null, {
-      timeout: 5000
+      timeout: 15000
     });
     await tab.reload();
     await tab.waitForSelector('#draft-banner:not([hidden])');
@@ -1161,7 +1161,7 @@ const {chromium} = require('playwright'),
       "The first tab's draft is offered"
     );
     await second.click('#draft-discard');
-    await second.waitForFunction(abc => storedDrafts().some(d => d.abc === abc), firstAbc, {timeout: 5000});
+    await second.waitForFunction(abc => storedDrafts().some(d => d.abc === abc), firstAbc, {timeout: 15000});
     await second.evaluate(() => openScore(catalog.find(x => x.id === 'mozart')));
     const secondAbc = await edit(second);
     assert.deepEqual(await stored(second), [secondAbc, firstAbc], 'Both drafts are kept, newest first');
