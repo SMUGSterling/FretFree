@@ -268,13 +268,19 @@ function noteDescription(entry) {
 }
 // After an edit the status line names the note it changed, or the selected note, so a screen reader hears the
 // result of every key; an edit with its own message ("Dotted.") sets that afterwards instead. A range selection is
-// left to its own messages.
+// left to its own messages. An edit that leaves nothing selected (a bar line added after a note) says so, so the
+// status line never names a note that is no longer selected.
+const NOTHING_SELECTED = 'Nothing selected. Letters add notes at the end.';
 function announceNote(at) {
   if (selectionAnchor) return;
-  const entry =
-      at == null ? selectedNote()?.entry : scoreNotes().find(n => n.element.startChar <= at && at < n.element.endChar),
+  const sel = selectedNote(),
+    entry = at == null ? sel?.entry : scoreNotes().find(n => n.element.startChar <= at && at < n.element.endChar),
     named = noteDescription(entry);
-  if (named) $('selection-status').textContent = named + '.';
+  $('selection-status').textContent = named
+    ? named + '.'
+    : sel
+      ? `Measure ${sel.entry.measure} selected.`
+      : NOTHING_SELECTED;
 }
 // The notation palette (palette.js) shows the selection's state; it is optional, so editing works without it.
 function refreshPalette() {
@@ -1733,6 +1739,7 @@ function editNote(entry, display, action) {
     const token =
       action === 'bar-after' ? '|' : 'z' + lengthText((entry.element.duration || beatLength()) / unitLengthAt(end));
     insertAt(end, token, action === 'rest-after');
+    if (action === 'bar-after') $('selection-status').textContent = 'Bar line added. ' + NOTHING_SELECTED;
     return;
   }
   if (action === 'beam:join' || action === 'beam:break') {
@@ -2153,7 +2160,10 @@ function scoreKey(e) {
   }
   if (key === '|') {
     if (last) editNote(last.entry, last.display, 'bar-after');
-    else insertAt(tuneEndPosition(), '|', false);
+    else {
+      insertAt(tuneEndPosition(), '|', false);
+      $('selection-status').textContent = 'Bar line added. ' + NOTHING_SELECTED;
+    }
     return true;
   }
   // ← and → leave a range selection from its first or last note.
@@ -2171,7 +2181,7 @@ function scoreKey(e) {
     selectionAnchor = null;
     renderedTune?.engraver?.rangeHighlight?.(-1, -1);
     if (typeof showPianoSelection === 'function') showPianoSelection();
-    $('selection-status').textContent = 'Nothing selected. Letters add notes at the end.';
+    $('selection-status').textContent = NOTHING_SELECTED;
     refreshPalette();
     return true;
   }
@@ -3375,11 +3385,12 @@ $('bar-check').addEventListener('click', e => {
 });
 // Undo/redo buttons and shortcuts (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or Ctrl+Y). In the ABC box they replace the browser's
 // own undo, which doesn't know about edits made on the score. Other text fields keep their own; menus, sliders and
-// boxes have none, so a key change made from the Key menu undoes from there.
+// boxes have none, so a key change made from the Key menu undoes from there. The shortcut sheet is modal, so the
+// score behind it stays as it is.
 $('undo').onclick = () => stepHistory(-1);
 $('redo').onclick = () => stepHistory(1);
 document.addEventListener('keydown', e => {
-  if (!(e.ctrlKey || e.metaKey) || e.altKey || $('studio').hidden) return;
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || $('studio').hidden || $('shortcuts')?.hidden === false) return;
   const key = e.key.toLowerCase(),
     field = e.target.closest?.('input,select,textarea');
   if (field && field.id !== 'abc' && !/^(select-one|checkbox|radio|range)$/.test(field.type)) return;

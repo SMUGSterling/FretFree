@@ -1056,6 +1056,26 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   key('Delete');
   assert.equal(body(), 'C | E F G A |]');
   assert.equal(status(), 'Quarter note C4, measure 1, beat 4.', 'An opened pickup stays one');
+  // A short bar after a short bar that ends a section is the next section's pickup.
+  assert.equal(
+    describe('M:4/4\nL:1/4\nK:C\nC | E F G A | B c d :| e | f g a b |]', 8),
+    'Quarter note E5, measure 4, beat 4.'
+  );
+  assert.equal(describe('M:2/4\nL:1/16\nK:C\nC4 C4 | G2G2 G2z || G | A8 |]', 6), '16th note G4, measure 3, beat 2¾.');
+  // An edit that leaves nothing selected says so, rather than naming a note that is no longer selected.
+  openBody('M:4/4\nL:1/4\nK:C\nC D E z | G A B c |]');
+  run('selectEntry(scoreNotes()[3])');
+  assert.equal(status(), 'Quarter rest, measure 1, beat 4.');
+  key('|');
+  assert.equal(body(), 'C D E z | | G A B c |]');
+  assert.equal(run('selectedNote() ?? null'), null);
+  assert.equal(status(), 'Bar line added. Nothing selected. Letters add notes at the end.');
+  key('ArrowUp');
+  assert.equal(body(), 'C D E z | | G A B c |]', 'Nothing to move');
+  run('stepHistory(-1)');
+  key('|');
+  assert.equal(body(), 'C D E z | G A B c | |]', 'With nothing selected, | adds a bar line at the end');
+  assert.equal(status(), 'Bar line added. Nothing selected. Letters add notes at the end.');
 }
 // Shortcut sheet: one SHORTCUTS table gives the palette its key hints; ? opens a dialog that lists the commands by
 // task, keeps the keyboard, filters as you type, and runs the chosen command on the selection with Enter.

@@ -87,7 +87,7 @@ function updatePalette() {
     if (status.textContent === paletteMessage.text)
       status.textContent = state.sel
         ? (noteDescription(state.sel.entry) || `Measure ${state.sel.entry.measure} selected`) + '.'
-        : 'Nothing selected. Letters add notes at the end.';
+        : NOTHING_SELECTED;
     paletteMessage = null;
   }
   // While More is closed, its label names the marks under it that the selected note has.

@@ -644,6 +644,23 @@ const {chromium} = require('playwright'),
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#shortcuts').isVisible(), false);
     assert.equal(await page.evaluate(() => document.activeElement.id), 'notation', 'Escape returns to the score');
+    // A click on the sheet's heading or on a hint command keeps the keyboard in the sheet, so Escape still closes it;
+    // Ctrl+Shift+Z on its ✕ leaves the score behind it alone.
+    await page.keyboard.press('?');
+    await page.locator('#shortcuts-heading').click();
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'shortcuts-search', 'A click on the heading');
+    await page
+      .locator('#shortcuts-list [role="option"]', {hasText: 'Add a note after the selection'})
+      .click({force: true});
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'shortcuts-search', 'and on a hint');
+    assert.equal(await page.locator('#shortcuts-status').textContent(), 'Type a letter from A to G on the score.');
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'shortcuts-close');
+    await page.keyboard.press('Control+Shift+z');
+    assert.equal(await kbody(), 'C | B2 c3/2 d/ [FA]2 | z6 |]', 'No redo behind the open sheet');
+    await page.evaluate(() => document.activeElement.blur());
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#shortcuts').isVisible(), false, 'Escape closes it with focus on the page');
     // ? over the note menu closes the menu, so the chosen command runs on the note.
     await rightClick(page.locator('#notation .abcjs-notehead').nth(1));
     assert.equal(await page.locator('#note-menu').isVisible(), true);

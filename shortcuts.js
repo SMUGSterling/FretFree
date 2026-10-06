@@ -277,23 +277,37 @@ $('shortcuts-list').addEventListener('click', e => {
   const option = e.target.closest('[data-shortcut]');
   if (option) chooseShortcut(+option.dataset.shortcut);
 });
-// A press on the backdrop, outside the dialog box, closes it.
+// A press on the backdrop, outside the dialog box, closes it. A click on a part that takes no focus (the heading, a
+// hint command) leaves the keyboard on the page, so it goes back to the search box; a tap leaves it there rather than
+// bring up the on-screen keyboard.
 $('shortcuts').addEventListener('click', e => {
   if (e.target === $('shortcuts')) closeShortcuts();
+  else if (e.pointerType !== 'touch' && !$('shortcuts').hidden && !$('shortcuts').contains(document.activeElement))
+    $('shortcuts-search').focus({preventScroll: true});
 });
-$('shortcuts').addEventListener('keydown', e => {
-  const {list, active} = shortcutsShown;
+// Escape closes the dialog, and Tab and Shift+Tab go round its controls so focus stays in it. They also work while
+// focus is on the page, as it is for a moment after a click on the dialog's text.
+function dialogKey(e) {
   if (e.key === 'Escape') {
     e.preventDefault();
     e.stopPropagation();
     closeShortcuts();
-  } else if (e.key === 'Tab') {
-    // Focus stays in the dialog: Tab and Shift+Tab go round its controls.
-    const stops = [$('shortcuts-search'), $('shortcuts-close')],
-      i = stops.indexOf(document.activeElement);
-    e.preventDefault();
-    stops[(i + (e.shiftKey ? -1 : 1) + stops.length) % stops.length].focus();
-  } else if (e.target === $('shortcuts-search') && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && list.length) {
+    return true;
+  }
+  if (e.key !== 'Tab') return false;
+  const stops = [$('shortcuts-search'), $('shortcuts-close')],
+    i = stops.indexOf(document.activeElement);
+  e.preventDefault();
+  stops[i < 0 ? (e.shiftKey ? 1 : 0) : (i + (e.shiftKey ? -1 : 1) + stops.length) % stops.length].focus();
+  return true;
+}
+document.addEventListener('keydown', e => {
+  if (!$('shortcuts').hidden && !$('shortcuts').contains(e.target)) dialogKey(e);
+});
+$('shortcuts').addEventListener('keydown', e => {
+  const {list, active} = shortcutsShown;
+  if (dialogKey(e)) return;
+  if (e.target === $('shortcuts-search') && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && list.length) {
     e.preventDefault();
     const step = e.key === 'ArrowDown' ? 1 : -1;
     shortcutsShown.active = active < 0 ? (step > 0 ? 0 : list.length - 1) : (active + step + list.length) % list.length;

@@ -692,13 +692,17 @@ function openingPickups(tune) {
 // startChar. A beat is the meter's lower note, or three of them in 6/8, 9/8 and 12/8. Free meter (M:none) has no beats.
 // A short first measure is a pickup, so it ends on the last beat, when a short bar that closes a section or the tune
 // makes up the rest of it, or when its voice is in opened (openingPickups of the score as it was opened). A first bar
-// that is short only because a note was deleted from it while writing starts on beat 1.
+// that is short only because a note was deleted from it while writing starts on beat 1. A short bar after a short bar
+// that closes a section is the next section's pickup when the two make one full bar (G2G2 G2z || G | in 2/4), unless
+// it starts a second ending, which follows the bar before the first.
 function noteBeats(tune, opened = new Set()) {
   const out = new Map(),
     measures = barLengths(tune),
     first = new Map(),
     last = new Map(),
-    pickups = new Map();
+    pickups = new Map(),
+    near = (a, b) => Math.abs(a - b) < 1e-6,
+    short = m => !m.multi && m.length < m.expected - 1e-6;
   for (const m of measures) last.set(m.voice, m);
   for (const m of measures) {
     if (m.measure === 1) {
@@ -708,19 +712,34 @@ function noteBeats(tune, opened = new Set()) {
     const f = first.get(m.voice);
     if (
       f &&
-      (opened.has(m.voice) ||
-        ((m.sectionEnd || m === last.get(m.voice)) && Math.abs(m.length + f.length - m.expected) < 1e-6))
+      (opened.has(m.voice) || ((m.sectionEnd || m === last.get(m.voice)) && near(m.length + f.length, m.expected)))
     )
       pickups.set(m.voice, f.expected - f.length);
   }
+  const before = new Map();
   for (const m of measures) {
+    const p = before.get(m.voice);
+    before.set(m.voice, m);
     if (m.meter === 'free') continue;
     const count = Math.round(m.meter.length * m.meter.den),
       beat = m.meter.den >= 8 && count > 3 && count % 3 === 0 ? 3 / m.meter.den : 1 / m.meter.den,
-      pickup = m.measure === 1 ? pickups.get(m.voice) || 0 : 0;
-    let start = 0;
+      pickup =
+        m.measure === 1
+          ? pickups.get(m.voice) || 0
+          : p?.sectionEnd &&
+              m.bar &&
+              short(p) &&
+              short(m) &&
+              near(p.length + m.length, m.expected) &&
+              !(p.ending && m.ending && p.ending !== m.ending)
+            ? m.expected - m.length
+            : 0;
+    // A spacer (y) takes no time when played, though barLengths counts it.
+    let start = 0,
+      spacers = 0;
     for (const n of m.notes) {
-      out.set(n.element.startChar, Math.round((1 + (pickup + start) / beat) * 1e6) / 1e6);
+      out.set(n.element.startChar, Math.round((1 + (pickup + start - spacers) / beat) * 1e6) / 1e6);
+      if (n.element.rest?.type === 'spacer') spacers += n.at - start;
       start = n.at;
     }
   }
@@ -768,6 +787,8 @@ function describeNote(element, measure, beat, names) {
   const where = `measure ${measure}` + (beat ? ', ' + beatText(beat) : ''),
     rest = element.rest,
     pitches = element.pitches || [];
+  // A spacer (y) is only room on the staff: it is not a note and takes no time, so it has no description.
+  if (rest?.type === 'spacer' && !pitches.length) return '';
   if (rest?.type === 'multimeasure')
     return `Rest for ${rest.text} measure${+rest.text === 1 ? '' : 's'}, measure ${measure}`;
   const length = lengthWords(element.duration || 0);

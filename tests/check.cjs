@@ -719,6 +719,17 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     'Quarter note D𝄫4, measure 1',
     'Note F𝄪4, measure 1'
   ]);
+  assert.deepEqual(
+    describeAll('M:4/4\nL:1/4\nK:C\nC y D E F |]'),
+    [
+      'Quarter note C4, measure 1, beat 1',
+      '',
+      'Quarter note D4, measure 1, beat 2',
+      'Quarter note E4, measure 1, beat 3',
+      'Quarter note F4, measure 1, beat 4'
+    ],
+    'A spacer is not a rest and takes no time'
+  );
   assert.equal(context.describeNote({duration: 0.375, rest: {type: 'rest'}}, 5), 'Dotted quarter rest, measure 5');
 }
 // Pickups: a short first bar is one when the score opened with it, or when a short bar that closes a section or the
@@ -735,6 +746,16 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
   assert.equal(beats('C D | E F G A | B c |'), '3 4 1 2 3 4 1 2', 'without a final bar line too');
   assert.equal(beats('C D | E F G A | B |]'), '1 2 1 2 3 4 1', 'A short last bar that does not');
   assert.equal(beats('C | E F G A | B c d :| e f g a |]'), '4 1 2 3 4 1 2 3 1 2 3 4', 'A repeat that makes it up');
+  assert.equal(
+    beats('C | E F G A | B c d :| e | f g a b |]'),
+    '4 1 2 3 4 1 2 3 4 1 2 3 4',
+    "A short bar after a short repeat bar is the next section's pickup"
+  );
+  assert.equal(beats('E F G A | B c d || e | f g a b |]'), '1 2 3 4 1 2 3 4 1 2 3 4', 'after any section end');
+  assert.equal(beats('E F G A | B c d | e | f g a b |]'), '1 2 3 4 1 2 3 1 1 2 3 4', 'but not after a plain bar line');
+  assert.equal(beats('E F G A | B c d :| e'), '1 2 3 4 1 2 3 1', 'nor before its bar line is written');
+  assert.equal(beats('E F G A | B c d :| e f |]'), '1 2 3 4 1 2 3 1 2', 'nor when the two are not one bar');
+  assert.equal(beats('M:2/4\nC | D E |1 F :|2 G || A | B c |]'), '2 1 2 1 1 2 1 2', 'A second ending starts on beat 1');
   assert.equal(beats('C D | E F G A |]', 'C D | E F G A |]'), '3 4 1 2 3 4', 'The score opened with a pickup');
   assert.equal(beats('C | E F G A |]', 'C D | E F G A |]'), '4 1 2 3 4', 'and it stays one after an edit');
   assert.equal(beats('C D |]', 'C D |]'), '1 2', 'One short bar is not a pickup');
