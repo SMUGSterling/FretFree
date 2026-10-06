@@ -24,6 +24,8 @@ const KEYS = {
   inbox: 'fretfree-inbox',
   recordCountIn: 'fretfree-record-count-in',
   latency: 'fretfree-latency',
+  // Which studio folds are open in the compact layout: a per-device layout choice, so backups leave it out.
+  studioPanels: 'fretfree-studio-panels',
   practice: id => 'fretfree-practice-' + id
 };
 // An embedded score (#e=…, usually in an iframe on a class website) is a read-only view. It neither reads nor writes

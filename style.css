@@ -544,6 +544,7 @@ select {
   font: 650 15px system-ui;
 }
 .editor-panel > label,
+.panel-body > label,
 .pair {
   margin-bottom: 14px;
 }
@@ -1987,6 +1988,435 @@ input[type='range'] {
     display: none !important;
   }
 }
+/* Studio layout. The music panel runs in bands: playback (with Undo and Redo), practice, note entry, the notation
+   palette, help and status, then the score view strip on top of the paper. Up to 1100px wide (iPads, small
+   Chromebook windows, phones) the editor panel's two halves, the practice band and the view options fold behind
+   .disclose toggles and the palette's second tier waits behind More, so the score comes first. Wider, nothing folds and
+   the toggles are hidden. The empty .slot elements mark where features still to come put their controls. */
+.slot {
+  display: contents;
+}
+.disclose {
+  display: none;
+  min-height: 40px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  align-items: center;
+  gap: 4px;
+}
+.disclose[aria-expanded='true'],
+.disclose.in-use {
+  border-color: var(--green);
+  box-shadow: inset 0 -3px 0 var(--green);
+}
+.panel-toggles {
+  display: none;
+}
+.transport {
+  gap: 8px;
+  padding: 10px 12px;
+}
+.transport button {
+  min-height: 40px;
+  font-size: 13px;
+}
+.transport .history-buttons {
+  padding: 0 8px;
+  margin: 0 2px;
+  border-left: 1px solid var(--tint-border);
+  border-right: 1px solid var(--tint-border);
+}
+.transport .history-buttons button {
+  padding: 6px 10px;
+}
+.transport .inline,
+.practice-toggles .inline,
+.edit-bar .inline {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--paper);
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+}
+.transport .volume {
+  font-size: 12px;
+  font-weight: 650;
+}
+.practice-controls {
+  gap: 8px 16px;
+  padding: 10px 0 4px;
+}
+.practice-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.practice-controls > label,
+.practice-controls .speed-control {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 650;
+}
+.practice-controls input[type='range'] {
+  width: 7rem;
+}
+.practice-controls .range-inputs input[type='number'] {
+  width: 3.8rem;
+  min-height: 36px;
+  padding: 6px 8px;
+}
+#speed-reset {
+  min-height: 36px;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+/* The legend floats so the trainer is one pill-shaped row; without float support it takes two lines, which is fine. */
+.practice-controls .trainer {
+  flex-direction: row;
+  align-items: center;
+  padding: 0 10px;
+  min-height: 40px;
+  border-radius: 999px;
+  margin: 0;
+}
+.practice-controls .trainer legend {
+  float: left;
+  padding: 0;
+  margin-right: 8px;
+}
+.practice-controls .trainer input[type='number'] {
+  width: 3.8rem;
+  min-height: 32px;
+}
+.edit-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 0;
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.entry-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.edit-bar button {
+  min-height: 40px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.edit-bar .selection-tools {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+.edit-bar #midi-status {
+  flex-basis: 100%;
+  margin: 0;
+}
+.palette {
+  margin-top: 10px;
+}
+.help-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 4px 14px;
+  align-items: center;
+  margin-top: 8px;
+}
+.help-row #keyboard-help {
+  grid-column: 1;
+  margin: 0;
+}
+/* Open, the keys take the whole row; the summary stays where it was and the status moves below. */
+.help-row #keyboard-help[open] {
+  grid-column: 1 / -1;
+}
+.help-row #selection-status {
+  grid-column: 2;
+  margin: 0;
+  font-size: 12px;
+}
+.help-row .shortcuts-open {
+  grid-column: 3;
+}
+#keyboard-help > summary {
+  cursor: pointer;
+  min-height: 32px;
+  display: list-item;
+  padding: 6px 0;
+  font-weight: 650;
+  white-space: nowrap;
+}
+#keyboard-help .kb-groups {
+  margin: 4px 0;
+  padding: 8px 12px;
+  background: var(--subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: grid;
+  gap: 2px;
+  line-height: 1.9;
+}
+#keyboard-help .kb-groups > div {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  gap: 8px;
+}
+#keyboard-help dt {
+  font-weight: 650;
+}
+#keyboard-help dd {
+  margin: 0;
+}
+.score-view {
+  justify-content: flex-start;
+  gap: 8px 12px;
+  margin: 12px 0 0;
+  padding: 6px 10px;
+  background: var(--subtle);
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+}
+.score-view + .notation-paper {
+  margin-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.view-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+}
+#score-view select {
+  width: auto;
+  max-width: 9em;
+  min-height: 34px;
+  padding: 4px 8px;
+}
+#score-view #dark-paper-option {
+  margin-left: auto;
+}
+/* The embed shows the speed slider at every width, whatever the fold. */
+body.embed #practice-panel {
+  display: flex;
+}
+/* Wide screens: small headings over the palette groups. Every group gets the top padding so the ones without a heading
+   line up. The empty alt text keeps the heading out of the accessibility tree; each group has its own label. */
+@media (min-width: 1101px) {
+  .palette {
+    gap: 6px 10px;
+  }
+  .palette > [role='group'],
+  .palette-more > [role='group'],
+  .palette-measure > [role='group'] {
+    position: relative;
+    padding-top: 14px;
+  }
+  .palette [data-heading]::before {
+    content: attr(data-heading) / '';
+    position: absolute;
+    top: 0;
+    left: 1px;
+    font:
+      650 9.5px/1 system-ui,
+      sans-serif;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+}
+@media (max-width: 1100px) {
+  .workspace {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  #studio > .section-title {
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  #studio .section-title .eyebrow {
+    display: none;
+  }
+  .studio-heading {
+    font-size: 30px;
+    margin-bottom: 2px;
+  }
+  #studio .studio-actions {
+    flex: 1 1 100%;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 6px;
+  }
+  #studio .studio-actions button {
+    min-height: 40px;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  .editor-panel {
+    padding: 12px;
+  }
+  .panel-toggles {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .panel-toggles .disclose {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+  }
+  .panel-body:not(.open) {
+    display: none;
+  }
+  .panel-body.open {
+    padding-top: 12px;
+  }
+  .editor-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin-top: 6px;
+  }
+  .editor-actions button {
+    min-height: 40px;
+  }
+  #save-status:empty {
+    display: none;
+  }
+  .disclose {
+    display: inline-flex;
+  }
+  #practice-panel:not(.open),
+  #view-options:not(.open) {
+    display: none;
+  }
+  #practice-panel.open {
+    padding: 10px 12px;
+    margin-top: 6px;
+    background: var(--subtle);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  #view-options.open {
+    flex-basis: 100%;
+  }
+  #palette:not(.more-open) > .tier-2 {
+    display: none;
+  }
+}
+@media (max-width: 720px) {
+  .transport {
+    padding: 8px;
+    gap: 6px;
+  }
+  .transport #play {
+    flex: 1 1 auto;
+  }
+  .transport button {
+    padding: 6px 10px;
+  }
+  .transport .history-buttons {
+    border: 0;
+    padding: 0;
+    margin: 0;
+  }
+  .transport .volume input {
+    width: 72px;
+  }
+  .transport #play-status {
+    margin-left: auto;
+  }
+  .edit-bar {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+  }
+  /* A plain div with no role, so display: contents loses nothing for assistive technology. */
+  .edit-bar .entry-tools {
+    display: contents;
+  }
+  .edit-bar button,
+  .edit-bar .inline {
+    font-size: 12px;
+    padding: 4px 6px;
+    justify-content: center;
+    min-width: 0;
+  }
+  .edit-bar .selection-tools {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 4px;
+    padding: 0;
+    border: 0;
+  }
+  .edit-bar .selection-tools button {
+    padding: 4px 2px;
+  }
+  .edit-bar #midi-status {
+    grid-column: 1 / -1;
+  }
+  .practice-controls .trainer {
+    border-radius: 8px;
+    flex-wrap: wrap;
+    padding: 4px 10px;
+  }
+  .palette {
+    gap: 4px;
+  }
+  .palette [role='group'] {
+    gap: 3px;
+  }
+  .palette button {
+    padding: 4px 6px;
+  }
+  .help-row {
+    grid-template-columns: 1fr;
+  }
+  /* Phones have no hardware keyboard; All shortcuts still lists every command. */
+  .help-row #keyboard-help {
+    display: none;
+  }
+  .help-row #selection-status {
+    grid-column: 1;
+  }
+  .help-row .shortcuts-open {
+    grid-column: 1;
+    justify-self: start;
+    font-size: 13px;
+  }
+  .score-view {
+    padding: 6px 8px;
+  }
+  #score-view #dark-paper-option {
+    margin-left: 0;
+  }
+}
+@media print {
+  .edit-bar,
+  .help-row,
+  .panel-toggles,
+  .disclose,
+  #mixer-panel,
+  #playalong-panel {
+    display: none !important;
+  }
+}
 /* Chord symbol box: over the score, just above the selected note. 16px text keeps phones from zooming in. */
 .notation-paper {
   position: relative;
@@ -2613,14 +3043,14 @@ header {
   accent-color: var(--green);
 }
 /* Shortcut sheet and command search (shortcuts.js): a dialog over a dimmed page, with the list scrolling inside. */
-.keyboard-help .shortcuts-open {
-  font-size: 11px;
-  padding: 3px 8px;
+.shortcuts-open {
+  font-size: 12px;
+  padding: 4px 10px;
   vertical-align: baseline;
 }
 /* On phones and touch screens it is the way in to the command search, so it is a full-size tap target. */
 @media (max-width: 720px), (pointer: coarse) {
-  .keyboard-help .shortcuts-open {
+  .shortcuts-open {
     min-height: 40px;
     padding: 6px 12px;
     vertical-align: middle;
@@ -2745,7 +3175,7 @@ header {
 }
 @media print {
   .shortcuts,
-  .keyboard-help .shortcuts-open {
+  .shortcuts-open {
     display: none !important;
   }
 }

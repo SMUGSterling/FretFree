@@ -443,6 +443,7 @@ function applyStoredSettings() {
   applyStoredLayout();
   applyTheme();
   prepareTrainer();
+  updateFoldMarks();
 }
 // Zoom, measures per line and Concert pitch view are read before the first render, so the start-up score is drawn
 // once as the student left it.
@@ -786,3 +787,57 @@ $('note-colors').onchange = () => {
 };
 // A remembered speed trainer needs the same below-goal start as a freshly ticked one.
 prepareTrainer();
+// Compact-layout folds (up to 1100px wide). Each .disclose button toggles .open on the element it controls; style.css
+// folds only in the compact layout, so wide screens show everything whatever the state. The choice is remembered per
+// device, along with whether the keyboard keys are open.
+const FOLDS = ['score-settings', 'write-notes', 'practice-panel', 'view-options'];
+const foldState = (s => (s && typeof s === 'object' && !Array.isArray(s) ? s : {}))(storage.get(KEYS.studioPanels, {}));
+function setFold(id, open, save = true) {
+  $(id).classList.toggle('open', open);
+  document.querySelector(`.disclose[aria-controls="${id}"]`)?.setAttribute('aria-expanded', open);
+  if (save) storage.set(KEYS.studioPanels, Object.assign(foldState, {[id]: open}));
+}
+for (const id of FOLDS) setFold(id, foldState[id] === true, false);
+document.addEventListener('click', e => {
+  const b = e.target.closest('button.disclose');
+  if (b) setFold(b.getAttribute('aria-controls'), b.getAttribute('aria-expanded') !== 'true');
+});
+$('keyboard-help').open = foldState['keyboard-help'] === true;
+$('keyboard-help').addEventListener('toggle', e =>
+  storage.set(KEYS.studioPanels, Object.assign(foldState, {'keyboard-help': e.target.open}))
+);
+// Opens the fold around el, for code that moves the focus into it (a deep link to Transpose…, say).
+function revealFold(el) {
+  const fold = el?.closest('.panel-body, #practice-panel, #view-options');
+  if (fold && !fold.classList.contains('open')) setFold(fold.id, true);
+}
+// A folded toggle says when something inside it is on, so a student can see that Loop or a 70% speed is still active.
+function markFold(id, on, words) {
+  const b = document.querySelector(`.disclose[aria-controls="${id}"]`);
+  b.classList.toggle('in-use', on);
+  b.querySelector('.disclose-state').textContent = on ? ` (${words})` : '';
+}
+// Also called by shadeRange (editor.js) whenever the practice range changes or the score is drawn again.
+function updateFoldMarks() {
+  const {from, to, total} = measureRange();
+  markFold(
+    'practice-panel',
+    ['loop', 'metronome', 'count-in', 'trainer'].some(id => $(id).checked) ||
+      $('speed').value !== '100' ||
+      from !== 1 ||
+      to !== total,
+    'settings on'
+  );
+  markFold(
+    'view-options',
+    $('note-names').value !== 'off' || $('note-colors').value !== 'off' || $('measures-per-line').value !== '0',
+    'settings on'
+  );
+  markFold('write-notes', $('warnings').textContent.trim() !== '', 'check the ABC warnings');
+}
+for (const id of ['practice-panel', 'view-options']) $(id).addEventListener('change', updateFoldMarks);
+$('practice-panel').addEventListener('input', updateFoldMarks);
+// Code changes these without an event too: a render's warnings, the speed trainer's next speed.
+for (const id of ['warnings', 'speed-value'])
+  new MutationObserver(updateFoldMarks).observe($(id), {childList: true, characterData: true, subtree: true});
+updateFoldMarks();

@@ -697,6 +697,7 @@ function shadeMeasures(cls, include, perMeasure = false) {
 function shadeRange() {
   const {from, to, total} = measureRange();
   shadeMeasures('range-shade', m => !(from === 1 && to === total) && m >= from && m <= to);
+  if (typeof updateFoldMarks === 'function') updateFoldMarks();
 }
 // Bar check: flag measures with too many or too few beats, in plain words, with a one-click fix where one is safe.
 // Library editions keep their historic irregular bars, so only bars that differ from the opened edition are flagged.
