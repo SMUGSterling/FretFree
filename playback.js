@@ -268,9 +268,12 @@ function schedulePass(p, from, percent, base, pass) {
     notes = p.full.notes.filter(n => !(n.straightEnd <= from + SLICE_EDGE)),
     data = playbackSlice({...p.full, notes}, from, percent, p.until),
     looping = $('loop').checked || $('trainer').checked;
-  scheduleNotes(data.notes, base);
-  if ($('metronome').checked)
-    for (const c of clickTimes(from, p.until, p.full.duration)) click(base + (c.time - from) / speed, c.down);
+  // Each mixer track plays through its own chain (mixer.js); muted tracks are not scheduled.
+  for (const [out, notes] of mixRoute(data.notes)) scheduleNotes(notes, base, currentInstrument(), nodes, audio, out);
+  const clicks = $('metronome').checked && mixClick();
+  if (clicks)
+    for (const c of clickTimes(from, p.until, p.full.duration))
+      click(base + (c.time - from) / speed, c.down, audio, clicks);
   atAudioTime(base, () => {
     if (p.generation !== playGeneration) return;
     playOrigin = from;
@@ -344,7 +347,8 @@ async function play(resumeFrom = null, {countIn = false} = {}) {
         grid = clickTimes(from, full.duration, full.duration),
         down = grid.findIndex((c, i) => c.down && grid[i + 1]);
       const step = (down >= 0 ? grid[down + 1].time - grid[down].time : 0.5) / (percent / 100);
-      for (let k = 0; k < beats; k++) click(base + k * step, k === 0);
+      const clicks = mixClick(audio, outputNode(), {countIn: true});
+      for (let k = 0; k < beats; k++) click(base + k * step, k === 0, audio, clicks);
       $('play-status').textContent = 'Count-in…';
       base += beats * step;
     } else $('play-status').textContent = `Measures ${range.from}–${range.to} · ${percent}% speed`;
@@ -357,7 +361,7 @@ async function play(resumeFrom = null, {countIn = false} = {}) {
     toast('Playback unavailable: ' + e.message);
   }
 }
-// Audio export: the whole score as Play sounds it (instrument, swing, the Chords choice and the playback speed),
+// Audio export: the whole score as Play sounds it (instrument, swing, the Chords choice, the mixer and the playback speed),
 // rendered offline into a stereo WAV, with the metronome if asked and no count-in. The export's master bus is at full
 // level, not the Volume slider, and the mix is scaled so its loudest sample is 1 dB under full scale. An offline render
 // holds the whole recording in memory, so a score that would play for more than 10 minutes is refused before it starts;
@@ -400,10 +404,13 @@ async function renderWav({metronome = false, chords = true, signal = null, progr
     ctx = new Offline(2, length, WAV_RATE),
     out = outputNode(ctx, 1),
     made = [];
-  scheduleNotes(data.notes, 0, currentInstrument(), made, ctx, out);
-  if (metronome)
+  const routes = mixRoute(data.notes, ctx, out),
+    clicks = metronome && mixClick(ctx, out);
+  if (!routes.length && !clicks) throw Error('Every track is muted in the mixer. Turn one on to make an audio file.');
+  for (const [node, notes] of routes) scheduleNotes(notes, 0, currentInstrument(), made, ctx, node);
+  if (clicks)
     for (const c of clickTimes(0, full.duration, full.duration))
-      click(c.time / (percent / 100), c.down, ctx, out, made);
+      click(c.time / (percent / 100), c.down, ctx, clicks, made);
   const resume = () => {
     try {
       ctx.resume?.()?.catch?.(() => {});

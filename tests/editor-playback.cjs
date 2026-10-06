@@ -82,6 +82,7 @@ for (const f of [
   'palette.js',
   'shortcuts.js',
   'playback.js',
+  'mixer.js',
   'keyboard.js',
   'assignments.js',
   'turn-in.js',
@@ -2385,6 +2386,11 @@ async function checkChordSymbols() {
 }
 // Master bus and note audition: every note and click reaches the speakers through one gain node that follows the
 // Volume slider live; entering, selecting or moving a note sounds it once at concert pitch when Hear notes is on.
+// Whether a node's connections lead to another (FakeAudio nodes keep their one connection in .to).
+const reaches = (node, to) => {
+  for (let n = node; n; n = n.to) if (n === to) return true;
+  return false;
+};
 async function checkAudio() {
   const hz = midi => 440 * 2 ** ((midi - 69) / 12),
     near = (a, b) => Math.abs(a - b) < 1e-6;
@@ -2394,8 +2400,9 @@ async function checkAudio() {
   await run('play()');
   const bus = run('outputNode()');
   assert.equal(bus.to, run('audio.destination'), 'Without a limiter the master bus feeds the speakers');
+  // Notes and clicks pass through their mixer track's gate and level on the way.
   assert.ok(
-    oscillators.length > 6 && oscillators.every(o => o.to?.to === bus),
+    oscillators.length > 6 && oscillators.every(o => reaches(o, bus) && o.to.to !== bus),
     'Every note and click uses the master bus'
   );
   assert.equal(bus.gain.value, 0.3, 'Master gain starts at the Volume setting');
@@ -2611,11 +2618,12 @@ async function checkWavExport() {
     live.filter(o => o.type === 'square').length,
     'and the same metronome clicks'
   );
+  const [ctx] = offline,
+    exportBus = run('outputNode')(ctx);
   assert.ok(
-    made.every(o => o.to.to !== liveBus && o.to.to.gain.value === 1),
+    made.every(o => !reaches(o, liveBus) && reaches(o, exportBus)) && exportBus.gain.value === 1,
     'The export has its own bus at full level'
   );
-  const [ctx] = offline;
   assert.deepEqual([ctx.args[0], ctx.args[2]], [2, 44100], 'Stereo at 44.1 kHz');
   assert.equal(ctx.args[1], Math.ceil((4 / 0.5 + 1) * 44100), 'Two bars at 120 BPM and 50% speed, and a second more');
   assert.equal(downloads.length, 1);
@@ -2667,7 +2675,8 @@ async function checkWavExport() {
   await new Promise(resolve => setTimeout(resolve));
   assert.equal(run("$('wav-progress').value").toFixed(3), ((5 * 44100) / held.args[1]).toFixed(3));
   assert.equal(held.resumed, 1, 'The render goes on after a checkpoint');
-  const bus = oscillators.at(-1).to.to;
+  const bus = run('outputNode')(held);
+  assert.ok(reaches(oscillators.at(-1), bus));
   run("$('wav-close').click()");
   await pending;
   assert.equal(bus.cut, true, 'Closing cuts the export bus off');
@@ -2713,6 +2722,207 @@ async function checkWavExport() {
   assert.equal(run("$('wav-panel').hidden"), true, 'Opening another score closes the panel');
   run("download=keepDownload;$('speed').value='100';$('metronome').checked=false");
   delete w.OfflineAudioContext;
+}
+// Mixer: the panel lists the score's voices, Chords and the Metronome; Mute silences a track at once during playback
+// and leaves it out of the next pass and the WAV file; Solo plays only that track and the metronome; Volume and Pan
+// change the track's chain live without a restart; a track that can be heard again restarts playback where it was.
+// The mix saves with the score (straight away for a saved one), goes in share links and drafts, and Reset clears it.
+async function checkMixer() {
+  const tick = () => new Promise(r => w.setTimeout(r, 0)),
+    names = () =>
+      run(
+        "[...document.querySelectorAll('#mixer-tracks .mixer-track')].map(r=>r.getAttribute('aria-label')).join('|')"
+      ),
+    row = key => `document.querySelector('#mixer-tracks .mixer-track[data-key="${key}"]')`,
+    chain = key => run(`mixChains.get(audio)?.get(${JSON.stringify(key)})`),
+    through = key => oscillators.filter(o => o.to?.to === chain(key)?.gate).length,
+    keepScores = w.localStorage.getItem('commonnote-scores-v1'),
+    keepSaved = run('JSON.stringify(saved)');
+  const two =
+    'X:1\nT:Mix test\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nV:1\n"C"cdef|"G"gabc\'|]\nV:2 clef=bass\nC,D,E,F,|G,A,B,C|]\n';
+  run(`openScore({abc:${JSON.stringify('X:1\nT:Solo line\nM:4/4\nL:1/4\nK:C\nCDEF|GABc|]\n')},instrument:'Flute'})`);
+  assert.equal(run("$('mixer-panel').hidden"), true);
+  run("$('mixer-toggle').click()");
+  assert.equal(run("$('mixer-toggle').getAttribute('aria-expanded')"), 'true');
+  assert.equal(names(), 'Melody|Metronome', 'One voice without chords: Melody and Metronome');
+  assert.equal(run('document.activeElement.className'), 'mixer-mute', 'Opening the mixer focuses the first Mute');
+  assert.equal(run(`${row('metronome')}.querySelector('.mixer-solo')`), null, 'The metronome has no Solo');
+  run(`openScore({abc:${JSON.stringify(two)},instrument:'Flute'})`);
+  assert.equal(names(), 'Voice 1|Voice 2|Chords|Metronome', 'Two voices with chord symbols');
+  assert.equal(run(`${row('V:2')}.querySelector('.mixer-mute').getAttribute('aria-label')`), 'Mute Voice 2');
+  assert.equal(run(`${row('V:2')}.querySelector('.mixer-level input').getAttribute('aria-label')`), 'Voice 2 volume');
+  assert.equal(run("document.querySelectorAll('#mixer-tracks .mixer-pan').length"), 0, 'No Pan without a panner');
+  run("$('metronome').checked=true;$('count-in').checked=false;$('loop').checked=false;$('chords').checked=true");
+  run("$('speed').value='100'");
+  oscillators.length = 0;
+  await run('play()');
+  const scheduled = oscillators.length;
+  assert.ok(
+    through('V:1') === 8 && through('V:2') === 8 && through('chords') > 0,
+    'Each track plays through its chain'
+  );
+  assert.ok(oscillators.filter(o => o.type === 'square').every(o => o.to.to === chain('metronome').gate));
+  assert.equal(chain('V:2').level.to, run('outputNode()'), 'Each chain feeds the master bus');
+  // Mute during playback: the track's gate closes at once, nothing restarts.
+  run(`${row('V:2')}.querySelector('.mixer-mute').click()`);
+  await tick();
+  assert.deepEqual(
+    [run('playing'), oscillators.length, chain('V:2').gate.gain.value, chain('V:1').gate.gain.value],
+    [true, scheduled, 0, 1],
+    'Muting Voice 2 silences it at once without a restart'
+  );
+  assert.equal(run(`${row('V:2')}.querySelector('.mixer-mute').getAttribute('aria-pressed')`), 'true');
+  assert.match(run(`${row('V:2')}.textContent`), /Muted/);
+  assert.equal(run("$('mixer-toggle').classList.contains('mixed')"), true, 'The Mixer button shows a mix is set');
+  assert.deepEqual(JSON.parse(run('JSON.stringify(current.mixer)')), {'V:2': {mute: true}});
+  // Unmuting during playback restarts from the same place, now with Voice 2.
+  oscillators.length = 0;
+  run(`${row('V:2')}.querySelector('.mixer-mute').click()`);
+  await tick();
+  assert.ok(run('playing') && through('V:2') > 0, 'Unmuting restarts playback with the track');
+  assert.equal(run('current.mixer'), undefined, 'An untouched mix is nothing');
+  run('stop()');
+  // Muted tracks are not scheduled at all.
+  run(`${row('V:2')}.querySelector('.mixer-mute').click()`);
+  oscillators.length = 0;
+  await run('play()');
+  assert.deepEqual([through('V:1'), through('V:2')], [8, 0], 'A muted track is not scheduled');
+  run('stop()');
+  run(`${row('V:2')}.querySelector('.mixer-mute').click()`);
+  // Solo: only that track and the metronome.
+  run(`${row('V:2')}.querySelector('.mixer-solo').click()`);
+  oscillators.length = 0;
+  await run('play()');
+  assert.deepEqual(
+    [through('V:1'), through('V:2'), through('chords'), through('metronome') > 0],
+    [0, 8, 0, true],
+    'Solo plays only Voice 2, with the metronome'
+  );
+  assert.match(run(`${row('V:1')}.textContent`), /Silent: Solo is on/);
+  // Volume during playback: the level changes live, nothing restarts.
+  const before = oscillators.length,
+    level = `${row('V:2')}.querySelector('.mixer-level input')`;
+  run(`${level}.value='0.5';${level}.dispatchEvent(new Event('input',{bubbles:true}))`);
+  assert.deepEqual([run('playing'), oscillators.length, chain('V:2').level.gain.value], [true, before, 0.5]);
+  assert.equal(run(`${row('V:2')}.querySelector('.mixer-level output').textContent`), '50%');
+  assert.equal(run(`${level}.getAttribute('aria-valuetext')`), '50%');
+  run(`${level}.dispatchEvent(new Event('change',{bubbles:true}))`);
+  run('stop()');
+  // Pan, where the browser has a StereoPannerNode: the chain gains a panner after its level.
+  FakeAudio.prototype.createStereoPanner = function () {
+    return {
+      pan: {value: 0},
+      connect(to) {
+        this.to = to;
+      }
+    };
+  };
+  run("audio=null;mixShown='';drawMixer()");
+  const pan = `${row('V:1')}.querySelector('.mixer-pan input')`;
+  assert.equal(run(`${pan}.getAttribute('aria-label')`), 'Voice 1 pan');
+  oscillators.length = 0;
+  run(`${row('V:2')}.querySelector('.mixer-solo').click()`);
+  await run('play()');
+  run(`${pan}.value='-0.4';${pan}.dispatchEvent(new Event('input',{bubbles:true}))`);
+  assert.deepEqual(
+    [run('playing'), chain('V:1').pan.pan.value, chain('V:1').level.to === chain('V:1').pan],
+    [true, -0.4, true],
+    'Pan changes live through the panner'
+  );
+  assert.equal(chain('V:1').pan.to, run('outputNode()'));
+  assert.equal(run(`${row('V:1')}.querySelector('.mixer-pan output').textContent`), 'Left 40%');
+  run(`${pan}.dispatchEvent(new Event('change',{bubbles:true}))`);
+  run('stop()');
+  delete FakeAudio.prototype.createStereoPanner;
+  run("audio=null;mixShown='';drawMixer()");
+  // Count-in clicks keep playing with the Metronome track muted; the metronome's clicks do not.
+  run(`${row('metronome')}.querySelector('.mixer-mute').click()`);
+  run("$('count-in').checked=true");
+  oscillators.length = 0;
+  await run('play()');
+  const squares = oscillators.filter(o => o.type === 'square');
+  assert.ok(
+    squares.length === 4 && squares.every(o => o.to.to === chain('metronome').level),
+    'Count-in only, at the metronome level'
+  );
+  assert.match(run(`${row('metronome')}.textContent`), /Muted/);
+  run("stop();$('count-in').checked=false");
+  run(`${row('metronome')}.querySelector('.mixer-mute').click()`);
+  // The WAV file leaves out muted tracks and keeps the levels.
+  run(`${row('chords')}.querySelector('.mixer-mute').click()`);
+  class FakeOffline extends FakeAudio {
+    constructor(channels, length) {
+      super();
+      this.currentTime = 0;
+      this.length = length;
+    }
+    startRendering() {
+      const data = [new Float32Array(this.length), new Float32Array(this.length)];
+      data[0][5] = 0.5;
+      return Promise.resolve({numberOfChannels: 2, length: this.length, getChannelData: i => data[i]});
+    }
+  }
+  w.OfflineAudioContext = FakeOffline;
+  oscillators.length = 0;
+  await run('renderWav({chords:true})');
+  assert.equal(oscillators.length, 16, 'The file has both voices and no chords');
+  assert.deepEqual(
+    [...new Set(oscillators.map(o => `${o.to.to.gain.value}/${o.to.to.to.gain.value}`))].sort(),
+    ['1/0.5', '1/1'],
+    'with Voice 2 at its 50% level'
+  );
+  assert.match(
+    run('(updateWavSummary(),$("wav-panel").hidden=false,showWavSummary(),$("wav-summary").textContent)'),
+    /mixer’s settings apply/
+  );
+  run("$('wav-panel').hidden=true");
+  run(`${row('V:1')}.querySelector('.mixer-mute').click();${row('V:2')}.querySelector('.mixer-mute').click()`);
+  await assert.rejects(run('renderWav({chords:true})'), /Every track is muted/);
+  delete w.OfflineAudioContext;
+  run(`${row('V:1')}.querySelector('.mixer-mute').click();${row('V:2')}.querySelector('.mixer-mute').click()`);
+  // Saving keeps the mix; reopening from My scores brings it back; a change to a saved score is stored at once,
+  // without a new version.
+  run(`${row('V:2')}.querySelector('.mixer-solo').click()`);
+  run("$('save').onclick()");
+  const id = run('savedId'),
+    stored = () => JSON.parse(w.localStorage.getItem('commonnote-scores-v1')).find(x => x.id === id);
+  assert.deepEqual(stored().mixer, {'V:1': {pan: -0.4}, 'V:2': {solo: true, volume: 0.5}, chords: {mute: true}});
+  run(`openScore({abc:${JSON.stringify(two)}})`);
+  assert.equal(run('current.mixer'), undefined);
+  assert.equal(run(`${row('V:2')}.querySelector('.mixer-solo').getAttribute('aria-pressed')`), 'false');
+  run(`openScore(saved.find(x=>x.id===${JSON.stringify(id)}),${JSON.stringify(id)})`);
+  assert.equal(run(`${row('V:2')}.querySelector('.mixer-solo').getAttribute('aria-pressed')`), 'true');
+  assert.equal(run(`${row('V:2')}.querySelector('.mixer-level input').value`), '0.5', 'Reopened with its mix');
+  const updated = stored().updated,
+    versions = w.localStorage.getItem('fretfree-versions');
+  run(`${row('V:2')}.querySelector('.mixer-solo').click()`);
+  assert.deepEqual(
+    stored().mixer,
+    {'V:1': {pan: -0.4}, 'V:2': {volume: 0.5}, chords: {mute: true}},
+    'Stored without pressing Save'
+  );
+  assert.equal(stored().updated, updated);
+  assert.equal(w.localStorage.getItem('fretfree-versions'), versions, 'and no new version');
+  assert.match(run("$('mixer-note').textContent"), /saved with this score/);
+  // Share links carry the mix (m) and open with it; a link without one opens with none.
+  const payload = JSON.parse(run('JSON.stringify(sharePayload())'));
+  assert.deepEqual(payload.m, {'V:1': {pan: -0.4}, 'V:2': {volume: 0.5}, chords: {mute: true}});
+  assert.equal(payload.v, 1);
+  assert.deepEqual(JSON.parse(run(`JSON.stringify(sharedItem(${JSON.stringify(payload)}).mixer)`)), payload.m);
+  assert.equal(run(`sharedItem(${JSON.stringify({...payload, m: {x: 'bad'}})}).mixer`), undefined);
+  assert.deepEqual(JSON.parse(run('JSON.stringify(draftData().mixer)')), payload.m, 'Drafts keep the mix');
+  // Reset clears the mix; Escape closes the panel and hands focus back to its button.
+  run("$('mixer-reset').click()");
+  assert.equal(run('current.mixer'), undefined);
+  assert.equal(stored().mixer, undefined);
+  assert.equal(run("$('mixer-reset').disabled"), true);
+  run(`${row('V:1')}.querySelector('.mixer-mute').focus()`);
+  run("$('mixer-panel').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
+  assert.equal(run("$('mixer-panel').hidden"), true);
+  assert.equal(run('document.activeElement.id'), 'mixer-toggle');
+  run("$('metronome').checked=false");
+  w.localStorage.setItem('commonnote-scores-v1', keepScores);
+  run(`saved=${keepSaved};savedId=null;dirty=false`);
 }
 // Instrument sounds: both menus list catalog.js's instruments, every instrument plays one non-square oscillator per
 // note (FakeAudio has no periodic waves, so each falls back to its basic wave) in its octave, and the captions and
@@ -3588,12 +3798,13 @@ async function checkPlayback() {
   await checkAudio();
   await checkInstrumentSounds();
   await checkWavExport();
+  await checkMixer();
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-scores-v1')), [legacy]);
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-favorites-v1')), ['ode', 'mutopia-263']);
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, screen-reader note descriptions (selection, arrow keys, edits, typing over rests, pickups, compound and free meters, triplets, written and concert pitch), the shortcut sheet (? and the button, groups, focus trap, search, Enter running a command as one undo step, hints, Escape, tuplet and Measure panel commands), measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, WAV export (the notes, times, speed, clicks and chords Play has, its own full-level bus, INFO title, scaling, no offline audio, a summary that follows Speed and the instrument, a busy or filling progress bar, a closed panel cutting the render off, too long with its length and MIDI as the way out), instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, screen-reader note descriptions (selection, arrow keys, edits, typing over rests, pickups, compound and free meters, triplets, written and concert pitch), the shortcut sheet (? and the button, groups, focus trap, search, Enter running a command as one undo step, hints, Escape, tuplet and Measure panel commands), measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, the mixer (tracks for one and two voices with chords, Mute at once and left out of the next pass and the WAV file, Solo with the metronome, live Volume and Pan, restarts when a track comes back, count-in with a muted metronome, saving, reopening, share links, drafts, Reset and Escape), WAV export (the notes, times, speed, clicks and chords Play has, its own full-level bus, INFO title, scaling, no offline audio, a summary that follows Speed and the instrument, a busy or filling progress bar, a closed panel cutting the render off, too long with its length and MIDI as the way out), instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

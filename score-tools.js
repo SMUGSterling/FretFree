@@ -3007,6 +3007,117 @@ function melodyNotes(notes) {
   const first = Math.min(...notes.map(n => n.ch ?? 0));
   return notes.filter(n => (n.ch ?? 0) === first);
 }
+// The mixer's tracks for the first tune of a source: its voices, then Chords when a chord symbol plays (as midiBytes
+// reads them), then the Metronome. abcjs gives each voice of a line a MIDI channel, counting staff by staff in the
+// order the score draws them, and puts the chords on the channel after the last voice. An & overlay plays on a channel
+// of its own but belongs to the voice it is written in. A voice is keyed by its V: id ('V:' for a tune without one),
+// so its settings stay with it when other voices are added. It is named by its V: name, or else Voice and its number
+// (V:2 is Voice 2), or its place and id (Voice 2 (LH)); the only voice is Melody. Each track is
+// {key, name, kind: 'voice' | 'chords' | 'metronome', channels}.
+function voiceNames(source) {
+  const names = new Map();
+  for (const m of String(source).matchAll(/(?:^|\n)V:[ \t]*([^\s\]]+)([^\n]*)|\[V:[ \t]*([^\s\]]+)([^\]\n]*)\]/g)) {
+    const id = m[1] ?? m[3],
+      name = (m[2] ?? m[4]).match(/\b(?:name|nm)=(?:"([^"]*)"|(\S+))/);
+    if (name && !names.has(id)) names.set(id, (name[1] ?? name[2]).replace(/\\n/g, ' ').trim());
+  }
+  return names;
+}
+function mixerTracks(tune, source = '') {
+  const counts = [];
+  for (const line of tune?.lines || [])
+    for (const [s, staff] of (line.staff || []).entries())
+      counts[s] = Math.max(counts[s] || 0, staff.voices?.length || 0);
+  const channel = (s, v) => counts.slice(0, s).reduce((sum, n) => sum + (n || 0), 0) + v,
+    total = counts.reduce((sum, n) => sum + (n || 0), 0),
+    first = new Map();
+  for (const {element, key} of tune ? scoreEvents(tune) : []) {
+    const id = key.split(':').slice(0, 2).join(':');
+    if (!first.has(id)) first.set(id, element.startChar);
+  }
+  // The V: id in force where a voice's music starts (linePairs tracks V: lines and [V:] fields).
+  const starts = linePairs(String(source)).voices,
+    idAt = at => (starts.filter(x => x.at <= at).at(-1)?.voice || '').replace(/^\d*:/, '').replace(/&\d+$/, ''),
+    kept = tune ? scoreVoices(tune, source) : [],
+    names = voiceNames(source),
+    voices = [];
+  for (const id of kept) {
+    const [s, v] = id.split(':').map(Number),
+      vid = idAt(first.get(id));
+    let key = 'V:' + vid;
+    while (voices.some(t => t.key === key)) key += '+';
+    voices.push({key, id: vid, staff: s, voice: v, channels: [channel(s, v)]});
+  }
+  for (const id of first.keys()) {
+    if (kept.includes(id)) continue;
+    const [s, v] = id.split(':').map(Number),
+      host = voices.filter(t => t.staff === s && t.voice < v).at(-1);
+    host?.channels.push(channel(s, v));
+  }
+  const tracks = voices.map((t, i) => {
+    const named = names.get(t.id),
+      number = /^\d+$/.test(t.id) ? `Voice ${+t.id}` : `Voice ${i + 1}${t.id ? ` (${t.id})` : ''}`;
+    return {
+      key: t.key,
+      name: named || (voices.length === 1 ? 'Melody' : number),
+      kind: 'voice',
+      channels: t.channels
+    };
+  });
+  const chords = (tune?.lines || []).some(line =>
+    (line.staff || []).some(staff =>
+      (staff.voices || []).some(voice =>
+        voice.some(e => e.chord?.some(c => c.position === 'default' && parseChordSymbol(c.name)?.root))
+      )
+    )
+  );
+  if (chords) tracks.push({key: 'chords', name: 'Chords', kind: 'chords', channels: [total]});
+  tracks.push({key: 'metronome', name: 'Metronome', kind: 'metronome', channels: []});
+  return tracks;
+}
+// A track's mixer setting, with defaults for anything missing or out of range: volume 0–1.5 (1 is as written), pan
+// -1 (left) to 1 (right).
+const MIX_VOLUME_MAX = 1.5;
+function mixSetting(mix, key) {
+  const s = mix && typeof mix === 'object' && mix[key] && typeof mix[key] === 'object' ? mix[key] : {},
+    number = (v, low, high, fallback) => (Number.isFinite(v) ? Math.max(low, Math.min(high, v)) : fallback);
+  return {
+    mute: s.mute === true,
+    solo: s.solo === true,
+    volume: number(s.volume, 0, MIX_VOLUME_MAX, 1),
+    pan: number(s.pan, -1, 1, 0)
+  };
+}
+// A mix as it is stored and shared: only the tracks and fields that differ from the defaults, at most 64 tracks.
+// Undefined when nothing differs, so an untouched score stores and shares nothing.
+function validMixer(mix) {
+  if (!mix || typeof mix !== 'object' || Array.isArray(mix)) return undefined;
+  const out = {};
+  for (const key of Object.keys(mix).slice(0, 64)) {
+    if (key.length > 64 || key === '__proto__') continue;
+    const s = mixSetting(mix, key),
+      kept = {};
+    if (s.mute) kept.mute = true;
+    if (s.solo) kept.solo = true;
+    if (s.volume !== 1) kept.volume = Math.round(s.volume * 100) / 100;
+    if (s.pan !== 0) kept.pan = Math.round(s.pan * 100) / 100;
+    if (Object.keys(kept).length) out[key] = kept;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+// The tracks that sound: not muted, and, when any voice or Chords track is on Solo, only those. The metronome is left
+// out of Solo, so it keeps time for a soloed part.
+function audibleTracks(tracks, mix) {
+  const solo = tracks.some(t => t.kind !== 'metronome' && mixSetting(mix, t.key).solo);
+  return new Set(
+    tracks
+      .filter(t => {
+        const s = mixSetting(mix, t.key);
+        return !s.mute && (t.kind === 'metronome' || !solo || s.solo);
+      })
+      .map(t => t.key)
+  );
+}
 // Decode MIDI note and tempo events generated by abcjs, including polyphonic voices. quarter is the opening tempo,
 // in seconds per quarter note.
 function parseMidi(bytes) {

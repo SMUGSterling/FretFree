@@ -359,6 +359,7 @@ function render() {
     updateSourceEdition();
     updateRights();
     refreshTranspose();
+    if (typeof updateMixer === 'function') updateMixer(original);
   } catch (e) {
     $('warnings').textContent = 'Could not render this score: ' + e.message;
   }
@@ -3676,6 +3677,9 @@ function sharePayload() {
   const payload = {v: 1, a: $('abc').value, i: currentInstrument()},
     source = shareSourceId();
   if (source) payload.s = source;
+  // The mixer's settings (m), when any differ from the defaults; older apps ignore them.
+  const mix = validMixer(current?.mixer);
+  if (mix) payload.m = mix;
   // A built-in prompt travels by id (p); a teacher's assignment travels whole (q). Older apps ignore q.
   const prompt = activePrompt();
   if (prompt?.level === 'Custom') payload.q = prompt;
@@ -3724,7 +3728,8 @@ function sharedItem(payload) {
     composer: source?.composer || payload.a.match(/^C:(.*)$/m)?.[1]?.trim() || '',
     kind: 'shared',
     abc: payload.a,
-    instrument: instruments[payload.i] ? payload.i : undefined
+    instrument: instruments[payload.i] ? payload.i : undefined,
+    mixer: validMixer(payload.m)
   };
 }
 // A shared score opens as a copy, in the sender's instrument, with the library edition's credits when it has one.
@@ -3938,6 +3943,7 @@ function draftData() {
     instrument: currentInstrument(),
     title: field('T', current?.title || 'Untitled'),
     prompt: current?.prompt,
+    mixer: validMixer(current?.mixer),
     feedback: current?.feedback,
     submission: current?.submission,
     sourceId: shareSourceId(),
@@ -4056,6 +4062,7 @@ function restoreDraft() {
       abc: draft.abc,
       instrument: instruments[draft.instrument] ? draft.instrument : undefined,
       prompt: draft.prompt,
+      mixer: validMixer(draft.mixer ?? entry?.mixer),
       ...(readFeedback(draft.feedback) ? {feedback: readFeedback(draft.feedback)} : {}),
       ...(submission ? {submission} : {})
     },

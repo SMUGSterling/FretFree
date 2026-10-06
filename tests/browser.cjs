@@ -2124,6 +2124,8 @@ const {chromium} = require('playwright'),
     $('volume').value = '0.3';
     window.__routes = [];
     window.__heard = [];
+    // The mixer's chains are made again, so their connections are recorded too.
+    if (audio) mixChains.delete(audio);
     const connect = AudioNode.prototype.connect,
       make = AudioContext.prototype.createOscillator;
     AudioNode.prototype.connect = function (to, ...rest) {
@@ -2144,9 +2146,15 @@ const {chromium} = require('playwright'),
   await page.waitForTimeout(300);
   assert.deepEqual(
     await page.evaluate(() => {
+      // Notes and clicks reach it through their mixer track's gate, level and panner.
       const bus = outputNode(),
+        next = new Map(__routes),
+        reaches = node => {
+          for (let i = 0; node && i < 6; i++, node = next.get(node)) if (node === bus) return true;
+          return false;
+        },
         notes = __routes.filter(([from]) => from instanceof GainNode && from !== bus);
-      return [notes.length > 4, notes.every(([, to]) => to === bus), __heard.some(h => h.type === 'square')];
+      return [notes.length > 4, notes.every(([from]) => reaches(from)), __heard.some(h => h.type === 'square')];
     }),
     [true, true, true],
     'Every note and click connects to the master gain'
@@ -2233,6 +2241,97 @@ const {chromium} = require('playwright'),
     'Hear notes is remembered'
   );
   await page.check('#audition');
+  // Mixer in real Web Audio, by keyboard and pointer: each track has a gate, a level and a StereoPannerNode; Mute
+  // closes the gate at once, Volume and Pan move live, all without restarting playback, and unmuting picks up where
+  // playback was. At phone width the rows fit without a sideways scroll.
+  {
+    await page.evaluate(() => {
+      dirty = false;
+      openScore({
+        abc:
+          'X:1\nT:Mixer\nM:4/4\nL:1/4\nQ:1/4=60\nK:C\nV:1\n"C"cdef|"F"fedc|"G"gfed|"C"c4|]\n' +
+          'V:2 clef=bass\nC,E,G,C|F,A,CF|G,B,DG|C4|]\n',
+        instrument: 'Flute'
+      });
+      $('count-in').checked = $('loop').checked = false;
+      $('metronome').checked = true;
+      window.scrollTo({top: 0, behavior: 'instant'});
+    });
+    await page.focus('#mixer-toggle');
+    await page.keyboard.press('Enter');
+    const focused = () =>
+      page.evaluate(() => [
+        document.activeElement.closest('.mixer-track')?.dataset.key,
+        document.activeElement.className || document.activeElement.closest('label')?.className
+      ]);
+    assert.deepEqual(await focused(), ['V:1', 'mixer-mute'], 'Enter opens the mixer on the first Mute');
+    assert.equal(
+      await page.evaluate(() => [...document.querySelectorAll('.mixer-track')].map(r => r.ariaLabel).join('|')),
+      'Voice 1|Voice 2|Chords|Metronome'
+    );
+    await page.click('#play');
+    await page.waitForTimeout(200);
+    const generation = await page.evaluate(() => playGeneration);
+    await page.focus('.mixer-track[data-key="V:1"] .mixer-mute');
+    for (let i = 0; i < 4; i++) await page.keyboard.press('Tab');
+    assert.deepEqual(await focused(), ['V:2', 'mixer-mute'], 'Tab moves through Mute, Solo, Volume and Pan');
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(150);
+    const live = () =>
+      page.evaluate(() => {
+        const chain = key => mixChains.get(audio).get(key),
+          round = v => Math.round(v * 100) / 100;
+        return {
+          playing,
+          generation: playGeneration,
+          gate: round(chain('V:2').gate.gain.value),
+          level: round(chain('V:1').level.gain.value),
+          pan: round(chain('V:1').pan.pan.value),
+          panner: chain('V:1').pan instanceof StereoPannerNode && chain('V:1').level instanceof GainNode
+        };
+      });
+    assert.deepEqual(
+      await live(),
+      {playing: true, generation, gate: 0, level: 1, pan: 0, panner: true},
+      'Space on Mute silences Voice 2 at once, without a restart'
+    );
+    await page.locator('.mixer-track[data-key="V:1"] .mixer-level input').fill('0.5');
+    await page.locator('.mixer-track[data-key="V:1"] .mixer-pan input').focus();
+    for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowLeft');
+    await page.waitForTimeout(150);
+    assert.deepEqual(
+      await live(),
+      {playing: true, generation, gate: 0, level: 0.5, pan: -0.3, panner: true},
+      'Volume by pointer and Pan by arrow keys apply live'
+    );
+    assert.equal(await page.locator('.mixer-track[data-key="V:1"] .mixer-pan output').textContent(), 'Left 30%');
+    await page.click('.mixer-track[data-key="V:2"] .mixer-mute');
+    await page.waitForTimeout(150);
+    const back = await live();
+    assert.ok(back.playing && back.generation > generation && back.gate === 1, 'Unmuting carries on with Voice 2');
+    await page.click('#stop');
+    await page.setViewportSize({width: 390, height: 844});
+    assert.deepEqual(
+      await page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.mixer-track')].map(r => r.getBoundingClientRect());
+        return [
+          document.documentElement.scrollWidth <= innerWidth,
+          rows.every(r => r.left >= 0 && r.right <= innerWidth)
+        ];
+      }),
+      [true, true],
+      'At 390px the mixer fits without a sideways scroll'
+    );
+    await page.setViewportSize({width: 1280, height: 900});
+    await page.click('#mixer-reset');
+    await page.keyboard.press('Escape');
+    assert.deepEqual(
+      await page.evaluate(() => [$('mixer-panel').hidden, document.activeElement.id, current.mixer]),
+      [true, 'mixer-toggle', undefined],
+      'Reset clears the mix; Escape closes the mixer and returns to its button'
+    );
+    await page.evaluate(() => ($('metronome').checked = false));
+  }
   // Instrument sounds in real Web Audio: rendered offline, each instrument's note has its own waveform (a periodic wave
   // from its partials), a guitar or piano note fades while a flute or violin holds, and playback gives each note one
   // oscillator with vibrato as detune automation. The library filter lists the same instruments and sets the sound.
@@ -3699,7 +3798,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: screen-reader note names on click, arrow keys and edits, the shortcut sheet (?, search, Enter, click, focus trap, Escape, over the note menu, fits the window and a phone) and an accessible name on every studio button, dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), tuplets and grace notes (T and letters filling and beaming the rests, staccato on and off and Delete in a triplet, the Tuplet menu by pointer, Grace, Grace ↑ and Slashed by pointer and keyboard, undo), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), WAV export (keyboard and pointer, a real download as long as playback at the chosen speed, 16-bit stereo at 44.1 kHz, sound from the first note, scaling, INFO credits, metronome, a summary that follows the Speed slider and the Instrument menu, the same file with progress checkpoints, Escape, a progress bar on a long score and closing the panel stopping its render at once, phone width), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
+    'PASS: screen-reader note names on click, arrow keys and edits, the shortcut sheet (?, search, Enter, click, focus trap, Escape, over the note menu, fits the window and a phone) and an accessible name on every studio button, dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), tuplets and grace notes (T and letters filling and beaming the rests, staccato on and off and Delete in a triplet, the Tuplet menu by pointer, Grace, Grace ↑ and Slashed by pointer and keyboard, undo), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, the mixer (keyboard and pointer, Mute at once, live Volume and Pan through a StereoPannerNode, unmuting during playback, Reset, Escape, phone width), note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), WAV export (keyboard and pointer, a real download as long as playback at the chosen speed, 16-bit stereo at 44.1 kHz, sound from the first note, scaling, INFO credits, metronome, a summary that follows the Speed slider and the Instrument menu, the same file with progress checkpoints, Escape, a progress bar on a long score and closing the panel stopping its render at once, phone width), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

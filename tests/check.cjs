@@ -3277,13 +3277,77 @@ async function musicXMLImportFiles() {
       'voices, instrument choice, part names, percent signs, damaged transpositions and imported rights links passed'
   );
 }
+// Mixer tracks: voices in the order abcjs gives them MIDI channels (staff by staff, %%score order, overlays with the
+// voice they are written in), Chords on the channel after the last voice, then the Metronome. The channels are
+// checked against the decoded MIDI, so a change in abcjs's numbering fails here.
+{
+  const head = 'X:1\nT:Mix\nM:4/4\nL:1/4\nK:C\n',
+    tracks = abc =>
+      [...context.mixerTracks(ABCJS.parseOnly(abc)[0], abc)].map(t => ({...t, channels: [...t.channels]})),
+    shape = abc => tracks(abc).map(t => `${t.key}=${t.name}@${t.channels.join('+')}`),
+    heard = abc => [...new Set(context.parseMidi(context.midiBytes(abc)).notes.map(n => n.ch))].sort((a, b) => a - b),
+    plain = x => JSON.parse(JSON.stringify(x)),
+    covered = abc =>
+      tracks(abc)
+        .flatMap(t => t.channels)
+        .sort((a, b) => a - b);
+  const two = head + 'V:1\n"C"cdef|"G7"gabc\'|]\nV:2 clef=bass\nC,D,E,F,|G,A,B,C|]\n',
+    one = head + 'CDEF|GABc|]\n',
+    reordered = head + '%%score 2 1 3\nV:1\ncdef|]\nV:2\nCDEF|]\nV:3 clef=bass name="Bass"\nC,D,E,F,|]\n',
+    overlay = head + 'V:1\ncdef & CDEF|gabc\'|]\nV:2\n"C"C,D,E,F,|]\n',
+    piano =
+      'X:1\nT:P\nM:4/4\nL:1/4\nV:RH clef=treble name="Piano"\nV:LH clef=bass\n%%score {RH LH}\nK:C\nV:RH\ncdef|]\nV:LH\nC,D,E,F,|]\n';
+  assert.deepEqual(shape(two), ['V:1=Voice 1@0', 'V:2=Voice 2@1', 'chords=Chords@2', 'metronome=Metronome@']);
+  assert.deepEqual(shape(one), ['V:=Melody@0', 'metronome=Metronome@'], 'One voice without chords');
+  assert.deepEqual(shape(head + '"Am"CDEF|]\n'), ['V:=Melody@0', 'chords=Chords@1', 'metronome=Metronome@']);
+  assert.deepEqual(
+    shape(head + '"N.C."CDEF|"Coda"G4|]\n'),
+    ['V:=Melody@0', 'metronome=Metronome@'],
+    'Text that does not play as a chord makes no Chords track'
+  );
+  assert.deepEqual(shape(reordered), ['V:2=Voice 2@0', 'V:1=Voice 1@1', 'V:3=Bass@2', 'metronome=Metronome@']);
+  assert.deepEqual(shape(overlay), ['V:1=Voice 1@0+1', 'V:2=Voice 2@2', 'chords=Chords@3', 'metronome=Metronome@']);
+  assert.deepEqual(shape(piano), ['V:RH=Piano@0', 'V:LH=Voice 2 (LH)@1', 'metronome=Metronome@']);
+  for (const abc of [two, one, reordered, overlay, piano, head + '[V:1] cdef|]\n[V:2] "D"CDEF|]\n'])
+    assert.deepEqual(covered(abc), heard(abc), 'Every channel the MIDI plays belongs to its track');
+  // Settings: defaults fill in, values are clamped, only changes are kept, and an untouched mix is nothing.
+  assert.deepEqual(plain(context.mixSetting(undefined, 'V:1')), {mute: false, solo: false, volume: 1, pan: 0});
+  assert.deepEqual(plain(context.mixSetting({'V:1': {volume: 9, pan: -4, mute: 'yes'}}, 'V:1')), {
+    mute: false,
+    solo: false,
+    volume: 1.5,
+    pan: -1
+  });
+  assert.deepEqual(
+    plain(
+      context.validMixer({
+        'V:1': {mute: true, volume: 1, pan: 0.333},
+        chords: {volume: 1},
+        x: 3,
+        ['k'.repeat(65)]: {mute: true}
+      })
+    ),
+    {'V:1': {mute: true, pan: 0.33}}
+  );
+  assert.equal(context.validMixer({chords: {volume: 1, pan: 0}}), undefined);
+  assert.equal(context.validMixer([{mute: true}]), undefined);
+  assert.equal(context.validMixer(JSON.parse('{"__proto__": {"mute": true}}')), undefined, 'No prototype keys');
+  const list = tracks(two),
+    audible = mix => [...context.audibleTracks(list, mix)].join(' ');
+  assert.equal(audible(undefined), 'V:1 V:2 chords metronome');
+  assert.equal(audible({'V:2': {mute: true}}), 'V:1 chords metronome');
+  assert.equal(audible({'V:2': {solo: true}}), 'V:2 metronome', 'Solo keeps the metronome');
+  assert.equal(audible({'V:2': {solo: true}, chords: {solo: true}, metronome: {mute: true}}), 'V:2 chords');
+  assert.equal(audible({'V:2': {solo: true, mute: true}}), 'metronome', 'Mute wins over Solo');
+  assert.equal(audible({'V:9': {solo: true}}), 'V:1 V:2 chords metronome', 'Solo on a voice no longer there');
+}
 musicXMLImportFiles()
   .then(offlineWorker)
   .then(() =>
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), mixer tracks (voices in MIDI channel order, overlays, names, Chords and Metronome, settings and Solo), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {

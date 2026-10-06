@@ -2665,3 +2665,91 @@ header {
     display: none !important;
   }
 }
+/* Mixer panel under the transport: one row a track, with Mute and Solo toggles and Volume and Pan sliders. Rows wrap
+   on narrow screens. Like the share panel, it does not print. */
+#mixer-toggle.mixed::after {
+  content: ' •';
+  color: var(--green);
+}
+.mixer-panel h2 {
+  font-size: 20px;
+}
+.mixer-head-buttons {
+  display: flex;
+  gap: 6px;
+}
+.mixer-head-buttons button {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.mixer-tracks {
+  display: grid;
+  gap: 6px;
+}
+.mixer-track {
+  display: grid;
+  grid-template-columns: minmax(8em, 1.2fr) 124px minmax(9em, 1fr) minmax(9em, 1fr);
+  align-items: center;
+  gap: 6px 14px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--panel);
+}
+.mixer-name {
+  font-weight: 650;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.mixer-state {
+  font-weight: 400;
+  color: var(--muted);
+}
+.mixer-track.silent .mixer-name {
+  color: var(--muted);
+}
+.mixer-buttons {
+  display: flex;
+  gap: 6px;
+}
+.mixer-buttons button {
+  min-width: 56px;
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.mixer-buttons button[aria-pressed='true'] {
+  background: var(--green);
+  color: var(--on-green);
+  border-color: var(--green);
+}
+.mixer-track label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.mixer-track input[type='range'] {
+  flex: 1;
+  min-width: 0;
+}
+.mixer-track label > span {
+  min-width: 3.6em;
+}
+.mixer-track output {
+  min-width: 5.5em;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 720px) {
+  .mixer-track {
+    grid-template-columns: 1fr auto;
+  }
+  .mixer-track label {
+    grid-column: 1 / -1;
+  }
+}
+@media print {
+  .mixer-panel {
+    display: none !important;
+  }
+}
