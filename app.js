@@ -254,7 +254,9 @@ function applyStoredSettings() {
     $(id).checked = !!storage.get(KEYS.practice(id), false);
   $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
   $('note-names').value = storage.get(KEYS.noteNames, 'off');
+  $('note-colors').value = storage.get(KEYS.noteColors, 'off');
   $('audition').checked = storage.get(KEYS.audition, true) !== false;
+  if (typeof setPiano === 'function') setPiano(storage.get(KEYS.piano, false) === true, false);
   prepareTrainer();
 }
 for (const id of ['loop', 'metronome', 'count-in', 'trainer']) {
@@ -301,6 +303,20 @@ $('export-abc').onclick = () => download(creditedABC($('abc').value, current), s
 $('export-midi').onclick = () => {
   try {
     download(creditedMidi(midiBytes($('abc').value), $('abc').value, current), safeName() + '.mid', 'audio/midi');
+  } catch (e) {
+    toast(e.message);
+  }
+};
+// MusicXML is written at concert pitch from the ABC; a transposing instrument's name would mislead, so only a
+// concert-pitch instrument names the part.
+$('export-musicxml').onclick = () => {
+  try {
+    const instrument = currentInstrument();
+    download(
+      abcToMusicXML($('abc').value, {item: current, instrument: instruments[instrument]?.shift ? '' : instrument}),
+      safeName() + '.musicxml',
+      'application/vnd.recordare.musicxml+xml'
+    );
   } catch (e) {
     toast(e.message);
   }
@@ -373,9 +389,14 @@ $('fingering').onchange = () => {
 $('audition').checked = storage.get(KEYS.audition, true) !== false;
 $('audition').onchange = () => storage.set(KEYS.audition, $('audition').checked);
 $('note-names').value = storage.get(KEYS.noteNames, 'off');
-if (noteNamesMode() !== 'off') render();
+$('note-colors').value = storage.get(KEYS.noteColors, 'off');
+if (noteNamesMode() !== 'off' || lettersInHeads() || noteColorsShown()) render();
 $('note-names').onchange = () => {
   storage.set(KEYS.noteNames, $('note-names').value);
+  render();
+};
+$('note-colors').onchange = () => {
+  storage.set(KEYS.noteColors, $('note-colors').value);
   render();
 };
 // A remembered speed trainer needs the same below-goal start as a freshly ticked one.

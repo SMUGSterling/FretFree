@@ -6,6 +6,7 @@ let current = null,
   dirty = false,
   renderTimer;
 let renderedSource = null,
+  renderedWritten = null,
   renderedTune = null,
   noteSources = new Map(),
   measureStarts = new Map(),
@@ -67,7 +68,21 @@ function writtenABC() {
   return labelSource(source, noteNamesMode());
 }
 // Note names under the score: off, letters or movable-do solfège; display only, never written to the ABC source.
-const noteNamesMode = () => $('note-names')?.value || 'off';
+// "Letters in noteheads" draws inside the heads instead (updateNoteColors), so it adds no labels under the score.
+const noteNamesMode = () => ($('note-names')?.value === 'heads' ? 'off' : $('note-names')?.value || 'off');
+const lettersInHeads = () => $('note-names')?.value === 'heads';
+// Classroom colors (Boomwhacker and handbell order) by written letter; accidentals keep their letter's color.
+// `ink` is the letter drawn inside a colored head; E's light yellow gets a dark outline so it shows on white paper.
+const NOTE_COLORS = {
+  C: {fill: '#d62828', ink: 'white'},
+  D: {fill: '#f77f00', ink: 'black'},
+  E: {fill: '#ffd60a', ink: 'black', stroke: '#6b5300'},
+  F: {fill: '#2b8a3e', ink: 'white'},
+  G: {fill: '#4cc9f0', ink: 'black'},
+  A: {fill: '#1d3fbb', ink: 'white'},
+  B: {fill: '#7b2cbf', ink: 'white'}
+};
+const noteColorsShown = () => $('note-colors')?.value === 'classroom';
 // Fingering under the score: guitar tab (abcjs) for Guitar, hole diagrams for Recorder; display only.
 const FINGERING = {
   Guitar: {kind: 'guitar', label: 'Guitar tab'},
@@ -83,6 +98,8 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
   }
   const entry = noteSources.get(element.startChar);
   if (!entry) return;
+  // A note picked on the score takes chord pitches from now on, not the note entered last.
+  lastEntry = null;
   const area = $('abc'),
     start = entry.element.startChar,
     end = entry.element.endChar;
@@ -110,6 +127,7 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
   selectedRange = [start, nextEnd];
   area.setSelectionRange(start, nextEnd);
   focusScore();
+  if (typeof showPianoSelection === 'function') showPianoSelection();
   // A plain click only selects, so editing never moves the practice range. Shift+click selects the notes from the
   // anchor to the clicked one and sets the range from the anchor's measure to the clicked one (from the clicked
   // measure to the end when nothing was selected).
@@ -119,6 +137,7 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
       run = anchorEntry && entry.element.el_type === 'note' ? selectNotesBetween(anchorEntry, entry) : [];
     setRange(from, to);
     if (run.length > 1) $('selection-status').textContent += ` ${run.length} notes selected.`;
+    refreshPalette();
     return;
   }
   $('selection-status').textContent =
@@ -126,6 +145,11 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
   // A pointer click sounds the note (Hear notes); a drag sounded it before the render. Calls from code pass no
   // event, so the note menu stays quiet.
   if (event && !drag?.step) auditionAt(start);
+  refreshPalette();
+}
+// The notation palette (palette.js) shows the selection's state; it is optional, so editing works without it.
+function refreshPalette() {
+  if (typeof updatePalette === 'function') updatePalette();
 }
 function updateMeasures() {
   measureStarts = new Map();
@@ -165,18 +189,21 @@ function render() {
   try {
     const source = writtenABC();
     renderedSource = $('abc').value;
+    renderedWritten = source;
     const original = ABCJS.parseOnly(renderedSource)[0];
     const display = ABCJS.parseOnly(source)[0];
     noteSources = sourceMap(original, display);
     renderedTune = ABCJS.renderAbc('notation', source, engraveOptions())[0];
     if (scoreFocused) focusScore();
     updateFingering(source);
+    updateNoteColors();
     indexDisplay(display);
     updateMeasures();
     updateBarCheck(original);
     updatePromptCheck(display);
     if (typeof updateAssignmentBuilder === 'function') updateAssignmentBuilder();
     restoreSelection(display);
+    if (typeof updatePiano === 'function') updatePiano(display);
     $('warnings').textContent = (renderedTune?.warnings || []).map(x => String(x).replace(/<[^>]+>/g, '')).join(' · ');
     updateCaption();
     updateSourceEdition();
@@ -186,6 +213,7 @@ function render() {
     $('warnings').textContent = 'Could not render this score: ' + e.message;
   }
   scheduleDraft();
+  refreshPalette();
 }
 // abcjs options for the main score. Guitar adds a tab staff; recorder leaves room below for the fingering diagrams.
 function engraveOptions() {
@@ -729,21 +757,30 @@ function showGhost(t) {
   $('selection-status').textContent =
     `Draw: click to add ${pitchName(t.written)} (${lengthName(beatLength()) || 'one-beat'} note) · right-click a note to change it`;
 }
-// Pass hear (a source position in the new text) to sound that note (Hear notes). With anchor ('first' or 'last'),
-// select spans several notes and stays a range selection anchored at that end.
+// Pass hear (a source position in the new text) to sound that note (Hear notes).
+// With keep, notes after the edit keep their pitch: an accidental it writes would otherwise carry to them.
+// With anchor ('first' or 'last'), select spans several notes and stays a range selection anchored at that end.
 function applyNoteEdit(
   start,
   end,
   text,
   select = text ? [start, start + text.length] : null,
   hear = null,
+  keep = false,
   anchor = null
 ) {
   flushTyping();
   const area = $('abc');
+  if (keep)
+    try {
+      ({end, text, select} = keepLaterPitches(area.value, start, end, text, select));
+    } catch {}
+  // An edit that leaves the text as it was (a dot on a multi-measure rest) keeps the score saved.
+  if (area.value.slice(start, end) !== text) {
+    dirty = true;
+    $('save-status').textContent = 'Unsaved changes';
+  }
   area.setRangeText(text, start, end, 'end');
-  dirty = true;
-  $('save-status').textContent = 'Unsaved changes';
   clearTimeout(renderTimer);
   syncFields();
   selectedRange = select;
@@ -1007,6 +1044,7 @@ function openNoteMenu(entry, display, x, y) {
   menu.style.left = Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8)) + 'px';
   menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + 'px';
   menu.querySelector('button')?.focus({preventScroll: true});
+  menu.dataset.scrollY = window.scrollY;
 }
 $('notation').addEventListener('contextmenu', e => {
   if (renderedSource !== $('abc').value) {
@@ -1026,8 +1064,19 @@ $('notation').addEventListener('contextmenu', e => {
   const box = sel.svgEl.getBoundingClientRect();
   openNoteMenu(entry, display, e.clientX || box.right, e.clientY || box.bottom);
 });
-// One edit on one note, shared by the note menu and the keyboard. Actions: acc:<^|_|=|>, len:<whole>, dot, tie,
-// delete, rest-after, bar-after, play-from, range-from.
+// The source between a note and the next one (next) when only spaces or tabs separate them: notes written without a
+// space share a beam. Null at the end of the music or before a bar line, a line break or anything else.
+function beamGap(entry) {
+  const v = $('abc').value,
+    {startChar, endChar} = entry.element,
+    from = startChar + v.slice(startChar, endChar).trimEnd().length,
+    next = scoreNotes().find(n => n.element.startChar >= endChar);
+  if (!next) return null;
+  const gap = v.slice(from, next.element.startChar);
+  return /^[ \t]*$/.test(gap) ? {from, to: next.element.startChar, joined: !gap, next} : null;
+}
+// One edit on one note, shared by the note menu, the keyboard and the palette. Actions: acc:<^|_|=|>, len:<whole>,
+// dot, tie, to-rest, beam:join, beam:break, delete, rest-after, bar-after, play-from, range-from. Others do nothing.
 function editNote(entry, display, action) {
   const area = $('abc'),
     v = area.value,
@@ -1057,13 +1106,41 @@ function editNote(entry, display, action) {
     insertAt(end, token, action === 'rest-after');
     return;
   }
+  if (action === 'beam:join' || action === 'beam:break') {
+    // Join by removing the space before the next note; break by adding one. The note stays selected.
+    const gap = beamGap(entry),
+      join = action === 'beam:join';
+    if (gap && gap.joined !== join) applyNoteEdit(gap.from, gap.to, join ? '' : ' ', [start, gap.from]);
+    return;
+  }
+  const newLength = action.startsWith('len:') ? +action.slice(4) : null;
+  if (!(newLength > 0) && !['dot', 'delete', 'to-rest'].includes(action)) return;
+  if (action === 'to-rest' && !entry.element.pitches?.length) return;
   const unit = unitLength(),
     len = entry.element.duration || 0,
     dotted = DOTTABLE.some(x => Math.abs(len - x * 1.5) < 1e-9);
   const change = t =>
     action === 'delete'
       ? ''
-      : editNoteText(t, {length: (action === 'dot' ? (dotted ? len / 1.5 : len * 1.5) : +action.slice(4)) / unit});
+      : action === 'to-rest'
+        ? editNoteText(t, {rest: true})
+        : editNoteText(t, {length: (action === 'dot' ? (dotted ? len / 1.5 : len * 1.5) : newLength) / unit});
+  // Nothing can be tied to a rest, so a note that becomes one also takes the tie off the note before it in its voice,
+  // in the same edit (one undo step).
+  const voice = e => e.key.replace(/:\d+$/, ''),
+    tiedFrom =
+      action === 'to-rest' &&
+      scoreNotes()
+        .filter(n => voice(n) === voice(entry) && n.element.startChar < start)
+        .pop()?.element,
+    untie =
+      tiedFrom && /^-/.test(noteParts(v.slice(tiedFrom.startChar, tiedFrom.endChar))?.post || '') ? tiedFrom : null;
+  const edit = (from, to, text) => {
+    if (!untie || untie.endChar > from) return applyNoteEdit(from, to, text);
+    const lead = editNoteText(v.slice(untie.startChar, untie.endChar), {tie: false}) + v.slice(untie.endChar, from),
+      at = untie.startChar + lead.length;
+    applyNoteEdit(untie.startChar, to, lead + text, [at, at + text.length]);
+  };
   const pair = brokenPair(entry);
   if (!pair) {
     // Deleting keeps the previous note selected so typing can carry on from there.
@@ -1080,7 +1157,7 @@ function editNote(entry, display, action) {
         '',
         prev ? [prev.element.startChar, prev.element.endChar] : null
       );
-    else applyNoteEdit(start, end, change(old));
+    else edit(start, end, change(old));
     return;
   }
   // Spell the broken-rhythm pair out with explicit lengths so the neighbour keeps its duration.
@@ -1088,7 +1165,8 @@ function editNote(entry, display, action) {
     fixed = n =>
       editNoteText(v.slice(n.element.startChar, n.element.endChar), {
         length: (n.element.duration || 0) / unit,
-        unbroken: true
+        unbroken: true,
+        tie: n.element === untie ? false : undefined
       });
   const first = a === entry ? change(fixed(a)) : fixed(a),
     second = c === entry ? change(fixed(c)) : fixed(c);
@@ -1096,7 +1174,8 @@ function editNote(entry, display, action) {
     first ? m : ''
   );
   const spaced = second || !first ? text : text.replace(/\s*$/, ' ');
-  applyNoteEdit(a.element.startChar, c.element.endChar, spaced, action === 'delete' ? null : undefined);
+  if (action === 'delete') applyNoteEdit(a.element.startChar, c.element.endChar, spaced, null);
+  else edit(a.element.startChar, c.element.endChar, spaced);
 }
 $('note-menu').addEventListener('click', e => {
   const b = e.target.closest('[data-edit]'),
@@ -1121,14 +1200,17 @@ document.addEventListener('keydown', e => {
 window.addEventListener(
   'scroll',
   () => {
-    if (!$('note-menu').hidden) closeNoteMenu();
+    // The browser can nudge the page a few pixels when the status line above the score rewraps (scroll anchoring);
+    // only a real scroll moves the note away from the menu.
+    if (!$('note-menu').hidden && Math.abs(window.scrollY - +$('note-menu').dataset.scrollY) > 24) closeNoteMenu();
   },
   {passive: true}
 );
 // Keyboard note entry on the score (MuseScore-style): A–G add a note after the selection in the nearest octave,
-// R or 0 a rest, 3–7 set the length (16th…whole), . dots, ↑↓ move by step (Ctrl: octave), ←→ change the selection,
-// # - = set sharp/flat/natural, + ties, | adds a bar line, Delete removes the note, [ ] halve or double the length.
-// Shift+←→ and Ctrl/Cmd+A, C, X, V, D work on a range selection (see below).
+// Shift+A–G add a pitch to the selected chord, R or 0 a rest, 3–7 set the length (16th…whole), . dots, ↑↓ move by
+// step (Ctrl: octave), ←→ change the selection, # - = set sharp/flat/natural, + ties, | adds a bar line, Delete
+// removes the note, [ ] halve or double the length. Shift+←→ and Ctrl/Cmd+A, C, X, V, D work on a range selection
+// (see below).
 const LENGTH_KEYS = {3: 1 / 16, 4: 1 / 8, 5: 1 / 4, 6: 1 / 2, 7: 1};
 function focusScore() {
   $('notation').focus?.({preventScroll: true});
@@ -1156,14 +1238,21 @@ function selectedNote() {
     : selectedRange && scoreNotes().find(e => e.element.startChar === selectedRange[0]);
   return entry ? {entry, display: displayOf(entry)} : null;
 }
+// Where note entry goes on from: the selected note, or the last note of a range selection, marked after so that a
+// rest there is kept and the new note goes after it.
+function entrySelection(picked = selectedNotes()) {
+  if (picked.length < 2) return selectedNote();
+  const entry = picked.at(-1);
+  return {entry, display: displayOf(entry), after: true};
+}
 function selectEntry(entry) {
   const display = displayOf(entry);
   if (!display) return;
   scoreClick(display, 0, [], {}, null);
   renderedTune?.engraver?.rangeHighlight?.(display.startChar, display.endChar);
 }
-// Insert a token at a source position with spacing, then select it (and sound it, with hear).
-function insertAt(at, token, select = true, hear = false) {
+// Insert a token at a source position with spacing, then select it (and sound it, with hear). Returns where it starts.
+function insertAt(at, token, select = true, hear = false, keep = false) {
   const v = $('abc').value,
     before = at > 0 && !/\s/.test(v[at - 1]) ? ' ' : '',
     after = v[at] && !/\s/.test(v[at]) ? ' ' : '';
@@ -1172,8 +1261,10 @@ function insertAt(at, token, select = true, hear = false) {
     at,
     before + token + after,
     select ? [at + before.length, at + before.length + token.length] : null,
-    hear ? at + before.length : null
+    hear ? at + before.length : null,
+    keep
   );
+  return at + before.length;
 }
 // Where a new note goes with nothing selected: before the closing bar line, or at the end of the music.
 function tuneEndPosition() {
@@ -1186,20 +1277,78 @@ function tuneEndPosition() {
     ? last.element.startChar
     : last.element.endChar;
 }
-// With append, a selected rest is kept and the note goes after it (typing after a range selection).
-function insertNote(letter, sel, append = false) {
-  if (!append && sel && !sel.entry.element.pitches?.length && sel.entry.element.rest?.type !== 'multimeasure') {
-    overwriteRest(letter, sel.entry);
-    return;
+// Where a new note goes: over the selected rest (typing on a rest writes over it, as in MuseScore), after the
+// selected note, or at the end of the music. After a range selection (sel.after, see entrySelection) a rest at its
+// end is kept and the note goes after it.
+const fillsRest = sel =>
+  sel && !sel.after && !sel.entry.element.pitches?.length && sel.entry.element.rest?.type !== 'multimeasure';
+const entryPosition = sel =>
+  fillsRest(sel) ? sel.entry.element.startChar : sel ? sel.entry.element.endChar : tuneEndPosition();
+// Letters name what the student sees, so pick the octave in written pitch, nearest the previous note.
+function insertNote(letter, sel) {
+  insertCore(letterToken(letter, entryPosition(sel)), sel);
+}
+// Enter a pitch (or z), without a length, at the input length: a selected rest keeps whatever time is left and
+// stays selected so the next note continues; otherwise the note goes after the selection and is selected. An
+// accidental on the new note does not change later notes in the bar (see keepLaterPitches).
+function insertCore(core, sel) {
+  const keep = /^[_^=]/.test(core),
+    at = entryPosition(sel),
+    start = fillsRest(sel)
+      ? fillRest(sel.entry, core, undefined, keep)
+      : insertAt(at, core + lengthText((inputLength ?? beatLength()) / unitLengthAt(at)), true, core !== 'z', keep);
+  rememberEntry(core === 'z' ? null : start);
+}
+// The note the last entry wrote, while the source and selection are as that entry left them. Filling a rest
+// completely passes the selection on to the next note, so chord pitches still need to know the note just entered.
+let lastEntry = null;
+function rememberEntry(at) {
+  lastEntry = at == null ? null : {at, source: $('abc').value, range: String(selectedRange)};
+}
+// The note a chord pitch goes on: the note just entered, the selected note, or the note just before a selected rest.
+// Entering a note over a rest moves the selection on to what is left of the rest, so that is the note just entered.
+function chordTarget(sel) {
+  if (lastEntry && lastEntry.source === $('abc').value && lastEntry.range === String(selectedRange)) {
+    // abcjs can start a note at the space before it (after a bar line), so look for the note that holds the offset.
+    const {at} = lastEntry,
+      entry = scoreNotes().find(n => n.element.startChar <= at && at < n.element.endChar && n.element.pitches?.length);
+    if (entry) return entry === sel?.entry ? sel : {entry, display: displayOf(entry)};
   }
-  const at = sel ? sel.entry.element.endChar : tuneEndPosition(),
-    length = inputLength ?? beatLength();
-  let token = 'z';
-  if (letter !== 'z') {
-    // Letters name what the student sees, so pick the octave in written pitch, nearest the previous note.
-    token = letterToken(letter, at);
-  }
-  insertAt(at, token + lengthText(length / unitLengthAt(at)), true, letter !== 'z');
+  if (!sel || sel.entry.element.pitches?.length) return sel;
+  const voice = sel.entry.key.split(':').slice(0, 2).join(':') + ':',
+    notes = scoreNotes().filter(n => n.key.startsWith(voice)),
+    prev = notes[notes.indexOf(sel.entry) - 1];
+  return prev?.element.pitches?.length ? {entry: prev, display: displayOf(prev)} : null;
+}
+// Add a pitch (without a length) to the chord target, making it a chord or adding to one; one undo step. A selected
+// rest stays selected, so entry carries on after the chord. Returns false when the pitch is already there.
+function addToChord(sel, core) {
+  const target = chordTarget(sel),
+    start = target.entry.element.startChar,
+    end = target.entry.element.endChar,
+    old = $('abc').value.slice(start, end),
+    text = addChordPitch(old, core),
+    delta = text.length - old.length;
+  if (text === old) return false;
+  const select =
+    target === sel
+      ? [start, start + text.length]
+      : [sel.entry.element.startChar + delta, sel.entry.element.endChar + delta];
+  applyNoteEdit(start, end, text, select, start, /^[_^=]/.test(core));
+  rememberEntry(target === sel ? null : start);
+  return true;
+}
+// Shift+A–G: the letter's pitch just above the chord's top note (in written pitch, letters as the written key names
+// them), as the key signature spells it.
+function addLetterToChord(letter, sel) {
+  const target = chordTarget(sel),
+    steps = writtenSteps($('abc').value, target.entry.element.startChar, instruments[currentInstrument()].shift),
+    top = Math.max(...target.entry.element.pitches.map(p => p.pitch)) + steps,
+    index = 'CDEFGAB'.indexOf(letter),
+    pitch = index + 7 * (Math.floor((top - index) / 7) + 1);
+  $('selection-status').textContent = addToChord(sel, pitchToken(pitch - steps))
+    ? `Added ${letter} to the chord. Shift+A–G adds more.`
+    : `${letter} is already in the chord.`;
 }
 // Written-pitch note token for a letter, in the octave nearest the last note before a source position.
 function letterToken(letter, at) {
@@ -1212,13 +1361,10 @@ function letterToken(letter, at) {
     letterIndex = 'CDEFGAB'.indexOf(letter);
   return pitchToken(letterIndex + 7 * Math.round((ref - letterIndex) / 7) - steps);
 }
-// Typing on a rest writes over it (as in MuseScore): the note takes its length from the rest and the rest keeps
-// what is left, which stays selected so the next letter continues. A filled rest passes the selection on.
-function overwriteRest(letter, rest) {
-  fillRest(rest, letterToken(letter, rest.element.startChar));
-}
-// Put a note (its pitch token, without a length) at the start of a rest; the rest keeps whatever time is left.
-function fillRest(rest, core, wanted = inputLength ?? beatLength()) {
+// Put a note (its pitch token, without a length) at the start of a rest, taking its length from the rest; the rest
+// keeps what is left, which stays selected so the next note continues. A filled rest passes the selection on.
+// Returns where the note starts.
+function fillRest(rest, core, wanted = inputLength ?? beatLength(), keep = false) {
   const v = $('abc').value,
     start = rest.element.startChar,
     end = rest.element.endChar,
@@ -1234,8 +1380,8 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength()) {
     const remainder = 'z' + lengthText(left / unit),
       text = lead + token + ' ' + remainder + trail,
       at = start + lead.length + token.length + 1;
-    applyNoteEdit(start, end, text, [at, at + remainder.length], start + lead.length);
-    return;
+    applyNoteEdit(start, end, text, [at, at + remainder.length], start + lead.length, keep);
+    return start + lead.length;
   }
   const text = lead + token + trail,
     delta = text.length - (end - start),
@@ -1247,8 +1393,34 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength()) {
     next
       ? [next.element.startChar + delta, next.element.endChar + delta]
       : [start + lead.length, start + lead.length + token.length],
-    start + lead.length
+    start + lead.length,
+    keep
   );
+  return start + lead.length;
+}
+// Keys 3–7 and the palette's length buttons: set the length of new notes, and of the selected note. A selected rest
+// keeps its length, so typing a letter writes a note of the new length over it.
+// With a range selection, every note in it takes the length (rests keep theirs).
+function chooseLength(value, sel = selectedNote()) {
+  inputLength = value;
+  const name = (NOTE_VALUES[value] || 'that length').replace(/^an? /, ''),
+    picked = selectedNotes();
+  if (picked.length > 1) {
+    const before = $('abc').value;
+    setLengths(picked, n => (pitched(n) ? value : null));
+    $('selection-status').textContent = ($('abc').value === before ? 'Already ' : 'Changed to ') + name + 's.';
+  } else if (sel && sel.entry.element.pitches?.length) {
+    const before = $('abc').value;
+    editNote(sel.entry, sel.display, 'len:' + value);
+    $('selection-status').textContent =
+      ($('abc').value === before ? 'Already ' : 'Changed to ') + (NOTE_VALUES[value] || 'that length') + '.';
+  } else {
+    // Letters write over a selected rest, but go after a multi-measure rest (Z).
+    const over = sel && sel.entry.element.rest?.type !== 'multimeasure';
+    $('selection-status').textContent =
+      'New notes will be ' + name + 's.' + (over ? ' Type a letter to write one over the rest.' : '');
+    refreshPalette();
+  }
 }
 function scoreKey(e) {
   // Ctrl/Cmd+Shift with these letters stays the browser's.
@@ -1265,7 +1437,7 @@ function scoreKey(e) {
     notes = scoreNotes(),
     picked = selectedNotes(),
     many = picked.length > 1,
-    last = many ? {entry: picked.at(-1), display: displayOf(picked.at(-1))} : sel;
+    last = many ? entrySelection(picked) : sel;
   if (command) {
     selectionCommand(key.toLowerCase());
     return true;
@@ -1280,22 +1452,21 @@ function scoreKey(e) {
     else play();
     return true;
   }
-  // Typing after a range selection adds the note after its last note.
+  // Typing after a range selection adds the note after its last note, and Shift+A–G adds to that note's chord.
+  if (e.shiftKey && /^[A-G]$/.test(key) && chordTarget(last)) {
+    addLetterToChord(key, last);
+    return true;
+  }
   if (/^[a-g]$/i.test(key)) {
-    insertNote(key.toUpperCase(), last, many);
+    insertNote(key.toUpperCase(), last);
     return true;
   }
   if (key === 'r' || key === 'R' || key === '0') {
-    insertNote('z', last, many);
+    insertNote('z', last);
     return true;
   }
   if (LENGTH_KEYS[key]) {
-    inputLength = LENGTH_KEYS[key];
-    if (many) setLengths(picked, n => (n.element.pitches?.length ? inputLength : null));
-    else if (sel && sel.entry.element.pitches?.length) editNote(sel.entry, sel.display, 'len:' + inputLength);
-    else
-      $('selection-status').textContent =
-        'New notes will be ' + (NOTE_VALUES[inputLength] || 'that length').replace(/^an? /, '') + 's.';
+    chooseLength(LENGTH_KEYS[key], sel);
     return true;
   }
   if (key === '|') {
@@ -1317,7 +1488,9 @@ function scoreKey(e) {
     selectedRange = null;
     selectionAnchor = null;
     renderedTune?.engraver?.rangeHighlight?.(-1, -1);
+    if (typeof showPianoSelection === 'function') showPianoSelection();
     $('selection-status').textContent = 'Nothing selected. Letters add notes at the end.';
+    refreshPalette();
     return true;
   }
   if (!sel) return false;
@@ -1425,6 +1598,8 @@ function selectNotesBetween(a, b) {
   $('selection-status').textContent =
     `${run.length} notes selected in ${where} · Copy, Cut or Duplicate them (Ctrl+C, X, D) · ↑↓, # and [ ] change them all`;
   refreshTranspose();
+  refreshPalette();
+  if (typeof showPianoSelection === 'function') showPianoSelection();
   return run;
 }
 // Shift+← and Shift+→: move the focus one note, within the voice.
@@ -1562,7 +1737,7 @@ function editKeepingPitches(start, end, text, select, hear = null, anchor = null
   } catch {
     shifts.length = 0;
   }
-  if (!shifts.length) return applyNoteEdit(start, end, text, select, hear, anchor);
+  if (!shifts.length) return applyNoteEdit(start, end, text, select, hear, false, anchor);
   // Positions in the new text move by the fixes before them; a fix at a position belongs to the note starting there.
   const moved = at => at + shifts.reduce((sum, [from, d]) => sum + (from < at ? d : 0), 0);
   let same = 0;
@@ -1573,6 +1748,7 @@ function editKeepingPitches(start, end, text, select, hear = null, anchor = null
     next.slice(start, next.length - same),
     select && select.map(moved),
     hear == null ? null : moved(hear),
+    false,
     anchor
   );
 }
@@ -1679,6 +1855,12 @@ function rangeKey(e, picked) {
     return true;
   }
   return false;
+}
+// The notation palette on a range selection: Dot, Tie, Sharp, Flat, Natural and Delete act on every selected note,
+// as their keys do. Returns false, and changes nothing, for one note or another action.
+const RANGE_PALETTE = {dot: '.', tie: '+', 'acc:^': '#', 'acc:_': '-', 'acc:=': '=', delete: 'Delete'};
+function rangePalette(action, picked = selectedNotes()) {
+  return picked.length > 1 && !!RANGE_PALETTE[action] && rangeKey({key: RANGE_PALETTE[action]}, picked);
 }
 // Delete a run. Whole measures go with one of their bar lines, so no empty measure is left behind, and a line left
 // with nothing on it goes with its line break: a blank line ends the tune in ABC, which would drop every measure
@@ -1965,6 +2147,73 @@ function updateFingering(source) {
     dot(g, x - 7, top, holes[0]);
     for (let i = 1; i < 8; i++) dot(g, x, top + 2 + i * 7.6 + (i > 3 ? 4 : 0), holes[i]);
     svg.appendChild(g);
+  }
+}
+// Classroom colors and letters in noteheads, drawn on the engraved SVG after each render. Both stay in print and SVG
+// export (worksheets), so they are set as attributes; the class only lets a selected or playing note show as one.
+// Each head names its written pitch in data-name ("^c", "A,"), which covers chords and grace notes; heads without
+// one pair with the pitches by height, lowest first, and grace heads with the grace notes in order.
+// abcjs shrinks grace heads with a CSS scale that getBBox() ignores, so they are found by that style instead.
+// Every head is read and measured before anything is drawn: measuring after each note's letter goes in would make
+// the browser lay out the whole score again for every note.
+function updateNoteColors() {
+  const colors = noteColorsShown(),
+    letters = lettersInHeads();
+  if (!colors && !letters) return;
+  const letter = pitch => (pitch == null ? null : 'CDEFGAB'[((pitch % 7) + 7) % 7]),
+    drawn = [];
+  for (const sel of renderedTune?.engraver?.selectables || []) {
+    const note = sel.absEl.abcelem;
+    if (note.el_type !== 'note' || note.rest || !note.pitches?.length) continue;
+    const heads = [...sel.svgEl.querySelectorAll('.abcjs-notehead')],
+      grace = heads.map(h => /scale\(/.test(h.getAttribute('style') || ''));
+    let names = heads.map(h => (h.getAttribute('data-name') || '').match(/[A-G]/i)?.[0].toUpperCase());
+    const unnamed = names.some(n => !n),
+      boxes = heads.map((h, i) => ((letters || unnamed) && !grace[i] && h.getBBox?.()) || null);
+    if (unnamed) {
+      const pitches = note.pitches.map(p => p.pitch).sort((a, b) => a - b),
+        graces = (note.gracenotes || []).map(g => g.pitch);
+      names = heads.map((h, i) => (grace[i] ? letter(graces.shift()) : null));
+      heads
+        .map((h, i) => [i, boxes[i]?.y || 0])
+        .filter(([i]) => !grace[i])
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([i], n) => (names[i] = letter(pitches[n])));
+    }
+    drawn.push({sel, heads, names, grace, boxes, hollow: note.duration >= 0.5});
+  }
+  const ns = 'http://www.w3.org/2000/svg';
+  // Half and whole heads are hollow, so their letter is drawn in ink; grace heads are too small for one.
+  for (const {sel, heads, names, grace, boxes, hollow} of drawn) {
+    heads.forEach((head, i) => {
+      const color = colors && NOTE_COLORS[names[i]];
+      if (color) {
+        head.setAttribute('fill', color.fill);
+        head.classList.add('classroom-color');
+        if (color.stroke) {
+          head.setAttribute('stroke', color.stroke);
+          head.setAttribute('stroke-width', '0.6');
+        }
+      }
+      const box = boxes[i];
+      if (!letters || !names[i] || grace[i] || !box) return;
+      // The letter goes last in the note's group so ledger lines do not cross it.
+      const cx = box.x + box.width / 2,
+        cy = box.y + box.height / 2,
+        text = document.createElementNS(ns, 'text');
+      text.setAttribute('class', hollow ? 'notehead-letter hollow' : 'notehead-letter');
+      text.setAttribute('x', cx);
+      text.setAttribute('y', cy);
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('dominant-baseline', 'central');
+      text.setAttribute('font-family', 'sans-serif');
+      text.setAttribute('font-weight', 'bold');
+      text.setAttribute('font-size', Math.max(5, box.height).toFixed(1));
+      text.setAttribute('fill', hollow ? 'black' : color ? color.ink : 'white');
+      text.setAttribute('aria-hidden', 'true');
+      text.textContent = names[i];
+      sel.svgEl.appendChild(text);
+    });
   }
 }
 // Writing prompts: a short assignment with a blank score (one whole-bar rest per bar) and goals that tick off live.
