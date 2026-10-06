@@ -1,8 +1,33 @@
 /* All new teaching notation and original studies are dedicated under CC0 1.0. */
+// Instruments: clef, `shift` (the written part is this many semitones above the concert ABC source) and the sound.
+// `sound` is the playback octave against the source (default -12 when shift is -12, else 0), so the part is written
+// shift - sound semitones above how it sounds. `partials` are harmonic amplitudes (fundamental first) for a periodic
+// wave, with `wave` as the fallback; `env` is attack/decay/sustain/release in seconds, or `pluck`, the time a struck
+// or plucked note takes to fade to about a third; `vibrato` is a rate (Hz), depth (cents) and delay (s).
 const instruments = {
- 'Flute':{clef:'treble',shift:0,wave:'sine'}, 'Violin':{clef:'treble',shift:0,wave:'triangle'}, 'Recorder':{clef:'treble',shift:0,wave:'sine'},
- 'Clarinet in B♭':{clef:'treble',shift:2,wave:'triangle'}, 'Trumpet in B♭':{clef:'treble',shift:2,wave:'sawtooth'}, 'Alto sax in E♭':{clef:'treble',shift:9,wave:'sawtooth'},
- 'Cello':{clef:'bass',shift:-12,wave:'triangle'}, 'Trombone':{clef:'bass',shift:-12,wave:'sawtooth'}, 'Piano':{clef:'treble',shift:0,wave:'triangle'}, 'Guitar':{clef:'treble',shift:0,wave:'triangle'}
+ 'Flute':{family:'Woodwinds',clef:'treble',shift:0,wave:'sine',partials:[1,.3,.12,.05,.03,.01],env:{attack:.04,decay:.1,sustain:.8,release:.025},vibrato:{rate:5,depth:12,delay:.25}},
+ 'Recorder':{family:'Woodwinds',clef:'treble',shift:0,wave:'sine',partials:[1,.06,.12,.02,.03],env:{attack:.02,decay:.05,sustain:.85,release:.025}},
+ 'Oboe':{family:'Woodwinds',clef:'treble',shift:0,wave:'sawtooth',partials:[.45,.8,1,.75,.55,.45,.3,.2,.15,.1,.06],env:{attack:.03,decay:.08,sustain:.8,release:.04},vibrato:{rate:5.5,depth:8,delay:.3}},
+ 'Clarinet in B♭':{family:'Woodwinds',clef:'treble',shift:2,wave:'triangle',partials:[1,.03,.7,.03,.45,.02,.25,.02,.12,.01,.06],env:{attack:.03,decay:.08,sustain:.85,release:.04}},
+ 'Bassoon':{family:'Woodwinds',clef:'bass',shift:-12,wave:'sawtooth',partials:[.6,1,.85,.6,.45,.3,.2,.12,.08],env:{attack:.04,decay:.1,sustain:.8,release:.05}},
+ 'Alto sax in E♭':{family:'Woodwinds',clef:'treble',shift:9,wave:'sawtooth',partials:[1,.75,.6,.5,.4,.32,.25,.18,.12,.08,.05],env:{attack:.03,decay:.1,sustain:.75,release:.05},vibrato:{rate:5,depth:10,delay:.35}},
+ 'Tenor sax in B♭':{family:'Woodwinds',clef:'treble',shift:14,wave:'sawtooth',partials:[1,.95,.6,.4,.3,.18,.12,.07,.04],env:{attack:.035,decay:.1,sustain:.75,release:.05},vibrato:{rate:4.8,depth:10,delay:.35}},
+ 'Baritone sax in E♭':{family:'Woodwinds',clef:'treble',shift:9,sound:-12,wave:'sawtooth',partials:[1,1,.75,.55,.45,.32,.22,.15,.1],env:{attack:.04,decay:.1,sustain:.75,release:.06}},
+ 'Trumpet in B♭':{family:'Brass',clef:'treble',shift:2,wave:'sawtooth',partials:[.8,1,.9,.75,.6,.5,.4,.3,.22,.16,.11,.07],env:{attack:.035,decay:.08,sustain:.75,release:.04}},
+ 'Horn in F':{family:'Brass',clef:'treble',shift:7,wave:'triangle',partials:[1,.5,.25,.12,.06,.03],env:{attack:.06,decay:.1,sustain:.85,release:.08}},
+ 'Trombone':{family:'Brass',clef:'bass',shift:-12,wave:'sawtooth',partials:[.9,1,.85,.7,.55,.4,.28,.18,.1,.06],env:{attack:.05,decay:.1,sustain:.8,release:.06}},
+ 'Euphonium':{family:'Brass',clef:'bass',shift:-12,wave:'triangle',partials:[1,.7,.45,.25,.12,.05],env:{attack:.05,decay:.1,sustain:.85,release:.07},vibrato:{rate:5,depth:6,delay:.4}},
+ 'Tuba':{family:'Brass',clef:'bass',shift:-12,wave:'triangle',partials:[1,.45,.2,.08,.03],env:{attack:.07,decay:.1,sustain:.85,release:.08}},
+ 'Violin':{family:'Strings',clef:'treble',shift:0,wave:'triangle',partials:[1,.55,.42,.33,.28,.22,.18,.14,.11,.09,.07,.05],env:{attack:.06,decay:.1,sustain:.85,release:.06},vibrato:{rate:5.5,depth:15,delay:.2}},
+ 'Viola':{family:'Strings',clef:'alto',shift:0,wave:'triangle',partials:[1,.6,.65,.45,.25,.2,.12,.08,.05],env:{attack:.07,decay:.1,sustain:.85,release:.07},vibrato:{rate:5.2,depth:14,delay:.22}},
+ 'Cello':{family:'Strings',clef:'bass',shift:-12,wave:'triangle',partials:[1,.75,.55,.4,.3,.2,.14,.09,.06],env:{attack:.07,decay:.1,sustain:.85,release:.08},vibrato:{rate:5,depth:15,delay:.25}},
+ 'Double bass':{family:'Strings',clef:'bass',shift:-12,sound:-24,wave:'triangle',partials:[1,.8,.45,.25,.15,.08],env:{attack:.08,decay:.12,sustain:.8,release:.1},vibrato:{rate:4.5,depth:8,delay:.35}},
+ 'Guitar':{family:'Guitars',clef:'treble',shift:0,wave:'triangle',partials:[1,.9,.45,.4,.1,.22,.12,.05,.04],env:{pluck:1.1,release:.06}},
+ 'Ukulele':{family:'Guitars',clef:'treble',shift:0,wave:'triangle',partials:[1,.3,.45,.1,.15,.05],env:{pluck:.5,release:.05}},
+ 'Bass guitar':{family:'Guitars',clef:'bass',shift:-12,sound:-24,wave:'triangle',partials:[1,.55,.25,.12,.05],env:{pluck:1.6,release:.06}},
+ 'Piano':{family:'Keyboard and percussion',clef:'treble',shift:0,wave:'triangle',partials:[1,.55,.32,.22,.12,.09,.05,.03],env:{pluck:1.4,release:.08}},
+ 'Glockenspiel':{family:'Keyboard and percussion',clef:'treble',shift:0,sound:24,wave:'sine',partials:[1,0,.1,.25,0,.08],env:{pluck:.6,release:.05}},
+ 'Voice':{family:'Voice',clef:'treble',shift:0,wave:'sine',partials:[1,.75,.45,.32,.25,.12,.07,.04],env:{attack:.08,decay:.1,sustain:.9,release:.08},vibrato:{rate:5.5,depth:20,delay:.3}}
 };
 function tune(title,composer,meter,key,bpm,notes){return `X:1\nT:${title}\nC:${composer}\nM:${meter}\nL:1/4\nQ:1/4=${bpm}\nK:${key}\n${notes}`;}
 const catalog = [

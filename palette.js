@@ -3,7 +3,8 @@
 // under Tuplet), accidental, beam, articulations, dynamics, chord symbol, lines (slur, hairpins, trill line), grace
 // notes, ornaments (under More), and Delete.
 // Buttons light up (aria-pressed) to show the selection's state and send the same action as the note menu or the
-// matching key to editNote, so each press is one undo step. Later notation tools add their own groups here.
+// matching key to editNote, so each press is one undo step. The Measure panel (measure-tools.js) adds bar, bar line,
+// repeat, form and key, time and clef tools. Later notation tools add their own groups here.
 const PALETTE_DONE = {
   'to-rest': 'Changed to a rest.',
   'acc:^': 'Sharp.',
@@ -20,7 +21,9 @@ const PALETTE_DONE = {
 function paletteState() {
   const sel = selectedNote(),
     picked = selectedNotes();
-  if (!sel) return {sel: null, length: inputLength ?? beatLength()};
+  // The Measure panel's state (measure-tools.js) comes along: a selected bar line has no note but has a measure.
+  const measure = typeof measureToolState === 'function' ? measureToolState() : null;
+  if (!sel) return {sel: null, length: inputLength ?? beatLength(), measure};
   const element = sel.entry.element,
     isRest = !element.pitches?.length,
     multiRest = element.rest?.type === 'multimeasure',
@@ -46,12 +49,16 @@ function paletteState() {
     chord: shownChord(sel),
     tuplet: tupletGroup(sel.entry)?.p ?? null,
     grace: graceOf(source),
-    lines: Object.fromEntries(Object.keys(LINE_WORDS).map(kind => [kind, lineState(kind, picked)]))
+    lines: Object.fromEntries(Object.keys(LINE_WORDS).map(kind => [kind, lineState(kind, picked)])),
+    measure
   };
 }
+// The Measure panel's actions, which measure-tools.js carries out.
+const MEASURE_ACTION = /^(bar|barline|repeat|ending|form|rehearsal):/;
 // Why a button does nothing for the current selection, or '' when it applies.
 function paletteBlocked(action, state) {
   if (action.startsWith('len:')) return '';
+  if (MEASURE_ACTION.test(action)) return measureBlocked(action, state.measure);
   if (!state.sel) return 'Select a note on the score first.';
   // Chord opens its box on the selected note, or on the first note of a range selection.
   if (action === 'chord') return '';
@@ -120,9 +127,17 @@ function updatePalette() {
   chord.setAttribute('aria-label', state.chord ? `Chord symbol (${state.chord})` : 'Chord symbol');
   for (const b of bar.querySelectorAll('[data-palette]')) {
     const action = b.dataset.palette;
-    if (action === 'more' || action === 'tuplets') continue;
+    // The Measure panel's buttons are brought up to date while it is open.
+    if (
+      action === 'more' ||
+      action === 'tuplets' ||
+      action === 'measure' ||
+      (MEASURE_ACTION.test(action) && $('palette-measure').hidden)
+    )
+      continue;
     let pressed = null;
-    if (action.startsWith('len:')) pressed = near(state.length, +action.slice(4));
+    if (MEASURE_ACTION.test(action)) pressed = measurePressed(action, state.measure);
+    else if (action.startsWith('len:')) pressed = near(state.length, +action.slice(4));
     else if (action === 'dot') pressed = !!state.dotted;
     else if (action === 'tie') pressed = !!state.tied;
     else if (action.startsWith('acc:')) pressed = state.accidental === action.slice(4);
@@ -136,12 +151,13 @@ function updatePalette() {
     if (pressed != null) b.setAttribute('aria-pressed', pressed);
     b.setAttribute('aria-disabled', !!paletteBlocked(action, state));
   }
+  if (typeof updateMeasureTools === 'function') updateMeasureTools(state.measure);
 }
 $('palette').addEventListener('click', e => {
   const b = e.target.closest('[data-palette]');
   if (!b) return;
   const action = b.dataset.palette;
-  if (action === 'more' || action === 'tuplets') {
+  if (action === 'more' || action === 'tuplets' || action === 'measure') {
     const panel = $(b.getAttribute('aria-controls')),
       open = panel.hidden;
     panel.hidden = !open;
@@ -171,6 +187,7 @@ $('palette').addEventListener('click', e => {
   // Delete in a tuplet sets its own status line (see tupletDelete).
   else if (action === 'delete' && state.tuplet && !state.picked) editNote(state.sel.entry, state.sel.display, action);
   else if (action.startsWith('grace')) graceSelected(action, state.sel);
+  else if (MEASURE_ACTION.test(action)) measureCommand(action);
   else {
     const before = $('abc').value,
       toggled = {

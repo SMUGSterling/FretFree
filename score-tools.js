@@ -91,13 +91,19 @@ function moveNoteText(text, steps) {
   }
   return result;
 }
-// Notes sounding between from and until (score seconds), rebased to 0 and scaled to the playback speed.
+// Notes sounding between from and until (score seconds), rebased to 0 and scaled to the playback speed. Range edges
+// come from abcjs's note timings, in whole milliseconds, and the notes from the MIDI, in ticks at a tempo in whole
+// microseconds, so at most tempos (quarter = 180: a bar of 1.333 s against 1.333332 s) the note before a range ends
+// just after it starts and the next bar's first note starts just before it ends; in long scores the two drift apart
+// by a few milliseconds more. A note that overlaps the range by less than SLICE_EDGE stays out: scheduled, it
+// sounded as a click at full volume. parseMidi gives every note at least 25 ms, so no whole note is that short.
+const SLICE_EDGE = 0.01;
 function playbackSlice(data, from, percent, until = data.duration) {
   const speed = percent / 100;
   return {
     duration: Math.max(0, (until - from) / speed),
     notes: data.notes
-      .filter(n => n.start + n.duration > from && n.start < until - 1e-9)
+      .filter(n => n.start + n.duration > from + SLICE_EDGE && n.start < until - SLICE_EDGE)
       .map(n => ({
         ...n,
         start: Math.max(0, n.start - from) / speed,
@@ -699,7 +705,7 @@ function barLengths(tune) {
             ending: null
           };
           states.set(id, st);
-        }
+        } else if (staff.meter) st.meter = meterInfo(staff.meter) ?? st.meter;
         for (const e of voice) {
           if (e.el_type === 'meter') {
             const m = meterInfo(e);
@@ -1251,6 +1257,68 @@ const TRANSPOSE_INTERVALS = [
   {id: 'M7', name: 'major 7th', semitones: 11, letters: 6},
   {id: 'P8', name: 'octave', semitones: 12, letters: 7}
 ];
+// An interval in words, with its article, for captions: "a major 2nd", "a major 9th", "an octave and a major 6th".
+function intervalPhrase(semitones) {
+  semitones = Math.abs(Math.round(semitones));
+  const article = name => (/^[aeiou]/.test(name) ? 'an ' : 'a ') + name,
+    simple = n => article(TRANSPOSE_INTERVALS.find(i => i.semitones === n).name),
+    compound = {13: 'minor 9th', 14: 'major 9th', 15: 'minor 10th', 16: 'major 10th'}[semitones];
+  if (!semitones) return 'a unison';
+  if (semitones <= 12) return simple(semitones);
+  if (compound) return article(compound);
+  const octaves = Math.floor(semitones / 12),
+    words = octaves === 1 ? 'an octave' : octaves === 2 ? 'two octaves' : `${octaves} octaves`;
+  return semitones % 12 ? `${words} and ${simple(semitones % 12)}` : words;
+}
+// An instrument's playback octave against the ABC source (`instruments` in catalog.js): its `sound`, or an octave
+// down for the bass-range instruments (shift -12) that read treble-range melodies an octave lower.
+const instrumentSound = config => config?.sound ?? (config?.shift === -12 ? -12 : 0);
+// How far an instrument's part is written above how it sounds: 2 for a B-flat clarinet, 14 for a tenor sax, 12 for a
+// double bass, -24 for a glockenspiel and 0 for a cello.
+const writtenAboveSound = config => (config?.shift || 0) - instrumentSound(config);
+// A note's loudness: [kind, level, time] steps for a gain AudioParam, kind 'set', 'linear' or 'exp' (the three
+// automation calls every browser has). A plucked or struck sound (`pluck`) fades while it is held; others rise to
+// `peak`, settle at `sustain` and hold it to the end. Both then release to silence; `stop` is when the oscillator
+// can stop.
+function noteEnvelope(env = {}, start, duration, peak) {
+  const end = start + duration,
+    release = env.release ?? 0.025,
+    stop = end + +(release + 0.005).toFixed(4);
+  if (env.pluck) {
+    const attack = Math.min(0.005, duration / 4),
+      held = Math.max(1e-4, peak * Math.exp(-(duration - attack) / env.pluck));
+    const steps = [
+      ['set', 0, start],
+      ['linear', peak, start + attack],
+      ['exp', held, end],
+      ['linear', 0, end + release]
+    ];
+    return {steps, stop};
+  }
+  const attack = Math.min(env.attack ?? 0.012, duration / 3),
+    decay = Math.min(env.decay ?? 0.04, duration / 3),
+    level = peak * (env.sustain ?? 2 / 3);
+  const steps = [
+    ['set', 0, start],
+    ['linear', peak, start + attack],
+    ['linear', level, start + attack + decay],
+    ['linear', level, end],
+    ['linear', 0, end + release]
+  ];
+  return {steps, stop};
+}
+// Vibrato as detune values in cents for setValueCurveAtTime, sampled 16 times a cycle: it starts `delay` seconds into
+// the note and fades in over a quarter second. Null for no vibrato or a note too short to hear it.
+function vibratoCurve(vibrato, duration) {
+  const length = duration - (vibrato?.delay ?? 0);
+  if (!vibrato?.rate || !vibrato.depth || !(length > 0.15)) return null;
+  const n = Math.min(2048, Math.ceil(length * vibrato.rate * 16) + 1),
+    values = Array.from({length: n}, (_, i) => {
+      const t = (i / (n - 1)) * length;
+      return vibrato.depth * Math.min(1, t / 0.25) * Math.sin(2 * Math.PI * vibrato.rate * t);
+    });
+  return {values, start: vibrato.delay ?? 0, length};
+}
 // The move from one key to another, the nearer way round: semitones and letter names (C to F# is 6 and 3, C to Gb
 // 6 and 4). Keys of different modes move by their signatures, so C major to E minor moves the notes to G major.
 function keyInterval(from, to) {
@@ -1597,6 +1665,639 @@ function measureSpans(tune, from, to) {
     else if (e.element.el_type === 'note' || voice !== run?.voice) run = null;
   }
   return spans;
+}
+// Measure and form tools. A voice ('staff:voice', as in scoreEvents) measure by measure, numbered as scoreEvents
+// numbers them (a bar line ends a measure only once it holds notes). Each measure has its notes and rests, the bar line
+// before it, the bar line that closes it (null for an open last measure), the line of the tune it starts on, and the
+// meter and clef in force at the bar line before it and at its first note. opens is true when the bar line before it
+// is one of its own, at the start of its line, rather than the one that closed the measure before.
+const clefName = clef =>
+  !clef?.type ? 'treble' : clef.type === 'alto' && clef.verticalPos === -8 ? 'tenor' : clef.type;
+function voiceMeasures(tune, voice) {
+  const [s, v] = voice.split(':').map(Number),
+    out = [];
+  let header = null,
+    meter = null,
+    clef = null,
+    atBar = null,
+    before = null,
+    cur = null;
+  for (const [line, row] of (tune.lines || []).entries()) {
+    for (const staff of row.staff || []) header ??= meterInfo(staff.meter);
+    const staff = row.staff?.[s];
+    if (!staff?.voices?.[v]) continue;
+    // A time signature at the start of a later line (after a V: line) is the staff's.
+    meter = meterInfo(staff.meter) ?? meter ?? header ?? 'free';
+    if (staff.clef) clef = staff.clef;
+    atBar ??= {meter, clef};
+    for (const e of staff.voices[v]) {
+      if (e.el_type === 'meter') meter = meterInfo(e) || meter;
+      else if (e.el_type === 'clef') clef = e;
+      else if (e.el_type === 'note') {
+        cur ??= {
+          measure: out.length + 1,
+          line,
+          notes: [],
+          before,
+          opens: !!before && before !== out.at(-1)?.bar,
+          meterBefore: atBar.meter,
+          clefBefore: clefName(atBar.clef),
+          meter,
+          clef: clefName(clef)
+        };
+        cur.notes.push(e);
+      } else if (e.el_type === 'bar') {
+        if (cur) out.push({...cur, bar: e});
+        cur = null;
+        before = e;
+        atBar = {meter, clef};
+      }
+    }
+  }
+  if (cur) out.push({...cur, bar: null});
+  return out.map(m => ({...m, first: m.notes[0], last: m.notes.at(-1)}));
+}
+function measureBounds(tune, voice, measure) {
+  return voiceMeasures(tune, voice)[measure - 1] || null;
+}
+// The voices of a score in reading order, without & overlays: an overlay is written inside another voice's bars
+// (abcjs gives it the same bar lines), so measure edits to that voice cover it.
+function scoreVoices(tune, source = '') {
+  const order = [],
+    overlay = new Set(),
+    bars = new Map();
+  for (const {element: e, key} of scoreEvents(tune)) {
+    const id = key.split(':').slice(0, 2).join(':');
+    if (!order.includes(id)) {
+      order.push(id);
+      if (/&\s*$/.test(source.slice(Math.max(0, e.startChar - 40), e.startChar))) overlay.add(id);
+    }
+    if (e.el_type !== 'bar') continue;
+    if (!bars.has(e.startChar)) bars.set(e.startChar, id);
+    else if (bars.get(e.startChar) !== id) overlay.add(id);
+  }
+  return order.filter(id => !overlay.has(id));
+}
+// The voices an edit to a measure goes to, each at the same measure number. A multi-measure rest (Z3) is one measure
+// of its voice but several bars of the score, so when the staves' bars up to the measure do not line up there is no
+// measure to edit on every staff.
+function everyVoice(tune, source, measure) {
+  const voices = scoreVoices(tune, source),
+    bars = m => m.notes.reduce((n, e) => (e.rest?.type === 'multimeasure' ? Math.max(n, +e.rest.text || 1) : n), 1),
+    spans = voices.map(voice => voiceMeasures(tune, voice).slice(0, measure).map(bars)),
+    common = Math.min(...spans.map(s => s.length)),
+    steps = new Set(spans.map(s => s.slice(0, common).join()));
+  if (spans.some(s => s.some(n => n > 1)) && steps.size > 1)
+    throw new Error('A multi-measure rest (Z) puts the staves out of step here. Write it as one rest per bar first.');
+  // Staves are numbered by place, so a score whose staves change partway through has no measure to edit on each.
+  if (voices.length > 1 && (source.match(/^%%(?:score|staves)\b/gm) || []).length > 1)
+    throw new Error('The staves change partway through this score. Edit its bars in the ABC text.');
+  return voices;
+}
+const lineStartOf = (source, at) => source.lastIndexOf('\n', at - 1) + 1;
+// Where a voice's music on a line of the tune starts: at the start of its line of text, after any [V:] field there.
+// The line may start with the end of a measure begun on the line before.
+function lineOpen(source, tune, voice, line) {
+  const [s, v] = voice.split(':').map(Number),
+    first = tune.lines[line]?.staff?.[s]?.voices?.[v]?.find(e => e.startChar >= 0);
+  if (!first) return source.length;
+  const at = lineStartOf(source, first.startChar),
+    field = source.slice(at, first.startChar).match(/^\s*\[V:[^\]\n]*\]/);
+  return field ? at + field[0].length : at;
+}
+// Where a measure's text starts: after the bar line before it when that is on the same line of text, otherwise at the
+// start of its line, after any [V:] field there. Inline fields at the start of the measure ([M:3/4], [P:A]) follow.
+function measureOpen(source, m) {
+  const first = m.first.startChar;
+  let at =
+    m.before && !source.slice(m.before.endChar, first).includes('\n') ? m.before.endChar : lineStartOf(source, first);
+  const voiceField = [...source.slice(at, first).matchAll(/\[V:[^\]\n]*\]/g)].at(-1);
+  if (voiceField) at += voiceField.index + voiceField[0].length;
+  return at;
+}
+// A bar line's text as its symbol and the ending it starts: '|1' is '|' and '1', ':| [2' is ':|' and '2', a bare '[1'
+// at the start of a line has no symbol.
+function barParts(text) {
+  const e = String(text).match(/\s*\[?(\d[\d,-]*)\s*$/);
+  return {glyph: (e ? text.slice(0, e.index) : text).trim(), ending: e ? e[1] : null};
+}
+// Where a bar line's own text starts: abcjs counts decorations and annotations written before it (!fermata!|) in it.
+const barFrom = (source, bar) =>
+  bar.startChar +
+  source.slice(bar.startChar, bar.endChar).match(/^(?:\s*(?:![^!\n]*!|\+[^+\n]*\+|"[^"\n]*"))*\s*/)[0].length;
+const barOf = (source, bar) => barParts(source.slice(barFrom(source, bar), bar.endChar));
+function barLineText(glyph, ending) {
+  if (!ending) return glyph;
+  return glyph.endsWith('|') ? glyph + ending : (glyph ? glyph + ' ' : '') + '[' + ending;
+}
+// Replace a bar line's symbol with type (a bar line such as '||' or '|]'), keeping the ending it starts unless ending
+// is given ('2', or null for none). A bar line stays a bar line: with no symbol and no ending it is a plain '|'.
+function barLineEdit(abc, bar, type, ending) {
+  const old = barOf(abc, bar);
+  return {
+    start: barFrom(abc, bar),
+    end: bar.endChar,
+    text: barLineText(type ?? old.glyph, ending === undefined ? old.ending : ending) || '|'
+  };
+}
+function replaceBarLine(abc, bar, type, ending) {
+  return spliceAll(abc, [barLineEdit(abc, bar, type, ending)]);
+}
+// A bar line symbol with a start or end repeat turned on or off, keeping the other: '|' to '|:', ':|' to '::', '::'
+// to ':|'. A final bar cannot start a repeat, so it gives way to a plain one.
+const startsRepeat = glyph => /:$/.test(glyph),
+  endsRepeat = glyph => /^:/.test(glyph);
+function repeatGlyph(glyph, which, on) {
+  const start = which === 'start' ? on : startsRepeat(glyph),
+    end = which === 'end' ? on : endsRepeat(glyph);
+  if (start && end) return '::';
+  let core = glyph.replace(/^:+|:+$/g, '') || (start || end ? '|' : '');
+  if ((start && core === '|]') || (end && core === '[|')) core = '|';
+  return (end ? ':' : '') + core + (start ? ':' : '');
+}
+const onOneLine = (source, from, to) => !/\n|\[V:/.test(source.slice(from, to));
+// The bar line that opens a measure: the one before it on its line, or one ending the line before that already starts
+// a repeat or an ending. null when the measure starts its line, or the music, without one.
+function openBar(source, m) {
+  if (!m.before) return null;
+  if (onOneLine(source, m.before.endChar, m.first.startChar)) return m.before;
+  const {glyph, ending} = barOf(source, m.before);
+  return startsRepeat(glyph) || ending ? m.before : null;
+}
+// Apply edits ({start, end, text}) to a source. Edits that overlap would garble it, so they are refused.
+function spliceAll(source, edits) {
+  const sorted = [...edits].sort((a, b) => b.start - a.start);
+  let out = source;
+  for (const [i, e] of sorted.entries()) {
+    if (i && e.end > sorted[i - 1].start)
+      throw new Error('This change does not fit the way this score is written. Make it in the ABC text.');
+    out = out.slice(0, e.start) + e.text + out.slice(e.end);
+  }
+  return out;
+}
+// Change the bar line on one side of a measure ('open' or 'close') in every voice, so all staves repeat and end
+// together. change({glyph, ending}) gives the new {glyph, ending}. A missing bar line is written when the change
+// gives one (a start repeat at the start of a line); a bar line of a measure's own at the start of its line goes when
+// nothing is left of it.
+function editBars(source, tune, measure, side, change) {
+  const edits = [];
+  for (const voice of everyVoice(tune, source, measure)) {
+    const m = measureBounds(tune, voice, measure);
+    if (!m) continue;
+    const bar = side === 'open' ? openBar(source, m) : m.bar,
+      old = bar ? barOf(source, bar) : {glyph: '', ending: null},
+      next = change(old),
+      text = barLineText(next.glyph, next.ending);
+    if (bar) {
+      const lead = source.slice(lineStartOf(source, bar.startChar), barFrom(source, bar));
+      if (bar === m.before && m.opens && (!text || text === '|') && /^(\s|\[[A-Za-z]:[^\]\n]*\])*$/.test(lead)) {
+        let end = bar.endChar;
+        while (source[end] === ' ') end++;
+        edits.push({start: barFrom(source, bar), end, text: ''});
+      } else edits.push(barLineEdit(source, bar, next.glyph, next.ending));
+    } else if (text && side === 'open') {
+      const at = measureOpen(source, m);
+      edits.push({start: at, end: at, text: (at && !/\s/.test(source[at - 1]) ? ' ' : '') + text + ' '});
+    } else if (text) {
+      let at = m.last.endChar;
+      while (at > 0 && /\s/.test(source[at - 1])) at--;
+      edits.push({start: at, end: at, text: ' ' + text});
+    }
+  }
+  return spliceAll(source, edits);
+}
+// The unit note length (L:) in force at a position: the last L: field before it, or the default for the header meter
+// (1/16 below 3/4, 1/8 otherwise).
+function unitLengthIn(source, at) {
+  let found = null;
+  for (const m of source.slice(0, at).matchAll(/(?:^|\n)L:\s*(\d+)\s*\/\s*(\d+)|\[L:\s*(\d+)\s*\/\s*(\d+)\s*\]/g))
+    found = m;
+  if (found) return +(found[1] || found[3]) / +(found[2] || found[4]);
+  const meter = source.match(/(?:^|\n)M:[ \t]*(\d+)\s*\/\s*(\d+)/);
+  return meter && +meter[1] / +meter[2] < 0.75 ? 1 / 16 : 1 / 8;
+}
+// A whole-bar rest for a meter, written in the unit length at a position. A bar in free time takes the length of the
+// measure it is next to. abcjs cannot draw a rest shorter than a whole note that is no plain, dotted or double-dotted
+// value (5/8, 9/16), so such a bar gets several rests, longest first: z4 z for 5/8 in eighths.
+function barRest(source, at, meter, m) {
+  const unit = unitLengthIn(source, at),
+    fits = v => v > 1 - 1e-9 || [1, 1.5, 1.75].some(d => Number.isInteger(Math.round(Math.log2(d / v) * 1e6) / 1e6)),
+    rests = [];
+  let left = meter?.length || m.notes.reduce((sum, n) => sum + (n.duration || 0), 0) || 1;
+  while (left > 1e-9 && rests.length < 8) {
+    const part = fits(left) ? left : 2 ** Math.floor(Math.log2(left));
+    rests.push('z' + lengthText(part / unit));
+    left -= part;
+  }
+  return rests.join(' ');
+}
+// Insert an empty bar (a whole-bar rest in the meter in force there) before or after a measure, in every voice. The new
+// bar takes the measure's place, or follows it inside the same repeat, ending or section: before the measure it goes
+// after the bar line that opens it, and after it, before the bar line that closes it.
+function insertMeasure(source, tune, measure, after = false) {
+  const edits = [];
+  for (const voice of everyVoice(tune, source, measure)) {
+    const m = measureBounds(tune, voice, measure);
+    if (!m) continue;
+    if (!after) {
+      const at = measureOpen(source, m),
+        rest = barRest(source, at, m.meterBefore, m);
+      edits.push({
+        start: at,
+        end: at,
+        text: (at && !/\s/.test(source[at - 1]) ? ' ' : '') + rest + ' |' + (/\s/.test(source[at] || '') ? '' : ' ')
+      });
+    } else if (m.bar) {
+      const at = m.bar.startChar;
+      edits.push({
+        start: at,
+        end: at,
+        text: (at && !/\s/.test(source[at - 1]) ? ' ' : '') + '| ' + barRest(source, at, m.meter, m) + ' '
+      });
+    } else {
+      let at = m.last.endChar;
+      while (at > 0 && /\s/.test(source[at - 1])) at--;
+      edits.push({start: at, end: at, text: ' | ' + barRest(source, at, m.meter, m)});
+    }
+  }
+  return spliceAll(source, edits);
+}
+// Inline fields that change the music after them (key, meter, unit length, tempo, voice, instructions) outlive a
+// deleted measure; a rehearsal mark goes with it.
+const KEPT_FIELD = /\[[KMLQVIU]:[^\]\n]*\]/g;
+// The bar lines on either side of a deleted measure ({glyph, ending}; closing is null for an open last measure) made
+// into one: {end, core, start, ending}. A repeat that held only that measure goes; an end repeat, double or final bar
+// line that closed it moves back; a start repeat or an ending it opened moves on to the measure after it, or goes
+// when nothing follows.
+const barCore = glyph => glyph.replace(/^:+|:+$/g, '') || '|';
+function joinBars(before, closing, last) {
+  const opened = startsRepeat(before.glyph),
+    closed = !!closing && endsRepeat(closing.glyph);
+  return {
+    end: endsRepeat(before.glyph) || (closed && !opened),
+    core: closing && barCore(closing.glyph) !== '|' ? barCore(closing.glyph) : barCore(before.glyph),
+    start: !last && ((!!closing && startsRepeat(closing.glyph)) || (opened && !closed)),
+    ending: last ? null : closing?.ending || (closing?.glyph === '|' ? before.ending : null)
+  };
+}
+const joinedBarText = ({end, core, start, ending}) =>
+  barLineText(repeatGlyph(repeatGlyph(core, 'end', end), 'start', start), ending);
+// The end of the w: lines (and their +: continuations) under the line of music that ends at lineEnd.
+function lyricsEnd(source, lineEnd) {
+  const words = /\n[ \t]*[w+]:[^\n]*/y;
+  let at = lineEnd;
+  words.lastIndex = at;
+  while (words.exec(source)) at = words.lastIndex;
+  return at;
+}
+// Delete a measure from every voice, with its bar lines joined into one (joinBars). When nothing but a voice field is
+// left on its line of text, the music goes with the words under it, and so does the line when nothing is left: a
+// blank line would end the tune. Rehearsal letters are then kept in order.
+function deleteMeasure(source, tune, measure) {
+  const edits = [],
+    marks = rehearsalMarks(source).length,
+    relabel = !partNames(source);
+  for (const voice of everyVoice(tune, source, measure)) {
+    const list = voiceMeasures(tune, voice),
+      m = list[measure - 1];
+    if (!m) continue;
+    if (list.length < 2) throw new Error('A staff needs at least one bar.');
+    const open = measureOpen(source, m);
+    let end = m.bar ? m.bar.endChar : m.last.endChar;
+    // A measure may run on over a line break, but not past a field line, a comment or another voice.
+    if (/\n\s*(?:[A-Za-z+]:|%)|\[V:/.test(source.slice(open, end)))
+      throw new Error('This measure runs over a line of fields or another voice. Delete it in the ABC text.');
+    const parts = bar => barOf(source, bar),
+      // A bar line of the measure's own at the start of its line goes with it; prior closes the measure before.
+      own = m.opens ? m.before : null,
+      prior = own ? list[measure - 2]?.bar : m.before,
+      b = m.before && parts(m.before),
+      a = prior ? parts(prior) : {glyph: '|', ending: null},
+      joined =
+        b &&
+        joinBars(
+          own
+            ? {
+                glyph: (endsRepeat(a.glyph) ? ':' : '') + barCore(a.glyph) + (startsRepeat(b.glyph) ? ':' : ''),
+                ending: b.ending
+              }
+            : b,
+          m.bar && parts(m.bar),
+          !list[measure]
+        ),
+      // An open last measure takes a plain bar line before it on its line with it.
+      dropPrior =
+        !m.bar && !own && prior && onOneLine(source, prior.endChar, m.first.startChar) && joinedBarText(joined) === '|',
+      kept = (source.slice(open, end).match(KEPT_FIELD) || []).join(' ');
+    let start = own ? own.startChar : dropPrior ? prior.startChar : open;
+    while (source[end] === ' ' || source[end] === '\t') end++;
+    const lineStart = lineStartOf(source, start),
+      lineEnd = source.indexOf('\n', end) < 0 ? source.length : source.indexOf('\n', end),
+      left = source.slice(lineStart, start) + kept + source.slice(end, lineEnd),
+      bare = !left.replace(/\[V:[^\]\n]*\]/g, '').trim();
+    // While music is left on the line, a start repeat or an ending that moves on keeps a bar line of its own at the
+    // start of the line; otherwise it joins the bar line before. A start repeat at the very start of the music is
+    // implied.
+    let opener = '';
+    if (joined && own && !bare) opener = barLineText(joined.start ? '|:' : '', joined.ending);
+    else if (!m.before && m.bar && !bare) opener = barLineText('', parts(m.bar).ending);
+    if (joined && prior && !dropPrior) {
+      const text = joinedBarText(own && !bare ? {...joined, start: false, ending: null} : joined);
+      if (text !== source.slice(barFrom(source, prior), prior.endChar))
+        edits.push({start: barFrom(source, prior), end: prior.endChar, text});
+    }
+    const text = [opener, kept].filter(Boolean).join(' ');
+    if (!text && end >= lineEnd) while (start > lineStart && /[ \t]/.test(source[start - 1])) start--;
+    if (!bare) {
+      const lead = start > lineStart && !/\s/.test(source[start - 1]) ? ' ' : '';
+      edits.push(
+        splitVoiceLine(source, {
+          start,
+          end,
+          text: text ? lead + text + (end < lineEnd ? ' ' : '') : start > lineStart && end < lineEnd ? lead : ''
+        })
+      );
+      continue;
+    }
+    const words = lyricsEnd(source, lineEnd),
+      next = source.slice(words + 1).match(/^[^\n]*/)[0];
+    // Only a voice field is left: it stays while the lines after it may be in that voice.
+    if (left.trim() && next.trim() && !/^\s*\[?V:/.test(next)) edits.push({start, end: words, text: ''});
+    else
+      edits.push(
+        words < source.length
+          ? {start: lineStart, end: words + 1, text: ''}
+          : {start: Math.max(0, lineStart - 1), end: words, text: ''}
+      );
+  }
+  const out = spliceAll(source, edits);
+  return relabel && rehearsalMarks(out).length < marks ? letterRehearsalMarks(out) : out;
+}
+// The inline fields written directly at a position, in order: [{name, value, start, end}].
+function fieldsAt(source, at) {
+  const out = [],
+    field = /\s*\[([A-Za-z]):([^\]\n]*)\]/y;
+  field.lastIndex = at;
+  let m;
+  while ((m = field.exec(source)))
+    out.push({name: m[1], value: m[2], start: m.index + m[0].indexOf('['), end: field.lastIndex});
+  return out;
+}
+// What a field sets: its letter, and for K: whether it names a key ('K:key') or only a clef ('K:clef').
+const fieldKind = (name, value) => (name === 'K' ? (keyParts(value).tonic ? 'K:key' : 'K:clef') : name);
+// The edit that writes an inline field ('M:3/4', 'K:clef=bass', 'P:A') at a position, in place of a field of the same
+// kind written there, or with field null removes that field: {start, end, text}, or null for no change. A key keeps the
+// clef written after the key it replaces.
+function inlineFieldEdit(abc, at, field, kind = field && fieldKind(field[0], field.slice(2))) {
+  const old = fieldsAt(abc, at).find(f => fieldKind(f.name, f.value) === kind);
+  if (old && kind === 'K:key') {
+    const rest = keyParts(old.value).rest.trim();
+    if (rest) field = field ? field + ' ' + rest : 'K:' + rest;
+  }
+  if (old && field) return {start: old.start, end: old.end, text: '[' + field + ']'};
+  if (old) {
+    const space = abc[old.end] === ' ' && (!old.start || /\s/.test(abc[old.start - 1]));
+    return {start: old.start, end: old.end + (space ? 1 : 0), text: ''};
+  }
+  if (!field) return null;
+  const text = (at && !/\s/.test(abc[at - 1]) ? ' ' : '') + '[' + field + ']' + (/\s/.test(abc[at] || '') ? '' : ' ');
+  return {start: at, end: at, text};
+}
+function insertInlineField(abc, at, field, kind) {
+  const edit = inlineFieldEdit(abc, at, field, kind);
+  return edit ? spliceAll(abc, [edit]) : abc;
+}
+// Set a header field (the first line starting with name:), or add it before K:. A new key keeps the clef and other
+// modifiers written after the old one.
+function headerField(source, name, value) {
+  if (name === 'K') source = withKey(source);
+  const lines = source.split('\n'),
+    i = lines.findIndex(x => x.startsWith(name + ':'));
+  let text = name + ':' + String(value).replace(/[\r\n]/g, ' ');
+  if (name === 'K' && i >= 0) text += keyParts(lines[i].slice(2)).rest.replace(/^(?=\S)/, ' ');
+  if (i >= 0) lines[i] = text;
+  else
+    lines.splice(
+      Math.max(
+        0,
+        lines.findIndex(x => x.startsWith('K:'))
+      ),
+      0,
+      text
+    );
+  return lines.join('\n');
+}
+// The fields of one voice: header fields (before any music) and fields in the music that the voice's own notes or bar
+// lines come after, in order.
+function voiceFields(source, tune, voice, name) {
+  const events = scoreEvents(tune)
+    .map(e => ({at: e.element.startChar, voice: e.key.split(':').slice(0, 2).join(':')}))
+    .sort((a, b) => a.at - b.at);
+  const start = events[0]?.at ?? source.length,
+    fields =
+      name === 'K'
+        ? keyFields(source)
+        : [...source.matchAll(new RegExp(`(^|\\n)${name}:([^\\n%]*)|\\[${name}:([^\\]\\n]*)\\]`, 'g'))].map(m => ({
+            start: m.index + (m[2] != null ? m[1].length + 2 : 3),
+            value: m[2] ?? m[3]
+          }));
+  return fields.filter(f => f.start < start || events.find(e => e.at >= f.start)?.voice === voice);
+}
+// The key in force in a voice at a position (as keyAt, for one voice), and the time signature as written.
+function voiceKeyAt(source, tune, voice, at) {
+  const found = voiceFields(source, tune, voice, 'K').filter(f => f.start < at && keyParts(f.value).tonic);
+  return found.length ? keyParts(found.at(-1).value).key : 'C';
+}
+function voiceMeterAt(source, tune, voice, at) {
+  return (
+    voiceFields(source, tune, voice, 'M')
+      .filter(f => f.start < at)
+      .at(-1)
+      ?.value.trim() || 'none'
+  );
+}
+const meterLabel = info => (info === 'free' || !info ? 'none' : info.label),
+  meterValueLabel = value => ({C: '4/4', 'C|': '2/2'})[value] || value;
+// A time signature from a measure on, in every voice. From measure 1 it is the header's M: field.
+function meterChange(source, tune, measure, value) {
+  if (measure === 1) return headerField(source, 'M', value);
+  const edits = everyVoice(tune, source, measure)
+    .map(voice => measureBounds(tune, voice, measure))
+    .filter(Boolean)
+    .map(m =>
+      fieldEdit(
+        source,
+        measureOpen(source, m),
+        meterLabel(m.meterBefore) === meterValueLabel(value) ? null : 'M:' + value,
+        'M'
+      )
+    );
+  return spliceAll(source, edits.filter(Boolean));
+}
+// Move a stretch of music from one key to another, written under the new key signature. Inline clef changes in it
+// are kept.
+function rekeySlice(slice, fromKey, toKey, unit) {
+  const move = keyInterval(fromKey, toKey);
+  if (!move) throw new Error('This key cannot be transposed.');
+  const mini = `X:1\nL:${unit}\nK:${keyParts(fromKey).key || 'C'}\n`,
+    moved = transposeABC(mini + slice, move.semitones, move.letters, 7),
+    head = moved.indexOf('\n', keyFields(moved)[0].start) + 1;
+  return rekeyMusic(moved, keyFifths(keyFields(moved)[0].value), keyFifths(toKey)).slice(head);
+}
+// abcjs mishandles a key, clef or time signature field written straight after an inline [V:] field that starts a line:
+// a key gives the staff the first staff's clef, a clef is lost, a time signature goes to another staff, and on a
+// staff's second voice the tune fails to parse. After a V: line of its own such fields work, so an edit ({start, end,
+// text}) that leaves one there puts the voice field on a line of its own.
+function splitVoiceLine(abc, edit) {
+  if (!edit) return edit;
+  const lineStart = lineStartOf(abc, edit.start),
+    lead = abc.slice(lineStart, edit.start).match(/^[ \t]*\[V:([^\]\n]*)\]((?:[ \t]*\[[A-Za-z]:[^\]\n]*\])*)[ \t]*$/),
+    text = edit.text.trim(),
+    after = abc.slice(edit.end).match(/^(?:[ \t]*\[[A-Za-z]:[^\]\n]*\])*/)[0];
+  if (!lead || !/^(?:\[[A-Za-z]:[^\]\n]*\]\s*)*$/.test(text) || !/\[[KM]:/.test(lead[2] + text + after)) return edit;
+  const fields = [lead[2].trim(), text].filter(Boolean).join(' ');
+  return {
+    start: lineStart,
+    end: edit.end,
+    text: `V:${lead[1].trim()}\n${fields}${fields && /\S/.test(abc[edit.end] || '\n') ? ' ' : ''}`
+  };
+}
+const fieldEdit = (abc, at, field, kind) => splitVoiceLine(abc, inlineFieldEdit(abc, at, field, kind));
+// A key signature from a measure on, in every voice: an inline [K:] field (the header's K: from measure 1), up to the
+// voice's next key change. With transpose the notes up to there move to the new key, the nearer way round; otherwise
+// they stay where they are on the staff. abcjs starts every staff of a line in the key the line's earlier staves
+// reached, so a later staff whose line starts before the change names its own key at the start of that line; a
+// staff's other voices take the staff's key there.
+function keyChange(source, tune, measure, key, transpose = false) {
+  const voices = measure > 1 ? everyVoice(tune, source, measure) : scoreVoices(tune, source),
+    edits = [];
+  let header = false;
+  for (const voice of voices) {
+    const list = voiceMeasures(tune, voice),
+      m = list[measure - 1];
+    if (!m) continue;
+    const at = measureOpen(source, m),
+      from = voiceKeyAt(source, tune, voice, m.first.startChar),
+      before = voiceKeyAt(source, tune, voice, at),
+      next = voiceFields(source, tune, voice, 'K').find(f => f.start > m.first.startChar && keyParts(f.value).tonic),
+      end = next ? next.start - 3 : source.length;
+    if (transpose && canonicalKey(from) !== canonicalKey(key))
+      for (const s of measureSpans(tune, measure, Infinity)) {
+        if (s.voice !== voice || s.start >= end) continue;
+        const stop = Math.min(s.end, end),
+          unit = '1/' + Math.round(1 / unitLengthIn(source, s.start));
+        edits.push({start: s.start, end: stop, text: rekeySlice(source.slice(s.start, stop), from, key, unit)});
+      }
+    if (measure === 1) header = true;
+    else {
+      const edit = fieldEdit(source, at, canonicalKey(before) === canonicalKey(key) ? null : 'K:' + key, 'K:key');
+      if (edit) edits.push(edit);
+    }
+    const lineAt = lineOpen(source, tune, voice, m.line);
+    if (/^[1-9]\d*:0$/.test(voice) && lineAt < at) {
+      const own = voiceKeyAt(source, tune, voice, lineAt);
+      if (
+        canonicalKey(own) !== canonicalKey(key) &&
+        !fieldsAt(source, lineAt).some(f => fieldKind(f.name, f.value) === 'K:key')
+      )
+        edits.push(fieldEdit(source, lineAt, 'K:' + own));
+    }
+  }
+  const out = spliceAll(source, edits);
+  return header ? headerField(out, 'K', key) : out;
+}
+// A clef from a measure on, on one voice's staff (every voice of it): an inline [K:clef=...] field, or none when the
+// clef before is the same. shown is the clef shown before the measure, by default the source's: an instrument such as
+// the cello shows the source in its own clef. A key field there that names a clef takes the new one instead.
+function clefChange(source, tune, voice, measure, clef, shown) {
+  const staff = voice.split(':')[0],
+    same = (shown ?? measureBounds(tune, voice, measure)?.clefBefore) === clef,
+    edits = [];
+  for (const each of scoreVoices(tune, source).filter(v => v.split(':')[0] === staff)) {
+    const m = measureBounds(tune, each, measure);
+    if (!m) continue;
+    const at = measureOpen(source, m),
+      fields = fieldsAt(source, at),
+      keyed = fields.find(f => fieldKind(f.name, f.value) === 'K:key' && /(^|\s)clef=\S+/.test(f.value));
+    if (!keyed) {
+      const edit = fieldEdit(source, at, same ? null : 'K:clef=' + clef, 'K:clef');
+      if (edit) edits.push(edit);
+      continue;
+    }
+    edits.push({start: keyed.start, end: keyed.end, text: `[K:${keyed.value.replace(/clef=\S+/, 'clef=' + clef)}]`});
+    if (fields.some(f => fieldKind(f.name, f.value) === 'K:clef'))
+      edits.push(inlineFieldEdit(source, at, null, 'K:clef'));
+  }
+  return spliceAll(source, edits);
+}
+// Form marks: segno and coda go on a measure's first note, Fine and the jumps on its last. A note has at most one
+// jump, so a new one replaces another. abcjs's S and O shorthands count as segno and coda.
+const FORM_MARKS = ['segno', 'coda', 'fine', 'D.C.', 'D.S.', 'D.C.alfine', 'D.S.alcoda'],
+  JUMP_MARKS = FORM_MARKS.slice(2);
+const formName = item => ({S: 'segno', O: 'coda'})[item] ?? markName(item);
+function formMarks(text) {
+  const parts = markItems(text);
+  return parts ? parts.items.map(formName).filter(n => FORM_MARKS.includes(n)) : [];
+}
+function toggleFormMark(text, name) {
+  const parts = markItems(text);
+  if (!parts || !FORM_MARKS.includes(name)) return text;
+  const had = parts.items.some(i => formName(i) === name),
+    kept = parts.items.filter(i => {
+      const n = formName(i);
+      return n !== name && !(JUMP_MARKS.includes(name) && JUMP_MARKS.includes(n));
+    });
+  if (!had) kept.push(`!${name}!`);
+  return kept.join('') + parts.rest;
+}
+// Rehearsal marks: inline [P:] fields and P: lines in the tune body. Marks lettered A to Z, then AA, BB and so on, are
+// kept in order; other names are left as written. A P: line in the header names the order of parts, and a letter that
+// comes back names a part played again, so then the letters are part names and stay as they are: a new mark takes
+// the first letter not in use.
+const rehearsalLetter = i => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[i % 26].repeat(Math.floor(i / 26) + 1),
+  letteredMark = r => /^\s*([A-Z])\1*\s*$/.test(r.value);
+function rehearsalMarks(source) {
+  const k = /(^|\n)K:[^\n]*/.exec(source),
+    from = k ? k.index + k[0].length : 0;
+  return [...source.slice(from).matchAll(/\[P:([^\]\n]*)\]|\nP:([^\n%]*)/g)].map(m => {
+    const value = m[1] ?? m[2],
+      start = from + m.index + 3;
+    return {start, end: start + value.length, value};
+  });
+}
+// The header's order of parts (P:AABA), or null.
+function partOrder(source) {
+  const k = /(^|\n)K:/.exec(source);
+  return source.slice(0, k ? k.index : 0).match(/(?:^|\n)P:([^\n%]*)/)?.[1] ?? null;
+}
+function partNames(source) {
+  const letters = rehearsalMarks(source)
+    .filter(letteredMark)
+    .map(r => r.value.trim());
+  return partOrder(source) != null || new Set(letters).size < letters.length;
+}
+function letterRehearsalMarks(source) {
+  let i = 0;
+  const edits = rehearsalMarks(source)
+    .filter(letteredMark)
+    .map(r => ({start: r.start, end: r.end, text: rehearsalLetter(i++)}));
+  return spliceAll(source, edits);
+}
+// Add a rehearsal mark at the start of a measure in the first voice, or take away the one there; the marks are then
+// lettered in order, unless they are part names.
+function toggleRehearsal(source, tune, measure) {
+  const m = measureBounds(tune, scoreVoices(tune, source)[0], measure);
+  if (!m) return source;
+  const at = measureOpen(source, m),
+    has = fieldsAt(source, at).some(f => f.name === 'P');
+  if (!partNames(source)) return letterRehearsalMarks(insertInlineField(source, at, has ? null : 'P:A', 'P'));
+  const used = new Set([
+    ...rehearsalMarks(source).map(r => r.value.trim()),
+    ...((partOrder(source) || '').match(/[A-Z]/g) || [])
+  ]);
+  let i = 0;
+  while (used.has(rehearsalLetter(i))) i++;
+  return insertInlineField(source, at, has ? null : 'P:' + rehearsalLetter(i), 'P');
 }
 // Teacher-written assignments: a prompt object built from a score and carried in saves, backups and share links.
 // Keys are written pitch, as for the built-in prompts. Goals name notes by the key's own degrees (minor adds the
@@ -2026,15 +2727,49 @@ function hashText(text) {
   return h;
 }
 
+// One tempo for both of abcjs's clocks. abcjs times the drawn notes (setTiming, noteTimings: the highlight, practice
+// ranges, metronome and count-in) in beats of the opening meter, a half note in 2/2 and a dotted quarter in 6/8, and
+// with no Q: at 180 beats a minute (120 in 6/8, 9/8 and 12/8). Its sound has its own default: 180 quarter notes a
+// minute outside x/8 meters, so a reel in C| sounded at half = 90 while the highlight ran at half = 180. A tempo with
+// no number (Q:"Slowly") played at 60 and was timed at 180, and a body tempo with no note length ([Q:120]) was heard
+// in quarters and timed in beats. This writes the tempo the sound uses into the parsed tune, where abcjs reads it for
+// both: no Q: (or no number) gives the sound's default, a body tempo with no number keeps the tempo before it, and one
+// with no length counts beats, as Q:120 does in the header. Nothing is drawn from it, since the tune is already
+// engraved (or never drawn), and the ABC is left alone.
+function settleTempo(tune) {
+  if (!tune?.metaText || typeof tune.getBeatLength !== 'function') return tune;
+  const beat = tune.getBeatLength(),
+    {num, den} = tune.getMeterFraction(),
+    tempo = tune.metaText.tempo;
+  if (!(tempo?.bpm > 0))
+    tune.metaText.tempo = {
+      ...tempo,
+      ...(+den === 8 ? {duration: [beat], bpm: +num !== 3 && num % 3 === 0 ? 120 : 180} : {duration: [1 / 4], bpm: 180})
+    };
+  else if (!tempo.duration?.length) tempo.duration = [beat];
+  let current = tune.metaText.tempo;
+  for (const line of tune.lines || [])
+    for (const staff of line.staff || [])
+      for (const e of (staff.voices || []).flat()) {
+        if (e.el_type !== 'tempo') continue;
+        if (!(e.bpm > 0)) Object.assign(e, {duration: current.duration, bpm: current.bpm});
+        else if (!e.duration?.length) e.duration = [beat];
+        current = e;
+      }
+  return tune;
+}
 // MIDI for playback and export. abcjs generates the file; parseMidi decodes its notes and tempo events.
-// Three abcjs slips are mended first. abcjs engraves sfz and marcato but plays them at the current volume, so they get
-// an accent (half as loud again). It plays any text in chord-symbol position that starts with A–G (Coda as a C chord,
-// D.C. as a D chord) and carries the last chord on through N.C.; here only what parseChordSymbol reads as a chord
-// plays, and N.C. stops the accompaniment until the next one. Its MIDI writer scales each note's gap by the tempo a
-// second time, so above about 95 bpm a staccato note-off comes before its note-on and the note rings on, and a tenuto
-// or slurred note runs into a repeat of its pitch, so one of the two is lost. Here staccato notes sound for 60% of
-// their length (abcjs's length at 60 bpm) and other notes for their full length. With chordsOff, chord symbols are not
-// played (the Chords switch); exports leave it out, so files keep the accompaniment.
+// Four abcjs slips are mended first. Its MIDI writer takes the tempo, counted in beats of the meter, as quarter notes
+// a minute (it corrects only x/8 meters), so 2/2, 3/2 and C| played at half speed: Q:1/2=60 sounded as quarter = 60.
+// Here the file's tempo is in quarter notes, and settleTempo gives the sound and the highlight the same tempo. abcjs
+// engraves sfz and marcato but plays them at the current volume, so they get an accent (half as loud again). It plays
+// any text in chord-symbol position that starts with A–G (Coda as a C chord, D.C. as a D chord) and carries the last
+// chord on through N.C.; here only what parseChordSymbol reads as a chord plays, and N.C. stops the accompaniment until
+// the next one. Its MIDI writer scales each note's gap by the tempo a second time, so above about 95 bpm a staccato
+// note-off comes before its note-on and the note rings on, and a tenuto or slurred note runs into a repeat of its
+// pitch, so one of the two is lost. Here staccato notes sound for 60% of their length (abcjs's length at 60 bpm) and
+// other notes for their full length. With chordsOff, chord symbols are not played (the Chords switch); exports leave
+// it out, so files keep the accompaniment.
 function midiBytes(source, {chordsOff = false} = {}) {
   const tune = ABCJS.parseOnly(source)[0];
   for (const line of tune?.lines || [])
@@ -2051,10 +2786,13 @@ function midiBytes(source, {chordsOff = false} = {}) {
             else c.position = 'above';
           }
       }
+  settleTempo(tune);
   const setUpAudio = tune?.setUpAudio;
   if (setUpAudio)
     tune.setUpAudio = function (options) {
       const sequence = setUpAudio.call(this, options);
+      // Beats a minute to quarters a minute. Body tempo changes stretch the notes by a ratio, so they follow.
+      sequence.tempo *= 4 * this.getBeatLength();
       for (const track of sequence.tracks)
         for (const e of track)
           if (e.cmd === 'note' && e.gap) {
@@ -2186,17 +2924,19 @@ function tempoParts(field) {
   const m = field.trim().match(/^((?:"[^"]*"\s*)*)([^"]*?)\s*((?:"[^"]*"\s*)*)$/);
   return m ? {pre: m[1].trim(), beat: m[2], post: m[3].trim()} : {pre: '', beat: field.trim(), post: ''};
 }
-// The beat abcjs plays a score at, as Q: writes it: the header tempo's, or abcjs's default for the meter when the
-// score has no Q:, only tempo text, or a bare number (Q:120, a beat of the meter).
+// The beat a score plays at, as Q: writes it: the header tempo's, or the one settleTempo gives a score with no Q:,
+// only tempo text, or a bare number (Q:120, which abcjs counts in the meter's note value, quarter notes in C and C|).
+// With no Q: that is 1/4=180 in 2/2 and C| and 3/8=120 in 6/8. abcjs's own default for 2/2, 1/2=180, plays twice as
+// fast now that a written tempo plays as written.
 function playedBeat(source) {
-  const tune = ABCJS.parseOnly(source)[0],
+  const tune = settleTempo(ABCJS.parseOnly(source)[0]),
     tempo = tune?.metaText?.tempo,
     fraction = length => {
       const d = [1, 2, 4, 8, 16, 32, 64].find(d => Math.abs(length * d - Math.round(length * d)) < 1e-9) || 4;
       return Math.round(length * d) + '/' + d;
     };
   if (tempo?.bpm > 0 && tempo.duration?.length) return tempo.duration.map(fraction).join(' ') + '=' + tempo.bpm;
-  return fraction(tune?.getBeatLength?.() || 0.25) + '=' + Math.round(tune?.getBpm?.() || 180);
+  return '1/4=180';
 }
 // Set the feel in the header's tempo line, with the directive just above K:. Swing prints "Swing", or adds ", swing"
 // to tempo text already there such as "Allegro", and writes out the beat abcjs plays: abcjs drops a bare number after
@@ -2295,8 +3035,10 @@ function swingPlayback(data, amount, bars) {
 
 // Share links: the whole score rides in the URL hash (#s=…), so no server ever holds student work.
 // Payload {v, a: abc, i: instrument, s: library source id, p: built-in prompt id,
-// q: teacher-written assignment, checked by validPrompt}. The first character says how the rest
-// is packed: '1' deflate-raw + base64url, '0' plain base64url (for browsers without CompressionStream).
+// q: teacher-written assignment, checked by validPrompt}. A turned-in assignment adds n: the student's name,
+// t: the time (ms), x: the assignment's id and g: each goal met (1) or not (0); a teacher's return link adds
+// c: feedback text. The first character says how the rest is packed: '1' deflate-raw + base64url, '0' plain
+// base64url (for browsers without CompressionStream).
 const base64url = {
   // Built in chunks: spreading a large score into String.fromCharCode overflows the call stack.
   encode: bytes => {
@@ -2326,4 +3068,58 @@ async function decodeShare(text) {
   } catch {
     return null;
   }
+}
+
+// Turning in and the teacher's inbox. Everything here comes from a link or a file, so it is checked field by field.
+// A name keeps printable characters and single spaces, up to 80 characters; anything else is no name.
+const STUDENT_NAME_MAX = 80,
+  FEEDBACK_MAX = 2000;
+function cleanStudentName(name) {
+  if (typeof name !== 'string') return '';
+  const clean = name
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return clean.length <= STUDENT_NAME_MAX ? clean : '';
+}
+// The turn-in parts of a link (n, t, x), read against the assignment the link carries: x must be its id. Returns
+// {name, at, assignment} or null. g is not read: the inbox works the goals out again from the music, so a link stays
+// readable after a built-in prompt's goals change.
+function readSubmission(payload, prompt) {
+  if (!payload || typeof payload !== 'object' || !prompt || typeof prompt.id !== 'string') return null;
+  const name = cleanStudentName(payload.n),
+    {t, x} = payload;
+  if (!name || !Number.isInteger(t) || t <= 0 || t > 8.64e15 || x !== prompt.id) return null;
+  return {name, at: t, assignment: x};
+}
+// A teacher's feedback (c): text up to 2,000 characters, or null.
+function readFeedback(c) {
+  return typeof c === 'string' && c.trim() && c.length <= FEEDBACK_MAX ? c.trim() : null;
+}
+// What the inbox shows for a submission: goals met (checked in written pitch, as the student's checklist is) and how
+// many bars do not match the time signature. shift is the instrument's written-pitch shift.
+function submissionChecks(abc, prompt, shift = 0) {
+  let written = abc;
+  if (shift)
+    try {
+      written = transposeABC(abc, shift);
+    } catch {
+      written = ABCJS.strTranspose(abc, ABCJS.parseOnly(abc), shift);
+    }
+  const goals = prompt ? checkPrompt(prompt, melodyBars(ABCJS.parseOnly(written)[0])) : [];
+  return {
+    goals,
+    met: goals.filter(g => g.ok).length,
+    total: goals.length,
+    bars: barProblems(ABCJS.parseOnly(abc)[0]).length
+  };
+}
+// The share codes in pasted text, one per line: a full link (…#s=CODE), or a bare code. Blank lines are skipped; a line
+// with no code gives code null, so it can be reported by its line number.
+function turnInCodes(text) {
+  return String(text)
+    .split(/\r?\n/)
+    .map((line, i) => ({line: i + 1, text: line.trim()}))
+    .filter(l => l.text)
+    .map(l => ({line: l.line, code: (l.text.match(/(?:^|[#&?]s=)([01][A-Za-z0-9_-]{8,})$/) || [])[1] || null}));
 }

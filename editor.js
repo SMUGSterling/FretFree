@@ -31,10 +31,21 @@ function syncFields() {
   assignSelect('meter', field('M', '4/4'));
   assignSelect('key', canonicalKey(field('K', 'C')), keyLabel(field('K', 'C')));
   hideKeyChoice();
-  const m = tempoParts(field('Q', '100')).beat.match(/(\d+)\s*$/);
+  const m = sliderBeat().match(/(\d+)$/);
   $('bpm').value = m ? Math.max(40, Math.min(200, +m[1])) : 100;
   $('bpm-value').textContent = $('bpm').value;
   syncFeel();
+}
+// The Tempo slider reads and writes the tempo as played, in the header's own beat: Q:1/2=60 reads 60, and moving it
+// writes 1/2=61, not 1/4=61 at half the speed. A score with no Q:, tempo text alone or a bare number reads the beat it
+// plays at (playedBeat), 180 quarter notes or 120 dotted quarters in 6/8, so the first move keeps its speed. Only the
+// header is parsed, as this runs on every keystroke, with a rest after K: so that abcjs has a staff to read the meter
+// from.
+function sliderBeat() {
+  const source = $('abc').value,
+    k = source.search(/^K:/m),
+    end = k < 0 ? -1 : source.indexOf('\n', k);
+  return playedBeat((end < 0 ? source : source.slice(0, end)) + '\nz');
 }
 // Feel menu: Straight or a swing amount read from the score; an amount typed into the ABC gets its own entry.
 function syncFeel() {
@@ -69,7 +80,8 @@ function setHeader(name, value) {
   $('abc').value = lines.join('\n');
 }
 // The instrument's shift: its part is written this many semitones above the concert source (2 for a B-flat clarinet,
-// 9 for an E-flat alto sax). Cello and trombone show the source an octave lower, a range change, not a transposition.
+// 9 for an E-flat alto sax, 14 for a tenor sax). Cello and trombone show the source an octave lower, a range change,
+// not a transposition; how each sounds is instrumentSound (score-tools.js).
 const instrumentShift = () => instruments[currentInstrument()]?.shift || 0,
   transposesInstrument = () => instrumentShift() % 12 !== 0;
 // Concert pitch view, display only: a transposing instrument's score shows the source's sounding pitches and key.
@@ -245,7 +257,8 @@ function refreshPalette() {
 function updateMeasures() {
   measureStarts = new Map();
   if (renderedTune?.engraver) {
-    renderedTune.setTiming();
+    // The sound's tempo (see settleTempo), so the highlight, ranges, metronome and count-in keep time with it.
+    settleTempo(renderedTune).setTiming();
     for (const event of renderedTune.noteTimings || []) {
       if (event.type !== 'event') continue;
       const entries = (event.startCharArray || []).map(c => noteSources.get(c)).filter(Boolean);
@@ -294,6 +307,7 @@ function render() {
     updateBarCheck(original);
     updatePromptCheck(display);
     if (typeof updateAssignmentBuilder === 'function') updateAssignmentBuilder();
+    if (typeof updateTurnIn === 'function') updateTurnIn();
     restoreSelection(display);
     if (typeof updatePiano === 'function') updatePiano(display);
     $('warnings').textContent = (renderedTune?.warnings || []).map(x => String(x).replace(/<[^>]+>/g, '')).join(' · ');
@@ -373,19 +387,29 @@ function restoreSelection(display) {
   const shown = scoreEvents(display).find(e => e.element.startChar === match[0]);
   if (shown) renderedTune.engraver.rangeHighlight(shown.element.startChar, shown.element.endChar);
 }
+// The caption names the instrument, its clef or staves, and what is shown against what plays: written pitch and the
+// interval it sounds below, a bass-range octave, or an octave transposition such as a double bass or glockenspiel.
+// A transposing instrument that also plays in another octave (baritone sax) does not sound at the source's pitch, so
+// its caption gives the source's distance from the sound instead of calling it concert pitch.
 function updateCaption() {
   $('workspace-heading').textContent = field('T', 'Untitled melody');
   const config = instruments[currentInstrument()],
-    staves = staffClefs[0]?.length || 1;
+    staves = staffClefs[0]?.length || 1,
+    sound = instrumentSound(config),
+    written = writtenAboveSound(config),
+    sounds = written ? ` It sounds ${intervalPhrase(written)} ${written > 0 ? 'lower' : 'higher'} than written.` : '',
+    source = sound ? `${intervalPhrase(sound)} ${sound < 0 ? 'above' : 'below'} how it sounds` : '';
   const pitch = concertView()
-    ? 'Concert pitch shown, as it sounds; turn off Concert pitch for the written part.'
+    ? `${sound ? `ABC source shown, ${source}` : 'Concert pitch shown, as it sounds'}; turn off Concert pitch for the written part.`
     : transposesInstrument()
-      ? 'Written pitch shown; ABC source and MIDI are concert pitch.'
+      ? `Written pitch shown; it sounds ${intervalPhrase(written)} lower. ABC source and MIDI are ${source || 'concert pitch'}.`
       : config.shift === -12
-        ? `${staves > 1 ? 'Parts' : 'Melody'} lowered one octave for bass range.`
-        : staves > 1
-          ? 'Concert pitch.'
-          : 'Concert pitch melody part.';
+        ? `${staves > 1 ? 'Parts' : 'Melody'} lowered one octave for bass range.${sounds}`
+        : written
+          ? `${staves > 1 ? 'Parts' : 'Melody part'}.${sounds}`
+          : staves > 1
+            ? 'Concert pitch.'
+            : 'Concert pitch melody part.';
   // A score with several staves (a template or V: voices) has their own clefs, so it counts them instead.
   $('score-caption').textContent =
     `${currentInstrument()} · ${staves > 1 ? `${staves} staves` : `${config.clef} clef`} · ${pitch}`;
@@ -3593,15 +3617,20 @@ const shareBase = () => `${location.origin}${location.pathname}`;
 let shareCode = '',
   shareTitle = '',
   shareRun = 0;
-async function shareLink() {
-  const attempt = ++shareRun,
-    payload = {v: 1, a: $('abc').value, i: currentInstrument()};
-  const source = shareSourceId();
+// The open score as a link payload; turning in and the teacher's return link add their own keys to it.
+function sharePayload() {
+  const payload = {v: 1, a: $('abc').value, i: currentInstrument()},
+    source = shareSourceId();
   if (source) payload.s = source;
   // A built-in prompt travels by id (p); a teacher's assignment travels whole (q). Older apps ignore q.
   const prompt = activePrompt();
   if (prompt?.level === 'Custom') payload.q = prompt;
   else if (prompt) payload.p = prompt.id;
+  return payload;
+}
+async function shareLink() {
+  const attempt = ++shareRun,
+    payload = sharePayload();
   const title = field('T', 'Untitled'),
     code = await encodeShare(payload);
   if (attempt !== shareRun) return;
@@ -3652,11 +3681,11 @@ async function openSharedLink(hash) {
     return false;
   }
   // A teacher's assignment opens only if it passes validPrompt; otherwise the score still opens, without it.
-  const assignment = 'q' in payload ? validPrompt(payload.q) : null;
-  openScore({
-    ...sharedItem(payload),
-    prompt: assignment || (typeof payload.p === 'string' && promptById(payload.p) ? payload.p : undefined)
-  });
+  const assignment = 'q' in payload ? validPrompt(payload.q) : null,
+    prompt = assignment || (typeof payload.p === 'string' && promptById(payload.p) ? payload.p : undefined);
+  // A turned-in assignment (n, t, x) and a teacher's feedback (c) come along; turn-in.js reads them.
+  const extras = typeof linkExtras === 'function' ? linkExtras(payload, activePrompt(prompt)) : {};
+  openScore({...sharedItem(payload), prompt, ...extras});
   // The link was the only copy and show() has replaced it in the address bar, so treat the score as unsaved work.
   dirty = true;
   cleanKey = '';
@@ -3669,11 +3698,15 @@ async function openSharedLink(hash) {
       'The first note is selected. Type note letters (A–G) to write from there; 3–7 change the length.';
   }
   toast(
-    assignment
-      ? 'Opened an assignment. Its goals tick off as you write; save it to My scores to keep your work.'
-      : 'q' in payload
-        ? 'This link’s assignment could not be read, so only the score opened.'
-        : 'Opened a shared score. Save it to My scores to keep a copy.'
+    extras.submission
+      ? `Opened the work ${extras.submission.name} turned in.`
+      : extras.feedback
+        ? 'Opened your work with feedback from your teacher. Save it to My scores to keep it.'
+        : assignment
+          ? 'Opened an assignment. Its goals tick off as you write; save it to My scores to keep your work.'
+          : 'q' in payload
+            ? 'This link’s assignment could not be read, so only the score opened.'
+            : 'Opened a shared score. Save it to My scores to keep a copy.'
   );
   scheduleDraft();
   return true;
@@ -3710,8 +3743,10 @@ async function openEmbed(hash) {
 // A transposing instrument's part is drawn in written pitch while playback sounds at concert pitch, so the embed, which
 // hides the instrument menu, names the part and how it sounds. Empty for parts that sound as written.
 function embedPart(name) {
-  const interval = TRANSPOSE_INTERVALS.find(i => i.semitones === instruments[name]?.shift);
-  return interval ? `${name} part, in written pitch: it sounds a ${interval.name} lower.` : '';
+  const written = instruments[name] ? writtenAboveSound(instruments[name]) : 0;
+  return written
+    ? `${name} part, in written pitch: it sounds ${intervalPhrase(written)} ${written > 0 ? 'lower' : 'higher'}.`
+    : '';
 }
 // The iframe snippet for a score page. Width is pixels (with or without "px") or a percentage up to 100% (else 100%);
 // height is 200 to 2,000 pixels (else clamped to that range, or 420 when empty). A field whose value is replaced is
@@ -3800,13 +3835,15 @@ $('share-tab-link').parentElement.addEventListener('keydown', e => {
   e.preventDefault();
   showShareTab(SHARE_TABS[(to + SHARE_TABS.length) % SHARE_TABS.length], true);
 });
-async function copyField(id, message) {
+// Copy a field's text, or select it for copying by hand when the clipboard is not allowed (and say so, if asked).
+async function copyField(id, message, fallback = '') {
   try {
     await navigator.clipboard.writeText($(id).value);
     toast(message);
   } catch {
     $(id).focus();
     $(id).select();
+    if (fallback) toast(fallback);
   }
 }
 $('share-link').onclick = () => shareLink().catch(e => toast('Could not make a link: ' + e.message));
@@ -3847,6 +3884,8 @@ function draftData() {
     instrument: currentInstrument(),
     title: field('T', current?.title || 'Untitled'),
     prompt: current?.prompt,
+    feedback: current?.feedback,
+    submission: current?.submission,
     sourceId: shareSourceId(),
     savedId,
     kind: current?.kind,
@@ -3950,7 +3989,9 @@ function restoreDraft() {
   dirty = false;
   const source = catalog.find(x => x.id === draft.sourceId),
     entry = draft.savedId ? saved.find(x => x.id === draft.savedId) : null,
-    title = String(draft.title || 'Untitled');
+    title = String(draft.title || 'Untitled'),
+    // Turned-in work a teacher was correcting comes back as that work, with its "Turned in by" bar.
+    submission = typeof draftSubmission === 'function' ? draftSubmission(draft, activePrompt(draft.prompt)) : null;
   openScore(
     {
       ...(source || {}),
@@ -3960,7 +4001,9 @@ function restoreDraft() {
       kind: draft.kind || source?.kind || 'personal',
       abc: draft.abc,
       instrument: instruments[draft.instrument] ? draft.instrument : undefined,
-      prompt: draft.prompt
+      prompt: draft.prompt,
+      ...(readFeedback(draft.feedback) ? {feedback: readFeedback(draft.feedback)} : {}),
+      ...(submission ? {submission} : {})
     },
     entry ? entry.id : null
   );

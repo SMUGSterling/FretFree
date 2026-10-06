@@ -1,6 +1,6 @@
 'use strict';
 // Backup and restore: one JSON file holding everything this browser keeps for a student (saved scores and their
-// earlier versions, favorites, the played list and practice settings). Backing up uses the browser's Save As dialog
+// earlier versions, favorites, the played list and practice settings) or a teacher (the Submissions inbox). Backing up uses the browser's Save As dialog
 // where it exists, so the file can live in a synced folder (OneDrive, Google Drive, iCloud) and the same file is reused
 // on the next backup; elsewhere it is a plain download. Restoring merges: nothing is deleted, and a score present on
 // both sides keeps whichever copy was saved more recently.
@@ -17,6 +17,7 @@ const BACKUP_FORMAT = 1,
     KEYS.concertPitch,
     KEYS.theme,
     KEYS.darkPaper,
+    KEYS.studentName,
     ...['loop', 'metronome', 'count-in', 'trainer', 'chords'].map(KEYS.practice)
   ];
 function backupData() {
@@ -33,7 +34,8 @@ function backupData() {
     favorites,
     played: [...played],
     settings,
-    versions: storedVersions()
+    versions: storedVersions(),
+    ...(typeof storedInbox === 'function' ? {inbox: storedInbox()} : {})
   };
 }
 const backupFileName = () => `fretfree-backup-${new Date().toISOString().slice(0, 10)}.json`;
@@ -172,6 +174,9 @@ function applyBackup(data) {
     ),
     settings = data.settings && typeof data.settings === 'object' ? data.settings : {},
     settingKeys = BACKUP_SETTING_KEYS().filter(key => key in settings);
+  // Submissions merge like scores: entries this device lacks are added (each checked again), up to the inbox limit.
+  const myInbox = typeof storedInbox === 'function' ? storedInbox() : [],
+    nextInbox = typeof mergeInbox === 'function' ? mergeInbox(myInbox, data.inbox) : myInbox;
   // Every write must land before memory changes; on any failure put the previous values back and report. When storage
   // is short the oldest stored versions make room, as when saving, so they are put back too (last, once the rest has
   // shrunk back).
@@ -180,13 +185,15 @@ function applyBackup(data) {
     [KEYS.favorites, favorites],
     [KEYS.played, [...played]],
     ...settingKeys.map(key => [key, storage.get(key, null)]),
+    [KEYS.inbox, storage.get(KEYS.inbox, null)],
     [KEYS.versions, storage.get(KEYS.versions, null)]
   ];
   const writes = [
     [KEYS.scores, nextSaved],
     [KEYS.favorites, nextFavorites],
     [KEYS.played, nextPlayed],
-    ...settingKeys.map(key => [key, settings[key]])
+    ...settingKeys.map(key => [key, settings[key]]),
+    ...(nextInbox.length > myInbox.length ? [[KEYS.inbox, nextInbox]] : [])
   ];
   if (!writes.every(([key, value]) => storeMakingRoom(key, value))) {
     for (const [key, value] of previous) if (value !== null) storage.set(key, value);
@@ -205,7 +212,8 @@ function applyBackup(data) {
     unchanged: incoming.length - added - updated,
     favoritesAdded,
     settings: settingKeys.length,
-    versionsAdded
+    versionsAdded,
+    submissionsAdded: nextInbox.length - myInbox.length
   };
 }
 function restoreSummary(s) {
@@ -215,6 +223,7 @@ function restoreSummary(s) {
   if (s.unchanged) parts.push(`${s.unchanged} already up to date`);
   if (s.favoritesAdded) parts.push(`${s.favoritesAdded} favorite${s.favoritesAdded === 1 ? '' : 's'} added`);
   if (s.versionsAdded) parts.push(`${s.versionsAdded} earlier version${s.versionsAdded === 1 ? '' : 's'} added`);
+  if (s.submissionsAdded) parts.push(`${s.submissionsAdded} submission${s.submissionsAdded === 1 ? '' : 's'} added`);
   return parts.length ? 'Restored: ' + parts.join(', ') + '.' : 'Nothing new to restore.';
 }
 async function restoreFromFile(file) {
@@ -224,6 +233,7 @@ async function restoreFromFile(file) {
   renderSaved();
   renderCards();
   renderBackupStatus();
+  if (typeof renderInbox === 'function') renderInbox();
   if (summary.settings) {
     applyStoredSettings();
     render();
