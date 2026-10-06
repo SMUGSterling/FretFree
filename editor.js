@@ -987,7 +987,7 @@ function openNoteMenu(entry, display, x, y) {
   $('note-menu').innerHTML =
     (isRest
       ? ''
-      : `<div class="menu-label">ACCIDENTAL</div><div class="menu-row">${item('acc:^', '♯ Sharp', acc === '^')}${item('acc:_', '♭ Flat', acc === '_')}${item('acc:=', '♮ Natural', acc === '=')}${item('acc:', 'None', !acc)}</div>`) +
+      : `<div class="menu-label">ACCIDENTAL</div><div class="menu-row">${item('acc:^', '♯ Sharp', acc === '^')}${item('acc:_', '♭ Flat', acc === '_')}${item('acc:=', '♮ Natural', acc === '=')}${item('acc:', 'None', !acc)}</div><button role="menuitem" aria-keyshortcuts="Z" data-edit="respell">♯♭ Respell (same pitch)</button>`) +
     `<div class="menu-label">LENGTH</div>${durations.map(([v, l]) => item('len:' + v, l, Math.abs(base - v) < 1e-9)).join('')}` +
     `<button role="menuitemcheckbox" aria-checked="${dotted}" data-edit="dot">· Dotted</button>` +
     (isRest
@@ -1032,7 +1032,8 @@ function beamGap(entry) {
   return /^[ \t]*$/.test(gap) ? {from, to: next.element.startChar, joined: !gap, next} : null;
 }
 // One edit on one note, shared by the note menu, the keyboard and the palette. Actions: acc:<^|_|=|>, len:<whole>,
-// dot, tie, to-rest, beam:join, beam:break, delete, rest-after, bar-after, play-from, range-from. Others do nothing.
+// dot, tie, to-rest, beam:join, beam:break, delete, rest-after, bar-after, play-from, range-from, respell. Others do
+// nothing.
 function editNote(entry, display, action) {
   const area = $('abc'),
     v = area.value,
@@ -1046,6 +1047,10 @@ function editNote(entry, display, action) {
   if (action === 'range-from') {
     const to = +$('end-measure').value;
     setRange(entry.measure, to >= entry.measure ? to : +$('end-measure').max);
+    return;
+  }
+  if (action === 'respell') {
+    respellSelected({entry, display});
     return;
   }
   if (action.startsWith('acc:')) {
@@ -1287,9 +1292,12 @@ function addLetterToChord(letter, sel) {
     ? `Added ${letter} to the chord. Shift+A–G adds more.`
     : `${letter} is already in the chord.`;
 }
-// Z: spell the selected note or chord another way at the same pitch (C♯ as D♭ and back), as one undo step. The bar's
-// accidentals decide what a plain letter sounds, so the new text is checked against the parse and its accidentals are
-// written out where the plain spelling would change the pitch; later notes in the bar keep theirs (keepLaterPitches).
+// Z or Respell: spell the selected note or chord another way at the same pitch (C♯ as D♭ and back), as one undo
+// step. The bar's accidentals decide what a plain letter sounds, so the new text is checked against the parse and its
+// accidentals are written out where the plain spelling would change the pitch; later notes in the bar keep theirs,
+// and lose an accidental only the old spelling needed (respellEdit). Pressing again on the same note, with nothing
+// else edited in between, comes back to the very text it started from once the spelling comes round (respellRun).
+let respellRun = null;
 function respellSelected(sel) {
   const status = $('selection-status');
   if (!sel?.entry.element.pitches?.length) {
@@ -1309,14 +1317,24 @@ function respellSelected(sel) {
     status.textContent = 'This note has no other spelling.';
     return;
   }
-  applyNoteEdit(start, end, text, undefined, start, true);
+  const again = respellRun?.at === start && respellRun.after === source ? respellRun : null;
+  let edit = null;
+  try {
+    edit =
+      again && text === again.note
+        ? sourceEdit(source, again.from, start, end, start + text.length)
+        : respellEdit(source, start, end, text);
+  } catch {}
+  if (edit) applyNoteEdit(start, edit.end, edit.text, [start, start + text.length], start);
+  else applyNoteEdit(start, end, text, undefined, start, true);
+  respellRun = {at: start, note: again ? again.note : old, from: again ? again.from : source, after: $('abc').value};
   // Name the new spelling as the staff shows it (written pitch for transposing instruments).
   const display = selectedNote()?.display,
     label =
       display &&
       midis.length === 1 &&
       noteLabels(ABCJS.parseOnly(writtenABC())[0], 'letters').find(l => l.at === display.startChar);
-  status.textContent = `${label ? 'Respelled as ' + label.text : 'Respelled the chord'}. Press Z again for the next spelling.`;
+  status.textContent = `${label ? 'Respelled as ' + label.text : 'Respelled the chord'}. Respell again (Z) for the next spelling.`;
 }
 // Written-pitch note token for a letter, in the octave nearest the last note before a source position.
 function letterToken(letter, at) {

@@ -298,6 +298,27 @@ for (const [text, edit, expected] of [
   assert.equal(re('C', 'C', {midis: [61]}), '_D', 'midis: an earlier ^C in the bar makes this C sharp');
   assert.equal(re('_D', 'D', {explicit: true}), '^C', 'explicit writes the accidental the key would give');
   assert.equal(re('__D'), 'C', 'A spelling outside the cycle goes to the plainest one');
+  // A chord moves as one and comes back in two presses: D, G and A stay plain unless the chord is nothing else.
+  assert.equal(cycle('[GCE]'), '[GCE] [G^B,_F] [GCE]');
+  assert.equal(cycle('[A^CE]'), '[A^CE] [A_D_F] [A^CE]');
+  assert.equal(cycle('[^CE^G]'), '[^CE^G] [_D_F_A] [^CE^G]', 'C sharp minor as D flat minor');
+  assert.equal(cycle('[DG]'), '[DG] [__E__A] [^^C^^F] [DG]');
+  assert.equal(re('[^^CE]'), '[D_F]', 'A double sharp D in a chord goes plain');
+  // respellEdit: later notes keep their pitch, and lose an accidental that only the old spelling needed.
+  const zFirst = (body, text, k = 'C') => {
+    const source = `X:1\nM:4/4\nL:1/4\nK:${k}\n` + body,
+      start = source.length - body.length,
+      edit = context.respellEdit(source, start, start + body.indexOf(' '), text);
+    return (source.slice(0, start) + edit.text + source.slice(edit.end)).slice(start);
+  };
+  assert.equal(zFirst('^C D E F |]', '_D'), '_D =D E F |]', 'A later D keeps its pitch');
+  assert.equal(zFirst('_D =D E F |]', '^C'), '^C D E F |]', 'and loses the natural only D flat needed');
+  assert.equal(zFirst('^C C D z |]', '_D'), '_D ^C =D z |]');
+  assert.equal(zFirst('_D ^C =D z |]', '^C'), '^C ^C D z |]', 'Only on the letter the note leaves');
+  assert.equal(zFirst('C =C E _D |]', '_D', 'D'), '_D =C E _D |]', 'In D major, accidentals the key needs stay');
+  assert.equal(zFirst('_D =D =D z | =D4 |]', '^C'), '^C D =D z | =D4 |]', 'Courtesy naturals and later bars stay');
+  assert.equal(zFirst('_D [F=D] z2 |]', '^C'), '^C [FD] z2 |]', 'In a chord too');
+  assert.equal(zFirst('_D =d z2 |]', '^C'), '^C =d z2 |]', 'Only the same octave');
   // keepLaterPitches: an accidental entered on one note writes out the accidental later notes in the bar had.
   const keep = (body, from, to, text, select = null) => {
     const source = 'X:1\nL:1/4\nK:C\n' + body,

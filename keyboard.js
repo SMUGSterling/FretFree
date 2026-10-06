@@ -295,10 +295,14 @@ function midiStatus(text) {
   status.textContent = text;
   status.hidden = !text;
 }
-// Attach to every input (or detach when off), and name the connected ones in the status line.
+// Attach to every input, or detach and close the ports when off so that other apps can have the keyboard (setting
+// the handler opened them). Name the connected ones in the status line.
 function listenMidi() {
   const inputs = midiAccess ? [...midiAccess.inputs.values()] : [];
-  for (const input of inputs) input.onmidimessage = midiOn ? midiMessage : null;
+  for (const input of inputs) {
+    input.onmidimessage = midiOn ? midiMessage : null;
+    if (!midiOn) Promise.resolve(input.close?.()).catch(() => {});
+  }
   if (!midiOn) return;
   const names = inputs.filter(i => i.state !== 'disconnected').map(i => i.name || 'MIDI keyboard');
   midiStatus(
@@ -336,9 +340,10 @@ async function setMidi(on) {
   listenMidi();
   if (!on && midiAccess) midiStatus('');
 }
+// Channel 10 is for drums (the pads on many small keyboards), so its notes are not entered.
 function midiMessage(e) {
   const [status, note, velocity] = e.data || [];
-  if (note == null) return;
+  if (note == null || (status & 0x0f) === 9) return;
   const type = status & 0xf0,
     key = pianoKey(note);
   if (type === 0x90 && velocity > 0) {

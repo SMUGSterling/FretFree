@@ -424,7 +424,7 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.equal(disabled(), 'beam:break', 'Break needs a beamed note');
   pick(7);
   assert.equal(pressed(), 'len:0.25 dot', 'A rest shows only its length (here a dotted quarter)');
-  assert.equal(disabled(), 'tie to-rest acc:^ acc:_ acc:= acc: beam:join beam:break');
+  assert.equal(disabled(), 'tie to-rest acc:^ acc:_ acc:= acc: respell beam:join beam:break');
   press('acc:^');
   assert.equal(body(), '^G3- G E F G A | B4 z3 z |]', 'Disabled buttons change nothing');
   assert.equal(status(), 'Rests have no accidental, tie or beam.');
@@ -447,6 +447,7 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.equal(same(0, 'tie', '+'), '^G3 G E F G A | B4 z3 z |]');
   assert.equal(same(2, 'acc:_', '-'), '^G3- G _E F G A | B4 z3 z |]');
   assert.equal(same(0, 'acc:'), 'G3- G E F G A | B4 z3 z |]');
+  assert.equal(same(2, 'respell', 'z'), '^G3- G _F =F G A | B4 z3 z |]', 'Respell keeps the next F');
   assert.equal(same(2, 'delete', 'Delete'), '^G3- G F G A | B4 z3 z |]');
   assert.equal(same(0, 'to-rest'), 'z3 G E F G A | B4 z3 z |]', 'Rest keeps the length and drops the tie');
   assert.equal(same(2, 'beam:join'), '^G3- G EF G A | B4 z3 z |]', 'Join removes the space');
@@ -460,7 +461,7 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.ok(disabled().includes('beam:join'), 'No beam across a bar line');
   // With nothing selected a length button sets the length of new notes, like keys 3–7.
   run("scoreKey({key:'Escape'})");
-  assert.equal(disabled(), 'dot tie to-rest acc:^ acc:_ acc:= acc: beam:join beam:break delete');
+  assert.equal(disabled(), 'dot tie to-rest acc:^ acc:_ acc:= acc: respell beam:join beam:break delete');
   assert.equal(pressed(), 'len:0.5', 'Shows the length new notes get: the last one chosen (key 6 above)');
   run('inputLength=null;updatePalette()');
   assert.equal(pressed(), 'len:0.25', 'New notes default to one beat');
@@ -929,7 +930,7 @@ async function checkPlayback() {
     pick(0);
     assert.equal(z(), true, 'Z is a score shortcut');
     assert.equal(body(), '_D [^C^F]2 z |]', 'Z turns ^C into _D');
-    assert.match(status(), /^Respelled as D♭\. Press Z again/);
+    assert.match(status(), /^Respelled as D♭\. Respell again \(Z\)/);
     z();
     assert.equal(body(), '^C [^C^F]2 z |]', 'and back');
     run('stepHistory(-1)');
@@ -969,17 +970,67 @@ async function checkPlayback() {
     z();
     assert.equal(body(), '_D z3 |]');
     assert.match(status(), /^Respelled as E♭\./, 'Named in written pitch');
+    // A chord moves as one and comes back in two presses; a natural that only the old spelling needed goes again.
+    open('X:1\nM:4/4\nL:1/4\nK:C\n[GCE] ^C D E |]');
+    pick(0);
+    z();
+    assert.equal(body(), '[G^B,_F] ^C D E |]', 'G stays while C and E swap');
+    z();
+    assert.equal(body(), '[GCE] ^C D E |]', 'Two presses bring the chord back');
+    pick(1);
+    z();
+    assert.equal(body(), '[GCE] _D =D E |]', 'The later D keeps its pitch');
+    pick(3);
+    z();
+    pick(1);
+    z();
+    assert.equal(body(), '[GCE] ^C D _F |]', 'and loses the natural again after another edit');
+    assert.equal(midis(), '67,60,64,61,62,64');
+    for (let i = 0; i < 3; i++) run('stepHistory(-1)');
+    assert.equal(body(), '[GCE] ^C D E |]');
+    pick(1);
+    // Without a keyboard: the palette's Respell button and the note menu do the same, one undo step each.
+    const respellButton = "$('palette').querySelector('[data-palette=\"respell\"]')";
+    run(`${respellButton}.click()`);
+    assert.equal(body(), '[GCE] _D =D E |]', 'The palette respells the selected note');
+    assert.match(status(), /^Respelled as D♭\./);
+    run('stepHistory(-1)');
+    assert.equal(body(), '[GCE] ^C D E |]', 'One undo step');
+    run('openNoteMenu(scoreNotes()[1], displayOf(scoreNotes()[1]), 10, 10)');
+    run("$('note-menu').querySelector('[data-edit=\"respell\"]').click()");
+    assert.equal(body(), '[GCE] _D =D E |]', 'So does the note menu');
+    assert.equal(run("$('note-menu').hidden"), true);
+    // Two presses in a row on the same note give back the very text, even a sharp the bar did not need.
+    open('X:1\nM:4/4\nL:1/4\nK:C\n^C D ^C z |]');
+    pick(0);
+    z();
+    assert.equal(body(), '_D =D ^C z |]');
+    z();
+    assert.equal(body(), '^C D ^C z |]', 'Back to the start');
+    open('X:1\nM:4/4\nL:1/4\nK:C\nC z3 |]');
+    pick(1);
+    run('updatePalette()');
+    assert.equal(run(`${respellButton}.getAttribute('aria-disabled')`), 'true', 'A rest cannot be respelled');
   }
   // MIDI keyboards: the toggle shows only with Web MIDI; notes within 40 ms make a chord; no SysEx is asked for.
   {
     assert.equal(run("$('midi-toggle').hidden"), true, 'The MIDI toggle is hidden without Web MIDI');
     const asked = [];
     let deny = true;
-    const input = {name: 'Test Keys', state: 'connected', onmidimessage: null};
+    let closed = 0,
+      access = null;
+    const input = {
+      name: 'Test Keys',
+      state: 'connected',
+      onmidimessage: null,
+      close: async () => {
+        closed++;
+      }
+    };
     w.navigator.requestMIDIAccess = async options => {
       asked.push(options);
       if (deny) throw new w.DOMException('Permission denied', 'NotAllowedError');
-      return {inputs: new Map([['in', input]]), onstatechange: null};
+      return (access = {inputs: new Map([['in', input]]), onstatechange: null});
     };
     run(
       `openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nz4 | z4 |]')},instrument:'Flute'});selectEntry(scoreNotes()[0])`
@@ -1005,9 +1056,37 @@ async function checkPlayback() {
     assert.equal(body(), 'C E [CEG] z | z4 |]', 'Notes played together enter as a chord, lowest first');
     run('stepHistory(-1)');
     assert.equal(body(), 'C E [CE] z | z4 |]', 'Each chord pitch is its own undo step, like Shift+tap');
+    // Nothing goes in from drum pads (channel 10), while the score plays, or away from Compose.
+    input.onmidimessage({data: [0x99, 38, 100]});
+    assert.equal(run('midiPending.length'), 0, 'Channel 10 is ignored');
+    run('playing = true');
+    play(62);
+    run('playing = false');
+    assert.equal(body(), 'C E [CE] z | z4 |]', 'Nothing is entered during playback');
+    assert.match(run("$('midi-status').textContent"), /^Stop playback to enter notes/);
+    run("show('library')");
+    play(62);
+    run("show('studio')");
+    assert.equal(body(), 'C E [CE] z | z4 |]', 'Nothing is entered outside Compose');
+    // Plugging a keyboard in or out updates the status line.
+    const second = {name: 'Stage Keys', state: 'connected', onmidimessage: null};
+    access.inputs.set('in2', second);
+    access.onstatechange({port: second});
+    assert.match(run("$('midi-status').textContent"), /^MIDI input from Test Keys and Stage Keys\./);
+    assert.equal(typeof second.onmidimessage, 'function', 'A keyboard plugged in later is heard');
+    input.state = 'disconnected';
+    access.onstatechange({port: input});
+    assert.match(run("$('midi-status').textContent"), /^MIDI input from Stage Keys\./, 'Unplugged keyboards go');
+    access.inputs.clear();
+    access.onstatechange({port: second});
+    assert.match(run("$('midi-status').textContent"), /^No MIDI keyboard found\./);
+    access.inputs.set('in', input);
+    input.state = 'connected';
     run("$('midi-toggle').click()");
     await new Promise(r => w.setTimeout(r, 0));
     assert.equal(input.onmidimessage, null, 'Turning MIDI input off stops listening');
+    assert.equal(closed, 1, 'and closes the port for other apps');
+    assert.equal(access.onstatechange, null);
     assert.equal(run("$('midi-status').hidden"), true);
     delete w.navigator.requestMIDIAccess;
   }
@@ -1017,7 +1096,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, notation palette state, edits and guards, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, Z respelling (keys, chords, bar accidentals, written names), MIDI keyboard entry (chords, denied access, no SysEx), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, notation palette state, edits and guards, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

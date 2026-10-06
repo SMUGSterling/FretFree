@@ -117,6 +117,8 @@ const {chromium} = require('playwright'),
   await page.click('#draw-mode');
   {
     const [x, y] = await page.evaluate(() => {
+      // The controls above the score push its staff low in a 900 px window; a mouse click needs it in view.
+      $('notation').scrollIntoView({block: 'center', behavior: 'instant'});
       const svg = $('notation').querySelector('svg'),
         st = renderedTune.engraver.staffgroups[0].staffs[0],
         [a, b] = renderedTune.engraver.selectables.slice(1, 3).map(s => {
@@ -768,6 +770,8 @@ const {chromium} = require('playwright'),
   const sheet = () => page.evaluate(() => $('abc').value.trim().split('\n').pop());
   assert.equal(await sheet(), 'z4 | z4 | z4 | z4 | z4 | z4 | z4 | z4 |]', 'New score is a blank sheet');
   await page.click('#draw-mode');
+  // The controls above the score push it low in a 900 px window; a mouse click needs it in view.
+  await page.evaluate(() => $('notation').scrollIntoView({block: 'center', behavior: 'instant'}));
   const firstRest = await page.locator('#notation .abcjs-rest').first().boundingBox();
   await page.mouse.click(firstRest.x + firstRest.width / 2 - 20, firstRest.y + firstRest.height / 2);
   await page.waitForFunction(() => !$('abc').value.includes('z4 | z4 | z4 | z4 | z4 | z4 | z4 | z4'));
@@ -1126,6 +1130,8 @@ const {chromium} = require('playwright'),
   await page.click('#draw-mode');
   {
     const [x, y] = await page.evaluate(() => {
+      // The controls above the score push its staff low in a 900 px window; a mouse click needs it in view.
+      $('notation').scrollIntoView({block: 'center', behavior: 'instant'});
       const svg = $('notation').querySelector('svg'),
         st = renderedTune.engraver.staffgroups[0].staffs[0],
         [a, b] = renderedTune.engraver.selectables.slice(1, 3).map(s => {
@@ -1554,11 +1560,17 @@ const {chromium} = require('playwright'),
     assert.match(await tab.locator('#midi-status').textContent(), /^MIDI input from Practice Keys\./);
     assert.deepEqual(await tab.evaluate(() => __midi.asked), [{sysex: false}], 'No SysEx is requested');
     await tab.click('#piano-toggle');
-    await tab.evaluate(() => __note(true, 60));
+    const entered = text => tab.waitForFunction(text => $('abc').value.includes(text), text);
+    await tab.evaluate(() => ((window.__t = performance.now()), __note(true, 60)));
     assert.equal(await tab.locator('[data-piano-midi="60"].down').count(), 1, 'A held MIDI key lights the piano');
-    await tab.waitForTimeout(100);
-    await tab.evaluate(() => (__note(false, 60), __note(true, 64)));
-    await tab.waitForTimeout(100);
+    // 64 comes 100 ms after 60 on the page's clock, after the 40 ms chord timer (due first, so it fires first).
+    await tab.evaluate(
+      () =>
+        new Promise(done =>
+          setTimeout(() => done((__note(false, 60), __note(true, 64))), __t + 100 - performance.now())
+        )
+    );
+    await entered('C E z2');
     await tab.evaluate(() => __note(false, 64));
     assert.equal(await body(), 'C E z2 | z4 |]', 'Note-on 60 then 64, 100 ms apart, enter C then E');
     assert.equal(await tab.locator('#piano-keys .down').count(), 0, 'Released keys go dark');
@@ -1567,7 +1579,7 @@ const {chromium} = require('playwright'),
       setTimeout(() => __note(true, 60), 5);
       setTimeout(() => __note(true, 64), 10);
     });
-    await tab.waitForTimeout(150);
+    await entered('[CEG]');
     assert.deepEqual(
       await tab.evaluate(() => [...document.querySelectorAll('#piano-keys .down')].map(k => +k.dataset.pianoMidi)),
       [60, 64, 67],
@@ -1577,7 +1589,7 @@ const {chromium} = require('playwright'),
     assert.equal(await body(), 'C E [CEG] z | z4 |]', '60, 64 and 67 within 40 ms enter [CEG]');
     // Black keys come in as sharps in C major; Z respells the note just entered from the keyboard.
     await tab.evaluate(() => __note(true, 61));
-    await tab.waitForTimeout(100);
+    await entered('^C |');
     await tab.evaluate(() => __note(false, 61));
     assert.equal(await body(), 'C E [CEG] ^C | z4 |]');
     await tab.evaluate(() => selectEntry(scoreNotes()[3]));
@@ -1598,6 +1610,22 @@ const {chromium} = require('playwright'),
       'No sideways scroll at 390 px'
     );
     await tab.close();
+    // Without a hardware keyboard (a phone or tablet), the palette's Respell button does what Z does.
+    const touch = await browser.newPage({viewport: {width: 390, height: 844}, hasTouch: true, isMobile: true});
+    touch.on('pageerror', e => errors.push(e.message));
+    await touch.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    await touch.evaluate(() => {
+      openScore({abc: 'X:1\nT:Respell\nM:4/4\nL:1/4\nK:C\n^C D E F |]', instrument: 'Flute'});
+      show('studio');
+      selectEntry(scoreNotes()[0]);
+    });
+    const touchBody = () => touch.evaluate(() => $('abc').value.trim().split('\n').pop());
+    await touch.tap('[data-palette="respell"]');
+    assert.equal(await touchBody(), '_D =D E F |]', 'Tapping Respell turns ^C into _D');
+    assert.match(await touch.locator('#selection-status').textContent(), /^Respelled as D♭\./);
+    await touch.tap('[data-palette="respell"]');
+    assert.equal(await touchBody(), '^C D E F |]', 'and back, with the natural gone again');
+    await touch.close();
     const denied = await browser.newPage({viewport: {width: 1280, height: 900}});
     denied.on('pageerror', e => errors.push(e.message));
     await denied.addInitScript(() => {
