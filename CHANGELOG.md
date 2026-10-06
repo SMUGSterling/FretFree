@@ -1,3 +1,13 @@
+# Articulations, dynamics and ornaments · 2026-10-06
+
+- With a note selected, **;** **:** **>** **"** **^** toggle staccato, tenuto, accent, marcato and fermata. The notation toolbar gains an **Articulation** group with the same five and a **Dynamics** group (ppp to fff, and sfz); **More** opens staccatissimo, up bow, down bow, breath mark, trill, mordent, turn and arpeggio. The note menu has a Marks section with the five articulations and the dynamics.
+- Buttons light up for the marks the selected note has; pressing a lit one takes it off. A new dynamic replaces the note's old one. Rests take a dynamic or a fermata, and invisible rests nothing; the status line says what changed or why nothing did. While More is closed, its button shows when the note has one of its marks.
+- Marks go into the ABC as decorations just before the pitch, after chord symbols, slur and tuplet openings and grace notes: staccato as `.`, the others as `!tenuto!`, `!mf!` and so on. Shorthands already in a score (`L`, `H`, `T`, `u`, `v`, `M`, `!>!`) count as their mark and come off with it. Each change is one undo step, and marks stay through instrument changes and the written-pitch display.
+- Playback already follows dynamics, accents, staccato and trills, so these marks are heard. Every offered mark parses in abcjs without warnings; `fp` and `!staccatissimo!` do not, so they are not offered.
+- The note menu scrolls when it is taller than the window.
+
+---
+
 # Notation palette · 2026-10-06
 
 - A **notation toolbar** above the score: Length (whole to 16th), Dot, Tie, Rest, Accidental (♯ ♭ ♮ None), Beam (Join, Break) and Delete. It lights up to show the selected note's length, dot, tie, accidental and beam, and gives every edit a touch target, so Chromebook and iPad users no longer need the right-click menu or the keyboard.

@@ -149,6 +149,84 @@ function editNoteText(text, {accidental, length, unbroken, tie, rest} = {}) {
   if (tie === false) post = post.replace(/^-/, '');
   return pre + core + len + post;
 }
+// Articulations, ornaments and dynamics offered by the editor, as abcjs names them. Each one parses without warnings,
+// and dynamics, accents and staccato change playback. abcjs knows staccato only as '.' and has no fp or
+// !staccatissimo! (wedge is the staccatissimo mark).
+const NOTE_MARKS = [
+  'staccato',
+  'tenuto',
+  'accent',
+  'marcato',
+  'fermata',
+  'wedge',
+  'upbow',
+  'downbow',
+  'breath',
+  'trill',
+  'mordent',
+  'turn',
+  'arpeggio'
+];
+const DYNAMICS = ['ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'sfz'];
+// One item of a note's prefix (the items NOTE_PARTS allows), and the prefix of a note, chord or rest, including a
+// multi-measure rest (Z), which can carry a dynamic or a fermata. Invisible rests (x) take no marks.
+const PRE_ITEM = /"[^"]*"|![^!]*!|\+[^+]*\+|\{[^}]*\}|\((?:\d+(?::\d*){0,2})?|[.~HLMOPSTuv]|\s/g;
+const MARK_PRE = new RegExp(`^(?:${PRE_ITEM.source})*(?=[[A-Ga-g^_=zZ])`);
+// Shorthands and other spellings of the marks: . H L T u v M, !>!, !emphasis!, !lowermordent! and +name+.
+const MARK_ALIASES = {
+  '.': 'staccato',
+  H: 'fermata',
+  L: 'accent',
+  T: 'trill',
+  u: 'upbow',
+  v: 'downbow',
+  M: 'mordent',
+  '>': 'accent',
+  emphasis: 'accent',
+  lowermordent: 'mordent'
+};
+// Any dynamic a score may already have, including ones the editor does not offer, so setDynamic replaces it.
+const DYNAMIC_MARK = /^(?:p{1,4}|f{1,4}|m[pf]|sfz?|sffz|fz|rfz|s?fp)$/;
+function markName(item) {
+  const name = /^([!+])(.*)\1$/.exec(item)?.[2] ?? item;
+  return MARK_ALIASES[name] || name;
+}
+// A note's prefix split into items, and the rest of its text; null when the text is not a note, chord or rest.
+function markItems(text) {
+  const pre = String(text).match(MARK_PRE)?.[0];
+  return pre == null ? null : {items: pre.match(PRE_ITEM) || [], rest: String(text).slice(pre.length)};
+}
+const isDynamicItem = item => !!item.trim() && DYNAMIC_MARK.test(markName(item));
+// The marks on a note: its articulations and ornaments (canonical names, in source order) and its dynamic.
+function noteMarks(text) {
+  const parts = markItems(text);
+  if (!parts) return null;
+  const names = parts.items.filter(i => i.trim()).map(markName);
+  return {marks: names.filter(n => NOTE_MARKS.includes(n)), dynamic: names.find(n => DYNAMIC_MARK.test(n)) || null};
+}
+// Add an articulation or ornament just before the pitch (after chord symbols, annotations, slur and tuplet openings
+// and grace notes), or remove it in whatever spelling it has. Staccato is written '.', the others !name!.
+function toggleDecoration(text, name) {
+  const parts = markItems(text);
+  if (!parts || !NOTE_MARKS.includes(name)) return text;
+  const kept = parts.items.filter(i => !i.trim() || markName(i) !== name);
+  if (kept.length === parts.items.length) kept.push(name === 'staccato' ? '.' : `!${name}!`);
+  return kept.join('') + parts.rest;
+}
+// Set the note's dynamic (one of DYNAMICS) in place of any it has, or remove it with null. Dynamics never stack.
+function setDynamic(text, dyn) {
+  const parts = markItems(text);
+  if (!parts || (dyn != null && !DYNAMICS.includes(dyn))) return text;
+  let placed = !dyn;
+  const items = parts.items.map(i => {
+    if (!isDynamicItem(i)) return i;
+    if (placed) return '';
+    placed = true;
+    return `!${dyn}!`;
+  });
+  if (!placed) items.push(`!${dyn}!`);
+  return items.join('') + parts.rest;
+}
 // Bar-length check. Measures are numbered as in scoreEvents (a bar line ends a measure only once it holds notes).
 const SECTION_END = /repeat|thin_thin|thin_thick|thick_thin|dbl/;
 // A time signature as {length (whole notes), den, label}; 'free' for M:none, null when absent.

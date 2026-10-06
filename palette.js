@@ -1,7 +1,8 @@
 'use strict';
-// Notation palette: a toolbar above the score for the selected note's length, dot, tie, rest, accidental and beam,
-// and Delete. Buttons light up (aria-pressed) to show the selection's state and send the same action as the note menu
-// or the matching key to editNote, so each press is one undo step. Later notation tools add their own groups here.
+// Notation palette: a toolbar above the score for the selected note's length, dot, tie, rest, accidental, beam,
+// articulations, dynamics and ornaments (under More), and Delete. Buttons light up (aria-pressed) to show the
+// selection's state and send the same action as the note menu or the matching key to editNote, so each press is one
+// undo step. Later notation tools add their own groups here.
 const PALETTE_DONE = {
   'to-rest': 'Changed to a rest.',
   'acc:^': 'Sharp.',
@@ -12,8 +13,8 @@ const PALETTE_DONE = {
   'beam:break': 'Beam broken after this note.',
   delete: 'Deleted.'
 };
-// What the palette shows: the selected note's length (without its dot), dot, tie, accidental and whether it is
-// beamed to the next note, or, with nothing selected, the length new notes will get.
+// What the palette shows: the selected note's length (without its dot), dot, tie, accidental, whether it is beamed
+// to the next note, and its marks, or, with nothing selected, the length new notes will get.
 function paletteState() {
   const sel = selectedNote();
   if (!sel) return {sel: null, length: inputLength ?? beatLength()};
@@ -34,13 +35,16 @@ function paletteState() {
     dotted,
     tied: !isRest && /^-/.test(noteParts(source)?.post || ''),
     accidental: isRest ? null : (noteParts(text)?.core.match(/^\[?(\^{1,2}|_{1,2}|=)/) || [])[1] || '',
-    beam: isRest ? null : beamGap(sel.entry)
+    beam: isRest ? null : beamGap(sel.entry),
+    marks: noteMarks(source)
   };
 }
 // Why a button does nothing for the current selection, or '' when it applies.
 function paletteBlocked(action, state) {
   if (action.startsWith('len:')) return '';
   if (!state.sel) return 'Select a note on the score first.';
+  if (/^(deco|dyn):/.test(action))
+    return markBlocked(action, state.sel.entry.element) || (state.marks ? '' : 'This cannot take marks.');
   if (state.multiRest && action === 'dot') return 'A multi-measure rest cannot be dotted.';
   if (state.isRest && !['dot', 'delete'].includes(action))
     return action === 'to-rest' ? 'This is already a rest.' : 'Rests have no accidental, tie or beam.';
@@ -72,14 +76,29 @@ function updatePalette() {
         : 'Nothing selected. Letters add notes at the end.';
     paletteMessage = null;
   }
+  // While More is closed, its label names the marks under it that the selected note has.
+  const more = bar.querySelector('[data-palette="more"]'),
+    hidden = $('palette-more').hidden
+      ? (state.marks?.marks || []).filter(name => $('palette-more').querySelector(`[data-palette="deco:${name}"]`))
+      : [];
+  more.classList.toggle('in-use', hidden.length > 0);
+  more.setAttribute(
+    'aria-label',
+    hidden.length
+      ? `More marks (this note has ${listWords(hidden.map(n => MARK_WORDS[n].toLowerCase()))})`
+      : 'More marks'
+  );
   for (const b of bar.querySelectorAll('[data-palette]')) {
     const action = b.dataset.palette;
+    if (action === 'more') continue;
     let pressed = null;
     if (action.startsWith('len:')) pressed = near(state.length, +action.slice(4));
     else if (action === 'dot') pressed = !!state.dotted;
     else if (action === 'tie') pressed = !!state.tied;
     else if (action.startsWith('acc:')) pressed = state.accidental === action.slice(4);
     else if (action === 'beam:join') pressed = !!state.beam?.joined && !paletteBlocked(action, state);
+    else if (action.startsWith('deco:')) pressed = !!state.marks?.marks.includes(action.slice(5));
+    else if (action.startsWith('dyn:')) pressed = state.marks?.dynamic === action.slice(4);
     if (pressed != null) b.setAttribute('aria-pressed', pressed);
     b.setAttribute('aria-disabled', !!paletteBlocked(action, state));
   }
@@ -88,6 +107,16 @@ $('palette').addEventListener('click', e => {
   const b = e.target.closest('[data-palette]');
   if (!b) return;
   const action = b.dataset.palette;
+  if (action === 'more') {
+    const open = $('palette-more').hidden;
+    $('palette-more').hidden = !open;
+    b.setAttribute('aria-expanded', open);
+    // Closing hides buttons that may hold the tab stop, so the toggle takes it.
+    paletteTabStop(b);
+    updatePalette();
+    if (e.detail !== 0) focusScore();
+    return;
+  }
   if (renderedSource !== $('abc').value) {
     clearTimeout(renderTimer);
     render();
@@ -104,7 +133,9 @@ $('palette').addEventListener('click', e => {
       };
     editNote(state.sel.entry, state.sel.display, action);
     $('selection-status').textContent =
-      $('abc').value === before ? 'No change.' : toggled[action] || PALETTE_DONE[action] || '';
+      $('abc').value === before
+        ? 'No change.'
+        : toggled[action] || PALETTE_DONE[action] || (/^(deco|dyn):/.test(action) ? markDone(action, state.marks) : '');
   }
   paletteMessage = {text: $('selection-status').textContent, at: selectedRange?.[0] ?? null};
   updatePalette();
@@ -112,12 +143,12 @@ $('palette').addEventListener('click', e => {
   if (e.detail === 0) b.focus({preventScroll: true});
   else focusScore();
 });
-// One tab stop for the toolbar: the last button used. Arrow keys, Home and End move between the buttons.
+// One tab stop for the toolbar: the last button used. Arrow keys, Home and End move between the shown buttons.
 function paletteTabStop(target) {
   for (const b of $('palette').querySelectorAll('[data-palette]')) b.tabIndex = b === target ? 0 : -1;
 }
 $('palette').addEventListener('keydown', e => {
-  const buttons = [...$('palette').querySelectorAll('[data-palette]')],
+  const buttons = [...$('palette').querySelectorAll('[data-palette]')].filter(b => !b.closest('[hidden]')),
     i = buttons.indexOf(e.target),
     to = {ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: buttons.length - 1}[e.key];
   if (i < 0 || to == null) return;

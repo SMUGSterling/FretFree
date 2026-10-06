@@ -204,7 +204,12 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.equal(disabled(), 'beam:break', 'Break needs a beamed note');
   pick(7);
   assert.equal(pressed(), 'len:0.25 dot', 'A rest shows only its length (here a dotted quarter)');
-  assert.equal(disabled(), 'tie to-rest acc:^ acc:_ acc:= acc: beam:join beam:break');
+  assert.equal(
+    disabled(),
+    'tie to-rest acc:^ acc:_ acc:= acc: beam:join beam:break deco:staccato deco:tenuto deco:accent deco:marcato ' +
+      'deco:wedge deco:upbow deco:downbow deco:breath deco:trill deco:mordent deco:turn deco:arpeggio',
+    'A rest takes only a dynamic or a fermata'
+  );
   press('acc:^');
   assert.equal(body(), '^G3- G E F G A | B4 z3 z |]', 'Disabled buttons change nothing');
   assert.equal(status(), 'Rests have no accidental, tie or beam.');
@@ -240,7 +245,12 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.ok(disabled().includes('beam:join'), 'No beam across a bar line');
   // With nothing selected a length button sets the length of new notes, like keys 3–7.
   run("scoreKey({key:'Escape'})");
-  assert.equal(disabled(), 'dot tie to-rest acc:^ acc:_ acc:= acc: beam:join beam:break delete');
+  assert.equal(
+    disabled(),
+    'dot tie to-rest acc:^ acc:_ acc:= acc: beam:join beam:break deco:staccato deco:tenuto deco:accent ' +
+      'deco:marcato deco:fermata dyn:ppp dyn:pp dyn:p dyn:mp dyn:mf dyn:f dyn:ff dyn:fff dyn:sfz deco:wedge ' +
+      'deco:upbow deco:downbow deco:breath deco:trill deco:mordent deco:turn deco:arpeggio delete'
+  );
   assert.equal(pressed(), 'len:0.5', 'Shows the length new notes get: the last one chosen (key 6 above)');
   run('inputLength=null;updatePalette()');
   assert.equal(pressed(), 'len:0.25', 'New notes default to one beat');
@@ -353,6 +363,164 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.equal(status(), 'Dotted.');
   run("scoreKey({key:'ArrowLeft'})");
   assert.match(status(), /^Measure 1 selected · type A–G/, 'Selecting another note replaces it too');
+}
+// Articulations, dynamics and ornaments: ; : > " ^ and the palette toggle marks, dynamics replace each other, rests take
+// only a dynamic or a fermata, and every edit is one undo step that keeps the selection.
+{
+  const music = '"G"C (D E) [CEG] z | Z2 | x4 |]',
+    open = (m = music) =>
+      run(`dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\n' + m)},instrument:'Flute'})`),
+    body = () => run("$('abc').value.split('\\n').slice(4).join('\\n').trim()"),
+    pick = i => run(`selectEntry(scoreNotes()[${i}])`),
+    key = k => run(`scoreKey({key:${JSON.stringify(k)}})`),
+    press = action => run(`document.querySelector('[data-palette=${JSON.stringify(action)}]').click()`),
+    pressed = () =>
+      run(`[...document.querySelectorAll('#palette [aria-pressed="true"]')].map(b=>b.dataset.palette).join(' ')`),
+    disabled = () =>
+      run(`[...document.querySelectorAll('#palette [aria-disabled="true"]')].map(b=>b.dataset.palette).join(' ')`),
+    status = () => run("$('selection-status').textContent"),
+    selected = () => run("$('abc').value.slice(...selectedRange).trim()");
+  open();
+  // Each key adds its mark after the chord symbol, says so, and the same key or palette button takes it off again.
+  for (const [k, mark, written] of [
+    [';', 'staccato', '.'],
+    [':', 'tenuto', '!tenuto!'],
+    ['>', 'accent', '!accent!'],
+    ['"', 'marcato', '!marcato!'],
+    ['^', 'fermata', '!fermata!']
+  ]) {
+    pick(0);
+    assert.equal(key(k), true, `${k} is handled on the score`);
+    assert.equal(body(), music.replace('"G"C', `"G"${written}C`), `${k} adds ${mark}`);
+    assert.equal(selected(), `"G"${written}C`, 'The note stays selected');
+    assert.equal(pressed(), `len:0.25 acc: deco:${mark}`, `The ${mark} button is pressed`);
+    assert.match(status(), new RegExp(`^${mark} added\\.$`, 'i'));
+    run('stepHistory(-1)');
+    assert.equal(body(), music, `${mark} is one undo step`);
+    pick(0);
+    press('deco:' + mark);
+    assert.equal(body(), music.replace('"G"C', `"G"${written}C`), `The ${mark} button matches the ${k} key`);
+    key(k);
+    assert.equal(body(), music, `${k} again removes ${mark}`);
+    assert.match(status(), / removed\.$/);
+  }
+  // Slur-start notes and chords take marks too; shorthands count as the mark they stand for.
+  pick(1);
+  key(';');
+  pick(3);
+  key('>');
+  assert.equal(body(), '"G"C (.D E) !accent![CEG] z | Z2 | x4 |]');
+  open('LC TD HE .F|]');
+  pick(0);
+  assert.equal(pressed(), 'len:0.25 acc: deco:accent', 'L is an accent');
+  key('>');
+  assert.equal(body(), 'C TD HE .F|]', 'Removing a mark removes its shorthand');
+  pick(3);
+  key(';');
+  assert.equal(body(), 'C TD HE F|]');
+  // Dynamics replace each other, the pressed one comes off, and they go on rests too.
+  open();
+  pick(0);
+  press('dyn:p');
+  assert.equal(status(), 'Dynamic p.');
+  press('dyn:f');
+  assert.equal(body(), music.replace('"G"C', '"G"!f!C'), 'A new dynamic replaces the old one');
+  assert.equal(pressed(), 'len:0.25 acc: dyn:f');
+  press('dyn:f');
+  assert.equal(body(), music, 'Pressing the dynamic the note has removes it');
+  assert.equal(status(), 'Dynamic removed.');
+  pick(4);
+  assert.equal(
+    disabled(),
+    'tie to-rest acc:^ acc:_ acc:= acc: beam:join beam:break deco:staccato deco:tenuto deco:accent deco:marcato ' +
+      'deco:wedge deco:upbow deco:downbow deco:breath deco:trill deco:mordent deco:turn deco:arpeggio',
+    'A rest offers a dynamic and a fermata'
+  );
+  run('dirty=false');
+  key(';');
+  assert.equal(status(), 'Rests take only a dynamic or a fermata.');
+  assert.equal(body(), music, 'No staccato on a rest');
+  assert.equal(run('dirty'), false);
+  key('^');
+  press('dyn:mp');
+  assert.equal(body(), music.replace('z |', '!fermata!!mp!z |'), 'A fermata and a dynamic on a rest');
+  // A multi-measure rest takes them too; an invisible rest takes nothing.
+  pick(5);
+  key('^');
+  press('dyn:pp');
+  assert.match(body(), /\| !fermata!!pp!Z2 \|/);
+  pick(6);
+  assert.ok(
+    ['deco:fermata', 'dyn:p', 'dyn:sfz'].every(a => disabled().split(' ').includes(a)),
+    'Nothing for an invisible rest'
+  );
+  press('dyn:p');
+  assert.equal(status(), 'Invisible rests take no marks.');
+  assert.match(body(), /\| x4 \|\]$/);
+  // Ornaments and the other articulations sit under More, which says when the note has one while it is closed.
+  open();
+  assert.equal(run("$('palette-more').hidden"), true, 'More starts closed');
+  press('more');
+  assert.equal(run("$('palette-more').hidden"), false);
+  assert.equal(run(`document.querySelector('[data-palette="more"]').getAttribute('aria-expanded')`), 'true');
+  pick(0);
+  for (const mark of ['trill', 'mordent', 'turn', 'arpeggio', 'wedge', 'upbow', 'downbow', 'breath']) {
+    press('deco:' + mark);
+    assert.ok(body().startsWith(`"G"!${mark}!C`), `The ${mark} button adds !${mark}!`);
+    assert.equal(pressed(), `len:0.25 acc: deco:${mark}`);
+    press('deco:' + mark);
+    assert.equal(body(), music);
+  }
+  press('deco:trill');
+  press('more');
+  assert.equal(
+    run(`document.querySelector('[data-palette="more"]').getAttribute('aria-label')`),
+    'More marks (this note has trill)'
+  );
+  assert.ok(run(`document.querySelector('[data-palette="more"]').classList.contains('in-use')`));
+  // The note menu offers the five articulations and the dynamics; a rest gets the fermata and dynamics only.
+  const menuMarks = i =>
+    run(
+      `(e=>{openNoteMenu(e,displayOf(e),0,0);return [...document.querySelectorAll('#note-menu [data-edit*=":"]')]` +
+        `.filter(b=>/^(deco|dyn):/.test(b.dataset.edit))` +
+        `.map(b=>b.dataset.edit+(b.getAttribute('aria-checked')==='true'?'*':'')).join(' ')})(scoreNotes()[${i}])`
+    );
+  assert.equal(
+    menuMarks(0),
+    'deco:staccato deco:tenuto deco:accent deco:marcato deco:fermata dyn:ppp dyn:pp dyn:p dyn:mp dyn:mf dyn:f dyn:ff dyn:fff dyn:sfz'
+  );
+  run(`document.querySelector('#note-menu [data-edit="deco:tenuto"]').click()`);
+  assert.ok(body().startsWith('"G"!trill!!tenuto!C '), 'The note menu adds a mark');
+  assert.equal(status(), 'Tenuto added.');
+  assert.equal(menuMarks(4), 'deco:fermata dyn:ppp dyn:pp dyn:p dyn:mp dyn:mf dyn:f dyn:ff dyn:fff dyn:sfz');
+  run(`document.querySelector('#note-menu [data-edit="dyn:sfz"]').click()`);
+  assert.match(body(), /\[CEG\] !sfz!z \|/);
+  assert.match(menuMarks(4), /dyn:sfz\*/, 'The menu shows the dynamic the rest has');
+  run('closeNoteMenu()');
+  // Unknown marks change nothing.
+  pick(1);
+  const before = run("$('abc').value");
+  for (const action of ['deco:bogus', 'deco:', 'dyn:fp', 'dyn:loud'])
+    run(`(s=>editNote(s.entry,s.display,${JSON.stringify(action)}))(selectedNote())`);
+  assert.equal(run("$('abc').value"), before, 'Unknown marks are ignored');
+  // Marks stay in the concert source through instrument changes and show in the written-pitch display and note names.
+  open('!f!.C !accent!D !trill!E !fermata!F |]');
+  run("$('instrument').value='Clarinet in B♭';$('instrument').onchange();clearTimeout(renderTimer);render()");
+  assert.equal(body(), '!f!.C !accent!D !trill!E !fermata!F |]', 'The source keeps its marks');
+  assert.match(run('writtenABC()'), /!f!\.D !accent!E !trill!F !fermata!G \|\]/, 'Written pitch keeps them');
+  run("$('note-names').value='letters';$('note-names').onchange();clearTimeout(renderTimer);render()");
+  assert.deepEqual(
+    run("JSON.stringify(scoreEvents(renderedTune).filter(e=>e.element.el_type==='note').map(e=>e.element.decoration))"),
+    JSON.stringify([['f', 'staccato'], ['accent'], ['trill'], ['fermata']]),
+    'The engraved notes carry the marks'
+  );
+  pick(1);
+  key('>');
+  assert.equal(body(), '!f!.C D !trill!E !fermata!F |]', 'Keys edit the concert source on a transposing instrument');
+  run(
+    "$('note-names').value='off';$('note-names').onchange();$('instrument').value='Flute';$('instrument').onchange()"
+  );
+  assert.equal(run("$('warnings').textContent"), '');
 }
 // Master bus and note audition: every note and click reaches the speakers through one gain node that follows the
 // Volume slider live; entering, selecting or moving a note sounds it once at concert pitch when Hear notes is on.
@@ -701,7 +869,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, notation palette state, edits and guards, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch), repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, and legacy storage.'
   );
   w.close();
 }

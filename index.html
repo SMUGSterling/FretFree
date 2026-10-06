@@ -8,26 +8,26 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=0251a144a484" />
-    <script defer src="vendor/abcjs-basic-min.js?v=0251a144a484"></script>
-    <script defer src="catalog.js?v=0251a144a484"></script>
-    <script defer src="catalog-expanded.js?v=0251a144a484"></script>
-    <script defer src="score-tools.js?v=0251a144a484"></script>
-    <script defer src="rights-tools.js?v=0251a144a484"></script>
-    <script defer src="catalog-licensed.js?v=0251a144a484"></script>
-    <script defer src="catalog-lieder.js?v=0251a144a484"></script>
-    <script defer src="catalog-quartets.js?v=0251a144a484"></script>
-    <script defer src="catalog-pgh.js?v=0251a144a484"></script>
-    <script defer src="catalog-skills.js?v=0251a144a484"></script>
-    <script defer src="prompts.js?v=0251a144a484"></script>
-    <script defer src="shared.js?v=0251a144a484"></script>
-    <script defer src="library.js?v=0251a144a484"></script>
-    <script defer src="backup.js?v=0251a144a484"></script>
-    <script defer src="editor.js?v=0251a144a484"></script>
-    <script defer src="palette.js?v=0251a144a484"></script>
-    <script defer src="playback.js?v=0251a144a484"></script>
-    <script defer src="assignments.js?v=0251a144a484"></script>
-    <script defer src="app.js?v=0251a144a484"></script>
+    <link rel="stylesheet" href="style.css?v=39f37eb43df1" />
+    <script defer src="vendor/abcjs-basic-min.js?v=39f37eb43df1"></script>
+    <script defer src="catalog.js?v=39f37eb43df1"></script>
+    <script defer src="catalog-expanded.js?v=39f37eb43df1"></script>
+    <script defer src="score-tools.js?v=39f37eb43df1"></script>
+    <script defer src="rights-tools.js?v=39f37eb43df1"></script>
+    <script defer src="catalog-licensed.js?v=39f37eb43df1"></script>
+    <script defer src="catalog-lieder.js?v=39f37eb43df1"></script>
+    <script defer src="catalog-quartets.js?v=39f37eb43df1"></script>
+    <script defer src="catalog-pgh.js?v=39f37eb43df1"></script>
+    <script defer src="catalog-skills.js?v=39f37eb43df1"></script>
+    <script defer src="prompts.js?v=39f37eb43df1"></script>
+    <script defer src="shared.js?v=39f37eb43df1"></script>
+    <script defer src="library.js?v=39f37eb43df1"></script>
+    <script defer src="backup.js?v=39f37eb43df1"></script>
+    <script defer src="editor.js?v=39f37eb43df1"></script>
+    <script defer src="palette.js?v=39f37eb43df1"></script>
+    <script defer src="playback.js?v=39f37eb43df1"></script>
+    <script defer src="assignments.js?v=39f37eb43df1"></script>
+    <script defer src="app.js?v=39f37eb43df1"></script>
   </head>
   <body>
     <header>
@@ -440,13 +440,14 @@
                 >Ctrl</kbd
               >
               octave) · <kbd>←</kbd><kbd>→</kbd> select · <kbd>#</kbd> <kbd>-</kbd> <kbd>=</kbd> sharp, flat, natural ·
-              <kbd>+</kbd> tie · <kbd>|</kbd> bar line · <kbd>Delete</kbd> · <kbd>Space</kbd> play from the note (or
-              double-click it)
+              <kbd>+</kbd> tie · <kbd>;</kbd> <kbd>:</kbd> <kbd>&gt;</kbd> <kbd>"</kbd> <kbd>^</kbd> staccato, tenuto,
+              accent, marcato, fermata · <kbd>|</kbd> bar line · <kbd>Delete</kbd> · <kbd>Space</kbd> play from the note
+              (or double-click it)
             </p>
             <p class="small" id="selection-status" role="status">
               Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag
-              up/down to change pitch; use the toolbar above the score or right-click a note for length, accidentals and
-              ties. Playback speed leaves the score tempo unchanged.
+              up/down to change pitch; use the toolbar above the score or right-click a note for length, accidentals,
+              ties, articulations and dynamics. Playback speed leaves the score tempo unchanged.
             </p>
             <div id="prompt-check" class="prompt-check" aria-live="polite" hidden></div>
             <div id="bar-check" class="bar-check" aria-live="polite" hidden></div>
@@ -499,6 +500,87 @@
                 >
                   <span class="glyph" aria-hidden="true">♪♪</span> Break
                 </button>
+              </div>
+              <div role="group" aria-label="Articulation" class="articulation">
+                <button data-palette="deco:staccato" aria-label="Staccato" aria-keyshortcuts=";" title="Staccato (;)">
+                  •
+                </button>
+                <button data-palette="deco:tenuto" aria-label="Tenuto" aria-keyshortcuts=":" title="Tenuto (:)">
+                  –
+                </button>
+                <button data-palette="deco:accent" aria-label="Accent" aria-keyshortcuts=">" title="Accent (>)">
+                  &gt;
+                </button>
+                <button data-palette="deco:marcato" aria-label="Marcato" aria-keyshortcuts='"' title='Marcato (")'>
+                  ∧
+                </button>
+                <button data-palette="deco:fermata" aria-label="Fermata" aria-keyshortcuts="^" title="Fermata (^)">
+                  𝄐
+                </button>
+              </div>
+              <div role="group" aria-label="Dynamics">
+                <button
+                  data-palette="dyn:ppp"
+                  class="dynamic"
+                  aria-label="ppp, very, very soft"
+                  title="ppp: very, very soft"
+                >
+                  ppp
+                </button>
+                <button data-palette="dyn:pp" class="dynamic" aria-label="pp, very soft" title="pp: very soft">
+                  pp
+                </button>
+                <button data-palette="dyn:p" class="dynamic" aria-label="p, soft" title="p: soft">p</button>
+                <button data-palette="dyn:mp" class="dynamic" aria-label="mp, medium soft" title="mp: medium soft">
+                  mp
+                </button>
+                <button data-palette="dyn:mf" class="dynamic" aria-label="mf, medium loud" title="mf: medium loud">
+                  mf
+                </button>
+                <button data-palette="dyn:f" class="dynamic" aria-label="f, loud" title="f: loud">f</button>
+                <button data-palette="dyn:ff" class="dynamic" aria-label="ff, very loud" title="ff: very loud">
+                  ff
+                </button>
+                <button
+                  data-palette="dyn:fff"
+                  class="dynamic"
+                  aria-label="fff, very, very loud"
+                  title="fff: very, very loud"
+                >
+                  fff
+                </button>
+                <button
+                  data-palette="dyn:sfz"
+                  class="dynamic"
+                  aria-label="sfz, sudden accent"
+                  title="sfz: sudden accent"
+                >
+                  sfz
+                </button>
+              </div>
+              <div role="group" aria-label="More marks">
+                <button
+                  data-palette="more"
+                  aria-expanded="false"
+                  aria-controls="palette-more"
+                  title="More articulations and ornaments"
+                >
+                  More <span class="glyph" aria-hidden="true">▾</span>
+                </button>
+              </div>
+              <div id="palette-more" class="palette-more" hidden>
+                <div role="group" aria-label="More articulations">
+                  <button data-palette="deco:wedge">Staccatissimo</button>
+                  <button data-palette="deco:upbow">Up bow</button>
+                  <button data-palette="deco:downbow">Down bow</button>
+                  <button data-palette="deco:breath">Breath mark</button>
+                </div>
+                <div role="group" aria-label="Ornaments">
+                  <button data-palette="deco:trill">Trill</button>
+                  <button data-palette="deco:mordent">Mordent</button>
+                  <button data-palette="deco:turn">Turn</button>
+                  <button data-palette="deco:arpeggio">Arpeggio</button>
+                </div>
               </div>
               <div role="group" aria-label="Delete">
                 <button
@@ -597,10 +679,11 @@
         </p>
         <h2>Write, practice, and take it with you.</h2>
         <p>
-          Use ABC notation, the note buttons or the notation toolbar above the score to write music. Hear each note as
-          you enter it, play the score with built-in synthesized tones, change tempo, loop playback, and export ABC,
-          MIDI, or SVG. Use Print / PDF to produce a paper score. Transpose a score or a few measures by any interval or
-          to a new key. Choose a B♭ or E♭ instrument for written-pitch transposition with concert-pitch playback.
+          Use ABC notation, the note buttons or the notation toolbar above the score to write music, with articulations,
+          dynamics and ornaments; dynamics, accents and staccato change the playback. Hear each note as you enter it,
+          play the score with built-in synthesized tones, change tempo, loop playback, and export ABC, MIDI, or SVG. Use
+          Print / PDF to produce a paper score. Transpose a score or a few measures by any interval or to a new key.
+          Choose a B♭ or E♭ instrument for written-pitch transposition with concert-pitch playback.
         </p>
         <h2>Privacy and school access</h2>
         <p>

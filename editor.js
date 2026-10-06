@@ -934,6 +934,26 @@ function brokenPair(entry) {
   if (i > 0 && marked(notes[i - 1])) return [notes[i - 1], entry];
   return null;
 }
+// The note menu's marks: the five articulations with keys (a rest offers only the fermata) and the dynamics.
+function markItemsHTML(entry) {
+  const marks = noteMarks($('abc').value.slice(entry.element.startChar, entry.element.endChar));
+  if (!marks || markBlocked('dyn:', entry.element)) return '';
+  const keyOf = name => Object.keys(MARK_KEYS).find(k => MARK_KEYS[k] === name),
+    item = (action, label, glyph, checked, key) =>
+      `<button role="menuitemcheckbox" aria-checked="${checked}" data-edit="${action}" aria-label="${label}" title="${label}${key ? ` (${key.replace('"', '&quot;')})` : ''}">${glyph}</button>`;
+  return (
+    `<div class="menu-label">MARKS</div><div class="menu-row menu-marks">` +
+    Object.values(MARK_KEYS)
+      .filter(name => !markBlocked('deco:' + name, entry.element))
+      .map(name => item('deco:' + name, MARK_WORDS[name], MARK_GLYPHS[name], marks.marks.includes(name), keyOf(name)))
+      .join('') +
+    `</div><div class="menu-row menu-marks">` +
+    DYNAMICS.map(d =>
+      item('dyn:' + d, `${d}, ${DYNAMIC_WORDS[d]}`, `<i class="dynamic">${d}</i>`, marks.dynamic === d)
+    ).join('') +
+    '</div>'
+  );
+}
 function openNoteMenu(entry, display, x, y) {
   menuEntry = {entry, display};
   const isRest = !entry.element.pitches?.length,
@@ -962,6 +982,7 @@ function openNoteMenu(entry, display, x, y) {
     (isRest
       ? ''
       : `<button role="menuitemcheckbox" aria-checked="${/^-/.test(noteParts($('abc').value.slice(entry.element.startChar, entry.element.endChar))?.post || '')}" data-edit="tie">⁀ Tie to next note</button>`) +
+    markItemsHTML(entry) +
     `<div class="menu-row"><button role="menuitem" data-edit="play-from">▶ Play from here</button><button role="menuitem" data-edit="range-from">🔁 Practice from here</button></div>` +
     `<div class="menu-label">INSERT AFTER</div><div class="menu-row"><button role="menuitem" data-edit="rest-after">𝄽 Rest</button><button role="menuitem" data-edit="bar-after">| Bar line</button></div><hr><button role="menuitem" class="danger" data-edit="delete">Delete ${isRest ? 'rest' : 'note'}</button>`;
   const menu = $('note-menu');
@@ -999,14 +1020,85 @@ function beamGap(entry) {
   const gap = v.slice(from, next.element.startChar);
   return /^[ \t]*$/.test(gap) ? {from, to: next.element.startChar, joined: !gap, next} : null;
 }
+// Articulations, ornaments and dynamics (NOTE_MARKS and DYNAMICS in score-tools.js): the words the toolbar, the note
+// menu and the status line use, and the keys for the five common articulations.
+const MARK_WORDS = {
+  staccato: 'Staccato',
+  tenuto: 'Tenuto',
+  accent: 'Accent',
+  marcato: 'Marcato',
+  fermata: 'Fermata',
+  wedge: 'Staccatissimo',
+  upbow: 'Up bow',
+  downbow: 'Down bow',
+  breath: 'Breath mark',
+  trill: 'Trill',
+  mordent: 'Mordent',
+  turn: 'Turn',
+  arpeggio: 'Arpeggio'
+};
+const MARK_KEYS = {';': 'staccato', ':': 'tenuto', '>': 'accent', '"': 'marcato', '^': 'fermata'},
+  MARK_GLYPHS = {staccato: '•', tenuto: '–', accent: '>', marcato: '∧', fermata: '𝄐'},
+  DYNAMIC_WORDS = {
+    ppp: 'very, very soft',
+    pp: 'very soft',
+    p: 'soft',
+    mp: 'medium soft',
+    mf: 'medium loud',
+    f: 'loud',
+    ff: 'very loud',
+    fff: 'very, very loud',
+    sfz: 'sudden accent'
+  };
+// Why a mark (deco:<name> or dyn:<name>) cannot go on a note or rest, or '' when it can. A rest takes a dynamic or
+// a fermata; an invisible rest takes nothing.
+function markBlocked(action, element) {
+  if (element.rest?.type === 'invisible') return 'Invisible rests take no marks.';
+  if (action.startsWith('deco:') && !element.pitches?.length && action !== 'deco:fermata')
+    return 'Rests take only a dynamic or a fermata.';
+  return '';
+}
+// The status line after a mark edit, from the marks the note had before it.
+function markDone(action, before) {
+  const [kind, name] = action.split(':');
+  if (kind === 'dyn') return !name || before?.dynamic === name ? 'Dynamic removed.' : `Dynamic ${name}.`;
+  return MARK_WORDS[name] + (before?.marks.includes(name) ? ' removed.' : ' added.');
+}
+// A mark from a key or the note menu, saying what happened in the status line.
+function markNote(sel, action) {
+  const element = sel.entry.element,
+    blocked = markBlocked(action, element),
+    v = $('abc').value;
+  if (blocked) {
+    $('selection-status').textContent = blocked;
+    return;
+  }
+  const before = noteMarks(v.slice(element.startChar, element.endChar));
+  editNote(sel.entry, sel.display, action);
+  $('selection-status').textContent = $('abc').value === v ? 'No change.' : markDone(action, before);
+}
 // One edit on one note, shared by the note menu, the keyboard and the palette. Actions: acc:<^|_|=|>, len:<whole>,
-// dot, tie, to-rest, beam:join, beam:break, delete, rest-after, bar-after, play-from, range-from. Others do nothing.
+// dot, tie, to-rest, beam:join, beam:break, deco:<mark>, dyn:<dynamic|>, delete, rest-after, bar-after, play-from,
+// range-from. Others do nothing.
 function editNote(entry, display, action) {
   const area = $('abc'),
     v = area.value,
     start = entry.element.startChar,
     end = entry.element.endChar,
     old = v.slice(start, end);
+  if (/^(deco|dyn):/.test(action)) {
+    // deco toggles an articulation or ornament; dyn sets a dynamic, and the note's own dynamic (or none) removes it.
+    const [kind, name] = action.split(':'),
+      marks = noteMarks(old),
+      known = kind === 'dyn' ? !name || DYNAMICS.includes(name) : NOTE_MARKS.includes(name);
+    if (!marks || !known || markBlocked(action, entry.element)) return;
+    applyNoteEdit(
+      start,
+      end,
+      kind === 'dyn' ? setDynamic(old, marks.dynamic === name ? null : name || null) : toggleDecoration(old, name)
+    );
+    return;
+  }
   if (action === 'play-from') {
     playFromNote(display);
     return;
@@ -1113,7 +1205,8 @@ $('note-menu').addEventListener('click', e => {
     toast('Score updated. Right-click the note again.');
     return;
   }
-  editNote(picked.entry, picked.display, b.dataset.edit);
+  if (/^(deco|dyn):/.test(b.dataset.edit)) markNote(picked, b.dataset.edit);
+  else editNote(picked.entry, picked.display, b.dataset.edit);
 });
 document.addEventListener('mousedown', e => {
   if (!$('note-menu').hidden && !$('note-menu').contains(e.target)) closeNoteMenu();
@@ -1130,7 +1223,8 @@ window.addEventListener(
 );
 // Keyboard note entry on the score (MuseScore-style): A–G add a note after the selection in the nearest octave,
 // R or 0 a rest, 3–7 set the length (16th…whole), . dots, ↑↓ move by step (Ctrl: octave), ←→ change the selection,
-// # - = set sharp/flat/natural, + ties, | adds a bar line, Delete removes the note.
+// # - = set sharp/flat/natural, + ties, | adds a bar line, Delete removes the note, ; : > " ^ toggle staccato, tenuto,
+// accent, marcato and fermata.
 const LENGTH_KEYS = {3: 1 / 16, 4: 1 / 8, 5: 1 / 4, 6: 1 / 2, 7: 1};
 function focusScore() {
   $('notation').focus?.({preventScroll: true});
@@ -1317,6 +1411,10 @@ function scoreKey(e) {
   }
   if (key === 'Delete' || key === 'Backspace') {
     editNote(sel.entry, sel.display, 'delete');
+    return true;
+  }
+  if (MARK_KEYS[key]) {
+    markNote(sel, 'deco:' + MARK_KEYS[key]);
     return true;
   }
   if (!isNote) return false;

@@ -483,6 +483,56 @@ const {chromium} = require('playwright'),
   );
   await page.keyboard.press('Control+z');
   assert.equal(await kbody(), '^G6- G EF G A | B8 |]', 'A palette edit is one undo step');
+  // Articulations and dynamics: real key presses on a clicked note, palette clicks, More from the keyboard, the note menu.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:K\nM:4/4\nL:1/4\nK:C\nC D E F | G4 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  await page.locator('#notation .abcjs-notehead').nth(0).click({force: true});
+  for (const k of [';', ':', '>', '"', '^']) await page.keyboard.press(k);
+  assert.equal(await kbody(), '.!tenuto!!accent!!marcato!!fermata!C D E F | G4 |]', 'The five articulation keys');
+  assert.equal(
+    await pressedNow(),
+    'len:0.25 acc: deco:staccato deco:tenuto deco:accent deco:marcato deco:fermata',
+    'The palette shows every mark on the note'
+  );
+  await page.keyboard.press('>');
+  assert.equal(await page.locator('#selection-status').textContent(), 'Accent removed.');
+  await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+  await page.locator('[data-palette="dyn:mf"]').click();
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'notation', 'A mark press returns to the score');
+  await page.keyboard.press(';');
+  assert.equal(await kbody(), '.!tenuto!!marcato!!fermata!C !mf!.D E F | G4 |]');
+  assert.equal(
+    await page.evaluate(() => document.querySelectorAll('#notation .abcjs-dynamics').length),
+    1,
+    'The dynamic is engraved'
+  );
+  await page.keyboard.press('Control+z');
+  assert.equal(await kbody(), '.!tenuto!!marcato!!fermata!C !mf!D E F | G4 |]', 'Each mark is one undo step');
+  // Keyboard only: More opens from the toolbar and the arrow keys reach its buttons; closed, they are skipped.
+  await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+  await page.locator('[data-palette="more"]').focus();
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.palette), 'delete', 'Closed More is skipped');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.locator('[data-palette="more"]').getAttribute('aria-expanded'), 'true');
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.palette), 'deco:wedge');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Space');
+  assert.equal(await kbody(), '.!tenuto!!marcato!!fermata!C !mf!!trill!D E F | G4 |]', 'Space on Trill adds a trill');
+  // The note menu adds a dynamic.
+  await rightClick(page.locator('#notation .abcjs-notehead').nth(2));
+  await page.locator('#note-menu [data-edit="dyn:pp"]').click();
+  assert.equal(
+    await kbody(),
+    '.!tenuto!!marcato!!fermata!C !mf!!trill!D !pp!E F | G4 |]',
+    'Dynamic from the note menu'
+  );
+  await page.locator('[data-palette="more"]').click();
   // Writing prompts: blank bars of rests, typing writes over them, goals tick off live; keys follow written pitch.
   await page.evaluate(() => {
     dirty = false;
@@ -1163,6 +1213,8 @@ const {chromium} = require('playwright'),
   assert.deepEqual(await heard(), [349.23], 'Down arrow sounds the lowered note');
   await page.click('#draw-mode');
   {
+    // The point has to be on screen for the mouse to reach it, however tall the toolbar above the score is.
+    await page.locator('#notation svg').scrollIntoViewIfNeeded();
     const [x, y] = await page.evaluate(() => {
       const svg = $('notation').querySelector('svg'),
         st = renderedTune.engraver.staffgroups[0].staffs[0],
@@ -1317,6 +1369,7 @@ const {chromium} = require('playwright'),
     $('toast').style.display = 'none';
   });
   {
+    await page.locator('[data-palette="more"]').click();
     const boxes = await page.evaluate(() =>
       [...document.querySelectorAll('#palette [data-palette]')].map(b => {
         const r = b.getBoundingClientRect();
@@ -1346,7 +1399,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), legacy storage, mobile width, and no browser errors.'
+    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), legacy storage, mobile width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);
