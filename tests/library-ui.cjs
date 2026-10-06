@@ -7,6 +7,7 @@ const fs = require('node:fs'),
 const {JSDOM} = require(process.env.JSDOM_PATH || 'jsdom');
 const root = path.resolve(__dirname, '..');
 const SCRIPTS = [
+  'theme.js',
   'vendor/abcjs-basic-min.js',
   'vendor/qrcode.js',
   'catalog.js',
@@ -41,7 +42,7 @@ function boot(seed = () => {}, url = 'http://localhost:8000') {
   w.scrollTo = () => {};
   w.Element.prototype.scrollIntoView = () => {};
   w.confirm = () => true;
-  seed(w.localStorage);
+  seed(w.localStorage, w);
   for (const file of SCRIPTS) vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), ctx);
   return {w, run: s => vm.runInContext(s, ctx), $: id => w.document.getElementById(id)};
 }
@@ -1505,6 +1506,135 @@ assert.equal(
     );
     assert.equal(page.run('current.kind'), 'shared', 'Discard leaves the open score alone');
   }
+  // Theme: Auto, Light or Dark goes on <html> as the scripts start, persists, is backed up and restored. Dark paper
+  // shows only in the dark theme, and Auto follows the device as it switches.
+  {
+    const page = boot(storage => storage.setItem('fretfree-theme', '"purple"')),
+      html = page.w.document.documentElement;
+    assert.equal(page.$('theme').value, 'auto', 'A damaged theme falls back to Auto');
+    assert.equal(html.hasAttribute('data-theme'), false, 'Auto leaves the choice to the device');
+    assert.equal(page.$('dark-paper-option').hidden, true, 'No matchMedia: Auto is light, so Dark paper is hidden');
+    page.$('theme').value = 'dark';
+    page.$('theme').dispatchEvent(new page.w.Event('change'));
+    assert.equal(html.dataset.theme, 'dark');
+    assert.equal(page.run("storage.get('fretfree-theme')"), 'dark', 'The theme is remembered');
+    assert.equal(page.$('dark-paper-option').hidden, false, 'Dark paper is offered in the dark theme');
+    page.$('dark-paper').checked = true;
+    page.$('dark-paper').dispatchEvent(new page.w.Event('change'));
+    assert.equal(html.dataset.paper, 'dark');
+    assert.equal(page.run("storage.get('fretfree-dark-paper')"), true);
+    const settings = page.run('backupData().settings');
+    assert.equal(settings['fretfree-theme'], 'dark', 'The theme is backed up');
+    assert.equal(settings['fretfree-dark-paper'], true, 'Dark paper is backed up');
+    const before = page.$('notation').innerHTML;
+    page.$('theme').value = 'light';
+    page.$('theme').dispatchEvent(new page.w.Event('change'));
+    assert.equal(html.dataset.theme, 'light');
+    assert.equal(page.$('dark-paper-option').hidden, true, 'Dark paper is hidden in the light theme');
+    assert.equal(page.$('notation').innerHTML, before, 'A theme change does not redraw the score');
+    // Restoring a backup applies its theme straight away.
+    page.run(
+      `applyBackup(${JSON.stringify({app: 'FretFree', format: 1, scores: [], settings: {'fretfree-theme': 'dark', 'fretfree-dark-paper': false}})})`
+    );
+    page.run('applyStoredSettings()');
+    assert.deepEqual(
+      [html.dataset.theme, html.hasAttribute('data-paper'), page.$('theme').value, page.$('dark-paper').checked],
+      ['dark', false, 'dark', false],
+      'A restored theme applies at once'
+    );
+    // A device in dark mode: Auto is dark and offers Dark paper; switching the device back to light hides it.
+    let listeners = [],
+      deviceDark = true;
+    const darkDevice = win => {
+        listeners = [];
+        deviceDark = true;
+        win.matchMedia = query => ({
+          media: query,
+          get matches() {
+            return /dark/.test(query) && deviceDark;
+          },
+          addEventListener: (type, fn) => listeners.push(fn)
+        });
+      },
+      switchDevice = dark => {
+        deviceDark = dark;
+        listeners.forEach(fn => fn({matches: dark}));
+      };
+    const device = boot((storage, win) => {
+      darkDevice(win);
+      storage.setItem('fretfree-dark-paper', 'true');
+    });
+    assert.equal(device.$('theme').value, 'auto');
+    assert.equal(device.w.document.documentElement.dataset.paper, 'dark', 'Dark paper is applied at start-up');
+    assert.equal(device.$('dark-paper-option').hidden, false, 'Auto on a dark device offers Dark paper');
+    assert.equal(device.$('dark-paper').checked, true);
+    switchDevice(false);
+    assert.equal(device.$('dark-paper-option').hidden, true, 'Auto follows the device back to light');
+    // Storage full or blocked: Theme and Dark paper still apply for the session, and a device switch keeps them.
+    const full = boot((storage, win) => {
+        darkDevice(win);
+        win.Storage.prototype.setItem = () => {
+          throw new win.DOMException('Storage is full', 'QuotaExceededError');
+        };
+      }),
+      fullRoot = full.w.document.documentElement,
+      choose = (id, value) => {
+        if (id === 'theme') full.$(id).value = value;
+        else full.$(id).checked = value;
+        full.$(id).dispatchEvent(new full.w.Event('change'));
+      },
+      shown = () => [
+        full.$('theme').value,
+        fullRoot.getAttribute('data-theme'),
+        full.$('dark-paper').checked,
+        fullRoot.getAttribute('data-paper'),
+        full.$('dark-paper-option').hidden
+      ];
+    choose('theme', 'dark');
+    assert.deepEqual(shown(), ['dark', 'dark', false, null, false], 'Dark applies although it cannot be saved');
+    assert.equal(full.run('storage.get(KEYS.theme)'), undefined, 'and nothing was saved');
+    choose('dark-paper', true);
+    assert.deepEqual(shown(), ['dark', 'dark', true, 'dark', false], 'Dark paper applies although it cannot be saved');
+    switchDevice(false);
+    assert.deepEqual(shown(), ['dark', 'dark', true, 'dark', false], 'A device switch keeps the unsaved choice');
+    choose('theme', 'auto');
+    assert.deepEqual(shown(), ['auto', null, true, 'dark', true], 'Auto on a light device hides Dark paper');
+    switchDevice(true);
+    assert.deepEqual(shown(), ['auto', null, true, 'dark', false], 'and the device going dark shows it, still ticked');
+  }
+  // theme.js runs first, without defer and ahead of the stylesheet, so the stored theme is on <html> before the first
+  // paint instead of after the catalogs download. It reads the KEYS names before KEYS exists and skips damaged values.
+  {
+    const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8'),
+      tag = html.match(/<script[^>]*\ssrc="theme\.js[^"]*"[^>]*>/);
+    assert.ok(tag, 'index.html loads theme.js');
+    assert.doesNotMatch(tag[0], /\s(defer|async)\b/, 'theme.js is not deferred');
+    assert.ok(
+      tag.index < html.indexOf('<link rel="stylesheet"') && tag.index < html.indexOf('<script defer'),
+      'theme.js comes before the stylesheet and the deferred scripts'
+    );
+    const keys = run('[KEYS.theme, KEYS.darkPaper]'),
+      early = (theme, paper, blocked, hash = '') => {
+        const dom = new JSDOM(html, {runScripts: 'outside-only', url: 'http://localhost:8000/' + hash});
+        if (theme !== undefined) dom.window.localStorage.setItem(keys[0], theme);
+        if (paper !== undefined) dom.window.localStorage.setItem(keys[1], paper);
+        if (blocked)
+          dom.window.Storage.prototype.getItem = () => {
+            throw new dom.window.DOMException('Blocked', 'SecurityError');
+          };
+        vm.runInContext(fs.readFileSync(path.join(root, 'theme.js'), 'utf8'), dom.getInternalVMContext());
+        const el = dom.window.document.documentElement;
+        return [el.getAttribute('data-theme'), el.getAttribute('data-paper')];
+      };
+    assert.deepEqual(early('"dark"', 'true'), ['dark', 'dark'], 'Stored Dark and Dark paper apply before shared.js');
+    assert.deepEqual(early('"light"', 'false'), ['light', null]);
+    assert.deepEqual(early('"auto"'), [null, null], 'Auto leaves the choice to the device');
+    assert.deepEqual(early('"purple"', '"yes"'), [null, null], 'Damaged values are ignored');
+    assert.deepEqual(early('{broken', 'true'), [null, 'dark']);
+    assert.deepEqual(early('"dark"', 'true', true), [null, null], 'Blocked storage does not stop the page');
+    assert.deepEqual(early('"dark"', 'true', false, '#e=abc'), [null, null], 'An embed reads no stored theme');
+    assert.deepEqual(early('"dark"', 'true', false, '#s=abc'), ['dark', 'dark'], 'A share link still does');
+  }
   // Opening MusicXML: .mxl and .musicxml files become an editable personal copy, with a report of what was left out,
   // a guessed instrument, and a FretFree export's rights metadata restored. Damaged and oversized files say so.
   {
@@ -1613,7 +1743,7 @@ assert.equal(
     assert.match(page.$('import-file').accept, /\.musicxml,\.xml,\.mxl/);
   }
   console.log(
-    'PASS (jsdom): embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors, zoom and the Chords switch), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, and opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files).'
+    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors, zoom and the Chords switch), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, and opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files).'
   );
 })().catch(e => {
   console.error(e);
