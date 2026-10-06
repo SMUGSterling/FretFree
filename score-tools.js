@@ -228,6 +228,247 @@ function setDynamic(text, dyn) {
   if (!placed) items.push(`!${dyn}!`);
   return items.join('') + parts.rest;
 }
+// Slurs, hairpins and trill lines over a run of notes in one voice. A slur is ( just before the first note's pitch
+// and ) after the last note's length and tie; a crescendo, diminuendo or trill line is a start decoration (!<(!,
+// !>(!, !trill(!) on its first note and an end one (!<)!, !>)!, !trill)!) on its last, before the pitch. abcjs
+// starts a note's text after any mark that follows a ( and reads .( as a dotted slur, so these decorations go before
+// slur and tuplet openings, and a slur opening goes before a staccato dot. Such a ( then sits just before the note's
+// text; it still counts as the note's.
+const LINE_KINDS = ['slur', 'crescendo', 'diminuendo', 'trill'],
+  LINE_MARKS = {crescendo: ['!<(!', '!<)!'], diminuendo: ['!>(!', '!>)!'], trill: ['!trill(!', '!trill)!']},
+  // The spellings abcjs reads, so that a line written another way comes off too.
+  LINE_DECORATIONS = {
+    '<(': ['crescendo', 1],
+    '<)': ['crescendo', -1],
+    'crescendo(': ['crescendo', 1],
+    'crescendo)': ['crescendo', -1],
+    '>(': ['diminuendo', 1],
+    '>)': ['diminuendo', -1],
+    'diminuendo(': ['diminuendo', 1],
+    'diminuendo)': ['diminuendo', -1],
+    'trill(': ['trill', 1],
+    'trill)': ['trill', -1]
+  },
+  // A new line replaces the lines of its family it covers: a crescendo replaces a diminuendo.
+  LINE_FAMILY = {
+    slur: ['slur'],
+    crescendo: ['crescendo', 'diminuendo'],
+    diminuendo: ['crescendo', 'diminuendo'],
+    trill: ['trill']
+  };
+// Comments, field lines, quoted text, grace notes and inline fields are skipped. V: lines and [V:] fields change the
+// voice, & starts an overlay voice that ends at the bar line, and X: starts a new tune.
+const LINE_TOKEN =
+  /%[^\n]*|(?:^|\n)(?:[A-Za-z+]:|%%)[^\n]*|"[^"]*"|\{[^}]*\}|\[[A-Za-z]:[^\]\n]*\]|([!+])([^!+\n]*)\1|\(\d+(?::\d*){0,2}|[()&|]/g;
+// A note's text from just after a slur opening to its length, tie and broken rhythm; the group is its pitch, chord or
+// rest.
+const LINE_NOTE =
+  /(?:"[^"]*"|![^!]*!|\+[^+]*\+|\{[^}]*\}|\((?:\d+(?::\d*){0,2})?|[.~HLMOPSTuv]|\s)*(\[[^\]]*\]|(?:\^{1,2}|_{1,2}|=)?[A-Ga-g][,']*|[zx])\d*\/*\d*[-<>]*/y;
+// abcjs starts a note's text after a slur or tuplet opening that a mark or grace note follows ((.C, (3{d}c), so such
+// openings just before a note's text, and the marks before them, are the note's too.
+const LINE_BEFORE =
+  /(?:"[^"]*"|![^!\n]*!|\+[^+\n]*\+|\{[^}]*\}|[.~]|\((?:\d+(?::\d*){0,2})?)*\((?:\d+(?::\d*){0,2})?[ \t]*$/;
+function lineStart(abc, at) {
+  if (!/[(\d: \t]/.test(abc[at - 1] || '')) return at;
+  return at - (abc.slice(Math.max(0, at - 80), at).match(LINE_BEFORE)?.[0].length || 0);
+}
+// abcjs pairs the slurs of chords and rests (0) apart from those of single notes (1): a ) closes the newest open slur
+// of its own sort, or else the newest of the first sort that has one. It reads a note's ) before its (, so in
+// (C D (E) F) the ) on E closes the slur from C and the ( on E opens one to F, and it drops a ( before a rest.
+function closeSort(abc, at) {
+  while (at > 0 && /[)\-\d/<>]/.test(abc[at - 1])) at--;
+  return /[\]zxZX]/.test(abc[at - 1] || '') ? 0 : 1;
+}
+// Whether a ( that ends at open and the ) at close are on one note, as in (E) or ((E)).
+function sameNote(abc, open, close) {
+  LINE_NOTE.lastIndex = open;
+  if (!LINE_NOTE.exec(abc) || LINE_NOTE.lastIndex > close) return false;
+  for (let i = LINE_NOTE.lastIndex; i < close; i++) if (abc[i] !== ')') return false;
+  return true;
+}
+// Every slur, hairpin and trill line in the ABC, paired as abcjs pairs them, each {kind, voice, open, close} with the
+// [start, end) of its marks: open is null for an end mark that closes nothing and close is null for a line never
+// closed. A hairpin or trill line that starts while one of its kind is open leaves that one unclosed. voices lists
+// where each voice's text starts ({at, voice}, in order), so a line in a voice written in blocks (V:1, V:2, V:1 ...)
+// carries on in the voice's next block. The last result is kept, as a toolbar refresh asks for it several times.
+let lineMemo = null;
+function linePairs(abc) {
+  if (lineMemo?.abc === abc) return lineMemo;
+  const pairs = [],
+    voices = [],
+    open = new Map(),
+    token = new RegExp(LINE_TOKEN.source, 'g');
+  let tune = 0,
+    base = '0:',
+    voice = null,
+    overlay = 0;
+  const enter = (id, at) => {
+    if (id !== voice) voices.push({at, voice: id});
+    voice = id;
+  };
+  enter(base, 0);
+  for (let m; (m = token.exec(abc));) {
+    const t = m[0],
+      at = m.index;
+    const field = /^\n?\[?([VX]):\s*([^\s\]]*)/.exec(t);
+    if (field) {
+      if (field[1] === 'X') tune++;
+      base = `${tune}:${field[1] === 'V' ? field[2] : ''}`;
+      overlay = 0;
+      enter(base, at);
+      continue;
+    }
+    if (t === '&' || (t === '|' && overlay)) {
+      overlay = t === '&' ? overlay + 1 : 0;
+      enter(overlay ? `${base}&${overlay}` : base, at);
+      continue;
+    }
+    const [kind, dir] = t === '(' ? ['slur', 1] : t === ')' ? ['slur', -1] : (m[1] && LINE_DECORATIONS[m[2]]) || [];
+    if (!kind) continue;
+    if (!open.has(voice)) open.set(voice, {slur: [[], []]});
+    const lines = open.get(voice),
+      span = [at, at + t.length];
+    let pair = null;
+    if (kind === 'slur' && dir > 0) {
+      LINE_NOTE.lastIndex = span[1];
+      const core = LINE_NOTE.exec(abc)?.[1] || '';
+      if (/^[zx]/.test(core)) continue;
+      lines.slur[core[0] === '[' ? 0 : 1].push((pair = {kind, voice, open: span, close: null}));
+    } else if (kind === 'slur') {
+      const newest = stack => stack.findLastIndex(p => !sameNote(abc, p.open[1], at)),
+        stack = [lines.slur[closeSort(abc, at)], ...lines.slur].find(s => newest(s) >= 0);
+      if (stack) stack.splice(newest(stack), 1)[0].close = span;
+      else pair = {kind, voice, open: null, close: span};
+    } else if (dir > 0) lines[kind] = pair = {kind, voice, open: span, close: null};
+    else if (lines[kind]) {
+      lines[kind].close = span;
+      lines[kind] = null;
+    } else pair = {kind, voice, open: null, close: span};
+    if (pair) pairs.push(pair);
+  }
+  return (lineMemo = {abc, pairs, voices});
+}
+function voiceAt(voices, at) {
+  let voice = voices[0]?.voice;
+  for (const v of voices) if (v.at <= at) voice = v.voice;
+  return voice;
+}
+// The line of a kind that opens on note first ({startChar, endChar}, as abcjs gives them) and closes on note last,
+// or anywhere when last is null; null when there is none.
+function lineAt(abc, first, last, kind) {
+  const from = lineStart(abc, first.startChar),
+    to = last && lineStart(abc, last.startChar);
+  return (
+    linePairs(abc).pairs.find(
+      p =>
+        p.kind === kind &&
+        p.open?.[0] >= from &&
+        p.open[0] < first.endChar &&
+        (!last || (p.close?.[0] >= to && p.close[0] < last.endChar))
+    ) || null
+  );
+}
+// Where a line's mark goes in a note's text: before the pitch, but before the slur and tuplet openings that end the
+// prefix (a slur opening goes after them, but before a staccato dot just ahead of the pitch). An end mark goes before
+// a start mark of its kind, so that a line ending on the note ends before the next one starts there.
+function lineSlot(text, kind, end) {
+  const items = String(text).match(MARK_PRE)?.[0].match(PRE_ITEM) || [];
+  let i = items.length;
+  if (kind === 'slur') {
+    if (items[i - 1] === '.') i--;
+  } else {
+    while (i > 0 && /^(?:\(\d*(?::\d*)*|\s)$/.test(items[i - 1])) i--;
+    if (end) {
+      const starts = items.findIndex(item => {
+        const [k, dir] = LINE_DECORATIONS[/^([!+])(.*)\1$/.exec(item)?.[2]] || [];
+        return k === kind && dir > 0;
+      });
+      if (starts >= 0) i = Math.min(i, starts);
+    }
+  }
+  // abcjs can start a note at the space after a bar line; the mark goes after that space.
+  while (i < items.length && !items[i].trim()) i++;
+  return items.slice(0, i).join('').length;
+}
+// The edits ({at, remove, insert}, source positions) that toggle a line of a kind from note first to note last.
+// When that line is there it comes off, and only its marks change. Otherwise the new line goes on, and the lines of
+// its family in the same voice that share more than an end note with it come off, with stray end marks inside it:
+// lines of a kind never cross, and a crescendo replaces a diminuendo. A slur around the run stays (a phrase mark over
+// shorter slurs) unless abcjs would then pair the new slur with it. Lines that only meet the run at its first or last
+// note stay, so slurs and hairpins can follow on from one another. With last null, a line opening on the first note
+// comes off and nothing else happens. Slurs and trill lines join notes; a hairpin may start or end on a rest. Returns
+// {on, edits}, or null when there is nothing to do.
+function lineEdits(abc, first, last, kind) {
+  if (!LINE_KINDS.includes(kind)) return null;
+  const off = p => [p.open, p.close].filter(Boolean).map(([s, e]) => ({at: s, remove: e - s, insert: ''})),
+    here = lineAt(abc, first, last, kind);
+  if (here) return {on: false, edits: off(here)};
+  if (!last || last.startChar < first.endChar) return null;
+  const firstText = abc.slice(first.startChar, first.endChar),
+    lastText = abc.slice(last.startChar, last.endChar),
+    hairpin = kind === 'crescendo' || kind === 'diminuendo',
+    fits = text => (hairpin ? !!noteMarks(text) : /^[[A-Ga-g^_=]/.test(noteParts(text)?.core || ''));
+  if (!fits(firstText) || !fits(lastText)) return null;
+  const {pairs, voices} = linePairs(abc),
+    voice = voiceAt(voices, first.startChar),
+    from = lineStart(abc, first.startChar),
+    to = lineStart(abc, last.startChar),
+    shares = p =>
+      p.open
+        ? p.open[0] < to && (p.close?.[0] ?? Infinity) >= first.endChar
+        : p.close[0] >= first.endChar && p.close[0] < last.endChar,
+    around = p => kind === 'slur' && p.open?.[0] < from && (p.close?.[0] ?? Infinity) >= last.endChar,
+    near = pairs.filter(p => p.voice === voice && LINE_FAMILY[kind].includes(p.kind) && shares(p));
+  let marks;
+  if (kind === 'slur') {
+    const m = lastText.match(NOTE_PARTS);
+    marks = [
+      {at: first.startChar + lineSlot(firstText, kind), remove: 0, insert: '('},
+      {
+        at: last.startChar + m[1].length + m[2].length + m[3].length + m[4].match(/^-?\)*/)[0].length,
+        remove: 0,
+        insert: ')'
+      }
+    ];
+  } else
+    marks = [
+      {at: first.startChar + lineSlot(firstText, kind), remove: 0, insert: LINE_MARKS[kind][0]},
+      {at: last.startChar + lineSlot(lastText, kind, true), remove: 0, insert: LINE_MARKS[kind][1]}
+    ];
+  for (const keep of [true, false]) {
+    const edits = near
+      .filter(p => !keep || !around(p))
+      .flatMap(off)
+      .concat(marks);
+    if (pairsUp(abc, edits, kind)) return {on: true, edits};
+  }
+  return null;
+}
+// Whether the line whose two marks end the edits reads as one line once they are made.
+function pairsUp(abc, edits, kind) {
+  const moved = at => edits.reduce((sum, e) => (e.at < at ? sum + e.insert.length - e.remove : sum), at),
+    [open, close] = edits.slice(-2).map(e => moved(e.at));
+  return linePairs(applyLineEdits(abc, edits)).pairs.some(
+    p => p.kind === kind && p.open?.[0] === open && p.close?.[0] === close
+  );
+}
+// Apply lineEdits' edits, last first; at one position a removal goes before an insertion.
+function applyLineEdits(abc, edits) {
+  for (const e of [...edits].sort((a, b) => b.at - a.at || b.remove - a.remove))
+    abc = abc.slice(0, e.at) + e.insert + abc.slice(e.at + e.remove);
+  return abc;
+}
+function toggleLine(abc, first, last, kind) {
+  const change = lineEdits(abc, first, last, kind);
+  return change ? applyLineEdits(abc, change.edits) : abc;
+}
+function toggleSlur(abc, first, last) {
+  return toggleLine(abc, first, last, 'slur');
+}
+// kind: 'crescendo', 'diminuendo' or 'trill'.
+function toggleSpan(abc, first, last, kind) {
+  return kind === 'slur' ? abc : toggleLine(abc, first, last, kind);
+}
 // Chord symbols: a quoted string before a note that does not start with ^ _ < > @ (those place text annotations).
 // abcjs prints any such string above the staff. A chord symbol is a root (A–G), an optional sharp or flat, a quality
 // and an optional bass after a slash, optionally in parentheses; N.C. means no chord. The quality is an optional triad
@@ -1725,7 +1966,8 @@ function melodyNotes(notes) {
   const first = Math.min(...notes.map(n => n.ch ?? 0));
   return notes.filter(n => (n.ch ?? 0) === first);
 }
-// Decode MIDI note and tempo events generated by abcjs, including polyphonic voices.
+// Decode MIDI note and tempo events generated by abcjs, including polyphonic voices. quarter is the opening tempo,
+// in seconds per quarter note.
 function parseMidi(bytes) {
   const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
     division = v.getUint16(12);
@@ -1803,7 +2045,138 @@ function parseMidi(bytes) {
     }
   }
   for (const n of active.values()) notes.push({...n, duration: Math.max(0.1, time - n.start)});
-  return {notes, duration: Math.max(time, ...notes.map(n => n.start + n.duration), 0)};
+  return {
+    notes,
+    duration: Math.max(time, ...notes.map(n => n.start + n.duration), 0),
+    quarter: (events.find(e => e.tempo)?.tempo || 500000) / 1000000
+  };
+}
+// Swing feel, a score setting written as tempo text and an abc2midi directive: Q:"Swing" 1/4=120 and %%MIDI swing 66.
+// The amount is the on-beat eighth's share of the quarter beat in percent: 66 is a triplet feel, 50 or less is
+// straight. A "swing" tempo text in the header without the directive means 66; amounts stop at 75, as in abcjs.
+const SWING_LINE = /^%%MIDI[ \t]+swing\b.*$/im,
+  SWING_TEXT = /"[^"]*swing[^"]*"/i;
+// The header's Q: line, before K:; a Q: in the tune body is a tempo change.
+function headerTempo(lines) {
+  const k = lines.findIndex(line => /^K:/.test(line));
+  return (k >= 0 ? lines.slice(0, k) : lines).findIndex(line => /^Q:/.test(line));
+}
+function swingAmount(source) {
+  const directive = source.match(SWING_LINE)?.[0].match(/swing\s+(\d+(?:\.\d+)?)/i),
+    lines = source.split('\n');
+  if (directive) return +directive[1] > 50 ? Math.min(75, Math.round(+directive[1])) : 0;
+  return SWING_TEXT.test(lines[headerTempo(lines)] || '') ? 66 : 0;
+}
+// A Q: field's parts: the tempo text printed before the beat, the beat (1/4=120) and the text printed after it.
+function tempoParts(field) {
+  const m = field.trim().match(/^((?:"[^"]*"\s*)*)([^"]*?)\s*((?:"[^"]*"\s*)*)$/);
+  return m ? {pre: m[1].trim(), beat: m[2], post: m[3].trim()} : {pre: '', beat: field.trim(), post: ''};
+}
+// The beat abcjs plays a score at, as Q: writes it: the header tempo's, or abcjs's default for the meter when the
+// score has no Q:, only tempo text, or a bare number (Q:120, a beat of the meter).
+function playedBeat(source) {
+  const tune = ABCJS.parseOnly(source)[0],
+    tempo = tune?.metaText?.tempo,
+    fraction = length => {
+      const d = [1, 2, 4, 8, 16, 32, 64].find(d => Math.abs(length * d - Math.round(length * d)) < 1e-9) || 4;
+      return Math.round(length * d) + '/' + d;
+    };
+  if (tempo?.bpm > 0 && tempo.duration?.length) return tempo.duration.map(fraction).join(' ') + '=' + tempo.bpm;
+  return fraction(tune?.getBeatLength?.() || 0.25) + '=' + Math.round(tune?.getBpm?.() || 180);
+}
+// Set the feel in the header's tempo line, with the directive just above K:. Swing prints "Swing", or adds ", swing"
+// to tempo text already there such as "Allegro", and writes out the beat abcjs plays: abcjs drops a bare number after
+// tempo text, and plays text alone at another tempo than its note timing. Straight removes the directive and the
+// swing text, and keeps the beat and the other text.
+function setSwing(source, amount) {
+  amount = Math.min(75, Math.round(+amount) || 0);
+  const lines = source.split('\n').filter(line => !SWING_LINE.test(line)),
+    q = headerTempo(lines);
+  if (amount <= 50 && !SWING_TEXT.test(lines[q] || '')) return lines.join('\n');
+  let {pre, beat, post} = tempoParts(q >= 0 ? lines[q].slice(2) : '');
+  if (amount > 50) {
+    if (!beat.includes('=')) beat = playedBeat(source);
+    if (!SWING_TEXT.test(pre + post)) {
+      const add = text =>
+        text.replace(/"([^"]*)"/, (_, words) => `"${words.trim() ? words.trim() + ', swing' : 'Swing'}"`);
+      if (pre) pre = add(pre);
+      else if (post) post = add(post);
+      else pre = '"Swing"';
+    }
+  } else {
+    // "Allegro, swing" goes back to "Allegro"; other text that says swing goes.
+    const remove = text =>
+      text
+        .replace(/\s*"([^"]*)"/g, (all, words) => {
+          const rest = words.replace(/\s*,\s*swing$/i, '');
+          return !/swing/i.test(words) ? all : rest !== words && rest.trim() ? ` "${rest}"` : '';
+        })
+        .trim();
+    pre = remove(pre);
+    post = remove(post);
+  }
+  const text = 'Q:' + [pre, beat.trim(), post].filter(Boolean).join(' ');
+  if (q >= 0 && text === 'Q:') lines.splice(q, 1);
+  else if (q >= 0) lines[q] = text;
+  if (amount > 50) {
+    const k = lines.findIndex(line => /^K:/.test(line));
+    lines.splice(k >= 0 ? k : lines.length, 0, ...(q >= 0 ? [] : [text]), '%%MIDI swing ' + amount);
+  }
+  return lines.join('\n');
+}
+// Swung playback times. Within a quarter beat, times before the half-beat stretch and times after it shrink, so the
+// off-beat eighth starts late (at amount% of the beat) and its on-beat partner lasts longer. A beat is swung only in a
+// channel where it has an off-beat note and every note starts on the beat or halfway through it: sixteenths, triplets
+// and other channels' notes stay as written. origin is a time that falls on a beat (after a pickup). Times within
+// 1/64 beat of the grid count as on it, since MIDI ticks and abcjs's note timings are rounded. Each note keeps its
+// straight end, so playing from a note can leave out one that swing lengthened past it.
+function swingNotes(notes, beatSeconds, amount, origin = 0) {
+  if (!(amount > 50) || !(beatSeconds > 0)) return notes;
+  const a = Math.min(75, amount) / 100,
+    eps = 1 / 64,
+    place = t => {
+      const p = (t - origin) / beatSeconds,
+        beat = Math.floor(p + eps);
+      return {beat, f: p - beat};
+    };
+  const offbeat = new Set(),
+    uneven = new Set();
+  for (const n of notes) {
+    const {beat, f} = place(n.start),
+      key = (n.ch ?? 0) + ':' + beat;
+    if (Math.abs(f - 0.5) < eps) offbeat.add(key);
+    else if (f > eps) uneven.add(key);
+  }
+  const warp = (ch, t) => {
+    const {beat, f} = place(t),
+      key = ch + ':' + beat;
+    if (!offbeat.has(key) || uneven.has(key)) return t;
+    const g = f <= 0.5 ? (f * a) / 0.5 : a + ((f - 0.5) * (1 - a)) / 0.5;
+    return t + (g - f) * beatSeconds;
+  };
+  return notes.map(n => {
+    const ch = n.ch ?? 0,
+      start = warp(ch, n.start);
+    return {
+      ...n,
+      start,
+      duration: Math.max(0.025, warp(ch, n.start + n.duration) - start),
+      straightEnd: n.start + n.duration
+    };
+  });
+}
+// Swing decoded MIDI (parseMidi). bars lists each measure as played, {time, quarter, origin}: where it starts, its
+// quarter-note length in seconds and a time on its beat grid, all in the MIDI's seconds. Tempo changes stretch abcjs's
+// MIDI ticks rather than change its tempo, so the bars come from the score's timing, not from the MIDI tempo.
+function swingPlayback(data, amount, bars) {
+  if (!(amount > 50) || !bars?.length) return data;
+  const parts = bars.map(() => []);
+  let i = 0;
+  for (const n of [...data.notes].sort((a, b) => a.start - b.start)) {
+    while (i + 1 < bars.length && bars[i + 1].time <= n.start + 0.002) i++;
+    parts[i].push(n);
+  }
+  return {...data, notes: parts.flatMap((part, i) => swingNotes(part, bars[i].quarter, amount, bars[i].origin))};
 }
 
 // Share links: the whole score rides in the URL hash (#s=…), so no server ever holds student work.

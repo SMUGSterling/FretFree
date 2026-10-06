@@ -257,9 +257,18 @@ for (const [id, header] of [
     noteTyping(id);
     setHeader(header, id === 'bpm' ? '1/4=' + $(id).value : $(id).value);
     $('bpm-value').textContent = $('bpm').value;
+    if (id === 'meter') syncFeel();
     changed();
   });
 $('key').addEventListener('input', () => chooseKey($('key').value));
+// Feel writes the swing tempo text and %%MIDI swing into the ABC, so it prints, saves and shares with the score.
+$('feel').addEventListener('input', () => {
+  noteTyping('feel');
+  $('abc').value = setSwing($('abc').value, +$('feel').value);
+  // The Tempo slider follows the beat that swing writes out for a score with no Q:.
+  syncFields();
+  changed();
+});
 // On a prompt score the assignment is in written pitch, so a new instrument transposes the concert source to keep
 // every written note, and the written key, exactly where the student put them.
 $('instrument').onchange = () => {

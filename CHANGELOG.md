@@ -8,6 +8,26 @@
 
 ---
 
+# Slurs, hairpins and trill lines · 2026-10-06
+
+- Select notes and press **S** to slur them; **S** again takes the slur off. With one note selected the slur goes to the next note in the same voice, and **S** on that note again removes it.
+- The notation toolbar has a **Lines** group: **Slur**, **Cresc.**, **Dim.** and **Trill line**. Each puts its line over the selected notes, or from one note to the next, and lights up while the selection has it; pressing a lit one takes the line off. The status line says what changed, or why nothing did (a slur on a rest, no next note).
+- Slurs and trill lines run from the first to the last selected note and leave out rests at either end; a hairpin may start or end on a rest. A new line replaces the lines of its kind that it covers or crosses, so slurring a longer run joins two short slurs into one, and a crescendo replaces a diminuendo. A slur around it stays, as a phrase mark, and so do lines that only meet it at its first or last note.
+- Slurs are read the way abcjs draws them: a note's `)` ends a slur from an earlier note, so `(C D (E) F)` is a slur from C to E and one from E to F, and **S** on either takes off just that one; slurs on chords and rests pair apart from slurs on single notes, as in abcjs, and where that would join a new slur to the slur around it, the slur around it comes off. A line also carries on into the voice's next block in scores that write their voices in turns (`V:1`, `V:2`, `V:1` …).
+- Lines go into the ABC as `(` … `)`, `!<(!` … `!<)!`, `!>(!` … `!>)!` and `!trill(!` … `!trill)!`. Spellings such as `!crescendo(!` come off too. abcjs starts a note's text after any mark that follows a `(`, and reads `.(` as a dotted slur, so hairpin and trill marks go before slur and tuplet openings and a slur opening goes before a staccato dot. A slur written just before a staccato dot is still found and taken off. Each change is one undo step that keeps the selection.
+- abcjs draws only the tr of a trill line, so FretFree draws the wavy line from the tr to the end of the last note, carrying on across system breaks; it shows in embedded scores, prints and SVG exports. Hairpins change the playback volume note by note, in exported MIDI too; trill lines print but the notes play as written. Slurs, hairpins and trill lines parse without warnings and survive transposition. `lineEdits`, `toggleSlur` and `toggleSpan` in score-tools.js do the editing.
+
+---
+
+# Swing feel · 2026-10-06
+
+- **Feel** in Score settings plays a score straight or with a swing feel: Light swing (60), Swing (66) or Hard swing (75). The off-beat eighth of each quarter beat starts late, at that percent of the beat, and the on-beat eighth before it lasts longer, so at Swing and 120 BPM the second of two eighths starts at 2/3 of the beat instead of halfway.
+- Only beats made of eighths swing: a beat with sixteenths, triplets or other off-beat notes plays as written, each voice on its own. A pickup eighth swings as an off-beat, also when it is played again at a repeat or leads into a new section. Each measure swings at its own tempo, through tempo changes and repeats, at any tempo and in 2/2 and C|. Meters that are not x/4 or x/2 play straight, and the menu says so.
+- The feel is written into the ABC header, where it prints and travels with saved scores and share links: `Q:"Swing" 1/4=120` (the tempo text abcjs prints above the staff) and `%%MIDI swing 66` (the abc2midi directive). Tempo text already there stays: "Allegro" becomes "Allegro, swing", and Straight turns it back. Choosing a feel keeps the tempo: a score with no `Q:`, a bare number such as `Q:120` or tempo text alone gets the beat it plays at written out (1/4=180 for a score with no `Q:`), because abcjs ignores a bare number after tempo text. Tempo text alone that abcjs does not know, which played at 60 but highlighted at 180, then plays at 180. A tempo change in the tune body stays where it is. Straight removes the directive and the swing text and keeps the beat. The Tempo slider and `setHeader('Q')` keep the tempo text before and after the beat. Each change is one undo step.
+- Playing from a swung off-beat note starts with that note. Straight scores play exactly as before. The note highlight, metronome, count-in and MIDI export keep the straight beat. The pure `swingAmount()`, `setSwing()`, `tempoParts()`, `swingNotes()` and `swingPlayback()` are in score-tools.js, and `parseMidi()` also reports the opening tempo.
+
+---
+
 # Embed code and QR code for share links · 2026-10-06
 
 - The share panel has **Link**, **Embed** and **QR code** tabs (arrow keys, Home and End move between them). All three describe the score that was shared, and the panel closes when another score opens.

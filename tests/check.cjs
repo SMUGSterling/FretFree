@@ -257,6 +257,318 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     );
   }
 }
+// Slurs, hairpins and trill lines over a run of notes: toggleSlur and toggleSpan write ( … ) and the !<(! … !<)!,
+// !>(! … !>)! and !trill(! … !trill)! decorations, take them off again, replace the lines of the same family they
+// cover or cross (keeping a slur around them and lines that only meet them at an end note), and keep each note's text
+// whole for abcjs (decorations before slur and tuplet openings, ( before a staccato dot). Slurs pair as abcjs pairs
+// them, and a line goes on in its voice's next block.
+{
+  const head = 'X:1\nL:1/4\nM:4/4\nK:C\n',
+    tuneOf = body => ABCJS.parseOnly(head + body + '\n')[0],
+    notesOf = tune =>
+      tune.lines.flatMap(l => l.staff || []).flatMap(s => s.voices[0].filter(e => e.el_type === 'note')),
+    toggle = (body, i, j, kind) => {
+      const abc = head + body + '\n',
+        notes = notesOf(tuneOf(body)),
+        last = j == null ? null : notes[j];
+      return (kind === 'slur' ? context.toggleSlur(abc, notes[i], last) : context.toggleSpan(abc, notes[i], last, kind))
+        .slice(head.length)
+        .trim();
+    };
+  for (const [body, i, j, kind, expected] of [
+    ['C D E F|', 0, 3, 'slur', '(C D E F)|'],
+    ['(C D E F)|', 0, 3, 'slur', 'C D E F|'],
+    ['(C D) (E F)|G', 0, 3, 'slur', '(C D E F)|G'],
+    ['(C D) E (F|G)', 0, 3, 'slur', '(C D E (F)|G)'],
+    ['(C D E F|G)|', 0, 2, 'slur', '(C D E) F|G|'],
+    ['"G"!p!.C D E F2-|', 0, 3, 'slur', '"G"!p!(.C D E F2-)|'],
+    ['"G"(.C D E) F|', 0, null, 'slur', '"G".C D E F|'],
+    ['C (D E F|G) A|', 1, null, 'slur', 'C D E F|G A|'],
+    ['C D E F|', 0, null, 'slur', 'C D E F|'],
+    ['(3C D E F|', 0, 3, 'slur', '(3(C D E F)|'],
+    ['C D>E F|', 0, 2, 'slur', '(C D>E) F|'],
+    ['[CE] D [EG]2-|[EG]', 0, 2, 'slur', '([CE] D [EG]2-)|[EG]'],
+    ['z D E z|', 0, 3, 'slur', 'z D E z|'],
+    ['C D E F|', 0, 3, 'crescendo', '!<(!C D E !<)!F|'],
+    ['!<(!C D E !<)!F|', 0, 3, 'crescendo', 'C D E F|'],
+    ['!crescendo(!C D E !crescendo)!F|', 0, 3, 'crescendo', 'C D E F|'],
+    ['!>(!C D E !>)!F|', 0, 3, 'crescendo', '!<(!C D E !<)!F|'],
+    ['C D E F|', 0, 3, 'diminuendo', '!>(!C D E !>)!F|'],
+    ['(3C D E F|', 0, 3, 'crescendo', '!<(!(3C D E !<)!F|'],
+    ['(C D) E F|', 1, 3, 'crescendo', '(C !<(!D) E !<)!F|'],
+    ['C D | E F|', 1, 2, 'crescendo', 'C !<(!D | !<)!E F|'],
+    ['C D | (E F)|', 1, 2, 'trill', 'C !trill(!D | !trill)!(E F)|'],
+    ['z D E Z|', 0, 3, 'crescendo', '!<(!z D E !<)!Z|'],
+    ['x D E F|', 0, 3, 'crescendo', 'x D E F|'],
+    ['C D E F|', 0, 3, 'trill', '!trill(!C D E !trill)!F|'],
+    ['!trill(!C D E !trill)!F|', 0, null, 'trill', 'C D E F|'],
+    // Chained slurs: abcjs reads a note's ) before its (, so (C D (E) F) is C to E and E to F.
+    ['(C D E) F|', 2, 3, 'slur', '(C D (E) F)|'],
+    ['(C D (E) F)|', 0, 2, 'slur', 'C D (E F)|'],
+    ['(C D (E) F)|', 2, 3, 'slur', '(C D E) F|'],
+    ['(C D (E) F)|', 2, null, 'slur', '(C D E) F|'],
+    ['(C (D) E) F|', 1, null, 'slur', '(C D) E F|'],
+    ['(C D>)E F|', 1, 3, 'slur', '(C (D>)E F)|'],
+    // Lines that start before the run and end inside it come off; a slur around it stays, a hairpin around it goes.
+    ['(B, C D) E F|', 1, 3, 'slur', 'B, (C D E) F|'],
+    ['!<(!B, C D !<)!E F|', 1, 4, 'crescendo', 'B, !<(!C D E !<)!F|'],
+    ['!<(!B, C D !<)!E F|', 1, 4, 'diminuendo', 'B, !>(!C D E !>)!F|'],
+    ['!trill(!B, C D !trill)!E F|', 1, 4, 'trill', 'B, !trill(!C D E !trill)!F|'],
+    ['(B, C D E F)|', 1, 3, 'slur', '(B, (C D E) F)|'],
+    ['!<(!B, C D E !<)!F|', 1, 3, 'crescendo', 'B, !<(!C D !<)!E F|'],
+    ['(B, C D E F|', 1, 3, 'slur', '(B, (C D E) F|'],
+    ['C D) E F|', 0, 3, 'slur', '(C D E F)|'],
+    // abcjs pairs slurs on chords and rests apart from slurs on single notes, so this slur would take the outer one's
+    // end; the outer one comes off instead.
+    ['(C [CE] D E)|', 1, 2, 'slur', 'C ([CE] D) E|'],
+    ['([CE] C D [EG])|', 1, 2, 'slur', '([CE] (C D) [EG])|'],
+    // Hairpins meeting at a note: the one ending there ends before the next starts.
+    ['C D !<(!E !<)!F|', 0, 2, 'crescendo', '!<(!C D !<)!!<(!E !<)!F|'],
+    ['!<(!C !<)!D E F|', 1, 3, 'crescendo', '!<(!C !<)!!<(!D E !<)!F|'],
+    // Marks just before a ( that abcjs starts the note after are the note's.
+    ['!<(!(.C D) E !<)!F|', 0, 3, 'crescendo', '(.C D) E F|'],
+    ['((3{d}C D E)|', 0, 2, 'slur', '(3{d}C D E|']
+  ]) {
+    const result = toggle(body, i, j, kind);
+    assert.equal(result, expected, `${kind} from note ${i} to ${j} on ${body}`);
+    assert.ok(!tuneOf(result).warnings?.length, `${result} parses cleanly: ${tuneOf(result).warnings}`);
+  }
+  // FretFree finds the slurs abcjs draws, and no others.
+  for (const body of [
+    '(C D (E) F)|',
+    '(C (D) E) F|',
+    '((C D) E)|',
+    '(C D (E F))|',
+    '((E)) F)|',
+    '(C ([CE] D) E)|',
+    '([CE] (D [EG]) F)|',
+    '(z C) (D z)|',
+    '(  .D E) F|'
+  ]) {
+    const abc = head + body + '\n',
+      notes = notesOf(tuneOf(body)),
+      open = new Map(),
+      drawn = [];
+    notes.forEach((n, k) => {
+      for (const label of [n, ...(n.pitches || [])].flatMap(x => x.endSlur || []))
+        if (open.has(label)) (drawn.push([open.get(label), k]), open.delete(label));
+      for (const {label} of [n, ...(n.pitches || [])].flatMap(x => x.startSlur || [])) open.set(label, k);
+    });
+    for (const [i, j] of drawn) assert.ok(context.lineAt(abc, notes[i], notes[j], 'slur'), `${body}: ${i} to ${j}`);
+    assert.equal(
+      context.linePairs(abc).pairs.filter(p => p.kind === 'slur' && p.open && p.close).length,
+      drawn.length,
+      body
+    );
+  }
+  // A voice written in blocks (V:1, V:2, V:1 ...): a line goes on to the voice's next block, and comes off again.
+  for (const voice of ['V:1\n', '[V:1] ']) {
+    const other = voice.replace('1', '2'),
+      abc = `${head}${voice}C D E F|\n${other}C, D, E, F,|\n${voice}G A B c|\n${other}G, A, B, C|\n`,
+      first = abc => {
+        const notes = ABCJS.parseOnly(abc)[0].lines.flatMap(l =>
+          l.staff[0].voices[0].filter(e => e.el_type === 'note')
+        );
+        return [notes[3], notes[4], notes[2]];
+      },
+      [f, g] = first(abc),
+      slurred = context.toggleSlur(abc, f, g);
+    assert.equal(slurred, abc.replace('F|', '(F|').replace('G A', 'G) A'));
+    assert.equal(context.toggleSlur(slurred, ...first(slurred).slice(0, 2)), abc, 'Taken off again');
+    assert.equal(context.toggleSlur(slurred, first(slurred)[0], null), abc, 'Taken off from its first note');
+    const [, g2, e2] = first(abc),
+      louder = context.toggleSpan(abc, e2, g2, 'crescendo');
+    assert.equal(louder, abc.replace('E F|', '!<(!E F|').replace('G A', '!<)!G A'));
+    assert.ok(context.lineAt(louder, first(louder)[2], first(louder)[1], 'crescendo'));
+    assert.equal(context.toggleSpan(louder, first(louder)[2], first(louder)[1], 'crescendo'), abc);
+  }
+  // Each note keeps all its text, so a slur and its marks stay part of the note abcjs reads, and lines reach the
+  // right notes.
+  const [c, , e, f, g] = notesOf(tuneOf('"G"!p!(.C D !<(!(E F)- | !<)!F)'));
+  assert.ok(c.pitches[0].startSlur && g.pitches[0].endSlur && e.pitches[0].startSlur && f.pitches[0].endSlur);
+  assert.deepEqual([e.decoration, g.decoration], [['crescendo('], ['crescendo)']]);
+  {
+    const abc = head + 'C !p!.D E F|\n',
+      [, d, , last] = notesOf(ABCJS.parseOnly(abc)[0]),
+      slurred = context.toggleSlur(abc, d, last),
+      [, d2, , f2] = notesOf(ABCJS.parseOnly(slurred)[0]);
+    assert.equal(slurred.slice(head.length), 'C !p!(.D E F)|\n');
+    assert.ok(d2.pitches[0].startSlur && f2.pitches[0].endSlur);
+    assert.ok(
+      context.lineAt(slurred, d2, f2, 'slur'),
+      'The slur is found again, though abcjs starts the note at the dot'
+    );
+    assert.equal(context.lineAt(slurred, d2, f2, 'crescendo'), null);
+    assert.equal(context.toggleSlur(slurred, d2, f2), abc, 'And taken off');
+  }
+  // Note edits on slurred notes keep working: length, accidental, tie, rest and pitch moves keep ( and ).
+  for (const [text, edit, expected] of [
+    ['(C ', {length: 2}, '(C2 '],
+    ['"G"(C', {accidental: '^'}, '"G"(^C'],
+    ['F2-)', {tie: false}, 'F2)'],
+    ['F2)', {tie: true}, 'F2-)'],
+    ['!<(!(E', {rest: true}, '!<(!(z']
+  ])
+    assert.equal(context.editNoteText(text, edit), expected, `editNoteText(${text}, ${JSON.stringify(edit)})`);
+  assert.equal(context.moveNoteText('!<(!(E2-)', 1), '!<(!(F2-)');
+  // A crescendo raises the velocity note by note and a diminuendo lowers it.
+  const velocities = body =>
+    context
+      .parseMidi(context.midiBytes(`${head}Q:1/4=120\n${body}|]`))
+      .notes.slice(0, 4)
+      .map(n => n.velocity);
+  const up = velocities(toggle('!p!C D E F|G', 0, 3, 'crescendo')),
+    down = velocities(toggle('!f!C D E F|G', 0, 3, 'diminuendo'));
+  assert.ok(
+    up.every((v, k) => !k || v > up[k - 1]),
+    `Velocities rise across a crescendo: ${up}`
+  );
+  assert.ok(
+    down.every((v, k) => !k || v < down[k - 1]),
+    `Velocities fall across a diminuendo: ${down}`
+  );
+  // Transposing keeps slurs, hairpins and trill lines.
+  const moved = context.transposeABC(`${head}"G"!<(!(C D E !<)!F)|!trill(!G2 !trill)!A2|]\n`, 2);
+  assert.equal(moved.trim().split('\n').at(-1), '"A"!<(!(D E F !<)!G)|!trill(!A2 !trill)!B2|]');
+  assert.ok(!ABCJS.parseOnly(moved)[0].warnings?.length);
+}
+// Swing feel: the setting round-trips through Q: text and %%MIDI swing, and playback delays off-beat eighths only.
+{
+  const head = 'X:1\nT:Blues\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\n',
+    swung = context.setSwing(head + 'CDEF GABc|]', 66);
+  assert.equal(swung, 'X:1\nT:Blues\nM:4/4\nL:1/8\nQ:"Swing" 1/4=120\n%%MIDI swing 66\nK:C\nCDEF GABc|]');
+  assert.deepEqual(ABCJS.parseOnly(swung)[0].warnings, undefined, 'Swing tempo text and directive parse cleanly');
+  assert.equal(ABCJS.parseOnly(swung)[0].metaText.tempo.preString, 'Swing', '"Swing" prints with the tempo');
+  assert.equal(context.swingAmount(swung), 66);
+  assert.equal(context.swingAmount(context.setSwing(swung, 75)), 75, 'A new amount replaces the directive');
+  assert.equal(context.setSwing(swung, 75).match(/%%MIDI swing/g).length, 1);
+  assert.equal(context.setSwing(swung, 0), head + 'CDEF GABc|]', 'Straight removes both');
+  assert.equal(
+    context.setSwing('X:1\nQ:"Allegro" 1/4=120\nK:C\nC|]', 0),
+    'X:1\nQ:"Allegro" 1/4=120\nK:C\nC|]',
+    'Straight keeps other tempo text'
+  );
+  assert.equal(
+    context.setSwing('X:1\nQ:"Allegro" 1/4=120\nK:C\nC|]', 66),
+    'X:1\nQ:"Allegro, swing" 1/4=120\n%%MIDI swing 66\nK:C\nC|]',
+    'Swing adds to other tempo text'
+  );
+  for (const tempo of ['"Allegro" 1/4=120', '1/4=120 "Allegro"', '"Medium swing" 1/4=120', '"Andante" 1/8=90 "Swing"'])
+    assert.equal(
+      context.setSwing(context.setSwing(`X:1\nQ:${tempo}\nK:C\nC|]`, 66), 0),
+      `X:1\nQ:${tempo.replace(/"[^"]*swing"/i, '').trim()}\nK:C\nC|]`,
+      `Swing and back to Straight keeps the other text: ${tempo}`
+    );
+  assert.match(context.setSwing('X:1\nQ:"Medium swing" 1/4=120\nK:C\nC|]', 66), /^Q:"Medium swing" 1\/4=120$/m);
+  // Without a beat in Q:, abcjs plays text alone at 60 qpm but times notes at 180, and drops a bare number after
+  // text, so Swing writes out the beat abcjs plays: the tempo stays as it was.
+  for (const [source, tempo] of [
+    ['X:1\nM:4/4\nL:1/8\nK:C\nCDEF GABc|]', '1/4=180'],
+    ['X:1\nM:2/2\nL:1/8\nK:C\nCDEF GABc|]', '1/2=180'],
+    ['X:1\nM:6/8\nL:1/8\nK:C\nCDE FGA|]', '3/8=120'],
+    ['X:1\nM:4/4\nL:1/8\nQ:120\nK:C\nCDEF GABc|]', '1/4=120'],
+    ['X:1\nM:2/2\nL:1/8\nQ:120\nK:C\nCDEF GABc|]', '1/2=120'],
+    ['X:1\nM:6/8\nL:1/8\nQ:100\nK:C\nCDE FGA|]', '1/8=100'],
+    ['X:1\nM:4/4\nL:1/8\nQ: 1/4=100\nK:C\nCDEF GABc|]', '1/4=100'],
+    ['X:1\nM:4/4\nL:1/8\nK:C\nCDEF GABc|\nQ:1/4=80\nCDEF GABc|]', '1/4=80']
+  ]) {
+    const swing = context.setSwing(source, 60),
+      parsed = ABCJS.parseOnly(swing)[0],
+      seconds = abc => context.parseMidi(context.midiBytes(abc)).duration;
+    assert.equal(swing.match(/^Q:.*$/m)[0], 'Q:"Swing" ' + tempo, source);
+    assert.deepEqual([parsed.warnings, parsed.metaText.tempo.preString], [undefined, 'Swing']);
+    assert.ok(Math.abs(seconds(swing) - seconds(source)) < 1e-3, `Swing keeps the tempo of ${source}`);
+    assert.equal(context.setSwing(swing, 0).match(/^Q:.*$/m)[0], 'Q:' + tempo, 'Straight keeps the beat');
+  }
+  assert.equal(
+    context.setSwing('X:1\nT:t\nM:4/4\nL:1/8\nK:C\nCDEF GABc|\nQ:1/4=80\nCDEF GABc|]', 66),
+    'X:1\nT:t\nM:4/4\nL:1/8\nQ:"Swing" 1/4=80\n%%MIDI swing 66\nK:C\nCDEF GABc|\nQ:1/4=80\nCDEF GABc|]',
+    'A tempo change in the tune body stays as it is'
+  );
+  assert.equal(context.setSwing('X:1\nQ:"Swing"\n%%MIDI swing 60\nK:C\nC|]', 0), 'X:1\nK:C\nC|]');
+  assert.equal(context.swingAmount('X:1\nQ:"Medium swing" 1/4=120\nK:C\n'), 66, 'Swing text alone means 66');
+  assert.equal(context.swingAmount('X:1\nK:C\nC|\nQ:"Swing" 1/4=100\nC|]'), 0, 'Only the header tempo sets the feel');
+  assert.deepEqual(
+    JSON.parse(
+      JSON.stringify([
+        context.tempoParts('"Allegro" 1/4=120 "Swing"'),
+        context.tempoParts(' 120'),
+        context.tempoParts('"Swing"'),
+        context.tempoParts('"Swing 1/4=120')
+      ])
+    ),
+    [
+      {pre: '"Allegro"', beat: '1/4=120', post: '"Swing"'},
+      {pre: '', beat: '120', post: ''},
+      {pre: '"Swing"', beat: '', post: ''},
+      {pre: '', beat: '"Swing 1/4=120', post: ''}
+    ]
+  );
+  assert.equal(context.swingAmount('X:1\n%%MIDI swing 90\nK:C\n'), 75, 'Amounts stop at 75');
+  assert.equal(context.swingAmount('X:1\nQ:"Swing"\n%%MIDI swing 50\nK:C\n'), 0, '50 is straight');
+  assert.equal(context.swingAmount(head), 0);
+  const note = (start, duration, ch = 0) => ({start, duration, ch, note: 60, velocity: 80}),
+    times = notes => notes.map(n => +n.start.toFixed(4) + '+' + +n.duration.toFixed(4)).join(' ');
+  const eighths = [note(0, 0.25), note(0.25, 0.25), note(0.5, 0.25), note(0.75, 0.25)];
+  assert.equal(times(context.swingNotes(eighths, 0.5, 66)), '0+0.33 0.33+0.17 0.5+0.33 0.83+0.17');
+  assert.equal(times(context.swingNotes(eighths, 0.5, 75)), '0+0.375 0.375+0.125 0.5+0.375 0.875+0.125');
+  assert.equal(context.swingNotes(eighths, 0.5, 50), eighths, 'Straight returns the notes untouched');
+  assert.equal(
+    times(context.swingNotes([note(0, 0.125), note(0.125, 0.125), note(0.25, 0.25)], 0.5, 66)),
+    '0+0.125 0.125+0.125 0.25+0.25',
+    'A beat with sixteenths stays straight'
+  );
+  assert.equal(
+    times(context.swingNotes([note(0, 0.5), note(0, 0.25, 1), note(0.25, 0.75, 1), note(1, 0.25, 1)], 0.5, 66)),
+    '0+0.5 0+0.33 0.33+0.67 1+0.25',
+    'Each channel swings on its own, and a syncopated note keeps its end'
+  );
+  assert.equal(
+    times(context.swingNotes([note(0, 0.15), note(0.25, 0.15)], 0.5, 66)),
+    '0+0.198 0.33+0.102',
+    'Staccato eighths keep their proportions'
+  );
+  assert.equal(
+    times(context.swingNotes([note(0, 0.25), note(0.25, 0.25)], 0.5, 66, 0.25)),
+    '0.08+0.17 0.25+0.25',
+    'origin puts a pickup eighth on the off-beat'
+  );
+  // Note times rounded to MIDI ticks and a beat grid from whole milliseconds still swing (90 bpm, 1 ms off).
+  assert.equal(
+    times(context.swingNotes([note(0.0005, 0.3333), note(0.3338, 0.3333), note(0.6672, 0.3333)], 0.6667, 66, 0.0005)),
+    '0.0005+0.44 0.4405+0.2266 0.6672+0.3333',
+    'Swing allows for rounding'
+  );
+  assert.equal(
+    context
+      .swingNotes(eighths, 0.5, 66)
+      .map(n => n.straightEnd)
+      .join(),
+    '0.25,0.5,0.75,1',
+    'Each note keeps its straight end'
+  );
+  assert.deepEqual(
+    ['1/4=120', '1/4=90', '1/8=240'].map(
+      Q => context.parseMidi(context.midiBytes(`X:1\nM:4/4\nQ:${Q}\nK:C\nC|]`)).quarter
+    ),
+    [0.5, 0.666667, 0.5],
+    'parseMidi reports the opening tempo'
+  );
+  const data = context.parseMidi(context.midiBytes(head + 'CDEF GABc|[Q:1/4=60] CDEF GABc|]'));
+  assert.equal(
+    times(
+      context
+        .swingPlayback(data, 66, [
+          {time: 0, quarter: 0.5, origin: 0},
+          {time: 2, quarter: 1, origin: 2}
+        ])
+        .notes.slice(6, 10)
+    ),
+    '1.5+0.33 1.83+0.17 2+0.66 2.66+0.34',
+    'Each measure swings at its own tempo'
+  );
+  assert.equal(context.swingPlayback(data, 0, [{time: 0, quarter: 0.5, origin: 0}]), data);
+}
 // FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
 // Share links: the payload round-trips through deflate+base64url, and through plain base64url where
 // CompressionStream is missing; damaged links decode to null.
@@ -1812,7 +2124,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits) and MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, swing feel (tempo text kept with other text, a written-out beat that keeps the tempo, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits) and MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files).'
     )
   )
   .catch(e => {
