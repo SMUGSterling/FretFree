@@ -118,9 +118,10 @@ function lengthValue(text) {
   const num = m[1] ? +m[1] : 1;
   return m[2] ? num / (m[3] ? +m[3] : 2 ** m[2].length) : num;
 }
-// Decorations/annotations, then a note, chord or rest, then its length, then ties or broken rhythm.
+// Decorations/annotations, slur openings and tuplet specs ((3, (3:2, (3:2:3) in any order, then a note, chord or
+// rest, then its length, then ties, slur ends or broken rhythm.
 const NOTE_PARTS =
-  /^((?:"[^"]*"|![^!]*!|\+[^+]*\+|\{[^}]*\}|[.~HLMOPSTuv]|\s)*)(\[[^\]]*\]|(?:\^{1,2}|_{1,2}|=)?[A-Ga-g][,']*|[zx])(\d*\/*\d*)([^]*)$/;
+  /^((?:"[^"]*"|![^!]*!|\+[^+]*\+|\{[^}]*\}|\((?:\d+(?::\d*){0,2})?|[.~HLMOPSTuv]|\s)*)(\[[^\]]*\]|(?:\^{1,2}|_{1,2}|=)?[A-Ga-g][,']*|[zx])(\d*\/*\d*)([^]*)$/;
 function noteParts(text) {
   const m = String(text).match(NOTE_PARTS);
   return m && {pre: m[1], core: m[2], length: lengthValue(m[3]), post: m[4]};
@@ -333,6 +334,8 @@ function promptTonic(key) {
   const m = String(key).match(/^([A-G])([#b]?)/);
   return m ? (LETTER_SEMIS['CDEFGAB'.indexOf(m[1])] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) + 12) % 12 : 0;
 }
+// The bars goal counts a bar only when it is a full bar of the prompt's meter and is written under that meter.
+const fullMeterBar = (bar, length) => Math.abs(bar.length - length) < 1e-6 && Math.abs(bar.expected - length) < 1e-6;
 function checkPrompt(prompt, bars) {
   const near = (a, b) => Math.abs(a - b) < 1e-6,
     tonic = promptTonic(prompt.key),
@@ -352,8 +355,7 @@ function checkPrompt(prompt, bars) {
     // Bars must match the prompt's own meter, so changing the time signature can't satisfy the goal.
     if (g.type === 'bars')
       ok =
-        bars.length === prompt.bars &&
-        bars.every(b => near(b.length, promptBar) && near(b.expected, promptBar) && b.notes.some(n => n.midi != null));
+        bars.length === prompt.bars && bars.every(b => fullMeterBar(b, promptBar) && b.notes.some(n => n.midi != null));
     else if (g.type === 'lengths')
       ok = pitched.length > 0 && pitched.every(n => g.allowed.some(a => near(a, n.duration)));
     else if (g.type === 'start') ok = !!pitched.length && degree(pitched[0]) === g.degree;
@@ -397,7 +399,7 @@ const LETTER_FIFTHS = {F: -1, C: 0, G: 1, D: 2, A: 3, E: 4, B: 5},
     {mode: 'Mix', name: 'Mixolydian', group: 'Mixolydian', offset: -1},
     {mode: 'Loc', name: 'Locrian', group: 'Locrian', offset: -5}
   ],
-  MODE_WORDS = {
+  MODE_SUFFIX = {
     maj: '',
     ion: '',
     min: 'm',
@@ -422,7 +424,7 @@ function keyParts(value) {
     end = t[0].length + (m ? m[0].length : 0);
   return {
     tonic: t[1] + t[2],
-    mode: m ? MODE_WORDS[m[1].toLowerCase()] : '',
+    mode: m ? MODE_SUFFIX[m[1].toLowerCase()] : '',
     key: text.slice(0, end).trim(),
     rest: text.slice(end)
   };
@@ -747,14 +749,169 @@ function measureSpans(tune, from, to) {
   }
   return spans;
 }
+// Teacher-written assignments: a prompt object built from a score and carried in saves, backups and share links.
+// Keys are written pitch, as for the built-in prompts. Goals name notes by the key's own degrees (minor adds the
+// raised 7th); only major and minor keys have a scale for the inKey goal.
+const MODE_STEPS = {
+  major: [0, 2, 4, 5, 7, 9, 11],
+  minor: [0, 2, 3, 5, 7, 8, 10, 11],
+  dor: [0, 2, 3, 5, 7, 9, 10],
+  phr: [0, 1, 3, 5, 7, 8, 10],
+  lyd: [0, 2, 4, 6, 7, 9, 11],
+  mix: [0, 2, 4, 5, 7, 9, 10],
+  loc: [0, 1, 3, 5, 6, 8, 10]
+};
+function keyScale(key) {
+  const m = String(key).match(/^([A-G])([#b]?)(\S*)/),
+    mode = (m?.[3] || '').toLowerCase().slice(0, 3);
+  const name = /^(m|mi|min|aeo)$/.test(mode) ? 'minor' : /^(|ma|maj|ion)$/.test(mode) ? 'major' : mode;
+  return {
+    letter: m ? 'CDEFGAB'.indexOf(m[1]) : 0,
+    tonic: m ? promptTonic(key) : 0,
+    mode: MODE_STEPS[name] ? name : 'major',
+    steps: MODE_STEPS[name] || MODE_STEPS.major,
+    scale: m && (name === 'major' || name === 'minor') ? name : null
+  };
+}
+function keyDegrees(key) {
+  const {letter, tonic, steps} = keyScale(key);
+  return steps.map((degree, i) => {
+    const l = (letter + Math.min(i, 6)) % 7,
+      alter = ((((tonic + degree - LETTER_SEMIS[l]) % 12) + 18) % 12) - 6;
+    return {degree, name: 'CDEFGAB'[l] + ({'-2': '𝄫', '-1': '♭', 1: '♯', 2: '𝄪'}[alter] || '')};
+  });
+}
+const degreeName = (key, degree) => keyDegrees(key).find(d => d.degree === degree)?.name || `${degree} semitones up`;
+// A key in words, as written: "G", "F♯ minor", "D dorian".
+const MODE_WORDS = {minor: 'minor', dor: 'dorian', phr: 'phrygian', lyd: 'lydian', mix: 'mixolydian', loc: 'locrian'};
+function keyInWords(key) {
+  const words = MODE_WORDS[keyScale(key).mode];
+  return keyDegrees(key)[0].name + (words ? ' ' + words : '');
+}
+// The lengths, ranges and countable kinds a teacher can pick, with the words goal labels use.
+const GOAL_LENGTHS = [
+    [1 / 16, 'sixteenth'],
+    [1 / 8, 'eighth'],
+    [1 / 4, 'quarter'],
+    [3 / 8, 'dotted quarter'],
+    [1 / 2, 'half'],
+    [3 / 4, 'dotted half'],
+    [1, 'whole']
+  ],
+  GOAL_RANGES = [
+    [7, 'a 5th'],
+    [9, 'a 6th'],
+    [12, 'one octave'],
+    [19, 'an octave and a 5th'],
+    [24, 'two octaves']
+  ],
+  GOAL_KINDS = {
+    rest: ['rest', 'rests'],
+    eighth: ['eighth note', 'eighth notes'],
+    'dotted-quarter': ['dotted quarter note', 'dotted quarter notes'],
+    'dotted-half': ['dotted half note', 'dotted half notes'],
+    leap: ['leap of a 4th or more', 'leaps of a 4th or more']
+  };
+const listWords = words => (words.length > 1 ? words.slice(0, -1).join(', ') + ' and ' + words.at(-1) : words[0]);
+function goalLabel(goal, prompt) {
+  const name = d => degreeName(prompt.key, d);
+  if (goal.type === 'bars') return `Fill ${prompt.bars === 1 ? 'the bar' : `all ${prompt.bars} bars`} with notes`;
+  if (goal.type === 'lengths') {
+    const words = GOAL_LENGTHS.filter(([v]) => goal.allowed.includes(v)).map(([, w]) => w);
+    return `Use only ${listWords(words.length ? words : ['the chosen'])} notes`;
+  }
+  if (goal.type === 'start') return `Start on ${name(goal.degree)}`;
+  if (goal.type === 'end') return `End on ${name(goal.degree)}`;
+  if (goal.type === 'endBar') return `Bar ${goal.bar} ends on ${name(goal.degree)}`;
+  if (goal.type === 'steps') return 'Move only by step or repeat a note';
+  if (goal.type === 'range')
+    return `Stay within ${GOAL_RANGES.find(([v]) => v === goal.max)?.[1] || goal.max + ' semitones'}`;
+  if (goal.type === 'inKey')
+    return `Stay in ${prompt.key
+      .match(/^[A-G][#b]?/)[0]
+      .replace('#', '♯')
+      .replace('b', '♭')} ${goal.scale}`;
+  if (goal.kind === 'degree')
+    return `Use ${name(goal.degree)} at least ${goal.count === 1 ? 'once' : goal.count + ' times'}`;
+  const [one, many] = GOAL_KINDS[goal.kind];
+  return `Use at least ${goal.count === 1 ? 'one ' + one : goal.count + ' ' + many}`;
+}
+// Build an assignment from the builder's choices. The id hashes the content, so the same assignment always has the
+// same id wherever it is opened.
+function makeAssignment({title, text, meter, unit, key, tempo, bars, goals}) {
+  const prompt = {title, text, level: 'Custom', meter, unit, key, tempo, bars};
+  prompt.goals = goals.map(g => ({...g, label: goalLabel(g, prompt)}));
+  return {id: 'custom-' + hashText(JSON.stringify(prompt)).toString(36), ...prompt};
+}
+// An assignment from a link, a backup or storage is untrusted. Copy only known fields of the right type and size, or
+// return null. Labels are rebuilt from the goal itself, so the checklist always says what is checked.
+const ASSIGNMENT_TEXT_MAX = 2000;
+const isInt = (n, lo, hi) => Number.isInteger(n) && n >= lo && n <= hi,
+  isDegree = d => isInt(d, 0, 11);
+const GOAL_FIELDS = {
+  bars: () => ({}),
+  steps: () => ({}),
+  lengths: g =>
+    Array.isArray(g.allowed) &&
+    g.allowed.length >= 1 &&
+    g.allowed.length <= 8 &&
+    g.allowed.every(a => typeof a === 'number' && Number.isFinite(a) && a > 0 && a <= 4)
+      ? {allowed: [...g.allowed]}
+      : null,
+  start: g => (isDegree(g.degree) ? {degree: g.degree} : null),
+  end: g => (isDegree(g.degree) ? {degree: g.degree} : null),
+  endBar: (g, bars) => (isInt(g.bar, 1, bars) && isDegree(g.degree) ? {bar: g.bar, degree: g.degree} : null),
+  range: g => (isInt(g.max, 0, 48) ? {max: g.max} : null),
+  inKey: g => (g.scale === 'major' || g.scale === 'minor' ? {scale: g.scale} : null),
+  atLeast: g =>
+    !isInt(g.count, 1, 256)
+      ? null
+      : g.kind === 'degree'
+        ? isDegree(g.degree)
+          ? {kind: 'degree', degree: g.degree, count: g.count}
+          : null
+        : typeof g.kind === 'string' && Object.hasOwn(GOAL_KINDS, g.kind)
+          ? {kind: g.kind, count: g.count}
+          : null
+};
+function validPrompt(q) {
+  const isObject = x => !!x && typeof x === 'object' && !Array.isArray(x),
+    isText = (s, max, empty = false) => typeof s === 'string' && s.length <= max && (empty || s.trim() !== '');
+  if (!isObject(q)) return null;
+  const {id, title, text, meter, unit, key, tempo, bars, goals} = q;
+  if (
+    !(typeof id === 'string' && /^custom-[a-z0-9]{1,13}$/.test(id)) ||
+    !isText(title, 120) ||
+    !isText(text, ASSIGNMENT_TEXT_MAX, true) ||
+    !(typeof meter === 'string' && /^[1-9]\d?\/[1-9]\d?$/.test(meter)) ||
+    !(typeof unit === 'string' && /^1\/[1-9]\d?$/.test(unit)) ||
+    !(typeof key === 'string' && /^[A-G][#b]?[A-Za-z]{0,7}$/.test(key)) ||
+    !(typeof tempo === 'number' && Number.isFinite(tempo) && tempo >= 20 && tempo <= 400) ||
+    !isInt(bars, 1, 999) ||
+    !Array.isArray(goals) ||
+    goals.length > 12
+  )
+    return null;
+  const prompt = {id, title, text, level: 'Custom', meter, unit, key, tempo, bars, goals: []};
+  for (const g of goals) {
+    const fields =
+      isObject(g) && typeof g.type === 'string' && Object.hasOwn(GOAL_FIELDS, g.type) && GOAL_FIELDS[g.type](g, bars);
+    if (!fields) return null;
+    const goal = {type: g.type, ...fields};
+    prompt.goals.push({...goal, label: goalLabel(goal, prompt)});
+  }
+  return prompt;
+}
 // Note-name labels for every voice, as written: letters (F♯) or movable-do solfège (do-based major,
 // la-based minor; notes raised against the key signature use sharp syllables, lowered ones flat syllables).
-// Each voice keeps its own key and bar accidentals.
+// Each voice keeps its own key and bar accidentals; a note tied across a bar line keeps the accidental it was tied
+// from. Each label also has `midis`: every pitch of the note as playback sounds it (see playbackShift).
 const SOLFEGE_SHARP = ['do', 'di', 're', 'ri', 'mi', 'fa', 'fi', 'sol', 'si', 'la', 'li', 'ti'],
   SOLFEGE_FLAT = ['do', 'ra', 're', 'me', 'mi', 'fa', 'se', 'sol', 'le', 'la', 'te', 'ti'];
 function noteLabels(tune, mode) {
   const labels = [],
-    voices = new Map();
+    voices = new Map(),
+    globalShift = +tune.formatting?.midi?.transpose?.[0] || 0;
   const keyState = k => {
     const state = {key: keyAlters(k), doPc: 0};
     if (k?.root && k.root !== 'none') {
@@ -767,9 +924,10 @@ function noteLabels(tune, mode) {
     for (const [s, staff] of (line.staff || []).entries())
       for (const [v, voice] of (staff.voices || []).entries()) {
         const id = s + ':' + v,
-          state = voices.get(id) || {carried: {}};
+          state = voices.get(id) || {carried: {}, tied: {}, shift: globalShift};
         voices.set(id, state);
         if (staff.key) Object.assign(state, keyState(staff.key));
+        playbackShift(state, staff.clef, true);
         for (const e of voice) {
           if (e.el_type === 'key') {
             Object.assign(state, keyState(e));
@@ -779,23 +937,59 @@ function noteLabels(tune, mode) {
             state.carried = {};
             continue;
           }
+          if (e.el_type === 'clef' || (e.el_type === 'midi' && e.cmd === 'transpose')) {
+            playbackShift(state, e);
+            continue;
+          }
           if (e.el_type !== 'note' || !e.pitches?.length || e.rest) continue;
-          const p = e.pitches[0],
-            letter = ((p.pitch % 7) + 7) % 7,
-            name = 'CDEFGAB'[letter],
-            key = state.key || {};
-          if (p.accidental) state.carried[p.pitch] = ALTER[p.accidental] ?? 0;
-          const alter = state.carried[p.pitch] ?? key[name] ?? 0,
+          const key = state.key || {},
+            tied = {};
+          // Every pitch of a chord sets its own bar accidental and gets a MIDI number; the label names the first.
+          const spelled = e.pitches.map(p => {
+            const letter = ((p.pitch % 7) + 7) % 7,
+              name = 'CDEFGAB'[letter];
+            if (p.accidental) state.carried[p.pitch] = ALTER[p.accidental] ?? 0;
+            const alter =
+              (p.accidental || !p.endTie ? null : state.tied[p.pitch]) ?? state.carried[p.pitch] ?? key[name] ?? 0;
+            if (p.startTie) tied[p.pitch] = alter;
+            return {letter, name, alter, midi: 60 + 12 * Math.floor(p.pitch / 7) + LETTER_SEMIS[letter] + alter};
+          });
+          state.tied = tied;
+          const {letter, name, alter, midi} = spelled[0],
             pc = (LETTER_SEMIS[letter] + alter + 12) % 12;
           // Lowered against the key signature (a flat, or a natural on a sharp) takes the flat syllable.
           const text =
             mode === 'solfege'
               ? (alter < (key[name] ?? 0) ? SOLFEGE_FLAT : SOLFEGE_SHARP)[(pc - (state.doPc || 0) + 12) % 12]
               : name + ({1: '♯', 2: '𝄪', '-1': '♭', '-2': '𝄫'}[alter] || '');
-          labels.push({at: e.startChar, text, midi: 60 + 12 * Math.floor(p.pitch / 7) + LETTER_SEMIS[letter] + alter});
+          labels.push({at: e.startChar, text, midi, midis: spelled.map(x => x.midi + state.shift)});
         }
       }
   return labels;
+}
+// How far playback moves a voice from the written pitches, by abcjs's MIDI rules. The latest change wins; they do not
+// add up. %%MIDI transpose sets it for the whole tune. Each line's clef then applies its transpose= and octave
+// (treble-8 sounds an octave down, and a plain clef after an octave clef goes back to 0). Inline clef changes and
+// %%MIDI transpose lines in the voice apply where they stand. Pass lineStart for a line's clef.
+function playbackShift(state, e, lineStart = false) {
+  if (!e) return;
+  if (e.el_type === 'midi') {
+    state.shift = +e.params?.[0] || 0;
+    return;
+  }
+  const octave = /-8/.test(e.type) ? -12 : /\+8/.test(e.type) ? 12 : 0;
+  if (!lineStart) {
+    if (e.transpose) state.shift = e.transpose;
+    if (octave) state.shift = octave;
+    return;
+  }
+  if (e.transpose && e.type !== 'perc') {
+    state.shift = e.transpose;
+    state.octaveClef = false;
+  }
+  if (octave) state.shift = octave;
+  else if (state.octaveClef) state.shift = 0;
+  state.octaveClef = !!octave;
 }
 // Add the labels to an ABC source as annotations below each note.
 function labelSource(source, mode) {
@@ -1078,7 +1272,8 @@ function parseMidi(bytes) {
 }
 
 // Share links: the whole score rides in the URL hash (#s=…), so no server ever holds student work.
-// Payload {v, a: abc, i: instrument, s: library source id, p: prompt id}. The first character says how the rest
+// Payload {v, a: abc, i: instrument, s: library source id, p: built-in prompt id,
+// q: teacher-written assignment, checked by validPrompt}. The first character says how the rest
 // is packed: '1' deflate-raw + base64url, '0' plain base64url (for browsers without CompressionStream).
 const base64url = {
   // Built in chunks: spreading a large score into String.fromCharCode overflows the call stack.

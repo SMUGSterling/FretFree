@@ -18,6 +18,8 @@ function allowReplace() {
 }
 function openScore(item, id = null) {
   if (!allowReplace()) return;
+  // The assignment builder describes the score it was opened on, so it closes with it.
+  toggleAssignmentBuilder(false);
   stop();
   stopPreview();
   current = item;
@@ -166,7 +168,7 @@ $('instrument').onchange = () => {
   const before = instruments[instrumentShown]?.shift || 0,
     after = instruments[currentInstrument()].shift || 0,
     source = $('abc').value;
-  if (current?.prompt && promptById(current.prompt) && before !== after) {
+  if (activePrompt() && before !== after) {
     flushTyping();
     try {
       $('abc').value = transposeABC(source, before - after);
@@ -178,12 +180,8 @@ $('instrument').onchange = () => {
   instrumentShown = currentInstrument();
   changed();
 };
-$('volume').oninput = () => {
-  if (playing) {
-    stop();
-    toast('Volume updated. Press Play to resume.');
-  }
-};
+// Volume is live: the master bus follows the slider, so playback carries on.
+$('volume').oninput = updateVolume;
 $('help-toggle').onclick = () => {
   $('abc-help').hidden = !$('abc-help').hidden;
 };
@@ -236,6 +234,7 @@ $('import-file').onchange = async () => {
     }
     openScore({...metadata, kind: 'personal', abc: source});
     dirty = true;
+    scheduleDraft();
     $('save-status').textContent = 'Imported locally. Save or export to keep a copy.';
   } catch (e) {
     toast(e.message);
@@ -255,6 +254,7 @@ function applyStoredSettings() {
     $(id).checked = !!storage.get(KEYS.practice(id), false);
   $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
   $('note-names').value = storage.get(KEYS.noteNames, 'off');
+  $('audition').checked = storage.get(KEYS.audition, true) !== false;
   prepareTrainer();
 }
 for (const id of ['loop', 'metronome', 'count-in', 'trainer']) {
@@ -320,9 +320,22 @@ window.addEventListener('beforeunload', e => {
     e.returnValue = '';
   }
 });
+// A hidden tab may be discarded without warning (Chromebooks do this), so a pending draft is written straight away.
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) stop();
+  if (document.hidden) {
+    stop();
+    flushDraft();
+  }
 });
+window.addEventListener('pagehide', flushDraft);
+// Another tab may have restored or discarded this tab's draft from its banner; while the work here is unsaved, it goes
+// back. A page coming back from the back/forward cache may have missed that, so it checks too.
+window.addEventListener('storage', e => {
+  if (e.key === KEYS.draft || e.key === null) keepDraft();
+});
+window.addEventListener('pageshow', keepDraft);
+$('draft-restore').onclick = restoreDraft;
+$('draft-discard').onclick = discardDraft;
 const initialView = location.hash.slice(1);
 for (const name of [...new Set(catalog.map(scoreCollection))].sort())
   $('collection-filter').add(new Option(name, name));
@@ -339,18 +352,26 @@ ABCJS.renderAbc('hero-notation', catalog[0].abc, {
   paddingbottom: 30
 });
 renderCards();
+// Unsaved work from an earlier visit is offered once the start-up score is open; a share link opens first.
+loadDrafts();
 newScore();
 if (initialView.startsWith('s=')) {
   show('studio');
   openSharedLink(initialView).then(ok => {
     if (!ok) show('library');
+    offerDraft();
   });
-} else show(['studio', 'saved', 'about'].includes(initialView) ? initialView : 'library');
+} else {
+  show(['studio', 'saved', 'about'].includes(initialView) ? initialView : 'library');
+  offerDraft();
+}
 $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
 $('fingering').onchange = () => {
   storage.set(KEYS.fingering, $('fingering').checked);
   render();
 };
+$('audition').checked = storage.get(KEYS.audition, true) !== false;
+$('audition').onchange = () => storage.set(KEYS.audition, $('audition').checked);
 $('note-names').value = storage.get(KEYS.noteNames, 'off');
 if (noteNamesMode() !== 'off') render();
 $('note-names').onchange = () => {

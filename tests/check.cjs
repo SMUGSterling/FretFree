@@ -118,6 +118,38 @@ for (const score of context.library) {
 }
 const chords = context.parseMidi(context.midiBytes(context.library.find(x => x.id === 'chords').abc));
 assert.ok(chords.notes.filter(x => x.start === 0).length === 3, 'chord playback is polyphonic');
+// Note edits keep slur openings and tuplet specs in the prefix, mixed in any order with decorations and annotations.
+for (const [text, pre, core] of [
+  ['(C', '(', 'C'],
+  ['(3C/2', '(3', 'C'],
+  ['(3:2:3C', '(3:2:3', 'C'],
+  ['(3::2 G ', '(3::2 ', 'G'],
+  ['"G"(C', '"G"(', 'C'],
+  ['!f!(C', '!f!(', 'C'],
+  ['"G"!f!(C', '"G"!f!(', 'C'],
+  ['.(c ', '.(', 'c'],
+  ['("G"C', '("G"', 'C'],
+  ['([CE]', '(', '[CE]'],
+  ['(3(z', '(3(', 'z']
+]) {
+  const parts = context.noteParts(text);
+  assert.ok(parts, 'noteParts reads ' + text);
+  assert.equal(parts.pre + '|' + parts.core, pre + '|' + core, 'noteParts prefix of ' + text);
+}
+assert.equal(context.noteParts('(3C/2').length, 0.5);
+assert.equal(context.noteParts('C)').post, ')');
+assert.equal(context.noteParts('3C'), null, 'A bare digit is not a prefix');
+for (const [text, edit, expected] of [
+  ['(C', {length: 2}, '(C2'],
+  ['(3C/2', {length: 1.5, accidental: '^'}, '(3^C3/2'],
+  ['(3:2:3C', {tie: true}, '(3:2:3C-'],
+  ['"G"!f!(C2- ', {accidental: '_', tie: false}, '"G"!f!(_C2 '],
+  ['C)', {length: 2}, 'C2)'],
+  ['C2-)', {tie: false}, 'C2)'],
+  ['([CE]2', {length: 1, accidental: '='}, '([=C=E]'],
+  ['(C>', {length: 1.5, unbroken: true}, '(C3/2']
+])
+  assert.equal(context.editNoteText(text, edit), expected, `editNoteText(${text}, ${JSON.stringify(edit)})`);
 // FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
 // Share links: the payload round-trips through deflate+base64url, and through plain base64url where
 // CompressionStream is missing; damaged links decode to null.
@@ -369,8 +401,113 @@ for (const prompt of context.writingPrompts) {
     `Prompt ${prompt.id}: changing the meter must not satisfy the bars goal`
   );
 }
+// Teacher-written assignments: goals name notes spelled in the written key, every built-in prompt rebuilt as an
+// assignment survives validPrompt and still passes on its example, and anything malformed from a link is refused.
+{
+  const names = key =>
+    context
+      .keyDegrees(key)
+      .map(d => d.name)
+      .join(' ');
+  assert.equal(names('G'), 'G A B C D E F♯');
+  assert.equal(names('Bb'), 'B♭ C D E♭ F G A');
+  assert.equal(names('F#m'), 'F♯ G♯ A B C♯ D E E♯', 'Minor adds the raised 7th');
+  assert.equal(names('Edor'), 'E F♯ G A B C♯ D', 'Modal keys use their own degrees');
+  assert.equal(context.keyScale('Edor').scale, null, 'Only major and minor keys have an inKey scale');
+  assert.deepEqual(
+    ['G', 'F#m', 'Bbmin', 'Edor', 'Amix'].map(k => context.keyInWords(k)),
+    ['G', 'F♯ minor', 'B♭ minor', 'E dorian', 'A mixolydian']
+  );
+  const json = x => JSON.stringify(x);
+  for (const prompt of context.writingPrompts) {
+    const goals = prompt.goals.map(({label, ...g}) => g),
+      made = context.makeAssignment({...prompt, goals});
+    assert.match(made.id, /^custom-[a-z0-9]+$/);
+    assert.equal(made.level, 'Custom');
+    assert.equal(json(context.validPrompt(JSON.parse(json(made)))), json(made), `${prompt.id}: round trip`);
+    const result = context.checkPrompt(
+      made,
+      context.melodyBars(ABCJS.parseOnly(context.promptSource(prompt, prompt.key, prompt.example))[0])
+    );
+    assert.ok(
+      result.every(g => g.ok),
+      `${prompt.id} as an assignment: ${result
+        .filter(g => !g.ok)
+        .map(g => g.label)
+        .join('; ')}`
+    );
+  }
+  const base = context.makeAssignment({
+    title: 'Echo',
+    text: 'Answer the phrase.',
+    meter: '3/4',
+    unit: '1/8',
+    key: 'D',
+    tempo: 96,
+    bars: 8,
+    goals: [
+      {type: 'bars'},
+      {type: 'lengths', allowed: [0.25, 0.5, 0.75]},
+      {type: 'endBar', bar: 4, degree: 7},
+      {type: 'range', max: 12},
+      {type: 'inKey', scale: 'major'},
+      {type: 'atLeast', kind: 'rest', count: 1}
+    ]
+  });
+  assert.equal(
+    base.goals.map(g => g.label).join(' / '),
+    'Fill all 8 bars with notes / Use only quarter, half and dotted half notes / Bar 4 ends on A / Stay within one octave / Stay in D major / Use at least one rest'
+  );
+  assert.equal(
+    context.makeAssignment({...base, bars: 1, goals: [{type: 'bars'}]}).goals[0].label,
+    'Fill the bar with notes',
+    'One bar is not "all 1 bars"'
+  );
+  assert.equal(
+    context.makeAssignment({...base, goals: base.goals}).id,
+    context.makeAssignment({...base, goals: base.goals}).id,
+    'The same assignment always gets the same id'
+  );
+  const plain = JSON.parse(json(base)),
+    refused = {
+      'unknown goal type': {...plain, goals: [{type: 'compose-for-me', label: 'x'}]},
+      'inherited goal type': {...plain, goals: [{type: 'constructor', label: 'x'}]},
+      'inherited atLeast kind': {...plain, goals: [{type: 'atLeast', kind: 'toString', count: 1, label: 'x'}]},
+      'string bars': {...plain, bars: '8'},
+      'fractional bars': {...plain, bars: 2.5},
+      'infinite tempo': {...plain, tempo: Infinity},
+      'oversized text': {...plain, text: 'x'.repeat(2001)},
+      'oversized title': {...plain, title: 'x'.repeat(121)},
+      'empty title': {...plain, title: '  '},
+      'bar past the end': {...plain, goals: [{type: 'endBar', bar: 9, degree: 0, label: 'x'}]},
+      'degree out of range': {...plain, goals: [{type: 'end', degree: 12, label: 'x'}]},
+      'null length': {...plain, goals: [{type: 'lengths', allowed: [null], label: 'x'}]},
+      'NaN length': {...plain, goals: [{type: 'lengths', allowed: [NaN], label: 'x'}]},
+      'NaN degree': {...plain, goals: [{type: 'start', degree: NaN, label: 'x'}]},
+      'bad id': {...plain, id: 'first-melody'},
+      'bad key': {...plain, key: 'K:C\nX:2'},
+      'bad meter': {...plain, meter: 'C'},
+      'too many goals': {...plain, goals: Array(13).fill({type: 'steps', label: 'x'})},
+      'array instead of object': [plain]
+    };
+  for (const [why, q] of Object.entries(refused)) assert.equal(context.validPrompt(q), null, `Refuses ${why}`);
+  assert.equal(context.validPrompt(null), null);
+  const cleaned = context.validPrompt({
+    ...plain,
+    text: 'x'.repeat(2000),
+    onload: 'alert(1)',
+    goals: [{type: 'steps', label: 'Anything you like', extra: '<img src=x onerror=alert(1)>'}]
+  });
+  assert.equal(
+    json(cleaned.goals),
+    json([{type: 'steps', label: 'Move only by step or repeat a note'}]),
+    'Unknown fields are dropped and labels are rebuilt from the goal'
+  );
+  assert.ok(!('onload' in cleaned), 'Unknown top-level fields are dropped');
+  assert.equal(cleaned.text.length, 2000, '2,000 characters of instructions are allowed');
+}
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, and source-file hashes.'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, and source-file hashes.'
 );
