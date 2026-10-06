@@ -127,8 +127,9 @@ function pianoName(midi, note, voice) {
   return (flat ? PIANO_FLATS : PIANO_SHARPS)[midi % 12] + (Math.floor(midi / 12) - 1);
 }
 // A key press: written MIDI to concert (written − the instrument's transposition), then enter the note over the
-// selected rest or after the selected note, or add it to the chord of the selected note or the note just entered.
-// Each is one undo step and sounds the result (Hear notes). hint follows the status message for a new note.
+// selected rest or after the selected note (after the last note of a range selection), or add it to the chord of
+// the selected note or the note just entered. Each is one undo step and sounds the result (Hear notes). hint
+// follows the status message for a new note.
 function pianoPress(
   written,
   chord = false,
@@ -139,7 +140,7 @@ function pianoPress(
     render();
   }
   const concert = written - (instruments[currentInstrument()].shift || 0),
-    sel = selectedNote(),
+    sel = entrySelection(),
     target = chord && chordTarget(sel),
     note = target || sel,
     voice = note ? note.entry.key.split(':').slice(0, 2).join(':') : '0:0',

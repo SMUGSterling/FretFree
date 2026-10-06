@@ -155,6 +155,108 @@ for (const [text, edit, expected] of [
   ['z2', {rest: true}, 'z2']
 ])
   assert.equal(context.editNoteText(text, edit), expected, `editNoteText(${text}, ${JSON.stringify(edit)})`);
+// Articulations and ornaments go just before the pitch, after chord symbols, slur and tuplet openings and grace notes,
+// and toggling again restores the text. Shorthands and other spellings count as the mark. Dynamics never stack.
+for (const [text, name, expected] of [
+  ['"G"C2', 'accent', '"G"!accent!C2'],
+  ['(C', 'accent', '(!accent!C'],
+  ['[CEG]', 'accent', '!accent![CEG]'],
+  ['(3"Am"[CE]/2 ', 'staccato', '(3"Am".[CE]/2 '],
+  ['!p!{g}C-', 'trill', '!p!{g}!trill!C-'],
+  ['z2', 'fermata', '!fermata!z2'],
+  ['Z2', 'fermata', '!fermata!Z2']
+]) {
+  assert.equal(context.toggleDecoration(text, name), expected, `toggleDecoration(${text}, ${name})`);
+  assert.equal(context.toggleDecoration(expected, name), text, `toggleDecoration(${expected}, ${name}) undoes it`);
+}
+for (const [text, name] of [
+  ['L"G"C', 'accent'],
+  ['!>!"G"C', 'accent'],
+  ['+accent+"G"C', 'accent'],
+  ['"G"!emphasis!C', 'accent'],
+  ['"G"HC', 'fermata'],
+  ['"G"TC', 'trill'],
+  ['"G"uC', 'upbow'],
+  ['"G"vC', 'downbow'],
+  ['"G"MC', 'mordent'],
+  ['"G"!lowermordent!C', 'mordent']
+])
+  assert.equal(context.toggleDecoration(text, name), '"G"C', `${text} carries ${name}`);
+assert.equal(context.toggleDecoration('"."C', 'staccato'), '".".C', 'A dot inside a chord symbol is not a staccato');
+for (const [text, name] of [
+  ['x2', 'accent'],
+  ['C', 'staccatissimo'],
+  ['|', 'accent']
+])
+  assert.equal(context.toggleDecoration(text, name), text, `toggleDecoration(${text}, ${name}) changes nothing`);
+for (const [text, dyn, expected] of [
+  ['!p!C', 'f', '!f!C'],
+  ['"G"C', 'mf', '"G"!mf!C'],
+  ['!pp!.!sf!C', 'ff', '!ff!.C'],
+  ['!fp!(C', 'p', '!p!(C'],
+  ['!p!!accent!C', null, '!accent!C'],
+  ['+f+z4', 'sfz', '!sfz!z4'],
+  ['C', 'fp', 'C'],
+  ['x', 'f', 'x']
+])
+  assert.equal(context.setDynamic(text, dyn), expected, `setDynamic(${text}, ${dyn})`);
+assert.equal(
+  JSON.stringify(context.noteMarks('!mf!.H(3+accent+{g}C2 ')),
+  JSON.stringify({marks: ['staccato', 'fermata', 'accent'], dynamic: 'mf'})
+);
+assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
+// Every offered mark parses without warnings and reaches the note, on notes, chords and slur starts; rests take
+// dynamics and fermatas.
+{
+  const marks = vm.runInContext('NOTE_MARKS', context),
+    dynamics = vm.runInContext('DYNAMICS', context);
+  assert.equal(marks.length, 13);
+  assert.equal(dynamics.join(' '), 'ppp pp p mp mf f ff fff sfz');
+  const check = (body, add, name) => {
+    const tune = ABCJS.parseOnly(`X:1\nL:1/4\nK:C\n${add(body)} D|]`)[0],
+      note = tune.lines[0].staff[0].voices[0].find(e => e.el_type === 'note');
+    assert.ok(!tune.warnings?.length, `${add(body)}: ${tune.warnings}`);
+    assert.ok(note.decoration?.includes(name), `${add(body)} carries ${name}`);
+  };
+  for (const name of marks)
+    for (const body of ['C', '"G"[CEG]', '(C D)', '(3C D E']) check(body, t => context.toggleDecoration(t, name), name);
+  for (const name of dynamics)
+    for (const body of ['C', 'z', 'Z2', '"G"[CEG]']) check(body, t => context.setDynamic(t, name), name);
+  check('z', t => context.toggleDecoration(t, 'fermata'), 'fermata');
+}
+// Playback follows the marks: louder dynamics, accents, sfz and marcato raise the MIDI velocity, staccato shortens the
+// note at any tempo. On its own abcjs lets a staccato note ring on above about 95 bpm and loses a repeated note after
+// a tenuto or inside a slur; midiBytes mends both, so the exported file is right too.
+{
+  const notes = (body, tempo = 'Q:1/4=60\n') =>
+    context.parseMidi(context.midiBytes(`X:1\nL:1/4\n${tempo}K:C\n${body}|]`)).notes;
+  const [soft, loud] = notes('!pp!C !ff!D');
+  assert.ok(loud.velocity > soft.velocity, `ff (${loud.velocity}) is louder than pp (${soft.velocity})`);
+  const [plain, accented] = notes('!mf!C !accent!C');
+  assert.ok(accented.velocity > plain.velocity, 'An accent is louder');
+  for (const mark of ['!sfz!', '!marcato!']) {
+    const [before, marked, after] = notes(`!p!C ${mark}C C`);
+    assert.ok(marked.velocity > before.velocity, `${mark} is louder (${marked.velocity} > ${before.velocity})`);
+    assert.equal(after.velocity, before.velocity, `${mark} lasts one note`);
+  }
+  for (const tempo of ['Q:1/4=60\n', '', 'Q:1/4=120\n', 'Q:1/4=200\n']) {
+    const played = notes('C .C .C .C C', tempo),
+      beat = played[0].duration;
+    assert.equal(played.length, 5, `Every staccato note sounds at ${tempo || 'the default tempo'}`);
+    assert.ok(
+      played.slice(1, 4).every(n => n.duration < beat * 0.8 && n.duration > beat * 0.4),
+      `Staccato is shorter at ${tempo || 'the default tempo'}: ${played.map(n => n.duration.toFixed(3))}`
+    );
+  }
+  for (const body of ['!tenuto!C C C', '(C C C)', '(C !tenuto!C) C']) {
+    const played = notes(body, '');
+    assert.equal(played.length, 3, `${body}: every repeated note sounds`);
+    assert.ok(
+      played.every(n => Math.abs(n.duration - played[0].duration) < 0.01),
+      `${body}: at full length: ${played.map(n => n.duration.toFixed(3))}`
+    );
+  }
+}
 // FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
 // Share links: the payload round-trips through deflate+base64url, and through plain base64url where
 // CompressionStream is missing; damaged links decode to null.
@@ -957,5 +1059,5 @@ for (const prompt of context.writingPrompts) {
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
 );

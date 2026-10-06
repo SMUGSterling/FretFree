@@ -926,6 +926,8 @@ input[type='range'] {
   box-shadow: 0 10px 28px #21372d2e;
   padding: 6px;
   min-width: 210px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   display: grid;
   gap: 2px;
 }
@@ -957,6 +959,15 @@ input[type='range'] {
   background: #e7ebdc;
   color: var(--green);
   border-color: #c9d4b3;
+}
+.note-menu .menu-marks {
+  grid-template-columns: repeat(5, 1fr);
+}
+.note-menu .menu-marks button {
+  min-height: 34px;
+  padding: 4px;
+  font-size: 15px;
+  text-align: center;
 }
 .note-menu hr {
   border: 0;
@@ -1513,6 +1524,25 @@ input[type='range'] {
 .palette .danger {
   color: #9e4d28;
 }
+.palette .articulation button {
+  font-size: 19px;
+}
+.palette .dynamic,
+.note-menu .dynamic {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-weight: 700;
+}
+.palette .dynamic {
+  font-size: 16px;
+}
+.palette-more:not([hidden]) {
+  display: contents;
+}
+.palette [data-palette='more'].in-use {
+  border-color: var(--green);
+  box-shadow: inset 0 -3px 0 var(--green);
+}
 @media (max-width: 720px) {
   .palette {
     gap: 6px;
@@ -1662,6 +1692,19 @@ input[type='range'] {
     display: none !important;
   }
 }
+/* Copy, cut, paste and duplicate for the selected notes; the same commands as Ctrl+C, X, V and D, for touch screens.
+   The buttons keep the full button size, as big a target as Undo and Play. */
+.selection-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+@media print {
+  .selection-tools {
+    display: none !important;
+  }
+}
 /* Classroom colors and letters in noteheads: a selected or playing note still shows its highlight color. Both print. */
 #notation .abcjs-note_selected .classroom-color,
 #notation .abcjs-playing .classroom-color {
@@ -1679,5 +1722,48 @@ input[type='range'] {
   #notation svg {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+}
+/* Zoom and measures per line sit just above the score; they change the engraving, not the source. */
+.score-view {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 18px;
+  margin: 14px 0 -8px;
+}
+.zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.zoom-label {
+  margin-right: 4px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--muted);
+}
+.zoom-controls button {
+  min-width: 40px;
+  min-height: 36px;
+  padding: 6px 10px;
+  font-variant-numeric: tabular-nums;
+}
+#zoom-out,
+#zoom-in {
+  font-size: 17px;
+  line-height: 1;
+}
+.zoom-controls #zoom-reset {
+  min-width: 62px;
+}
+.zoom-controls button[aria-disabled='true'] {
+  cursor: default;
+  opacity: 0.45;
+}
+@media print {
+  .score-view {
+    display: none !important;
   }
 }

@@ -13,6 +13,8 @@ const KEYS = {
   noteColors: 'fretfree-note-colors',
   draft: 'fretfree-draft',
   audition: 'fretfree-audition',
+  zoom: 'fretfree-zoom',
+  measuresPerLine: 'fretfree-measures-per-line',
   piano: 'fretfree-piano',
   practice: id => 'fretfree-practice-' + id
 };
