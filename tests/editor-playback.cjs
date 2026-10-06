@@ -816,9 +816,9 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.equal(
     disabled(),
     'tie to-rest tuplet:3 tuplet:6 acc:^ acc:_ acc:= acc: respell beam:join beam:break deco:staccato deco:tenuto ' +
-      'deco:accent deco:marcato line:slur line:trill grace grace:slash grace:up grace:down deco:wedge deco:upbow ' +
-      'deco:downbow deco:breath deco:trill deco:mordent deco:turn deco:arpeggio',
-    'A rest takes only a dynamic, a fermata, a hairpin or a tuplet'
+      'deco:accent deco:marcato lyric line:slur line:trill grace grace:slash grace:up grace:down deco:wedge ' +
+      'deco:upbow deco:downbow deco:breath deco:trill deco:mordent deco:turn deco:arpeggio',
+    'A rest takes only a dynamic, a fermata, a hairpin or a tuplet (and no note follows this one for lyrics)'
   );
   press('acc:^');
   assert.equal(body(), '^G3- G E F G A | B4 z3 z |]', 'Disabled buttons change nothing');
@@ -860,7 +860,7 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
     disabled(),
     'dot tie to-rest tuplet:3 tuplet:2 tuplet:5 tuplet:6 tuplet:7 acc:^ acc:_ acc:= acc: respell beam:join ' +
       'beam:break deco:staccato deco:tenuto deco:accent deco:marcato deco:fermata dyn:ppp dyn:pp dyn:p dyn:mp dyn:mf ' +
-      'dyn:f dyn:ff dyn:fff dyn:sfz chord line:slur line:crescendo line:diminuendo line:trill grace grace:slash ' +
+      'dyn:f dyn:ff dyn:fff dyn:sfz chord lyric line:slur line:crescendo line:diminuendo line:trill grace grace:slash ' +
       'grace:up grace:down deco:wedge deco:upbow deco:downbow deco:breath deco:trill deco:mordent deco:turn ' +
       'deco:arpeggio delete'
   );
@@ -1046,9 +1046,9 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.equal(
     disabled(),
     'tie to-rest tuplet:2 acc:^ acc:_ acc:= acc: respell beam:join beam:break deco:staccato deco:tenuto deco:accent ' +
-      'deco:marcato line:slur line:trill grace grace:slash grace:up grace:down deco:wedge deco:upbow deco:downbow ' +
-      'deco:breath deco:trill deco:mordent deco:turn deco:arpeggio',
-    'A rest offers a dynamic, a fermata, a hairpin and a tuplet'
+      'deco:marcato lyric line:slur line:trill grace grace:slash grace:up grace:down deco:wedge deco:upbow ' +
+      'deco:downbow deco:breath deco:trill deco:mordent deco:turn deco:arpeggio',
+    'A rest offers a dynamic, a fermata, a hairpin and a tuplet (no note follows it for lyrics)'
   );
   run('dirty=false');
   key(';');
@@ -2357,6 +2357,183 @@ async function checkInstrumentSounds() {
   );
   run('stop();dirty=false');
 }
+// Lyrics: L, the toolbar's Lyrics button and the note menu open the box under a note; Space, -, _ and * write the
+// verse as typed, Enter starts the next verse on the same notes, Backspace and Tab move, rests are skipped, each saved
+// syllable is one undo step, and the words survive transposing, instruments, saving, share links and exports.
+async function checkLyrics() {
+  const abc = () => run("$('abc').value"),
+    words = () =>
+      abc()
+        .split('\n')
+        .filter(l => l.startsWith('w:')),
+    pick = i => run(`selectEntry(scoreNotes()[${i}])`),
+    key = k => run(`scoreKey(${JSON.stringify({key: k})})`),
+    box = () => run("$('lyric-entry').hidden ? null : $('lyric-input').value"),
+    status = () => run("$('selection-status').textContent"),
+    selected = () => run("$('abc').value.slice(...selectedRange)"),
+    // Each character as a keyboard types it: over the selected text, or after what is there.
+    type = text => {
+      for (const c of text)
+        run(
+          `(i=>{i.value=i.selectionStart===0&&i.selectionEnd===i.value.length?${JSON.stringify(c)}:i.value+${JSON.stringify(c)};` +
+            `i.dispatchEvent(new Event('input'))})($('lyric-input'))`
+        );
+    },
+    press = (k, shiftKey = false) =>
+      run(
+        `$('lyric-input').dispatchEvent(new KeyboardEvent('keydown',{key:${JSON.stringify(k)},shiftKey:${shiftKey},bubbles:true,cancelable:true}))`
+      ),
+    twinkle = 'X:1\nT:Twinkle\nM:4/4\nL:1/4\nK:C\nCCGG|AAG2|\nFFEE|DDC2|]\n';
+  run(`dirty=false;openScore({abc:${JSON.stringify(twinkle)},instrument:'Flute'})`);
+  run('selectedRange=null;selectionAnchor=null');
+  key('l');
+  assert.equal(box(), null, 'L needs a selected note');
+  assert.equal(status(), 'Select a note on the score first.');
+  pick(0);
+  key('l');
+  assert.equal(box(), '', 'L opens an empty box on the note');
+  assert.equal(run('document.activeElement.id'), 'lyric-input', 'The box takes the keyboard');
+  assert.equal(run("$('lyric-verse').textContent"), 'Verse 1');
+  assert.equal(run("$('lyric-input').getAttribute('aria-label')"), 'Lyrics, verse 1');
+  type('Twin-kle twin-kle ');
+  assert.deepEqual(words(), ['w: Twin-kle twin-kle'], 'Syllables go on four notes, written under their line');
+  assert.equal(abc(), twinkle.replace('G|AAG2|\n', 'G|AAG2|\nw: Twin-kle twin-kle\n'));
+  assert.equal(box(), '', 'The box moves on to the fifth note');
+  assert.equal(selected(), 'A');
+  assert.equal(run('document.activeElement.id'), 'lyric-input');
+  // The words engrave under the notes.
+  assert.deepEqual(
+    JSON.parse(run("JSON.stringify([...document.querySelectorAll('#notation .abcjs-lyric')].map(t=>t.textContent))")),
+    ['Twin-', 'kle', 'twin-', 'kle']
+  );
+  press('Enter');
+  assert.equal(run("$('lyric-verse').textContent"), 'Verse 2', 'Enter starts the next verse');
+  assert.equal(selected(), 'C', 'on the note where typing started');
+  assert.equal(box(), '');
+  type('Up a-bove the ');
+  assert.deepEqual(words(), ['w: Twin-kle twin-kle', 'w: Up a-bove the'], 'The second verse goes on the same notes');
+  assert.equal(
+    run("JSON.stringify(ABCJS.parseOnly($('abc').value)[0].lines[0].staff[0].voices[0][2].lyric.map(l=>l.syllable))"),
+    '["twin","bove"]',
+    'Each note stacks its verses in order'
+  );
+  press('Escape');
+  assert.equal(box(), null, 'Escape closes the box');
+  assert.equal(run('document.activeElement.id'), 'notation', 'and the keyboard goes back to the score');
+  run('stepHistory(-1)');
+  assert.deepEqual(words(), ['w: Twin-kle twin-kle', 'w: Up a-bove'], 'Each saved syllable is one undo step');
+  run('stepHistory(1)');
+  // Editing one syllable changes only that syllable; Tab keeps its hyphen.
+  pick(2);
+  key('L');
+  assert.equal(box(), 'twin', 'The box shows the syllable the note has, selected');
+  type('TWIN');
+  press('Tab');
+  assert.deepEqual(words(), ['w: Twin-kle TWIN-kle', 'w: Up a-bove the']);
+  assert.equal(selected(), 'G', 'Tab moves on');
+  assert.equal(box(), 'kle');
+  press('Tab', true);
+  assert.equal(box(), 'TWIN', 'Shift+Tab moves back');
+  press('Escape');
+  // A second line of music has its own w: line; Space at the last note closes the box.
+  pick(11);
+  key('l');
+  type('won-der what ');
+  assert.deepEqual(words(), ['w: Twin-kle TWIN-kle', 'w: Up a-bove the', 'w: * * * * won-der what']);
+  assert.equal(
+    abc(),
+    'X:1\nT:Twinkle\nM:4/4\nL:1/4\nK:C\nCCGG|AAG2|\nw: Twin-kle TWIN-kle\nw: Up a-bove the\nFFEE|DDC2|]\nw: * * * * won-der what\n',
+    'Notes before the first syllable of a line are skipped with *'
+  );
+  assert.equal(box(), null, 'Typing past the last note closes the box');
+  assert.equal(status(), 'That was the last note. Lyrics saved.');
+  // Backspace in an empty box goes back a note; an empty box takes a syllable away.
+  pick(13);
+  key('l');
+  run("$('lyric-input').value='';$('lyric-input').dispatchEvent(new Event('input'))");
+  assert.match(run("$('lyric-hint').textContent"), /^Empty removes the syllable/);
+  press('Backspace');
+  assert.equal(box(), 'der', 'Backspace in an empty box goes back a note');
+  assert.deepEqual(words().at(-1), 'w: * * * * won-der', 'and takes away the syllable it left');
+  press('Escape');
+  // * leaves a note out, _ holds a syllable over the next note, and a space after either only separates.
+  run(`openScore({abc:${JSON.stringify('X:1\nM:3/4\nL:1/4\nK:G\nG z A B|c2 d|e2-e d|]\n')},instrument:'Flute'})`);
+  pick(0);
+  key('l');
+  assert.equal(selected(), 'G ');
+  type('Ah_ * men a* way');
+  assert.equal(box(), 'way', 'A space after _ or * only separates');
+  press('Escape');
+  assert.deepEqual(words(), ['w: Ah___ men a * way'], 'Rests are passed over; * and _ take a note each');
+  assert.deepEqual(
+    run("JSON.stringify(voiceLyrics($('abc').value).map(x=>x&&x.syllable))"),
+    JSON.stringify(['Ah', null, null, 'men', 'a', null, 'way', null]),
+    'Ah on G, A held, B left out, men on c, a on d, the first e left out, way on the tied e'
+  );
+  // A selected rest starts the words at the next note.
+  pick(1);
+  assert.equal(selected(), 'z ');
+  key('l');
+  assert.equal(selected(), 'A ', 'L on a rest opens the box on the next note');
+  assert.equal(box(), '');
+  press('Escape');
+  // - and _ in an empty box carry the syllable before through the note.
+  run(`openScore({abc:${JSON.stringify('X:1\nL:1/4\nK:C\nC D E F|]\n')},instrument:'Flute'})`);
+  pick(0);
+  key('l');
+  type('Ky-');
+  type('-');
+  type('ri ');
+  assert.deepEqual(words(), ['w: Ky - ri'], 'A hyphen in an empty box carries the word on through the note');
+  // The toolbar button and the note menu open the box too, and the button names the syllable.
+  press('Escape');
+  pick(0);
+  assert.equal(run(`document.querySelector('[data-palette="lyric"]').getAttribute('aria-label')`), 'Lyrics (Ky)');
+  assert.equal(run(`document.querySelector('[data-palette="lyric"]').classList.contains('in-use')`), true);
+  pick(1);
+  assert.equal(run(`document.querySelector('[data-palette="lyric"]').getAttribute('aria-label')`), 'Lyrics');
+  run(`document.querySelector('[data-palette="lyric"]').click()`);
+  assert.equal(box(), '', 'The Lyrics button opens the box');
+  press('Escape');
+  run('openNoteMenu(scoreNotes()[2], displayOf(scoreNotes()[2]), 10, 10)');
+  assert.match(run(`$('note-menu').querySelector('[data-edit="lyric"]').textContent`), /^Lyrics: ri…$/);
+  run(`$('note-menu').querySelector('[data-edit="lyric"]').click()`);
+  assert.equal(box(), 'ri', 'The note menu opens the box');
+  // Leaving the box saves it.
+  type('RI');
+  run("$('lyric-input').dispatchEvent(new FocusEvent('blur',{relatedTarget:$('abc')}))");
+  assert.equal(box(), null);
+  assert.deepEqual(words(), ['w: Ky - RI'], 'Leaving the box saves it');
+  // Adding or taking away notes in a line with words under it says to check them; other edits do not.
+  assert.equal(run("$('lyric-check').hidden"), true);
+  pick(1);
+  key('g');
+  assert.equal(run("$('lyric-check').hidden"), false, 'A new note in a line with lyrics shows the check');
+  run('stepHistory(-1)');
+  pick(0);
+  key('ArrowUp');
+  assert.equal(run("$('lyric-check').hidden"), true, 'A pitch change hides it');
+  // The words survive transposing, another instrument, saving, share links and exports.
+  run(
+    `openScore({abc:${JSON.stringify(twinkle.replace('G|AAG2|\n', 'G|AAG2|\nw: Twin-kle twin-kle lit-tle star\n'))},instrument:'Flute'})`
+  );
+  const verse = 'w: Twin-kle twin-kle lit-tle star';
+  run('toggleTranspose(true);applyTranspose()');
+  assert.ok(words().includes(verse) && /^K:D$/m.test(abc()), 'Transposing keeps the words');
+  run("$('instrument').value='Clarinet in B♭';$('instrument').onchange();clearTimeout(renderTimer);render()");
+  assert.equal(
+    run("[...document.querySelectorAll('#notation .abcjs-lyric')].map(t=>t.textContent).join(' ')"),
+    'Twin- kle twin- kle lit- tle star',
+    'A transposing instrument shows the words'
+  );
+  assert.ok(run('sharePayload().a').includes(verse), 'Share links carry the words');
+  assert.ok(run("creditedABC($('abc').value, current)").includes(verse), 'ABC export keeps the words');
+  assert.match(
+    run("abcToMusicXML($('abc').value, {item: current})"),
+    /<lyric number="1"><syllabic>begin<\/syllabic><text>Twin<\/text>/
+  );
+  assert.match(run("creditedSVG($('notation'), $('abc').value, current)"), /abcjs-lyric/, 'SVG export draws the words');
+}
 async function checkPlayback() {
   run(`openScore({abc:${JSON.stringify(source)},instrument:'Flute'});$('start-measure').value=3;$('speed').value=50`);
   assert.equal(run('measureStarts.get(3)'), 9.6, 'Measure after repeated section uses performed timing');
@@ -3097,6 +3274,7 @@ async function checkPlayback() {
     delete w.navigator.requestMIDIAccess;
   }
   await checkChordSymbols();
+  await checkLyrics();
   await checkAudio();
   await checkInstrumentSounds();
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-scores-v1')), [legacy]);
@@ -3104,7 +3282,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), lyrics (L, the Lyrics button and the note menu, Space, -, _ and * as typed, Enter for the next verse, Tab, Shift+Tab and Backspace, rests passed over, saving on blur, one undo per syllable, the check after notes change, and words kept through transposing, instruments, share links and ABC, MusicXML and SVG export), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

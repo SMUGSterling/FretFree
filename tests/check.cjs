@@ -1199,6 +1199,155 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     'One stretch per voice'
   );
 }
+// Lyrics: lyricUnits and alignLyrics read w: lines exactly as abcjs does (checked on generated music and words full of
+// rests, skips, bar jumps, holds and escapes), lyricText writes a verse back so abcjs reads the same syllables,
+// setSyllable changes one syllable and keeps every verse on its own row, and typeLyrics follows the typing keys.
+{
+  const ABCJS_ = context.ABCJS,
+    rows = (abc, voice = '0:0') => {
+      const tune = ABCJS_.parseOnly(abc)[0];
+      return JSON.parse(
+        JSON.stringify(
+          context
+            .lyricSlots(tune, voice)
+            .map(slot =>
+              context
+                .lyricVerses(abc, slot)
+                .verses.map(v => context.verseLyrics(slot, v.text).map(x => x?.syllable || null))
+            )
+        )
+      );
+    },
+    syllables = (abc, verse = 0, voice = '0:0') =>
+      JSON.parse(JSON.stringify(context.voiceLyrics(abc, voice, verse).map(x => x && x.syllable)));
+  let seed = 7;
+  const random = n => ((seed = (seed * 1103515245 + 12345) % 2147483648), seed % n),
+    pick = list => list[random(list.length)];
+  let checked = 0;
+  for (let t = 0; t < 300; t++) {
+    let music = '';
+    for (let i = 0; i < 4 + random(10); i++)
+      music += pick(['C', 'D', 'z', 'E2', 'z/', '[CE]', 'F-', 'y', 'x', '{g}A', '(3ABc', '|']) + (random(2) ? ' ' : '');
+    const verses = [];
+    for (let v = 0; v < 1 + random(3); v++) {
+      let w = '';
+      for (let i = 0; i < random(12); i++)
+        w += pick(['la', 'Twin', ' ', ' ', '-', '_', '*', '|', '~', 'a~b', '\\-', 'x', ' - ', '__']);
+      verses.push('w:' + w);
+    }
+    const abc = 'X:1\nK:C\nL:1/8\n' + music + '|\n' + verses.join('\n') + '\n',
+      tune = ABCJS_.parseOnly(abc)[0];
+    for (const slot of context.lyricSlots(tune, '0:0')) {
+      const found = context.lyricVerses(abc, slot).verses,
+        stacked = new Map();
+      for (const v of found)
+        for (const [e, x] of context.alignLyrics(slot.elements, context.lyricUnits(v.text)))
+          stacked.set(e, [...(stacked.get(e) || []), x]);
+      for (const e of slot.elements)
+        assert.equal(
+          JSON.stringify(stacked.get(e) || []),
+          JSON.stringify(context.readLyrics(e)),
+          'Syllables as abcjs reads them in ' + JSON.stringify(abc)
+        );
+      for (const v of found) {
+        const only = list => list.map(x => (x?.syllable ? x : null)),
+          entries = only(context.verseLyrics(slot, v.text)),
+          // A hold (_) cannot be kept when the next note has a syllable of its own.
+          kept = list => list.map((x, i) => x && {...x, divider: x.divider === '_' && list[i + 1] ? ' ' : x.divider});
+        assert.deepEqual(
+          kept(only(context.verseLyrics(slot, context.lyricText(slot, entries)))),
+          kept(entries),
+          'A verse written back reads the same: ' + JSON.stringify(v.text)
+        );
+        checked++;
+      }
+    }
+  }
+  assert.ok(checked > 300, 'Enough verses checked');
+  const twinkle = 'X:1\nM:4/4\nL:1/4\nK:C\nCCGG|AAG2|\nFFEE|DDC2|]\n';
+  let abc = twinkle;
+  for (const [i, s, d] of [
+    [0, 'Twin', '-'],
+    [1, 'kle', ' '],
+    [2, 'twin', '-'],
+    [3, 'kle', ' ']
+  ])
+    abc = context.setSyllable(abc, 0, 0, i, s, d);
+  assert.equal(abc, twinkle.replace('G2|\n', 'G2|\nw: Twin-kle twin-kle\n'), 'Four syllables under four notes');
+  abc = context.setSyllable(abc, 0, 1, 1, 'a', '-');
+  assert.equal(abc.split('\n')[6], 'w: * a-', 'A second verse pads the notes before it with *');
+  abc = context.setSyllable(abc, 0, 2, 6, 'star', ' ');
+  assert.deepEqual(
+    abc.split('\n').slice(5, 9),
+    ['w: Twin-kle twin-kle * * *', 'w: * a- * * * * *', 'w: * * * * * * star', 'FFEE|DDC2|]'],
+    'Earlier verses reach as far as later ones, so abcjs keeps each on its own row'
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(ABCJS_.parseOnly(abc)[0].lines[0].staff[0].voices[0].at(-2).lyric)).map(l => l.syllable),
+    ['', '', 'star']
+  );
+  const edited = context.setSyllable(abc, 0, 0, 2, 'TWIN', '-');
+  assert.equal(edited.replace('TWIN', 'twin'), abc, 'Editing one syllable changes only that syllable');
+  abc = context.setSyllable(abc, 0, 2, 6, '', ' ');
+  abc = context.setSyllable(abc, 0, 1, 1, '', ' ');
+  assert.equal(abc, twinkle.replace('G2|\n', 'G2|\nw: Twin-kle twin-kle * * *\n'), 'Empty verses at the end go');
+  assert.equal(context.setSyllable(twinkle, 1, 0, 0, 'How', ' '), twinkle + 'w: How\n', 'The second line has its own');
+  assert.equal(context.setSyllable(twinkle, 0, 0, 9, 'x'), twinkle, 'A note past the line changes nothing');
+  // Rests are passed over; a skip that a rest would take gets one of its own; marks typed in a syllable stay plain.
+  const rests = 'X:1\nL:1/4\nK:C\nC z D E|z F G z|]';
+  assert.equal(context.setSyllable(rests, 0, 0, 3, 'la'), rests + '\nw: * * * * la', 'The rests between take a * each');
+  assert.deepEqual(syllables(rests + '\nw: * * * * la'), [null, null, null, 'la', null]);
+  assert.equal(context.setSyllable(rests, 0, 0, 1, 'mid-day'), rests + '\nw: * mid\\-day');
+  assert.deepEqual(syllables(rests + '\nw: * mid\\-day'), [null, 'mid-day', null, null, null]);
+  assert.equal(context.setSyllable(rests, 0, 0, 0, 'O 100%'), rests + '\nw: O~100', 'Spaces as ~, % dropped');
+  // Words already written stay as written in the lines and verses not changed, + lines and comments included.
+  const kept = 'X:1\nL:1/4\nK:C\nC D E F|\n% words\nw: do | re\nw:mi fa\nG A B c|]\nw: sol';
+  assert.equal(
+    context.setSyllable(kept, 0, 1, 3, 'so'),
+    kept.replace('w:mi fa', 'w:mi fa * so'),
+    'Only the changed verse is written again'
+  );
+  assert.deepEqual(rows(kept), [
+    [
+      ['do', null, null, null],
+      ['mi', 'fa', null, null]
+    ],
+    [['sol', null, null, null]]
+  ]);
+  // Two voices: each voice's line takes its own w: lines.
+  const duet = 'X:1\nL:1/4\nV:1\nV:2\nK:C\nV:1\nC D E F|\nV:2\nC, D, E, F,|]\n';
+  const both = context.setSyllable(context.setSyllable(duet, 0, 0, 0, 'hi', ' ', '0:0'), 0, 0, 1, 'lo', ' ', '1:0');
+  assert.equal(both, 'X:1\nL:1/4\nV:1\nV:2\nK:C\nV:1\nC D E F|\nw: hi\nV:2\nC, D, E, F,|]\nw: * lo\n');
+  assert.deepEqual(syllables(both, 0, '1:0'), [null, 'lo', null, null]);
+  // Typing: space, -, _ and * from a note, across lines, and the space after -, _ or * that only separates.
+  let typed = context.typeLyrics(twinkle, '0:0', 0, 0, 'Twin-kle twin-kle lit-tle star How I won');
+  assert.deepEqual(
+    [typed.abc.split('\n').filter(l => l.startsWith('w:')), typed.pos, typed.rest],
+    [['w: Twin-kle twin-kle lit-tle star', 'w: How I'], 9, 'won'],
+    'Typing goes on to the next line'
+  );
+  typed = context.typeLyrics(twinkle, '0:0', 0, 0, 'Ah_ men * * so-');
+  assert.deepEqual(
+    [typed.abc.split('\n')[5], typed.pos, typed.after],
+    ['w: Ah_ men * * so-', 6, true],
+    '_ holds a syllable over the next note, * leaves a note out, a space after them only separates'
+  );
+  typed = context.typeLyrics(twinkle, '0:0', 0, 0, 'Ky- - ri ');
+  assert.equal(typed.abc.split('\n')[5], 'w: Ky - ri', '- with nothing typed carries the word on');
+  typed = context.typeLyrics(twinkle + 'w: a b c d e f g\n', '0:0', 0, 11, ' *');
+  assert.deepEqual(
+    [typed.abc.split('\n').at(-2), typed.pos],
+    ['w: a b c d e * g', 13],
+    'A space passes a note as it is; * takes a syllable away'
+  );
+  typed = context.typeLyrics(twinkle, '0:0', 0, 12, 'star end more ');
+  assert.deepEqual([typed.abc.split('\n').at(-2), typed.pos], ['w: * * * * * star end', 14], 'and stops at the end');
+  // The hint about notes added under words compares the notes of each line that has words.
+  assert.deepEqual(JSON.parse(JSON.stringify(context.lyricLines(both))), [
+    {voice: '0:0', line: 0, notes: 4, words: 'hi'},
+    {voice: '1:0', line: 0, notes: 4, words: '* lo'}
+  ]);
+}
 // Measure and form tools: bars inserted and deleted in every voice as whole-bar rests in the meter in force, bar lines
 // that replace each other, repeats and endings that toggle, form marks, rehearsal letters in order, and time, key and
 // clef changes from a measure on. Every construct parses without warnings, and repeats and endings play.
@@ -3103,7 +3252,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, typing keys), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {

@@ -871,6 +871,69 @@ const {chromium} = require('playwright'),
     assert.ok(all > 5, 'With Chords the accompaniment plays too');
     await page.locator('#chords').click();
   }
+  // Lyrics with real keys: L opens a box under the note's staff, typing writes the words under the notes, Enter starts
+  // the second verse on the same notes and the box moves down under it, each syllable undoes on its own, the toolbar
+  // button works from the keyboard, and clicking another note saves the box and selects that note.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:L\nM:4/4\nL:1/4\nK:C\nCCGG|AAG2|]\n', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  {
+    const head = i => page.locator('#notation .abcjs-notehead').nth(i),
+      verses = () =>
+        page.evaluate(() =>
+          $('abc')
+            .value.split('\n')
+            .filter(l => l.startsWith('w:'))
+        ),
+      shown = () =>
+        page.evaluate(() => [...document.querySelectorAll('#notation .abcjs-lyric')].map(e => e.textContent));
+    await head(0).click({force: true});
+    await page.keyboard.press('l');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'lyric-input', 'L opens the lyrics box');
+    const staff = await page.locator('#notation .abcjs-staff').first().boundingBox(),
+      note = await head(0).boundingBox(),
+      entry = await page.locator('#lyric-entry').boundingBox();
+    assert.ok(
+      entry.y >= staff.y + staff.height && entry.y < staff.y + staff.height + 30 && Math.abs(entry.x - note.x) < 20,
+      'The box sits just under the staff, at the note'
+    );
+    await page.keyboard.type('Twin-kle twin-kle');
+    await page.keyboard.press('Enter');
+    assert.deepEqual(await verses(), ['w: Twin-kle twin-kle'], 'Typing writes the words under four notes');
+    assert.deepEqual(await shown(), ['Twin-', 'kle', 'twin-', 'kle'], 'and they are engraved');
+    assert.equal(await page.locator('#lyric-verse').textContent(), 'Verse 2', 'Enter starts the second verse');
+    const lower = await page.locator('#lyric-entry').boundingBox();
+    assert.ok(lower.y > entry.y + 8 && Math.abs(lower.x - entry.x) < 10, 'on the first note, under the first verse');
+    await page.keyboard.type('Up a-bove ');
+    assert.deepEqual(await verses(), ['w: Twin-kle twin-kle', 'w: Up a-bove']);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'notation', 'Escape goes back to the score');
+    await page.keyboard.press('Control+z');
+    assert.deepEqual(await verses(), ['w: Twin-kle twin-kle', 'w: Up a-'], 'Each syllable is one undo step');
+    await head(2).click({force: true});
+    await page.locator('[data-palette="lyric"]').focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#lyric-input').inputValue(), 'twin', 'The Lyrics button opens the box');
+    await page.keyboard.press('Escape');
+    assert.equal(
+      await page.evaluate(() => document.activeElement.dataset.palette),
+      'lyric',
+      'Escape goes back to the button'
+    );
+    await head(4).click({force: true});
+    await page.keyboard.press('l');
+    await page.keyboard.type('lit');
+    await head(6).click({force: true});
+    assert.deepEqual(await verses(), ['w: Twin-kle twin-kle lit', 'w: Up a-'], 'Clicking another note saves the box');
+    assert.deepEqual(
+      await page.evaluate(() => [$('abc').value.slice(...selectedRange), $('lyric-entry').hidden]),
+      ['G2', true],
+      'and selects that note'
+    );
+    assert.equal(await page.locator('#warnings').textContent(), '');
+  }
   // Writing prompts: blank bars of rests, typing writes over them, goals tick off live; keys follow written pitch.
   await page.evaluate(() => {
     dirty = false;
@@ -3116,6 +3179,15 @@ const {chromium} = require('playwright'),
     await page.keyboard.press('Escape');
     const chordsBox = await page.locator('#chords').boundingBox();
     assert.ok(chordsBox && chordsBox.x + chordsBox.width <= 390, 'The Chords switch fits a phone');
+    // The lyrics box fits a phone too, under the staff; Next moves on without a Tab key.
+    await note.click({force: true});
+    await page.locator('[data-palette="lyric"]').click();
+    await page.keyboard.type('la');
+    await page.locator('#lyric-next').click();
+    const words = await page.locator('#lyric-entry').boundingBox();
+    assert.ok(words.x >= 0 && words.x + words.width <= 390, 'The lyrics box fits a phone');
+    await page.keyboard.press('Escape');
+    assert.match(await page.evaluate(() => $('abc').value), /\nw: \* la\n?$/, 'Next saves and moves on');
   }
   assert.ok(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
@@ -3402,7 +3474,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), tuplets and grace notes (T and letters filling and beaming the rests, staccato on and off and Delete in a triplet, the Tuplet menu by pointer, Grace, Grace ↑ and Slashed by pointer and keyboard, undo), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
+    'PASS: dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), tuplets and grace notes (T and letters filling and beaming the rests, staccato on and off and Delete in a triplet, the Tuplet menu by pointer, Grace, Grace ↑ and Slashed by pointer and keyboard, undo), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), lyrics (L, a verse typed with hyphens, Enter for the next verse with the box under it, undo, the toolbar button by keyboard, click away, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);
