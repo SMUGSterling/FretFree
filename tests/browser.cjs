@@ -854,7 +854,7 @@ const {chromium} = require('playwright'),
     await tab.keyboard.press('ArrowUp');
     const edited = await tab.evaluate(() => $('abc').value);
     assert.notEqual(edited, await tab.evaluate(() => catalog.find(x => x.id === 'ode').abc), 'The key edits the score');
-    await tab.waitForFunction(() => JSON.parse(localStorage.getItem('fretfree-draft'))?.abc === $('abc').value, null, {
+    await tab.waitForFunction(() => storedDrafts().some(d => d.tab === draftTab && d.abc === $('abc').value), null, {
       timeout: 5000
     });
     await tab.reload();
@@ -878,7 +878,8 @@ const {chromium} = require('playwright'),
     assert.equal(await tab.evaluate(() => localStorage.getItem('fretfree-draft')), null, 'Saving clears the draft');
     await tab.locator('#notation .abcjs-notehead').nth(1).click({force: true});
     await tab.keyboard.press('ArrowDown');
-    await tab.evaluate(() => flushDraft());
+    // No waiting for the two-second timer: the page writes the draft as it is hidden and unloaded.
+    assert.equal(await tab.evaluate(() => localStorage.getItem('fretfree-draft')), null, 'The timer has not run yet');
     await tab.setViewportSize({width: 390, height: 844});
     await tab.reload();
     await tab.waitForSelector('#draft-banner:not([hidden])');
@@ -893,6 +894,52 @@ const {chromium} = require('playwright'),
       'Discard removes the draft and keeps the saved score'
     );
     await tab.close();
+  }
+  // Two tabs keep a draft each. The second tab offers the first tab's live draft; discarding it there does not lose
+  // it, and an edit in the second tab does not replace it, so when both tabs are gone the next visit offers both.
+  {
+    const context = await browser.newContext({viewport: {width: 1280, height: 900}});
+    const open = async () => {
+      const tab = await context.newPage();
+      tab.on('pageerror', e => errors.push(e.message));
+      tab.on('dialog', dialog => dialog.accept());
+      await tab.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+      return tab;
+    };
+    const edit = async tab => {
+      await tab.locator('#notation .abcjs-notehead').first().click({force: true});
+      await tab.keyboard.press('ArrowUp');
+      await tab.evaluate(() => flushDraft());
+      return tab.evaluate(() => $('abc').value);
+    };
+    const stored = tab => tab.evaluate(() => storedDrafts().map(d => d.abc));
+    const first = await open();
+    await first.locator('#cards [data-open="ode"]').click();
+    const firstAbc = await edit(first);
+    const second = await open();
+    assert.match(
+      await second.locator('#draft-text').textContent(),
+      /: Ode to Joy\.$/,
+      "The first tab's draft is offered"
+    );
+    await second.click('#draft-discard');
+    await second.waitForFunction(abc => storedDrafts().some(d => d.abc === abc), firstAbc, {timeout: 5000});
+    await second.evaluate(() => openScore(catalog.find(x => x.id === 'mozart')));
+    const secondAbc = await edit(second);
+    assert.deepEqual(await stored(second), [secondAbc, firstAbc], 'Both drafts are kept, newest first');
+    await first.close({runBeforeUnload: false});
+    await second.close({runBeforeUnload: false});
+    const third = await open();
+    assert.match(await third.locator('#draft-text').textContent(), /\(1 of 2\)\.$/);
+    await third.click('#draft-discard');
+    assert.match(await third.locator('#draft-text').textContent(), /: Ode to Joy \(2 of 2\)\.$/);
+    await third.click('#draft-restore');
+    assert.deepEqual(
+      [await third.evaluate(() => $('abc').value), await stored(third)],
+      [firstAbc, [firstAbc]],
+      "The first tab's work comes back"
+    );
+    await context.close();
   }
   await page.setViewportSize({width: 390, height: 844});
   assert.ok(

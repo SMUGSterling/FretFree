@@ -317,11 +317,18 @@ assert.equal(
   assert.equal($('next-up').hidden, true, 'No suggestions for a shared copy');
   assert.equal(await run('openSharedLink("s=1garbage")'), false, 'A damaged link is refused');
 
-  // Unsaved-work recovery: an edit leaves a draft in one local slot; undoing to the opened text or saving clears it.
-  const draft = () => JSON.parse(w.localStorage.getItem('fretfree-draft'));
-  const edit = js => run(`${js}; changed(); clearTimeout(renderTimer); render(); flushDraft()`);
+  // Unsaved-work recovery: an edit leaves this tab's draft in the local list; undoing to the opened text or saving
+  // removes it.
+  const drafts = () => JSON.parse(w.localStorage.getItem('fretfree-draft')) || [],
+    draft = () => drafts().find(d => d.tab === run('draftTab')) ?? null,
+    tabs = () => drafts().map(d => (d.tab === run('draftTab') ? 'this' : d.tab));
+  const change = js => run(`${js}; changed(); clearTimeout(renderTimer); render()`),
+    edit = js => {
+      change(js);
+      run('flushDraft()');
+    };
   run('dirty = false; openScore(catalog.find(x => x.id === "ode"))');
-  assert.equal(draft(), null, 'Opening a score leaves the draft slot empty');
+  assert.equal(draft(), null, 'Opening a score leaves no draft');
   $('instrument').value = 'Violin';
   edit("$('abc').value = $('abc').value.replace('E E F G', 'G G F G')");
   assert.deepEqual(
@@ -337,12 +344,12 @@ assert.equal(
   );
   assert.ok(Math.abs(draft().at - Date.now()) < 60000, 'The draft is timed');
   $('undo').click();
-  assert.equal(draft(), null, 'Undoing back to the opened text clears the draft');
+  assert.equal(w.localStorage.getItem('fretfree-draft'), null, 'Undoing back to the opened text clears the draft');
   $('redo').click();
   run('flushDraft()');
   assert.ok(draft(), 'Redoing the edit writes the draft again');
   $('save').click();
-  assert.equal(draft(), null, 'Saving clears the draft');
+  assert.equal(w.localStorage.getItem('fretfree-draft'), null, 'Saving clears the draft');
   edit("$('abc').value += '\\n%' + 'x'.repeat(600000)");
   assert.equal(draft(), null, 'Drafts over 500 KB are skipped');
   {
@@ -357,20 +364,60 @@ assert.equal(
     w.Storage.prototype.setItem = setItem;
     assert.equal(draft(), null);
   }
-  // A damaged draft, or one that matches the saved score it came from, is not offered.
-  w.localStorage.setItem('fretfree-draft', '[1]');
-  assert.equal(run('readDraft()'), null, 'A damaged draft is ignored');
+  // A hidden tab (Chromebooks discard these) or a closing page writes the waiting draft at once, before the timer.
+  change("$('abc').value = $('abc').value.replace('G G F G', 'A G F G')");
+  assert.equal(draft(), null, 'The draft waits for the timer');
+  assert.equal(w.document.hidden, true);
+  w.document.dispatchEvent(new w.Event('visibilitychange'));
+  assert.ok(draft()?.abc.includes('A G F G'), 'Hiding the tab writes the draft');
+  run("$('abc').value = $('abc').value.replace('A G F G', 'B G F G'); changed()");
+  w.dispatchEvent(new w.Event('pagehide'));
+  assert.ok(draft()?.abc.includes('B G F G'), 'Leaving the page writes the draft, even before the edit has rendered');
+  run('clearTimeout(renderTimer); render()');
+  // Each tab keeps its own entry. When another tab's banner restores or discards this tab's draft, the work here is
+  // still unsaved, so it goes straight back; a full list is left alone so open tabs never take turns pushing each
+  // other out, and the next edit here drops the oldest draft instead.
+  const other = n => ({abc: 'X:1\nT:Other\nK:C\nC4 |]', title: 'Other', tab: 'other' + n, at: Date.now() - n * 1000});
+  const otherTab = list => {
+    w.localStorage.setItem('fretfree-draft', JSON.stringify(list));
+    w.dispatchEvent(new w.StorageEvent('storage', {key: 'fretfree-draft'}));
+  };
+  otherTab([other(1)]);
+  assert.deepEqual(tabs(), ['this', 'other1'], "This tab's draft goes back, next to the other tab's");
+  assert.ok(draft().abc.includes('B G F G'));
+  otherTab([other(1), other(2), other(3)]);
+  assert.deepEqual(tabs(), ['other1', 'other2', 'other3'], 'A full list is left alone');
+  edit("$('abc').value = $('abc').value.replace('B G F G', 'C G F G')");
+  assert.deepEqual(tabs(), ['this', 'other1', 'other2'], 'An edit here drops the oldest draft');
+  $('save').click();
+  assert.deepEqual(tabs(), ['other1', 'other2'], "Saving removes only this tab's draft");
+  // Damaged drafts are not offered, nor one that matches the saved score it came from. A saved score from before
+  // instruments were saved opens with a default instrument, so a draft with only a new instrument is kept.
+  for (const value of ['[1]', '{"abc": "X:1\\nK:C\\nC|]"}', '[{"abc": " "}]']) {
+    w.localStorage.setItem('fretfree-draft', value);
+    assert.equal(run('loadDrafts().length'), 0, 'A damaged draft is ignored: ' + value);
+  }
   w.localStorage.setItem(
     'fretfree-draft',
-    JSON.stringify({
-      abc: run('saved.at(-1).abc'),
-      instrument: run('saved.at(-1).instrument'),
-      savedId: run('saved.at(-1).id')
-    })
+    JSON.stringify([
+      {
+        abc: run('saved.at(-1).abc'),
+        instrument: run('saved.at(-1).instrument'),
+        savedId: run('saved.at(-1).id'),
+        at: 2
+      },
+      {abc: run('saved[0].abc'), instrument: 'Violin', savedId: run('saved[0].id'), tab: 'legacy', at: 1}
+    ])
   );
-  assert.equal(run('readDraft()'), null, 'A draft that matches its saved score is not offered');
-  assert.equal(draft(), null, 'and is cleared');
-  run('dirty = false');
+  assert.equal(run('saved[0].instrument'), undefined, 'The first saved score is from before instruments were saved');
+  assert.equal(
+    run('loadDrafts().map(d => d.tab).join()'),
+    'legacy',
+    'A draft that matches its saved score is not offered'
+  );
+  assert.deepEqual(tabs(), ['legacy'], 'and is cleared');
+  run('pendingDrafts = []; dirty = false');
+  w.localStorage.removeItem('fretfree-draft');
 
   // Reloading with a draft of a library edition: the banner offers it; Restore brings back the exact text,
   // instrument and credits, marked unsaved; the legacy keys are untouched.
@@ -385,7 +432,9 @@ assert.equal(
       legacy(storage);
       storage.setItem(
         'fretfree-draft',
-        JSON.stringify({abc: odeAbc, instrument: 'Violin', title: 'Ode to Joy', sourceId: 'ode', kind: 'historic', at})
+        JSON.stringify([
+          {abc: odeAbc, instrument: 'Violin', title: 'Ode to Joy', sourceId: 'ode', kind: 'historic', tab: 'gone', at}
+        ])
       );
     });
     assert.equal(page.$('draft-banner').hidden, false, 'Start-up offers the draft');
@@ -402,10 +451,10 @@ assert.equal(
     );
     assert.ok(page.$('rights').textContent.includes('CC0'), 'Library credits are shown');
     assert.match(page.$('save-status').textContent, /Restored unsaved work/);
-    assert.equal(
-      JSON.parse(page.w.localStorage.getItem('fretfree-draft')).abc,
-      odeAbc,
-      'The restored work stays drafted'
+    assert.deepEqual(
+      JSON.parse(page.w.localStorage.getItem('fretfree-draft')).map(d => [d.tab === page.run('draftTab'), d.abc]),
+      [[true, odeAbc]],
+      "The restored work becomes this tab's draft, in place of the old one"
     );
     assert.deepEqual(
       [page.w.localStorage.getItem('commonnote-scores-v1'), page.w.localStorage.getItem('commonnote-favorites-v1')],
@@ -424,15 +473,18 @@ assert.equal(
       );
       storage.setItem(
         'fretfree-draft',
-        JSON.stringify({
-          abc: base.replace('z4', 'C D E F'),
-          instrument: 'Flute',
-          title: 'My first melody',
-          prompt,
-          savedId: 'mine',
-          kind: 'personal',
-          at: Date.now()
-        })
+        JSON.stringify([
+          {
+            abc: base.replace('z4', 'C D E F'),
+            instrument: 'Flute',
+            title: 'My first melody',
+            prompt,
+            savedId: 'mine',
+            kind: 'personal',
+            tab: 'gone',
+            at: Date.now()
+          }
+        ])
       );
     });
     page.$('draft-restore').click();
@@ -445,27 +497,62 @@ assert.equal(
     assert.equal(page.run('saved.length'), 1, 'Saving updates the saved entry');
     assert.equal(page.w.localStorage.getItem('fretfree-draft'), null, 'Saving clears the draft');
   }
-  // A share link opened at start-up opens first; the banner follows, and the unedited shared copy does not replace
-  // the draft. Discard removes it.
+  // A share link opened at start-up opens first and the banner follows. The shared copy is unsaved, so it becomes this
+  // tab's own draft beside the earlier one, never in its place, and undoing an edit to it updates only its own entry.
   {
-    const link = await run('encodeShare({v: 1, a: catalog.find(x => x.id === "mozart").abc, i: "Flute"})');
+    const link = await run('encodeShare({v: 1, a: catalog.find(x => x.id === "mozart").abc, i: "Flute"})'),
+      earlier = {abc: odeAbc, title: 'Ode to Joy', kind: 'personal', tab: 'gone', at: 1};
     const page = boot(storage => {
       legacy(storage);
-      storage.setItem('fretfree-draft', JSON.stringify({abc: odeAbc, title: 'Ode to Joy', kind: 'personal', at: 1}));
+      storage.setItem('fretfree-draft', JSON.stringify([earlier]));
     }, 'http://localhost:8000/#s=' + link);
     for (let i = 0; i < 100 && page.run('current?.kind') !== 'shared'; i++) await new Promise(r => setTimeout(r, 20));
     assert.equal(page.run('current.kind'), 'shared', 'The shared score opens');
     assert.equal(page.$('studio').hidden, false);
     assert.equal(page.$('draft-banner').hidden, false, 'The banner follows the shared score');
-    page.run('flushDraft(); writeDraft()');
-    assert.equal(
-      JSON.parse(page.w.localStorage.getItem('fretfree-draft')).abc,
-      odeAbc,
-      'The unedited shared copy keeps the earlier draft'
+    assert.match(page.$('draft-text').textContent, /: Ode to Joy\.$/);
+    const stored = () => JSON.parse(page.w.localStorage.getItem('fretfree-draft')),
+      opened = page.run("$('abc').value"),
+      own = () => stored().find(d => d.tab === page.run('draftTab'));
+    page.run('flushDraft()');
+    assert.equal(own().abc, opened, 'The unedited shared copy is drafted');
+    page.run("$('abc').value = $('abc').value.replace(/^T:.*$/m, 'T:Edited'); changed(); clearTimeout(renderTimer)");
+    page.run('render(); flushDraft()');
+    assert.match(own().abc, /T:Edited/);
+    page.$('undo').click();
+    page.run('flushDraft()');
+    assert.deepEqual(
+      [page.run('dirty'), own().abc === opened, stored().find(d => d.tab === 'gone')],
+      [true, true, earlier],
+      'After undo the shared copy is still unsaved; its draft follows the undo and the earlier draft is kept'
     );
+    // The next visit offers both, newest first; Discard moves on to the next, and Restore leaves the rest stored.
+    const next = boot(storage => storage.setItem('fretfree-draft', page.w.localStorage.getItem('fretfree-draft')));
+    const title = page.run('current.title');
+    assert.equal(
+      next.$('draft-text').textContent.endsWith(`: ${title} (1 of 2).`),
+      true,
+      'The newest is offered first'
+    );
+    next.$('draft-discard').click();
+    assert.match(next.$('draft-text').textContent, /: Ode to Joy \(2 of 2\)\.$/, 'Discard offers the next draft');
+    assert.equal(next.$('draft-banner').hidden, false);
+    assert.equal(next.w.document.activeElement.id, 'draft-restore', 'Restore keeps the focus');
+    assert.deepEqual(
+      JSON.parse(next.w.localStorage.getItem('fretfree-draft')).map(d => d.tab),
+      ['gone'],
+      'Discard removes only the offered draft'
+    );
+    next.$('draft-discard').click();
+    assert.equal(next.$('draft-banner').hidden, true, 'Discarding the last draft hides the banner');
+    assert.equal(next.w.localStorage.getItem('fretfree-draft'), null, 'and no draft is left');
     page.$('draft-discard').click();
     assert.equal(page.$('draft-banner').hidden, true, 'Discard hides the banner');
-    assert.equal(page.w.localStorage.getItem('fretfree-draft'), null, 'Discard clears the draft');
+    assert.deepEqual(
+      stored().map(d => d.tab),
+      [page.run('draftTab')],
+      "Discard removes the earlier draft and keeps this tab's own"
+    );
     assert.equal(page.run('current.kind'), 'shared', 'Discard leaves the open score alone');
   }
   console.log(

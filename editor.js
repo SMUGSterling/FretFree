@@ -238,6 +238,8 @@ function changed() {
   $('save-status').textContent = 'Unsaved changes';
   clearTimeout(renderTimer);
   renderTimer = setTimeout(render, 220);
+  // Started here as well as after render(), so a tab hidden or closed before the render still writes the draft.
+  scheduleDraft();
 }
 function noteLength() {
   const match = field('L', '1/8').match(/^(\d+)\/(\d+)$/);
@@ -1458,16 +1460,19 @@ $('share-copy').onclick = async () => {
 };
 $('share-close').onclick = () => ($('share-panel').hidden = true);
 
-// Unsaved-work recovery. While the score has unsaved changes, a copy goes to one local draft slot two seconds later
-// (at once when the tab is hidden), so a discarded tab or a closed window does not lose the work. Saving, undoing
-// back to the opened text, or replacing the score clears it; render() runs after each of these, so it is the hook.
-// A draft found at start-up waits in pendingDraft until it is restored or discarded. Until then it goes back in
-// the slot whenever this session's own draft is cleared, and only a real edit in this session replaces it.
+// Unsaved-work recovery. While the score has unsaved changes, a copy goes to the local draft list two seconds later
+// (at once when the tab is hidden), so a discarded tab or a closed window does not lose the work. Each tab keeps one
+// entry, marked with its own tab id, so a second open tab never overwrites or clears the first tab's work. Saving,
+// undoing back to the opened text, or replacing the score removes this tab's entry; render() runs after each of these,
+// so it is the hook. Drafts found at start-up are offered newest first and stay stored until restored or discarded.
 const DRAFT_DELAY = 2000,
-  DRAFT_MAX_LENGTH = 500 * 1024;
+  DRAFT_MAX_LENGTH = 500 * 1024,
+  DRAFT_LIMIT = 3,
+  draftTab = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 let draftTimer = null,
   draftOwned = false,
-  pendingDraft = null;
+  pendingDrafts = [],
+  draftCount = 0;
 function draftData() {
   return {
     abc: $('abc').value,
@@ -1477,23 +1482,47 @@ function draftData() {
     sourceId: shareSourceId(),
     savedId,
     kind: current?.kind,
+    tab: draftTab,
     at: Date.now()
   };
 }
-function writeDraft() {
+const sameDraft = (a, b) => a.tab === b.tab && a.at === b.at;
+// The stored drafts, newest first, without damaged entries.
+function storedDrafts() {
+  const list = storage.get(KEYS.draft, []);
+  return (Array.isArray(list) ? list : [])
+    .filter(d => d && typeof d === 'object' && typeof d.abc === 'string' && d.abc.trim())
+    .sort((a, b) => (+b.at || 0) - (+a.at || 0));
+}
+function storeDrafts(list) {
+  if (list.length) return storage.set(KEYS.draft, list);
+  storage.remove(KEYS.draft);
+  return true;
+}
+function removeDrafts(match) {
+  const list = storedDrafts(),
+    rest = list.filter(d => !match(d));
+  if (rest.length < list.length) storeDrafts(rest);
+}
+// This tab's draft goes first. The oldest other drafts make room when the list is over its count or size limit;
+// with `keep`, nothing is written instead, so two open tabs never take turns pushing each other out.
+function writeDraft(keep = false) {
   clearTimeout(draftTimer);
   draftTimer = null;
-  // A shared link or an imported file opens as unsaved without an edit; that alone must not replace a draft
-  // the student has not seen yet.
-  if (!dirty || (pendingDraft && historyIndex === 0)) return;
+  if (!dirty) return;
   const data = draftData();
   // Very long scores are skipped rather than crowding saved scores out of storage; a full quota is ignored.
   if (JSON.stringify(data).length > DRAFT_MAX_LENGTH) return;
-  if (storage.set(KEYS.draft, data)) draftOwned = true;
+  const list = [data, ...storedDrafts().filter(d => d.tab !== draftTab)];
+  while (list.length > 1 && (list.length > DRAFT_LIMIT || JSON.stringify(list).length > DRAFT_MAX_LENGTH)) {
+    if (keep) return;
+    list.pop();
+  }
+  if (storeDrafts(list)) draftOwned = true;
 }
 function scheduleDraft() {
   if (!dirty) clearDraft();
-  else if (!draftTimer) draftTimer = setTimeout(writeDraft, DRAFT_DELAY);
+  else if (!draftTimer) draftTimer = setTimeout(() => writeDraft(), DRAFT_DELAY);
 }
 function flushDraft() {
   if (draftTimer) writeDraft();
@@ -1503,19 +1532,24 @@ function clearDraft() {
   draftTimer = null;
   if (!draftOwned) return;
   draftOwned = false;
-  if (pendingDraft) storage.set(KEYS.draft, pendingDraft);
-  else storage.remove(KEYS.draft);
+  removeDrafts(d => d.tab === draftTab);
 }
-// The stored draft, unless it is damaged or matches the saved score it came from.
-function readDraft() {
-  const draft = storage.get(KEYS.draft, null);
-  if (!draft || typeof draft !== 'object' || typeof draft.abc !== 'string' || !draft.abc.trim()) return null;
-  const entry = draft.savedId && saved.find(x => x.id === draft.savedId);
-  if (entry && entry.abc === draft.abc && (!entry.instrument || entry.instrument === draft.instrument)) {
-    storage.remove(KEYS.draft);
-    return null;
-  }
-  return draft;
+// Another tab's banner can restore or discard this tab's draft while this tab is still open. If the work here is
+// still unsaved, it goes back in the list.
+function keepDraft() {
+  if (draftOwned && dirty && !storedDrafts().some(d => d.tab === draftTab)) writeDraft(true);
+}
+// The drafts to offer at start-up. One that matches the saved score it came from, text and instrument, is dropped;
+// a saved score from before instruments were saved never matches, so its draft is kept.
+function loadDrafts() {
+  const list = storedDrafts();
+  pendingDrafts = list.filter(draft => {
+    const entry = draft.savedId && saved.find(x => x.id === draft.savedId);
+    return !entry || entry.abc !== draft.abc || entry.instrument !== draft.instrument;
+  });
+  if (pendingDrafts.length < list.length) storeDrafts(pendingDrafts);
+  draftCount = pendingDrafts.length;
+  return pendingDrafts;
 }
 function draftTime(at) {
   const when = new Date(at);
@@ -1524,24 +1558,26 @@ function draftTime(at) {
     ? when.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})
     : when.toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
 }
-// Shown once at start-up. Focus moves to Restore so the choice is announced and one key away; the start-up score
-// would otherwise hold focus, with every note a tab stop before the banner. The reload's scroll restoration is
-// turned off so the banner at the top stays in view.
+// Shown at start-up, and again after Discard while more drafts wait. Focus moves to Restore so the choice is announced
+// and one key away; the start-up score would otherwise hold focus, with every note a tab stop before the banner. The
+// reload's scroll restoration is turned off so the banner at the top stays in view.
 function offerDraft() {
-  const banner = $('draft-banner');
-  banner.hidden = !pendingDraft;
-  if (!pendingDraft) return;
+  const banner = $('draft-banner'),
+    draft = pendingDrafts[0];
+  banner.hidden = !draft;
+  if (!draft) return;
+  const place = draftCount > 1 ? ` (${draftCount - pendingDrafts.length + 1} of ${draftCount})` : '';
   $('draft-text').textContent =
-    `Unsaved work from ${draftTime(pendingDraft.at)}: ${String(pendingDraft.title || 'Untitled')}.`;
+    `Unsaved work from ${draftTime(draft.at)}: ${String(draft.title || 'Untitled')}${place}.`;
   if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
   $('draft-restore').focus({preventScroll: true});
 }
 // Restoring rebuilds the score as a shared link does: the library edition's credits, the saved entry it belongs to,
-// and the draft's own text, instrument and prompt, marked unsaved.
+// and the draft's own text, instrument and prompt, marked unsaved. Other waiting drafts stay stored for the next visit.
 function restoreDraft() {
-  const draft = pendingDraft;
+  const draft = pendingDrafts[0];
   if (!draft || !allowReplace()) return;
-  pendingDraft = null;
+  pendingDrafts = [];
   $('draft-banner').hidden = true;
   dirty = false;
   const source = catalog.find(x => x.id === draft.sourceId),
@@ -1565,14 +1601,19 @@ function restoreDraft() {
   updateRights();
   $('save-status').textContent = `Restored unsaved work from ${draftTime(draft.at)}. Save it to keep it.`;
   focusScore();
+  // The work is now this tab's own draft; the entry it came from goes once that copy is stored.
   writeDraft();
+  if (draftOwned) removeDrafts(d => sameDraft(d, draft));
 }
-// Discarding drops only the old draft; this session's own unsaved work keeps its slot.
+// Discarding removes only the offered draft; the next one, if any, takes its place in the banner.
 function discardDraft() {
-  if (!pendingDraft) return;
-  pendingDraft = null;
-  if (!draftOwned) storage.remove(KEYS.draft);
-  $('draft-banner').hidden = true;
-  document.querySelector('.nav.active')?.focus();
+  const draft = pendingDrafts.shift();
+  if (!draft) return;
+  removeDrafts(d => sameDraft(d, draft));
   toast('Unsaved work discarded.');
+  if (pendingDrafts.length) offerDraft();
+  else {
+    $('draft-banner').hidden = true;
+    document.querySelector('.nav.active')?.focus();
+  }
 }

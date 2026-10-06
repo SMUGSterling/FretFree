@@ -318,6 +318,12 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 window.addEventListener('pagehide', flushDraft);
+// Another tab may have restored or discarded this tab's draft from its banner; while the work here is unsaved, it goes
+// back. A page coming back from the back/forward cache may have missed that, so it checks too.
+window.addEventListener('storage', e => {
+  if (e.key === KEYS.draft || e.key === null) keepDraft();
+});
+window.addEventListener('pageshow', keepDraft);
 $('draft-restore').onclick = restoreDraft;
 $('draft-discard').onclick = discardDraft;
 const initialView = location.hash.slice(1);
@@ -337,7 +343,7 @@ ABCJS.renderAbc('hero-notation', catalog[0].abc, {
 });
 renderCards();
 // Unsaved work from an earlier visit is offered once the start-up score is open; a share link opens first.
-pendingDraft = readDraft();
+loadDrafts();
 newScore();
 if (initialView.startsWith('s=')) {
   show('studio');

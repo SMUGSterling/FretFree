@@ -1,8 +1,9 @@
 # Unsaved-work recovery · 2026-10-06
 
 - While a score has unsaved changes, FretFree keeps a draft copy in the browser, two seconds after each edit and straight away when the tab is hidden. If the tab is closed or a Chromebook discards it, the next visit offers **Unsaved work from 3:42 PM: Title. Restore / Discard**.
-- **Restore** brings back the exact ABC, instrument, writing prompt and library credits, marked unsaved, and saving updates the same saved score. Saving, Discard, replacing the score, or undoing back to the opened text clears the draft. A share link opened at start-up opens first; the offer follows and the shared copy does not overwrite the draft until it is edited.
-- One draft is kept under `fretfree-draft`. Drafts over 500 KB are skipped, a full storage quota is ignored, and drafts stay out of backups.
+- **Restore** brings back the exact ABC, instrument, writing prompt and library credits, marked unsaved, and saving updates the same saved score. Saving, Discard, replacing the score, or undoing back to the opened text clears the draft. A share link opened at start-up opens first and the offer follows.
+- Each open tab keeps its own draft, so a second tab never replaces or clears the first tab's work. When more than one is waiting, they are offered newest first, and Discard moves on to the next.
+- Drafts are kept under `fretfree-draft`: up to three, 500 KB in all, and the oldest is dropped first. A full storage quota is ignored, and drafts stay out of backups.
 
 ---
 
