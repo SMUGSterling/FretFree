@@ -76,6 +76,7 @@ for (const f of [
   'library.js',
   'backup.js',
   'editor.js',
+  'palette.js',
   'playback.js',
   'assignments.js',
   'app.js'
@@ -195,6 +196,177 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   pick(3);
   key('=');
   assert.equal(body(), '(3:2:3^CDE (=F G) A2 B2 |]', 'Written-pitch accidentals on tuplet- and slur-start notes');
+}
+// Notation palette: buttons show the selected note's state and make the same edit as the menu or key, one undo step each.
+{
+  const abc = 'X:1\nM:4/4\nL:1/8\nK:C\n^G3- G E F G A | B4 z3 z |]';
+  run(`openScore({abc:${JSON.stringify(abc)},instrument:'Flute'})`);
+  const body = () => run("$('abc').value.trim().split('\\n').pop()"),
+    pick = i => run(`selectEntry(scoreNotes()[${i}])`),
+    press = action => run(`document.querySelector('[data-palette="${action}"]').click()`),
+    pressed = () =>
+      run(`[...document.querySelectorAll('#palette [aria-pressed="true"]')].map(b=>b.dataset.palette).join(' ')`),
+    disabled = () =>
+      run(`[...document.querySelectorAll('#palette [aria-disabled="true"]')].map(b=>b.dataset.palette).join(' ')`),
+    status = () => run("$('selection-status').textContent");
+  assert.equal(run("$('palette').getAttribute('role')"), 'toolbar');
+  pick(0);
+  assert.equal(pressed(), 'len:0.25 dot tie acc:^', 'A dotted quarter G sharp tied to the next note');
+  assert.equal(disabled(), 'beam:join beam:break', 'A dotted quarter has no flag to beam');
+  pick(2);
+  assert.equal(pressed(), 'len:0.125 acc:', 'A plain eighth');
+  assert.equal(disabled(), 'beam:break', 'Break needs a beamed note');
+  pick(7);
+  assert.equal(pressed(), 'len:0.25 dot', 'A rest shows only its length (here a dotted quarter)');
+  assert.equal(disabled(), 'tie to-rest acc:^ acc:_ acc:= acc: beam:join beam:break');
+  press('acc:^');
+  assert.equal(body(), '^G3- G E F G A | B4 z3 z |]', 'Disabled buttons change nothing');
+  assert.equal(status(), 'Rests have no accidental, tie or beam.');
+  // Each button matches the note menu and the keys, as one undo step.
+  const same = (i, action, key) => {
+    pick(i);
+    press(action);
+    const viaPalette = body();
+    run('stepHistory(-1)');
+    pick(i);
+    if (key) run(`scoreKey({key:${JSON.stringify(key)}})`);
+    else run(`(s=>editNote(s.entry,s.display,${JSON.stringify(action)}))(selectedNote())`);
+    assert.equal(body(), viaPalette, `${action} matches ${key ? 'the ' + key + ' key' : 'the note menu'}`);
+    run('stepHistory(-1)');
+    assert.equal(body(), '^G3- G E F G A | B4 z3 z |]', `${action} is one undo step`);
+    return viaPalette;
+  };
+  assert.equal(same(2, 'len:0.5', '6'), '^G3- G E4 F G A | B4 z3 z |]');
+  assert.equal(same(0, 'dot', '.'), '^G2- G E F G A | B4 z3 z |]');
+  assert.equal(same(0, 'tie', '+'), '^G3 G E F G A | B4 z3 z |]');
+  assert.equal(same(2, 'acc:_', '-'), '^G3- G _E F G A | B4 z3 z |]');
+  assert.equal(same(0, 'acc:'), 'G3- G E F G A | B4 z3 z |]');
+  assert.equal(same(2, 'delete', 'Delete'), '^G3- G F G A | B4 z3 z |]');
+  assert.equal(same(0, 'to-rest'), 'z3 G E F G A | B4 z3 z |]', 'Rest keeps the length and drops the tie');
+  assert.equal(same(2, 'beam:join'), '^G3- G EF G A | B4 z3 z |]', 'Join removes the space');
+  pick(2);
+  press('beam:join');
+  assert.equal(pressed(), 'len:0.125 acc: beam:join', 'Joined notes show Join pressed');
+  assert.equal(status(), 'Beamed to the next note.');
+  press('beam:break');
+  assert.equal(body(), '^G3- G E F G A | B4 z3 z |]', 'Break puts the space back');
+  pick(5);
+  assert.ok(disabled().includes('beam:join'), 'No beam across a bar line');
+  // With nothing selected a length button sets the length of new notes, like keys 3–7.
+  run("scoreKey({key:'Escape'})");
+  assert.equal(disabled(), 'dot tie to-rest acc:^ acc:_ acc:= acc: beam:join beam:break delete');
+  assert.equal(pressed(), 'len:0.5', 'Shows the length new notes get: the last one chosen (key 6 above)');
+  run('inputLength=null;updatePalette()');
+  assert.equal(pressed(), 'len:0.25', 'New notes default to one beat');
+  press('len:0.0625');
+  assert.equal(run('inputLength'), 0.0625);
+  assert.equal(status(), 'New notes will be sixteenth notes.');
+  assert.equal(pressed(), 'len:0.0625');
+  run("scoreKey({key:'c'})");
+  assert.equal(body(), '^G3- G E F G A | B4 z3 z c/2 |]', 'The next note takes the palette length');
+  // A selected rest keeps its length; the next letter writes a note of the chosen length over it.
+  pick(7);
+  press('len:0.125');
+  assert.equal(status(), 'New notes will be eighth notes. Type a letter to write one over the rest.');
+  // An unknown editNote action changes nothing (it used to write NaN).
+  pick(1);
+  const before = run("$('abc').value");
+  for (const action of ['bogus', 'len:', 'len:x', 'len:-1'])
+    run(`(s=>editNote(s.entry,s.display,${JSON.stringify(action)}))(selectedNote())`);
+  assert.equal(run("$('abc').value"), before, 'Unknown actions are ignored');
+  // Accidentals show in written pitch for transposing instruments, like the note menu.
+  run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\n^F c d e |]')},instrument:'Clarinet in B♭'})`);
+  pick(0);
+  assert.equal(pressed(), 'len:0.25 acc:^', 'Concert F sharp is a written G sharp');
+  assert.equal(run("$('warnings').textContent"), '');
+}
+// Palette presses only say they worked when they did: beams need two flagged notes, a multi-measure rest has no dot,
+// a press that changes nothing keeps the score saved, Rest takes the tie off the note before it, and a press's
+// message gives way once the selection moves on.
+{
+  const open = music =>
+      run(`dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\n' + music)},instrument:'Flute'})`),
+    body = () => run("$('abc').value.split('\\n').slice(4).join('\\n').trim()"),
+    pick = i => run(`selectEntry(scoreNotes()[${i}])`),
+    press = action => run(`document.querySelector('[data-palette="${action}"]').click()`),
+    pressed = () =>
+      run(`[...document.querySelectorAll('#palette [aria-pressed="true"]')].map(b=>b.dataset.palette).join(' ')`),
+    disabled = () =>
+      run(`[...document.querySelectorAll('#palette [aria-disabled="true"]')].map(b=>b.dataset.palette).join(' ')`),
+    status = () => run("$('selection-status').textContent"),
+    beams = () => run("$('notation').querySelectorAll('.abcjs-beam-elem').length");
+  open('G A B c|]');
+  pick(0);
+  assert.equal(disabled(), 'beam:join beam:break', 'Quarter notes have no flags to beam');
+  press('beam:join');
+  assert.equal(body(), 'G A B c|]', 'Join leaves quarter notes apart');
+  assert.equal(status(), 'Only eighth notes and shorter can be beamed.');
+  assert.equal(run('dirty'), false);
+  open('GA B c|]');
+  pick(0);
+  assert.equal(pressed(), 'len:0.25 acc:', 'Quarter notes written together are not beamed, so Join is not pressed');
+  open('G/ A B/ z/ c|]');
+  pick(0);
+  press('beam:join');
+  assert.equal(status(), 'Only eighth notes and shorter can be beamed.', 'The next note has to be short too');
+  pick(2);
+  press('beam:join');
+  assert.equal(body(), 'G/ A B/ z/ c|]');
+  assert.equal(status(), 'A beam cannot end on a rest.');
+  open('G/ A/ B c|]');
+  pick(0);
+  press('beam:join');
+  assert.equal(body(), 'G/A/ B c|]');
+  assert.equal(beams(), 1, 'Two eighth notes are beamed');
+  // Rest takes the tie off the note before it (a tie into a rest means nothing), as one undo step.
+  open('G- G A B|]');
+  pick(1);
+  press('to-rest');
+  assert.equal(body(), 'G z A B|]', 'No tie into a rest');
+  assert.equal(run("$('abc').value.slice(...selectedRange).trim()"), 'z', 'The new rest stays selected');
+  run('stepHistory(-1)');
+  assert.equal(body(), 'G- G A B|]', 'Rest and the tie it drops are one undo step');
+  open('G2- | G2 A B|]');
+  pick(1);
+  press('to-rest');
+  assert.equal(body(), 'G2 | z2 A B|]', 'Also across a bar line');
+  open('G- G/>A/ B c|]');
+  pick(1);
+  press('to-rest');
+  assert.equal(body(), 'G z3/4A/4 B c|]', 'Also on the first note of a broken-rhythm pair');
+  open('V:1\nG2 A B-|\nV:2\nC2 D E-|\nV:1\nB4|\nV:2\nE4|]');
+  pick(6);
+  press('to-rest');
+  assert.equal(body(), 'V:1\nG2 A B|\nV:2\nC2 D E-|\nV:1\nz4|\nV:2\nE4|]', 'Only the tie in the same voice');
+  // A multi-measure rest shows no length and cannot be dotted; nothing changes, so the score stays saved.
+  open('Z2 | C D E F|]');
+  pick(0);
+  assert.equal(pressed(), '', 'A multi-measure rest shows no length');
+  assert.ok(disabled().startsWith('dot '), 'Dot is off for a multi-measure rest');
+  press('dot');
+  assert.equal(status(), 'A multi-measure rest cannot be dotted.');
+  run("scoreKey({key:'.'})");
+  assert.equal(body(), 'Z2 | C D E F|]');
+  assert.equal(run("dirty || $('save-status').textContent"), '', 'The . key on Z changes nothing either');
+  press('len:0.5');
+  assert.equal(status(), 'New notes will be half notes.', 'Letters go after a multi-measure rest, not over it');
+  open('^C D E F|]');
+  pick(0);
+  press('acc:^');
+  assert.equal(status(), 'No change.', 'Sharp on a sharp note');
+  press('len:0.25');
+  assert.equal(status(), 'Already a quarter note.');
+  assert.equal(run('dirty'), false, 'Presses that change nothing keep the score saved');
+  // The message for a press gives way once the selection moves on.
+  run("scoreKey({key:'Escape'})");
+  press('dot');
+  assert.equal(status(), 'Select a note on the score first.');
+  run("scoreKey({key:'c'})");
+  assert.equal(status(), 'Measure 1 selected.', 'Typing a note replaces the stale hint');
+  press('dot');
+  assert.equal(status(), 'Dotted.');
+  run("scoreKey({key:'ArrowLeft'})");
+  assert.match(status(), /^Measure 1 selected · type A–G/, 'Selecting another note replaces it too');
 }
 // Master bus and note audition: every note and click reaches the speakers through one gain node that follows the
 // Volume slider live; entering, selecting or moving a note sounds it once at concert pitch when Hear notes is on.
@@ -543,7 +715,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, notation palette state, edits and guards, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

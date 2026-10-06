@@ -8,26 +8,27 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=700d0c21d7f4" />
-    <script defer src="vendor/abcjs-basic-min.js?v=700d0c21d7f4"></script>
-    <script defer src="catalog.js?v=700d0c21d7f4"></script>
-    <script defer src="catalog-expanded.js?v=700d0c21d7f4"></script>
-    <script defer src="score-tools.js?v=700d0c21d7f4"></script>
-    <script defer src="rights-tools.js?v=700d0c21d7f4"></script>
-    <script defer src="musicxml.js?v=700d0c21d7f4"></script>
-    <script defer src="catalog-licensed.js?v=700d0c21d7f4"></script>
-    <script defer src="catalog-lieder.js?v=700d0c21d7f4"></script>
-    <script defer src="catalog-quartets.js?v=700d0c21d7f4"></script>
-    <script defer src="catalog-pgh.js?v=700d0c21d7f4"></script>
-    <script defer src="catalog-skills.js?v=700d0c21d7f4"></script>
-    <script defer src="prompts.js?v=700d0c21d7f4"></script>
-    <script defer src="shared.js?v=700d0c21d7f4"></script>
-    <script defer src="library.js?v=700d0c21d7f4"></script>
-    <script defer src="backup.js?v=700d0c21d7f4"></script>
-    <script defer src="editor.js?v=700d0c21d7f4"></script>
-    <script defer src="playback.js?v=700d0c21d7f4"></script>
-    <script defer src="assignments.js?v=700d0c21d7f4"></script>
-    <script defer src="app.js?v=700d0c21d7f4"></script>
+    <link rel="stylesheet" href="style.css?v=cb7da38ea397" />
+    <script defer src="vendor/abcjs-basic-min.js?v=cb7da38ea397"></script>
+    <script defer src="catalog.js?v=cb7da38ea397"></script>
+    <script defer src="catalog-expanded.js?v=cb7da38ea397"></script>
+    <script defer src="score-tools.js?v=cb7da38ea397"></script>
+    <script defer src="rights-tools.js?v=cb7da38ea397"></script>
+    <script defer src="musicxml.js?v=cb7da38ea397"></script>
+    <script defer src="catalog-licensed.js?v=cb7da38ea397"></script>
+    <script defer src="catalog-lieder.js?v=cb7da38ea397"></script>
+    <script defer src="catalog-quartets.js?v=cb7da38ea397"></script>
+    <script defer src="catalog-pgh.js?v=cb7da38ea397"></script>
+    <script defer src="catalog-skills.js?v=cb7da38ea397"></script>
+    <script defer src="prompts.js?v=cb7da38ea397"></script>
+    <script defer src="shared.js?v=cb7da38ea397"></script>
+    <script defer src="library.js?v=cb7da38ea397"></script>
+    <script defer src="backup.js?v=cb7da38ea397"></script>
+    <script defer src="editor.js?v=cb7da38ea397"></script>
+    <script defer src="palette.js?v=cb7da38ea397"></script>
+    <script defer src="playback.js?v=cb7da38ea397"></script>
+    <script defer src="assignments.js?v=cb7da38ea397"></script>
+    <script defer src="app.js?v=cb7da38ea397"></script>
   </head>
   <body>
     <header>
@@ -445,11 +446,72 @@
             </p>
             <p class="small" id="selection-status" role="status">
               Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag
-              up/down to change pitch; right-click a note for accidentals and length. Playback speed leaves the score
-              tempo unchanged.
+              up/down to change pitch; use the toolbar above the score or right-click a note for length, accidentals and
+              ties. Playback speed leaves the score tempo unchanged.
             </p>
             <div id="prompt-check" class="prompt-check" aria-live="polite" hidden></div>
             <div id="bar-check" class="bar-check" aria-live="polite" hidden></div>
+            <div id="palette" class="palette" role="toolbar" aria-label="Notation" aria-controls="notation">
+              <div role="group" aria-label="Length">
+                <button data-palette="len:1" aria-label="Whole note" aria-keyshortcuts="7" title="Whole note (7)">
+                  𝅝</button
+                ><button data-palette="len:0.5" aria-label="Half note" aria-keyshortcuts="6" title="Half note (6)">
+                  𝅗𝅥</button
+                ><button
+                  data-palette="len:0.25"
+                  aria-label="Quarter note"
+                  aria-keyshortcuts="5"
+                  title="Quarter note (5)"
+                >
+                  ♩</button
+                ><button
+                  data-palette="len:0.125"
+                  aria-label="Eighth note"
+                  aria-keyshortcuts="4"
+                  title="Eighth note (4)"
+                >
+                  ♪</button
+                ><button data-palette="len:0.0625" aria-label="16th note" aria-keyshortcuts="3" title="16th note (3)">
+                  𝅘𝅥𝅯
+                </button>
+              </div>
+              <div role="group" aria-label="Dot, tie and rest">
+                <button data-palette="dot" aria-keyshortcuts="." title="Dotted (.)">
+                  <span class="glyph" aria-hidden="true">·</span> Dot</button
+                ><button data-palette="tie" aria-keyshortcuts="+" title="Tie to the next note (+)">
+                  <span class="glyph" aria-hidden="true">⁀</span> Tie</button
+                ><button data-palette="to-rest" title="Change the note to a rest of the same length">
+                  <span class="glyph" aria-hidden="true">𝄽</span> Rest
+                </button>
+              </div>
+              <div role="group" aria-label="Accidental">
+                <button data-palette="acc:^" aria-label="Sharp" aria-keyshortcuts="#" title="Sharp (#)">♯</button
+                ><button data-palette="acc:_" aria-label="Flat" aria-keyshortcuts="-" title="Flat (-)">♭</button
+                ><button data-palette="acc:=" aria-label="Natural" aria-keyshortcuts="=" title="Natural (=)">♮</button
+                ><button data-palette="acc:" title="No accidental">None</button>
+              </div>
+              <div role="group" aria-label="Beam">
+                <button data-palette="beam:join" aria-label="Join beam to the next note" title="Beam to the next note">
+                  <span class="glyph" aria-hidden="true">♫</span> Join</button
+                ><button
+                  data-palette="beam:break"
+                  aria-label="Break beam after this note"
+                  title="Break the beam after this note"
+                >
+                  <span class="glyph" aria-hidden="true">♪♪</span> Break
+                </button>
+              </div>
+              <div role="group" aria-label="Delete">
+                <button
+                  data-palette="delete"
+                  class="danger"
+                  aria-keyshortcuts="Delete"
+                  title="Delete the note (Delete)"
+                >
+                  <span class="glyph" aria-hidden="true">✕</span> Delete
+                </button>
+              </div>
+            </div>
             <div class="notation-paper">
               <div
                 id="notation"
@@ -539,11 +601,11 @@
         </p>
         <h2>Write, practice, and take it with you.</h2>
         <p>
-          Use ABC notation or the note buttons to write music. Hear each note as you enter it, play the score with
-          built-in synthesized tones, change tempo, loop playback, and export ABC, MIDI, SVG, or MusicXML (for
-          MuseScore, Noteflight, Finale, Sibelius or Dorico). Use Print / PDF to produce a paper score. Transpose a
-          score or a few measures by any interval or to a new key. Choose a B♭ or E♭ instrument for written-pitch
-          transposition with concert-pitch playback.
+          Use ABC notation, the note buttons or the notation toolbar above the score to write music. Hear each note as
+          you enter it, play the score with built-in synthesized tones, change tempo, loop playback, and export ABC,
+          MIDI, SVG, or MusicXML (for MuseScore, Noteflight, Finale, Sibelius or Dorico). Use Print / PDF to produce a
+          paper score. Transpose a score or a few measures by any interval or to a new key. Choose a B♭ or E♭ instrument
+          for written-pitch transposition with concert-pitch playback.
         </p>
         <h2>Privacy and school access</h2>
         <p>

@@ -8,6 +8,17 @@
 
 ---
 
+# Notation palette · 2026-10-06
+
+- A **notation toolbar** above the score: Length (whole to 16th), Dot, Tie, Rest, Accidental (♯ ♭ ♮ None), Beam (Join, Break) and Delete. It lights up to show the selected note's length, dot, tie, accidental and beam, and gives every edit a touch target, so Chromebook and iPad users no longer need the right-click menu or the keyboard.
+- Each button makes the same ABC edit as the matching key or note-menu item, as one undo step. **Rest** is new: it turns a note or chord into a rest of the same length, keeps decorations, slurs and tuplet marks, and takes the tie off the note before it. **Join** removes the space before the next note so they share a beam; **Break** puts it back. Only eighth notes and shorter can be beamed, and a beam cannot end on a rest.
+- A button that does not fit the selection, such as Dot on a multi-measure rest or Join on a quarter note, is marked unavailable, and pressing it says why in the status line. Once the selection moves on, that message gives way. A press that changes nothing says so, and an edit that leaves the ABC text as it was (from the toolbar, a key or the note menu) no longer marks the score as unsaved.
+- With nothing selected, or a rest selected, a length button sets the length of the next notes, like keys 3–7, and the status line says so. On a blank sheet, pick a length and type letters to write over the rest.
+- The toolbar is one Tab stop with arrow keys inside it, its buttons are at least 40 px, it wraps on phones and it is left out of prints.
+- `editNote` ignores actions it does not know instead of writing `NaN` into the score.
+
+---
+
 # Transpose and key changes · 2026-10-06
 
 - **Transpose…** in Score settings moves the notes, key signatures and chord symbols by an interval up or down, or to a chosen key the nearer way round, as one undo step. Spelling follows the interval (an augmented 4th up from C is F♯ major, a diminished 5th is G♭). **Selection only** transposes the selected note's measure, or the practice range, and keeps the key signature.
