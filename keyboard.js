@@ -1,8 +1,8 @@
 'use strict';
-// On-screen piano: a keyboard under the score for entering notes and chords by tapping keys. Keys are written pitch,
-// as the staff shows them; the ABC source gets concert pitch, spelled for the key in force. Shift+tap, Shift+Enter,
-// or holding one key while tapping others adds the pitch to the selected note as a chord. The selected note's keys
-// are lit, and keys light while playback sounds them.
+// On-screen piano: a keyboard under the score for entering notes and chords by tapping keys. Keys are the pitches the
+// staff shows (written pitch, or concert in Concert pitch view); the ABC source gets concert pitch, spelled for the
+// key in force. Shift+tap, Shift+Enter, or holding one key while tapping others adds the pitch to the selected note
+// as a chord. The selected note's keys are lit, and keys light while playback sounds them.
 const PIANO_LOW = 36,
   PIANO_HIGH = 96,
   PIANO_SHARPS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'],
@@ -126,9 +126,9 @@ function pianoName(midi, note, voice) {
   );
   return (flat ? PIANO_FLATS : PIANO_SHARPS)[midi % 12] + (Math.floor(midi / 12) - 1);
 }
-// A key press: written MIDI to concert (written − the instrument's transposition), then enter the note over the
-// selected rest or after the selected note (after the last note of a range selection), or add it to the chord of
-// the selected note or the note just entered. Each is one undo step and sounds the result (Hear notes). hint
+// A key press: the key's pitch as the staff shows it to concert (minus the display's transposition), then enter the
+// note over the selected rest or after the selected note (after the last note of a range selection), or add it to the
+// chord of the selected note or the note just entered. Each is one undo step and sounds the result (Hear notes). hint
 // follows the status message for a new note.
 function pianoPress(
   written,
@@ -139,7 +139,7 @@ function pianoPress(
     clearTimeout(renderTimer);
     render();
   }
-  const concert = written - (instruments[currentInstrument()].shift || 0),
+  const concert = written - displayShift(),
     sel = entrySelection(),
     target = chord && chordTarget(sel),
     note = target || sel,
@@ -280,8 +280,8 @@ if ($('piano-keys')) {
     }).observe($('piano-scroll'));
   setPiano(storage.get(KEYS.piano, false) === true, false);
 }
-// MIDI keyboards (Web MIDI), where the browser has it: step entry from every connected input. Keys are written pitch,
-// like the piano strip's, and go in through pianoPress at the current length. Notes that start within MIDI_CHORD_MS of
+// MIDI keyboards (Web MIDI), where the browser has it: step entry from every connected input. Keys are the pitch the
+// staff shows, like the piano strip's, and go in through pianoPress at the current length. Notes that start within MIDI_CHORD_MS of
 // the first make a chord, entered lowest first. Only note-on and note-off are read; SysEx is never requested.
 const MIDI_CHORD_MS = 40;
 let midiAccess = null,

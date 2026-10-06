@@ -7,6 +7,7 @@ const fs = require('node:fs'),
 const {JSDOM} = require(process.env.JSDOM_PATH || 'jsdom');
 const root = path.resolve(__dirname, '..');
 const SCRIPTS = [
+  'theme.js',
   'vendor/abcjs-basic-min.js',
   'catalog.js',
   'catalog-expanded.js',
@@ -40,7 +41,7 @@ function boot(seed = () => {}, url = 'http://localhost:8000') {
   w.scrollTo = () => {};
   w.Element.prototype.scrollIntoView = () => {};
   w.confirm = () => true;
-  seed(w.localStorage);
+  seed(w.localStorage, w);
   for (const file of SCRIPTS) vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), ctx);
   return {w, run: s => vm.runInContext(s, ctx), $: id => w.document.getElementById(id)};
 }
@@ -179,8 +180,12 @@ assert.ok(
   run('selectedRange && selectedRange[0] === $("abc").value.indexOf("z4")'),
   'The first bar is selected, ready for typing'
 );
+// The quick start ignores the New score panel's Bars box; the panel's Melody template with 3 bars is the same sheet.
+const submitNewScore = () => $('new-score-form').dispatchEvent(new w.Event('submit', {cancelable: true}));
 $('new-bars').value = '3';
 $('new-score').click();
+assert.equal(run('scoreNotes().length'), 8, 'Blank melody is always eight bars');
+submitNewScore();
 assert.equal($('abc').value.trim().split('\n').pop(), 'z4 | z4 | z4 |]', 'Bars box sets the sheet length');
 $('add-bars').click();
 assert.equal(
@@ -193,7 +198,7 @@ assert.equal(
 {
   const pressed = () =>
     [...w.document.querySelectorAll('#palette [aria-pressed="true"]')].map(b => b.dataset.palette).join(' ');
-  $('new-score').click();
+  submitNewScore();
   assert.equal(pressed(), 'len:1', 'The selected whole-bar rest shows Whole');
   w.document.querySelector('[data-palette="len:0.5"]').click();
   assert.equal($('abc').value.trim().split('\n').pop(), 'z4 | z4 | z4 |]', 'A length button leaves the rest alone');
@@ -225,6 +230,196 @@ assert.ok(run('selectedRange[0] === 7 && selectedRange[1] === 9'), 'Cancelled ne
 assert.equal($('selection-status').textContent, 'before', 'Cancelled new score keeps the status line');
 run('dirty = false');
 $('new-bars').value = '8';
+// New score panel: a template with title, key, meter, tempo, pickup and bars. SATB has four named staves.
+{
+  const choose = (id, value) => {
+    $(id).value = value;
+    $(id).dispatchEvent(new w.Event('input', {bubbles: true}));
+  };
+  $('new-score-open').click();
+  assert.equal($('new-score-panel').hidden, false);
+  assert.equal($('new-score-open').getAttribute('aria-expanded'), 'true');
+  assert.equal(w.document.activeElement, $('new-title'), 'The panel opens on its first field');
+  assert.deepEqual(
+    [...$('new-template').options].map(o => o.text),
+    ['Melody', 'Lead sheet', 'Piano', 'Duet', 'Melody and bass', 'SATB choir', 'String quartet']
+  );
+  assert.ok(![...$('new-meter').options].some(o => o.value === 'none'), 'No free time for a sheet of bars');
+  choose('new-meter', '2/4');
+  assert.deepEqual(
+    [...$('new-pickup').options].map(o => o.disabled),
+    [false, false, true, true],
+    'A 2/4 pickup is one beat at most'
+  );
+  choose('new-pickup', '1');
+  choose('new-meter', '6/8');
+  assert.equal($('new-pickup').value, '1', 'One dotted-quarter beat fits 6/8');
+  choose('new-meter', '3/4');
+  choose('new-pickup', '2');
+  choose('new-meter', '2/2');
+  assert.equal($('new-pickup').value, '0', 'A pickup too long for the new meter is dropped');
+  $('new-title').value = 'Evening <hymn>';
+  choose('new-template', 'satb');
+  choose('new-key', 'F');
+  choose('new-meter', '3/4');
+  choose('new-pickup', '1');
+  choose('new-tempo', '72');
+  choose('new-bars', '6');
+  assert.equal(
+    $('new-score-summary').textContent,
+    'SATB choir: soprano, alto, tenor and bass staves. A 1-beat pickup, then 6 bars of 3/4 in F major (1♭) at 72 BPM.'
+  );
+  // Opening the writing prompts closes the panel, and the panel closes them.
+  $('open-prompts').click();
+  assert.equal($('new-score-panel').hidden, true);
+  $('new-score-open').click();
+  assert.equal($('prompt-picker').hidden, true);
+  submitNewScore();
+  assert.equal($('new-score-panel').hidden, true, 'Creating closes the panel');
+  assert.equal($('new-score-open').getAttribute('aria-expanded'), 'false');
+  const tune = w.ABCJS.parseOnly($('abc').value)[0];
+  assert.ok(!tune.warnings?.length, 'The SATB score parses cleanly');
+  assert.deepEqual(
+    [...tune.lines[0].staff.map(st => st.title?.[0])],
+    ['Soprano', 'Alto', 'Tenor', 'Bass'],
+    'Four named staves'
+  );
+  assert.deepEqual([...tune.lines[0].staff.map(st => st.clef.type)], ['treble', 'treble', 'treble-8', 'bass']);
+  assert.equal($('title').value, 'Evening <hymn>');
+  assert.equal($('meter').value, '3/4');
+  assert.equal($('key').value, 'F');
+  assert.equal($('bpm').value, '72');
+  assert.equal($('instrument').value, 'Piano', 'A choir plays on the piano sound, at concert pitch');
+  assert.equal($('bar-check').textContent.includes('Every bar'), true, 'The pickup passes the bar check');
+  assert.ok(
+    run('selectedRange && $("abc").value.slice(...selectedRange).trim() === "z"'),
+    'The soprano pickup rest is selected'
+  );
+  assert.match($('selection-status').textContent, /SATB choir template, 4 staves/);
+  assert.equal($('score-caption').textContent, 'Piano · 4 staves · Concert pitch.');
+  assert.equal($('new-title').value, '', 'The next new score starts with a fresh title');
+  // ＋ 4 bars on a piano score adds four bars to both staves in one undo step; typing on a left-hand rest fills
+  // only that staff; with nothing selected, letters go to the top staff.
+  $('new-score-open').click();
+  choose('new-template', 'piano');
+  choose('new-key', 'C');
+  choose('new-meter', '4/4');
+  choose('new-pickup', '0');
+  choose('new-bars', '4');
+  submitNewScore();
+  assert.equal($('title').value, 'Untitled');
+  const staffBars = () =>
+    [...run('barLengths(ABCJS.parseOnly($("abc").value)[0])')].reduce(
+      (n, m) => ({...n, [m.voice]: (n[m.voice] || 0) + 1}),
+      {}
+    );
+  assert.deepEqual(staffBars(), {'0:0': 4, '1:0': 4});
+  const before = $('abc').value;
+  $('add-bars').click();
+  assert.deepEqual(staffBars(), {'0:0': 8, '1:0': 8}, 'Both staves grow');
+  assert.equal(run('barProblems(ABCJS.parseOnly($("abc").value)[0]).length'), 0);
+  assert.match($('selection-status').textContent, /every staff/);
+  $('undo').click();
+  assert.equal($('abc').value, before, 'One undo takes the bars off both staves');
+  const lh = run('scoreNotes().filter(n => voiceOf(n) === "1:0")[1]');
+  run(`selectEntry(scoreNotes().find(n => n.element.startChar === ${lh.element.startChar}))`);
+  run("scoreKey({key:'c'}); scoreKey({key:'e'})");
+  assert.equal(
+    $('abc').value.split('V:LH clef=bass\n')[1].trim(),
+    'z4 | C, E, z2 | z4 | z4 |]',
+    'Typing on a left-hand rest fills that staff, in the bass octave'
+  );
+  assert.ok($('abc').value.includes('V:RH clef=treble name="Piano" snm="Pno."\nz4 | z4 | z4 | z4 |]'));
+  run('selectedRange = null; selectionAnchor = null');
+  run("scoreKey({key:'g'})");
+  assert.ok(
+    $('abc').value.includes('V:RH clef=treble name="Piano" snm="Pno."\nz4 | z4 | z4 | z4 G |]'),
+    'With nothing selected a letter goes to the end of the top staff'
+  );
+  // Guitar tab adds a staff under the top one, which the caption does not count; a one-staff library score on
+  // guitar still names its clef.
+  const instrumentBefore = $('instrument').value,
+    setInstrument = name => {
+      $('instrument').value = name;
+      $('instrument').dispatchEvent(new w.Event('change'));
+      run('clearTimeout(renderTimer); render()');
+    };
+  setInstrument('Guitar');
+  assert.equal(run('fingeringShown()'), 'guitar');
+  assert.equal($('score-caption').textContent, 'Guitar · 2 staves · Concert pitch.', 'The tab staff is not a staff');
+  run('dirty = false; openScore({...catalog.find(x => x.id === "skipping"), instrument: "Guitar"})');
+  assert.equal($('score-caption').textContent, 'Guitar · treble clef · Concert pitch melody part.');
+  // An & overlay is a voice of its own but shares its staff's bar lines, so ＋ 4 bars adds four bars once.
+  const addToOverlay = body => {
+    run(
+      `dirty = false; openScore({kind: 'personal', instrument: 'Piano', title: 't', abc: ${JSON.stringify(`X:1\nT:t\nM:4/4\nL:1/4\n${body}`)}})`
+    );
+    $('add-bars').click();
+    return staffBars();
+  };
+  assert.deepEqual(addToOverlay('K:C\nC D E F & E4 | G4 | A4 | B4 |]\n'), {'0:0': 8, '0:1': 8}, 'One staff, overlay');
+  assert.equal($('abc').value.trim().split('\n').pop(), 'C D E F & E4 | G4 | A4 | B4 | z4 | z4 | z4 | z4 |]');
+  assert.deepEqual(addToOverlay('K:C\nC D E F & z4 | G4 & E4 |]\n'), {'0:0': 6, '0:1': 6});
+  assert.deepEqual(
+    addToOverlay('%%score {RH LH}\nK:C\nV:RH\nC D E F & E4 | G4 |]\nV:LH clef=bass\nC,4 | C,4 |]\n'),
+    {'0:0': 6, '0:1': 6, '1:0': 6},
+    'Piano with an overlay in the right hand'
+  );
+  assert.deepEqual(
+    addToOverlay('%%score {RH LH}\nK:C\nV:RH\nC D E F & E4\nV:LH clef=bass\nC,4 |]\n'),
+    {'0:0': 5, '0:1': 5, '1:0': 5},
+    'An overlay before any bar line'
+  );
+  assert.deepEqual(
+    addToOverlay('%%score (S A)\nK:C\nV:S\nC D E F | G4 |]\nV:A\nC4 & E4 | C4 |]\n'),
+    {'0:0': 6, '0:1': 6, '0:2': 6},
+    'Two voices on one staff, the second with an overlay'
+  );
+  assert.equal(run('barProblems(ABCJS.parseOnly($("abc").value)[0]).length'), 0);
+  // A duet keeps the student's instrument, so on cello both staves are bass staves and c d types C D, as on the
+  // Melody template.
+  setInstrument('Cello');
+  run('dirty = false');
+  $('new-score-open').click();
+  choose('new-template', 'duet');
+  choose('new-bars', '2');
+  assert.match($('new-score-summary').textContent, /^Duet: two staves for the current instrument\./);
+  submitNewScore();
+  assert.equal($('instrument').value, 'Cello');
+  assert.deepEqual([...run('renderedTune.lines[0].staff.map(st => st.clef.type)')], ['bass', 'bass']);
+  run("scoreKey({key:'c'}); scoreKey({key:'d'})");
+  assert.equal($('abc').value.split('\nV:2')[0].split('\n').pop(), 'C D z2 | z4 |]', 'Cello octave on a duet staff');
+  assert.equal($('score-caption').textContent, 'Cello · 2 staves · Parts lowered one octave for bass range.');
+  setInstrument(instrumentBefore);
+  // A lead sheet starts its chord line with the tonic chord, which stays when a note is written over the rest.
+  run('dirty = false');
+  $('new-score-open').click();
+  choose('new-template', 'lead');
+  choose('new-key', 'Am');
+  choose('new-bars', '2');
+  submitNewScore();
+  assert.equal($('abc').value.trim().split('\n').pop(), '"Am"z4 | z4 |]');
+  run("scoreKey({key:'a'})");
+  assert.equal($('abc').value.trim().split('\n').pop(), '"Am"A z3 | z4 |]', 'The chord symbol stays on the beat');
+  // Escape closes the panel and returns focus to its button; a cancelled replace keeps the panel and the score.
+  $('new-score-open').click();
+  $('new-score-panel').dispatchEvent(new w.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+  assert.equal($('new-score-panel').hidden, true);
+  assert.equal(w.document.activeElement, $('new-score-open'));
+  $('new-score-open').click();
+  w.confirm = () => false;
+  submitNewScore();
+  w.confirm = () => true;
+  assert.equal($('new-score-panel').hidden, false, 'A cancelled replace leaves the panel open');
+  assert.ok($('abc').value.includes('"Am"A z3'), 'and the score as it was');
+  $('close-new-score').click();
+  assert.equal($('new-score-panel').hidden, true);
+  run('dirty = false');
+  $('new-score').click();
+  choose('new-template', 'melody');
+  choose('new-key', 'C');
+  choose('new-bars', '8');
+}
 
 // Backup and restore: the file holds everything on the device; restoring merges, newer copy wins, nothing deleted.
 {
@@ -246,7 +441,8 @@ $('new-bars').value = '8';
       'fretfree-practice-loop': true,
       'fretfree-note-names': 'letters',
       'fretfree-note-colors': 'classroom',
-      'fretfree-zoom': 140
+      'fretfree-zoom': 140,
+      'fretfree-practice-chords': false
     }
   };
   const before = run('saved.length');
@@ -261,6 +457,8 @@ $('new-bars').value = '8';
   assert.equal(run("storage.get('fretfree-zoom')"), 140, 'Zoom restored from a backup');
   assert.equal(run("storage.get('fretfree-note-colors')"), 'classroom', 'Classroom colors restored');
   assert.equal(run('backupData().settings')['fretfree-note-colors'], 'classroom', 'Classroom colors backed up');
+  assert.equal(run("applyStoredSettings();$('chords').checked"), false, 'The Chords switch restored from a backup');
+  assert.equal(run('backupData().settings')['fretfree-practice-chords'], false, 'and backed up');
   const newer = {
     app: 'FretFree',
     format: 1,
@@ -362,6 +560,241 @@ assert.equal(
   w.__realDownload = realDownload;
   run('download = __realDownload');
   $('new-score').click();
+}
+// Version history: each changed save keeps the copy it replaces; History (n) on My scores lists them newest first with
+// times; Preview draws one read-only in written pitch; Restore opens it unsaved under the same score, and saving it
+// keeps the replaced copy. Versions travel in backups without duplicates, follow a deleted score out, keep to their
+// caps, and never stop a save when storage is full.
+{
+  const page = boot(),
+    {run: r, $: q} = page,
+    bars = n => `X:1\nT:Growing tune\nM:4/4\nL:1/4\nK:C\n${Array(n).fill('C D E F').join(' | ')} |]`,
+    edit = abc => r(`$('abc').value = ${JSON.stringify(abc)}; changed(); render();`),
+    json = s => JSON.parse(r(`JSON.stringify(${s})`)),
+    versions = () => json('storedVersions()');
+  q('new-score').click();
+  edit(bars(1));
+  q('save').click();
+  const id = r('savedId');
+  edit(bars(2));
+  q('save').click();
+  q('instrument').value = 'Clarinet in B♭';
+  edit(bars(3));
+  q('save').click();
+  assert.equal(r('saved.length'), 1, 'Three saves of one score keep one saved entry');
+  assert.deepEqual(
+    versions()[id].map(v => v.abc),
+    [bars(1), bars(2)],
+    'Saving three changed copies keeps the two earlier ones, oldest first'
+  );
+  const times = versions()[id].map(v => v.at);
+  assert.ok(times[0] < times[1] && times[1] < r('saved[0].updated'), 'Each version is timed by its own save');
+  assert.equal(versions()[id][0].instrument, 'Flute', 'A version keeps its instrument');
+  q('save').click();
+  assert.equal(versions()[id].length, 2, 'Saving unchanged music adds no version');
+  // A damaged history from an earlier visit is ignored instead of breaking the page.
+  assert.deepEqual(json('cleanVersions({a: "x", b: [{at: "1", abc: "X:1"}, null, {at: 5}], c: [1]})'), {});
+  assert.equal(
+    r(`cleanVersions(JSON.parse('{"__proto__": [{"at": 1, "abc": "X:1"}]}'))['__proto__'].length`),
+    1,
+    'Any score id is a plain key'
+  );
+  // History (n) on the card opens the panel, newest first, with times; focus moves to its heading.
+  r("show('saved')");
+  const history = q('saved-cards').querySelector(`[data-history="${id}"]`);
+  assert.equal(history.textContent, 'History (2)');
+  assert.equal(history.getAttribute('aria-label'), 'History of Growing tune: 2 earlier versions');
+  history.click();
+  assert.equal(q('history-panel').hidden, false);
+  assert.equal(q('history-heading').textContent, 'History: Growing tune');
+  assert.equal(page.w.document.activeElement.id, 'history-heading', 'Focus moves to the history heading');
+  const rows = [...q('history-list').querySelectorAll('li')].map(li => li.textContent);
+  assert.equal(rows.length, 2);
+  assert.match(rows[0], /^Version 2 · saved .+ · Flute/, 'The newest version comes first');
+  assert.match(rows[1], /^Version 1 · saved /);
+  assert.ok(
+    rows.every(t => t.includes(r(`draftTime(${times[0]})`))),
+    'Each row shows when the version was saved'
+  );
+  assert.match(q('history-current').textContent, /^2 earlier versions\. The saved score is from /);
+  // Preview draws the version (as the instrument reads it) without touching the editor.
+  const opened = r("$('abc').value");
+  q('history-list').querySelector(`[data-version-preview="${times[0]}"]`).click();
+  assert.equal(q('history-preview').hidden, false);
+  assert.ok(q('history-score').querySelector('svg'), 'Preview engraves the version');
+  assert.equal(
+    r('historyTune.lines[0].staff[0].voices[0].filter(e => e.el_type === "note").length'),
+    4,
+    'The preview is version 1, one bar'
+  );
+  assert.equal(
+    q('history-list').querySelector('[aria-pressed="true"]').dataset.versionPreview,
+    String(times[0]),
+    'The previewed version is marked'
+  );
+  assert.match(q('history-preview-title').textContent, /^Version 1, saved /);
+  assert.equal(r("$('abc').value"), opened, 'Preview leaves the editor alone');
+  assert.equal(r('versionSource("X:1\\nK:C\\nC4|]", "Clarinet in B♭")'), 'X:1\nK:D clef=treble\nD4|]');
+  // A version saved without an instrument (from an older score or backup) is drawn and played in the score's
+  // instrument: here an alto sax part, so concert C is drawn as a written A.
+  const keptVersions = r('localStorage.getItem(KEYS.versions)'),
+    keptInstrument = r('saved[0].instrument');
+  r(`localStorage.setItem(KEYS.versions, JSON.stringify({[savedId]: [{at: 1, abc: 'X:1\\nK:C\\nC4|]'}]}));
+     saved[0].instrument = 'Alto sax in E♭';
+     previewVersion(1);`);
+  assert.equal(r('historyTune.lines[0].staff[0].key.root'), 'A', 'A version without an instrument takes the score’s');
+  assert.equal(r('versionInstrument({abc: "X:1", instrument: "Cello"}, saved[0])'), 'Cello');
+  r(`saved[0].instrument = ${JSON.stringify(keptInstrument)};
+     localStorage.setItem(KEYS.versions, ${JSON.stringify(keptVersions)});
+     previewVersion(${times[0]});`);
+  // Escape closes the panel and returns focus to the card's History button.
+  q('history-panel').dispatchEvent(new page.w.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+  assert.equal(q('history-panel').hidden, true, 'Escape closes the history');
+  assert.equal(page.w.document.activeElement.dataset.history, id, 'Focus returns to History');
+  // Restore opens version 1 unsaved under the same score and changes nothing stored.
+  page.w.document.activeElement.click();
+  q('history-list').querySelector(`[data-version-restore="${times[0]}"]`).click();
+  assert.equal(q('studio').hidden, false, 'Restore opens Compose');
+  assert.equal(r("$('abc').value"), bars(1));
+  assert.equal(q('instrument').value, 'Flute', 'Restore brings back the version’s instrument');
+  assert.ok(
+    r('dirty') && r(`savedId === ${JSON.stringify(id)}`),
+    'The restored version is unsaved work on the same score'
+  );
+  assert.match(q('save-status').textContent, /^Opened the version saved .+\. Save to make it the current copy/);
+  assert.equal(r('saved[0].abc'), bars(3), 'Restoring changes nothing stored');
+  assert.equal(versions()[id].length, 2);
+  // Saving it makes it the current copy and keeps the copy it replaced.
+  q('save').click();
+  assert.equal(r('saved[0].abc'), bars(1));
+  assert.deepEqual(
+    versions()[id].map(v => v.abc),
+    [bars(1), bars(2), bars(3)],
+    'Restore, then Save, keeps the replaced version in the list'
+  );
+  assert.equal(versions()[id][2].instrument, 'Clarinet in B♭');
+  r("show('saved')");
+  assert.equal(q('saved-cards').querySelector('[data-history]').textContent, 'History (3)');
+  // Backups carry the versions; restoring the same file adds none, and a version from elsewhere is unioned in.
+  const backup = JSON.parse(JSON.stringify(r('backupData()')));
+  assert.equal(backup.versions[id].length, 3, 'Versions travel in backups');
+  assert.equal(r(`applyBackup(${JSON.stringify(backup)})`).versionsAdded, 0);
+  assert.equal(versions()[id].length, 3, 'Restoring the same backup adds no duplicates');
+  const elsewhere = {
+    ...backup,
+    versions: {
+      [id]: [...backup.versions[id], {at: times[0] - 5, abc: bars(4), instrument: 'Violin'}],
+      'no-such-score': [{at: 1, abc: bars(1)}]
+    }
+  };
+  const summary = r(`applyBackup(${JSON.stringify(elsewhere)})`);
+  assert.equal(summary.versionsAdded, 1);
+  assert.match(r(`restoreSummary(${JSON.stringify(summary)})`), /1 earlier version added/);
+  assert.deepEqual(
+    versions()[id].map(v => v.abc),
+    [bars(4), bars(1), bars(2), bars(3)],
+    'Versions merge by time without duplicates'
+  );
+  assert.equal(versions()['no-such-score'], undefined, 'Versions of scores this device lacks are left out');
+  // A newer copy from a backup replaces mine, and mine becomes a version.
+  const mine = r('saved[0]');
+  r(
+    `applyBackup(${JSON.stringify({app: 'FretFree', format: 1, scores: [{...mine, abc: bars(5), updated: mine.updated + 10}]})})`
+  );
+  assert.equal(r('saved[0].abc'), bars(5));
+  assert.equal(versions()[id].at(-1).abc, bars(1), 'The copy a newer backup replaces is kept as a version');
+  // Caps: 20 versions per score, about 1.5 MB in all, oldest dropped first.
+  for (let n = 6; n < 30; n++) {
+    r('dirty = false');
+    edit(bars(n));
+    q('save').click();
+  }
+  assert.equal(versions()[id].length, 20, 'At most 20 versions per score');
+  assert.equal(versions()[id].at(-1).abc, bars(28), 'The newest versions are kept');
+  const big = {
+    a: Array.from({length: 10}, (_, i) => ({at: 1000 + i, abc: 'x'.repeat(100000)})),
+    b: Array.from({length: 10}, (_, i) => ({at: 2000 + i, abc: 'y'.repeat(100000)}))
+  };
+  const trimmed = json(`trimVersions(${JSON.stringify(big)})`);
+  assert.ok(r(`versionsSize(${JSON.stringify(trimmed)})`) <= 1.5 * 1024 * 1024, 'Versions keep to about 1.5 MB');
+  assert.equal(trimmed.b.length, 10, 'The oldest versions go first');
+  assert.equal(trimmed.a.length, 5);
+  assert.equal(trimmed.a[0].at, 1005);
+  // Storage full: the oldest versions make room, so the save itself goes through.
+  r(
+    `localStorage.setItem(KEYS.versions, JSON.stringify(${JSON.stringify({...versions(), other: [{at: 5, abc: 'z'.repeat(50000)}]})}))`
+  );
+  // A quota just above what is stored now: the bigger score does not fit until versions give way.
+  r(`window.__realSet = storage.set;
+     window.__used = () => Object.values({...localStorage}).join('').length;
+     const quota = __used() + 50;
+     storage.set = (key, value) => {
+       const items = {...localStorage, [key]: JSON.stringify(value)};
+       return Object.values(items).join('').length > quota ? false : __realSet(key, value);
+     };`);
+  edit(bars(40));
+  q('save').click();
+  assert.match(q('save-status').textContent, /^Saved on this device/, 'A full storage still saves the score');
+  assert.equal(r('saved[0].abc'), bars(40));
+  assert.equal(versions().other, undefined, 'The oldest version made room');
+  assert.equal(versions()[id].at(-1).abc, bars(29), 'Newer versions stay');
+  // Restoring a backup when storage is short: the oldest versions make room for the restored scores, as when saving,
+  // and a restore that fails anyway puts them back with everything else.
+  const fromBackup = JSON.stringify({
+      app: 'FretFree',
+      format: 1,
+      scores: [{id: 'from-backup', title: 'From a backup', abc: bars(30), updated: 5}]
+    }),
+    stored = key => r(`localStorage.getItem(KEYS.${key})`),
+    before = {scores: stored('scores'), versions: stored('versions')};
+  r(`const restoreQuota = __used() + 200;
+     window.__quotaSet = (key, value) => {
+       const items = {...localStorage, [key]: JSON.stringify(value)};
+       return Object.values(items).join('').length > restoreQuota ? false : __realSet(key, value);
+     };
+     storage.set = (key, value) => (key === KEYS.played ? false : __quotaSet(key, value));`);
+  assert.throws(() => r(`applyBackup(${fromBackup})`), /Nothing was changed/);
+  assert.deepEqual(
+    {scores: stored('scores'), versions: stored('versions')},
+    before,
+    'A failed restore puts back the versions that made room'
+  );
+  assert.equal(r('saved.length'), 1);
+  r('storage.set = __quotaSet');
+  r(`applyBackup(${fromBackup})`);
+  assert.deepEqual(
+    json('saved.map(x => x.id)'),
+    [id, 'from-backup'],
+    'The oldest versions make room for a restored score'
+  );
+  assert.ok(versions()[id].length < 20 && versions()[id].at(-1).abc === bars(29), 'The newest versions stay');
+  r(`localStorage.setItem(KEYS.scores, ${JSON.stringify(before.scores)}); saved = storedList(KEYS.scores);`);
+  // A version that does not fit is dropped, and the save still counts.
+  r('storage.set = (key, value) => (key === KEYS.versions ? false : __realSet(key, value))');
+  edit(bars(41));
+  q('save').click();
+  assert.equal(r('saved[0].abc'), bars(41), 'Saving never fails because of versions');
+  assert.equal(r('localStorage.getItem(KEYS.versions)'), null, 'Versions that cannot be stored are let go');
+  r('storage.set = __realSet');
+  // A save that fails even once every version has made room puts the versions back: dropping them gained nothing.
+  edit(bars(42));
+  q('save').click();
+  r(`storage.set(KEYS.versions, {...storedVersions(), other: [{at: 5, abc: 'X:1'}]})`);
+  const allVersions = r('localStorage.getItem(KEYS.versions)');
+  r('storage.set = (key, value) => (key === KEYS.scores ? false : __realSet(key, value))');
+  edit(bars(43));
+  q('save').click();
+  r('storage.set = __realSet');
+  assert.match(q('save-status').textContent, /^This browser could not save/);
+  assert.equal(r('saved[0].abc'), bars(42), 'The failed save changes nothing saved');
+  assert.equal(r('localStorage.getItem(KEYS.versions)'), allVersions, 'A failed save keeps every version');
+  // Deleting a score deletes its versions and no others.
+  r("show('saved')");
+  assert.equal(versions()[id].length, 1);
+  q('saved-cards').querySelector(`[data-delete="${id}"]`).click();
+  assert.equal(r('saved.length'), 0);
+  assert.equal(versions()[id], undefined, 'Deleting a score deletes its versions');
+  assert.equal(versions().other.length, 1, 'Other scores keep theirs');
 }
 // Share by link without CompressionStream (jsdom): the plain-encoded link opens as a shared copy with the edition's credits.
 (async () => {
@@ -811,8 +1244,242 @@ assert.equal(
     );
     assert.equal(page.run('current.kind'), 'shared', 'Discard leaves the open score alone');
   }
+  // Theme: Auto, Light or Dark goes on <html> as the scripts start, persists, is backed up and restored. Dark paper
+  // shows only in the dark theme, and Auto follows the device as it switches.
+  {
+    const page = boot(storage => storage.setItem('fretfree-theme', '"purple"')),
+      html = page.w.document.documentElement;
+    assert.equal(page.$('theme').value, 'auto', 'A damaged theme falls back to Auto');
+    assert.equal(html.hasAttribute('data-theme'), false, 'Auto leaves the choice to the device');
+    assert.equal(page.$('dark-paper-option').hidden, true, 'No matchMedia: Auto is light, so Dark paper is hidden');
+    page.$('theme').value = 'dark';
+    page.$('theme').dispatchEvent(new page.w.Event('change'));
+    assert.equal(html.dataset.theme, 'dark');
+    assert.equal(page.run("storage.get('fretfree-theme')"), 'dark', 'The theme is remembered');
+    assert.equal(page.$('dark-paper-option').hidden, false, 'Dark paper is offered in the dark theme');
+    page.$('dark-paper').checked = true;
+    page.$('dark-paper').dispatchEvent(new page.w.Event('change'));
+    assert.equal(html.dataset.paper, 'dark');
+    assert.equal(page.run("storage.get('fretfree-dark-paper')"), true);
+    const settings = page.run('backupData().settings');
+    assert.equal(settings['fretfree-theme'], 'dark', 'The theme is backed up');
+    assert.equal(settings['fretfree-dark-paper'], true, 'Dark paper is backed up');
+    const before = page.$('notation').innerHTML;
+    page.$('theme').value = 'light';
+    page.$('theme').dispatchEvent(new page.w.Event('change'));
+    assert.equal(html.dataset.theme, 'light');
+    assert.equal(page.$('dark-paper-option').hidden, true, 'Dark paper is hidden in the light theme');
+    assert.equal(page.$('notation').innerHTML, before, 'A theme change does not redraw the score');
+    // Restoring a backup applies its theme straight away.
+    page.run(
+      `applyBackup(${JSON.stringify({app: 'FretFree', format: 1, scores: [], settings: {'fretfree-theme': 'dark', 'fretfree-dark-paper': false}})})`
+    );
+    page.run('applyStoredSettings()');
+    assert.deepEqual(
+      [html.dataset.theme, html.hasAttribute('data-paper'), page.$('theme').value, page.$('dark-paper').checked],
+      ['dark', false, 'dark', false],
+      'A restored theme applies at once'
+    );
+    // A device in dark mode: Auto is dark and offers Dark paper; switching the device back to light hides it.
+    let listeners = [],
+      deviceDark = true;
+    const darkDevice = win => {
+        listeners = [];
+        deviceDark = true;
+        win.matchMedia = query => ({
+          media: query,
+          get matches() {
+            return /dark/.test(query) && deviceDark;
+          },
+          addEventListener: (type, fn) => listeners.push(fn)
+        });
+      },
+      switchDevice = dark => {
+        deviceDark = dark;
+        listeners.forEach(fn => fn({matches: dark}));
+      };
+    const device = boot((storage, win) => {
+      darkDevice(win);
+      storage.setItem('fretfree-dark-paper', 'true');
+    });
+    assert.equal(device.$('theme').value, 'auto');
+    assert.equal(device.w.document.documentElement.dataset.paper, 'dark', 'Dark paper is applied at start-up');
+    assert.equal(device.$('dark-paper-option').hidden, false, 'Auto on a dark device offers Dark paper');
+    assert.equal(device.$('dark-paper').checked, true);
+    switchDevice(false);
+    assert.equal(device.$('dark-paper-option').hidden, true, 'Auto follows the device back to light');
+    // Storage full or blocked: Theme and Dark paper still apply for the session, and a device switch keeps them.
+    const full = boot((storage, win) => {
+        darkDevice(win);
+        win.Storage.prototype.setItem = () => {
+          throw new win.DOMException('Storage is full', 'QuotaExceededError');
+        };
+      }),
+      fullRoot = full.w.document.documentElement,
+      choose = (id, value) => {
+        if (id === 'theme') full.$(id).value = value;
+        else full.$(id).checked = value;
+        full.$(id).dispatchEvent(new full.w.Event('change'));
+      },
+      shown = () => [
+        full.$('theme').value,
+        fullRoot.getAttribute('data-theme'),
+        full.$('dark-paper').checked,
+        fullRoot.getAttribute('data-paper'),
+        full.$('dark-paper-option').hidden
+      ];
+    choose('theme', 'dark');
+    assert.deepEqual(shown(), ['dark', 'dark', false, null, false], 'Dark applies although it cannot be saved');
+    assert.equal(full.run('storage.get(KEYS.theme)'), undefined, 'and nothing was saved');
+    choose('dark-paper', true);
+    assert.deepEqual(shown(), ['dark', 'dark', true, 'dark', false], 'Dark paper applies although it cannot be saved');
+    switchDevice(false);
+    assert.deepEqual(shown(), ['dark', 'dark', true, 'dark', false], 'A device switch keeps the unsaved choice');
+    choose('theme', 'auto');
+    assert.deepEqual(shown(), ['auto', null, true, 'dark', true], 'Auto on a light device hides Dark paper');
+    switchDevice(true);
+    assert.deepEqual(shown(), ['auto', null, true, 'dark', false], 'and the device going dark shows it, still ticked');
+  }
+  // theme.js runs first, without defer and ahead of the stylesheet, so the stored theme is on <html> before the first
+  // paint instead of after the catalogs download. It reads the KEYS names before KEYS exists and skips damaged values.
+  {
+    const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8'),
+      tag = html.match(/<script[^>]*\ssrc="theme\.js[^"]*"[^>]*>/);
+    assert.ok(tag, 'index.html loads theme.js');
+    assert.doesNotMatch(tag[0], /\s(defer|async)\b/, 'theme.js is not deferred');
+    assert.ok(
+      tag.index < html.indexOf('<link rel="stylesheet"') && tag.index < html.indexOf('<script defer'),
+      'theme.js comes before the stylesheet and the deferred scripts'
+    );
+    const keys = run('[KEYS.theme, KEYS.darkPaper]'),
+      early = (theme, paper, blocked) => {
+        const dom = new JSDOM(html, {runScripts: 'outside-only', url: 'http://localhost:8000'});
+        if (theme !== undefined) dom.window.localStorage.setItem(keys[0], theme);
+        if (paper !== undefined) dom.window.localStorage.setItem(keys[1], paper);
+        if (blocked)
+          dom.window.Storage.prototype.getItem = () => {
+            throw new dom.window.DOMException('Blocked', 'SecurityError');
+          };
+        vm.runInContext(fs.readFileSync(path.join(root, 'theme.js'), 'utf8'), dom.getInternalVMContext());
+        const el = dom.window.document.documentElement;
+        return [el.getAttribute('data-theme'), el.getAttribute('data-paper')];
+      };
+    assert.deepEqual(early('"dark"', 'true'), ['dark', 'dark'], 'Stored Dark and Dark paper apply before shared.js');
+    assert.deepEqual(early('"light"', 'false'), ['light', null]);
+    assert.deepEqual(early('"auto"'), [null, null], 'Auto leaves the choice to the device');
+    assert.deepEqual(early('"purple"', '"yes"'), [null, null], 'Damaged values are ignored');
+    assert.deepEqual(early('{broken', 'true'), [null, 'dark']);
+    assert.deepEqual(early('"dark"', 'true', true), [null, null], 'Blocked storage does not stop the page');
+  }
+  // Opening MusicXML: .mxl and .musicxml files become an editable personal copy, with a report of what was left out,
+  // a guessed instrument, and a FretFree export's rights metadata restored. Damaged and oversized files say so.
+  {
+    const page = boot(),
+      fixture = name => fs.readFileSync(path.join(root, 'tests/fixtures', name));
+    Object.assign(page.w, {DecompressionStream, TextDecoder});
+    const choose = async (data, name) => {
+      Object.defineProperty(page.$('import-file'), 'files', {
+        value: [new page.w.File([data], name)],
+        configurable: true
+      });
+      await page.$('import-file').onchange();
+    };
+    await choose(fixture('morning-walk.mxl'), 'morning-walk.mxl');
+    assert.equal(page.$('title').value, 'Morning Walk');
+    assert.equal(page.$('instrument').value, 'Flute', 'The first part names the instrument');
+    assert.equal(
+      page.$('save-status').textContent,
+      'Imported from MusicXML (3 parts, 5 measures). Save or export to keep a copy.'
+    );
+    assert.deepEqual([page.run('current.kind'), page.run('dirty')], ['personal', true]);
+    assert.ok(page.$('abc').value.includes('%%score 1 2 {(3 4) | 5}'));
+    assert.equal(page.$('notation').querySelectorAll('svg').length > 0, true, 'The imported score is engraved');
+    await choose(fixture('left-out.musicxml'), 'left-out.musicxml');
+    assert.equal(page.$('instrument').value, 'Piano', 'A B♭ trumpet with a guitar is shown at concert pitch');
+    assert.match(page.$('save-status').textContent, /^Imported from MusicXML \(2 parts, 2 measures\)\. .* Left out: /);
+    assert.match(page.$('save-status').textContent, /Left out: pedal marks, .*, tremolos, .* and string numbers\.$/);
+    assert.ok(page.$('abc').value.includes('%%abc-copyright © 2026 Sam Writer. CC BY 4.0'), 'The copyright is kept');
+    // A FretFree export comes back with its edition's rights metadata, so later exports carry the same credit.
+    const item = page.run("catalog.find(x => scoreLicense(x).startsWith('CC-BY-SA'))"),
+      exported = page.run(
+        `abcToMusicXML(catalog.find(x => x.id === ${JSON.stringify(item.id)}).abc, {item: catalog.find(x => x.id === ${JSON.stringify(item.id)})})`
+      );
+    await choose(exported, 'edition.musicxml');
+    assert.equal(page.run('current.rights'), item.rights);
+    assert.equal(
+      page.run('exportCredit(current)'),
+      page.run(`exportCredit(catalog.find(x => x.id === ${JSON.stringify(item.id)}))`)
+    );
+    assert.ok(page.run("creditedABC($('abc').value, current)").includes('Notation/edition license: CC-BY-SA'));
+    assert.equal(page.run('current.kind'), 'personal', 'An imported edition is a personal copy');
+    // Links come back only as web addresses or paths on this site: a crafted file's javascript: or data: link is
+    // dropped, in a MusicXML file and in an ABC file alike, and so is anything that is not rights metadata.
+    const edition = page.run('catalog.find(x => x.pdf && x.originalSource)'),
+      editionXML = page.run(
+        `abcToMusicXML(catalog.find(x => x.id === ${JSON.stringify(edition.id)}).abc, {item: catalog.find(x => x.id === ${JSON.stringify(edition.id)})})`
+      );
+    await choose(editionXML, 'pdf-edition.musicxml');
+    assert.deepEqual(
+      [page.run('current.pdf'), page.run('current.originalSource'), page.$('source-edition').hidden],
+      [edition.pdf, edition.originalSource, false],
+      'A source edition keeps its PDF and source links'
+    );
+    const {abc: _, ...fields} = edition,
+      crafted = {
+        ...fields,
+        pdf: "javascript:void(document.title='pwned')",
+        originalMidi: ' javascript:alert(1)',
+        originalSource: 'data:text/html,<b>hi</b>',
+        licenseURL: 'java\tscript:alert(1)',
+        source: 'JAVASCRIPT:alert(1)',
+        instrument: 'Alto sax in E♭',
+        prompt: {title: 'Not from this file'},
+        id: 'ode'
+      },
+      linksSafe = () =>
+        [...page.$('rights').querySelectorAll('a'), ...page.$('source-edition').querySelectorAll('a')].every(a =>
+          /^https?:$/.test(a.protocol)
+        );
+    for (const [data, name] of [
+      [
+        editionXML.replace(
+          /(<miscellaneous-field name="fretfree-rights">)[^<]*/,
+          (field, open) => open + JSON.stringify(crafted).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        ),
+        'crafted.musicxml'
+      ],
+      [`% FretFree-Rights: ${JSON.stringify(crafted)}\nX:1\nT:Crafted\nK:C\nCDE|]\n`, 'crafted.abc']
+    ]) {
+      await choose(data, name);
+      assert.equal(page.run('current.rights'), edition.rights, `${name}: the rights text comes back`);
+      for (const key of ['pdf', 'originalMidi', 'originalSource', 'licenseURL', 'source', 'prompt', 'id'])
+        assert.equal(page.run(`current.${key}`), undefined, `${name}: ${key} is dropped`);
+      assert.notEqual(
+        page.$('instrument').value,
+        crafted.instrument,
+        `${name}: the file does not choose the instrument`
+      );
+      assert.equal(page.$('source-edition').hidden, true);
+      assert.ok(linksSafe(), `${name}: every link opens a web page`);
+    }
+    // Problems: the open score stays, and the message is shown and kept in the status line.
+    const before = page.$('abc').value;
+    await choose('X:1\nK:C\nCDE|', 'not-really.xml');
+    assert.match(page.$('toast').textContent, /could not be read as MusicXML/);
+    assert.match(page.$('save-status').textContent, /could not be read as MusicXML/);
+    await choose(fixture('morning-walk.mxl').subarray(0, 900), 'cut-short.mxl');
+    assert.match(page.$('toast').textContent, /could not be opened/);
+    await choose(new Uint8Array(5 * 1024 * 1024 + 1), 'huge.musicxml');
+    assert.equal(page.$('toast').textContent, 'Please use a MusicXML file smaller than 5 MB.');
+    delete page.w.DecompressionStream;
+    await choose(fixture('morning-walk.mxl'), 'morning-walk.mxl');
+    assert.match(page.$('toast').textContent, /can’t open compressed \.mxl files/);
+    assert.equal(page.$('abc').value, before, 'A file that cannot be opened changes nothing');
+    assert.equal(page.$('import-file').value, '', 'The same file can be chosen again');
+    assert.match(page.$('import-file').accept, /\.musicxml,\.xml,\.mxl/);
+  }
   console.log(
-    'PASS (jsdom): unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors and zoom), blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
+    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors, zoom and the Chords switch), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, and opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files).'
   );
 })().catch(e => {
   console.error(e);

@@ -26,6 +26,8 @@ function stop() {
   $('play').textContent = '▶ Play';
   $('play-status').textContent = 'Ready to play';
 }
+// Where playback is, in score seconds, so a speed change or the Chords switch can carry on from there.
+const playPosition = () => (playing ? playOrigin + Math.max(0, audio.currentTime - playClock) * playSpeed : null);
 const atAudioTime = (time, fn) => playTimers.push(setTimeout(fn, Math.max(0, (time - audio.currentTime) * 1000)));
 function measureRange() {
   const total = +$('start-measure').max || 1,
@@ -276,7 +278,7 @@ async function play(resumeFrom = null, {countIn = false} = {}) {
     await audio.resume();
     if (generation !== playGeneration) return;
     // Swing moves note times only; measure starts, clicks and the note highlight keep the written beat.
-    const midi = parseMidi(midiBytes($('abc').value)),
+    const midi = parseMidi(midiBytes($('abc').value, {chordsOff: $('chords')?.checked === false})),
       full = swingPlayback(midi, swingAmount($('abc').value), swingBars(midi)),
       range = measureRange(),
       start = measureStarts.get(range.from);

@@ -68,14 +68,24 @@ function setHeader(name, value) {
     );
   $('abc').value = lines.join('\n');
 }
-function writtenABC() {
+// The instrument's shift: its part is written this many semitones above the concert source (2 for a B-flat clarinet,
+// 9 for an E-flat alto sax). Cello and trombone show the source an octave lower, a range change, not a transposition.
+const instrumentShift = () => instruments[currentInstrument()]?.shift || 0,
+  transposesInstrument = () => instrumentShift() % 12 !== 0;
+// Concert pitch view, display only: a transposing instrument's score shows the source's sounding pitches and key.
+// Everything that reads or enters what is shown goes through displayShift(); playback and the ABC never change.
+const concertView = () => transposesInstrument() && $('concert-pitch')?.checked === true,
+  displayShift = () => (concertView() ? 0 : instrumentShift());
+// The score as drawn: the source at the display shift (the instrument's written pitch unless Concert pitch is on),
+// with the instrument's clef and the display-only labels. Pass the instrument's shift to get the written part.
+function writtenABC(shift = displayShift()) {
   let source = $('abc').value;
   const config = instruments[currentInstrument()];
-  if (config.shift)
+  if (shift)
     try {
-      source = transposeABC(source, config.shift);
+      source = transposeABC(source, shift);
     } catch {
-      source = ABCJS.strTranspose(source, ABCJS.parseOnly(source), config.shift);
+      source = ABCJS.strTranspose(source, ABCJS.parseOnly(source), shift);
     }
   source = source.replace(/^K:(.*)$/m, (_, key) => 'K:' + key.replace(/\s+clef=\S+/g, '') + ' clef=' + config.clef);
   if (fingeringShown() === 'recorder') source = source.replace(/^(X:.*)$/m, '$1\n%%staffsep 190');
@@ -324,9 +334,10 @@ function indexDisplay(display) {
   noteDurations = new Map(shown.map(e => [e.element.startChar, lengths.get(e.element) || 0]));
   shownElements = new Map(shown.map(e => [e.element.startChar, e.element]));
   // Clefs per drawn line. abcjs re-parses a re-flowed score, so its lines (not the display's) match the staff groups.
+  // Guitar tablature adds a TAB staff to the line; it is left out, so these are the notation staves only.
   staffClefs = (renderedTune?.lines || display.lines)
     .filter(l => l.staff)
-    .map(l => l.staff.map(st => st.clef?.verticalPos || 0));
+    .map(l => l.staff.filter(st => st.clef?.type !== 'TAB').map(st => st.clef?.verticalPos || 0));
 }
 // Keep the selected note highlighted across a re-render.
 function restoreSelection(display) {
@@ -348,14 +359,21 @@ function restoreSelection(display) {
 }
 function updateCaption() {
   $('workspace-heading').textContent = field('T', 'Untitled melody');
-  const config = instruments[currentInstrument()];
-  const pitch =
-    config.shift === 2 || config.shift === 9
+  const config = instruments[currentInstrument()],
+    staves = staffClefs[0]?.length || 1;
+  const pitch = concertView()
+    ? 'Concert pitch shown, as it sounds; turn off Concert pitch for the written part.'
+    : transposesInstrument()
       ? 'Written pitch shown; ABC source and MIDI are concert pitch.'
       : config.shift === -12
-        ? 'Melody lowered one octave for bass range.'
-        : 'Concert pitch melody part.';
-  $('score-caption').textContent = `${currentInstrument()} · ${config.clef} clef · ${pitch}`;
+        ? `${staves > 1 ? 'Parts' : 'Melody'} lowered one octave for bass range.`
+        : staves > 1
+          ? 'Concert pitch.'
+          : 'Concert pitch melody part.';
+  // A score with several staves (a template or V: voices) has their own clefs, so it counts them instead.
+  $('score-caption').textContent =
+    `${currentInstrument()} · ${staves > 1 ? `${staves} staves` : `${config.clef} clef`} · ${pitch}`;
+  if ($('concert-pitch-option')) $('concert-pitch-option').hidden = !transposesInstrument();
 }
 // Links to the complete source edition behind a library practice part.
 function updateSourceEdition() {
@@ -784,11 +802,13 @@ function scorePoint(e) {
   const svg = $('notation').querySelector('svg');
   return svg && new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
 }
+// The drawn notation staves with their clefs. A tab staff sits under the staff it belongs to, so the notation staves
+// are counted without it to find their clefs.
 function staffList() {
   return (renderedTune?.engraver?.staffgroups || []).flatMap((g, gi) =>
     g.staffs
-      .map((st, si) => (st.isTabStaff ? null : {id: gi + ':' + si, y: st.absoluteY, clef: staffClefs[gi]?.[si] ?? 0}))
-      .filter(Boolean)
+      .filter(st => !st.isTabStaff)
+      .map((st, si) => ({id: gi + ':' + si, y: st.absoluteY, clef: staffClefs[gi]?.[si] ?? 0}))
   );
 }
 const nearestStaff = (staffs, y) =>
@@ -913,9 +933,9 @@ function drawNote(t) {
     toast('Score updated. Click again to add the note.');
     return;
   }
-  // The staff shows written pitch; the source takes the concert note, as many letters away as the key at that point.
-  const concert = at =>
-    pitchToken(t.written - writtenSteps($('abc').value, at, instruments[currentInstrument()].shift));
+  // The staff shows written pitch (or concert pitch in Concert pitch view); the source takes the concert note, as many
+  // letters away as the key at that point.
+  const concert = at => pitchToken(t.written - writtenSteps($('abc').value, at, displayShift()));
   // Neighbours on the clicked staff, in reading order; the new note goes before the first one to the right of the click.
   const staffs = staffList(),
     items = [];
@@ -1010,6 +1030,7 @@ $('notation').addEventListener('mouseleave', () => showGhost(null));
 // Add blank bars (whole-bar rests in the meter in force there) before the closing barline, or at the end.
 function addBars(count = 4) {
   flushTyping();
+  if (addVoiceBars(count)) return;
   const value = $('abc').value,
     close = value.lastIndexOf('|]'),
     at = close >= 0 ? close : value.length,
@@ -1031,6 +1052,80 @@ function addBars(count = 4) {
   applyNoteEdit(at, at, text, [first, first + rest.length]);
   $('selection-status').textContent = `Added ${count} blank bars at the end.`;
 }
+// With several voices, every voice gets the bars in one edit: before its closing |], or after its last note or bar
+// line, each sized by that voice's meter. An & overlay is a voice of its own in abcjs, but it is written inside its
+// staff's voice and shares that voice's bar lines, so it goes with that voice and gets no bars of its own. Returns
+// false for a score with one voice (and any overlays), which addBars handles as before.
+function addVoiceBars(count) {
+  const value = $('abc').value;
+  let tune;
+  try {
+    tune = ABCJS.parseOnly(value)[0];
+  } catch {
+    return false;
+  }
+  const events = scoreEvents(tune),
+    owner = new Map(),
+    barVoice = new Map(),
+    last = new Map(),
+    meters = new Map();
+  // An overlay meets the bar lines of the voice it is written in. One with no bar line of its own follows an &, so
+  // it goes with the voice of the nearest earlier note on its staff.
+  const staffOf = e => voiceOf(e).split(':')[0];
+  for (const e of events.filter(x => x.element.el_type === 'bar')) {
+    const at = staffOf(e) + '@' + e.element.startChar,
+      first = barVoice.get(at);
+    if (!first) barVoice.set(at, voiceOf(e));
+    else if (first !== voiceOf(e) && !owner.has(voiceOf(e))) owner.set(voiceOf(e), first);
+  }
+  for (const e of events) {
+    const voice = voiceOf(e),
+      at = e.element.startChar;
+    if (owner.has(voice) || !/&\s*$/.test(value.slice(Math.max(0, at - 40), at))) continue;
+    const before = events
+      .filter(x => staffOf(x) === staffOf(e) && voiceOf(x) !== voice && x.element.startChar < at)
+      .reduce((a, x) => (!a || x.element.startChar > a.element.startChar ? x : a), null);
+    if (before) owner.set(voice, owner.get(voiceOf(before)) ?? voiceOf(before));
+  }
+  // Each voice's last element in the source, its overlays included; a bar line wins over a rest at the same place.
+  for (const e of events) {
+    const voice = owner.get(voiceOf(e)) ?? voiceOf(e),
+      prev = last.get(voice),
+      el = e.element;
+    if (!prev || el.startChar > prev.startChar || (el.startChar === prev.startChar && el.el_type === 'bar'))
+      last.set(voice, el);
+  }
+  for (const m of barLengths(tune)) meters.set(m.voice, m.meter);
+  if (last.size < 2) return false;
+  const inserts = [...last].map(([voice, e]) => {
+    const closing = e.el_type === 'bar' && /^\s*\|\]\s*$/.test(value.slice(e.startChar, e.endChar)),
+      at = closing ? value.indexOf('|]', e.startChar) : e.endChar,
+      meter = meters.get(voice),
+      [num, den] = meterPartsAt(at),
+      rest = 'z' + lengthText((meter?.length || num / den) / unitLengthAt(at)),
+      bars = Array(count).fill(rest).join(' | ');
+    const text = closing
+      ? (/\|\s*$/.test(value.slice(0, at)) ? '' : '| ') + bars + ' '
+      : (e.el_type === 'bar' ? ' ' : ' | ') + bars + ' |]';
+    return {voice, at, text, rest};
+  });
+  inserts.sort((a, b) => a.at - b.at);
+  const start = inserts[0].at,
+    end = inserts.at(-1).at;
+  let text = '',
+    pos = start,
+    select = null;
+  for (const x of inserts) {
+    text += value.slice(pos, x.at);
+    const first = start + text.length + x.text.indexOf(x.rest);
+    if (!select || x.voice === '0:0') select = [first, first + x.rest.length];
+    text += x.text;
+    pos = x.at;
+  }
+  applyNoteEdit(start, end, text, select);
+  $('selection-status').textContent = `Added ${count} blank bars at the end of every staff.`;
+  return true;
+}
 $('add-bars').onclick = () => addBars(4);
 // Note properties menu. Lengths come from the parsed (effective) duration, so chords and broken rhythm read correctly.
 const DOTTABLE = [1, 0.5, 0.25, 0.125, 0.0625, 0.03125];
@@ -1038,8 +1133,9 @@ function closeNoteMenu() {
   $('note-menu').hidden = true;
   menuEntry = null;
 }
+// The transposition the score is drawn at: 0 for concert-pitch instruments and in Concert pitch view.
 const transposing = () => {
-  const shift = instruments[currentInstrument()].shift;
+  const shift = displayShift();
   return shift % 12 !== 0 ? shift : 0;
 };
 // Accidentals are what the player sees, so read and edit them in written pitch, then transpose back to the concert source.
@@ -1119,13 +1215,14 @@ function markItemsHTML(entry) {
   );
 }
 function openNoteMenu(entry, display, x, y) {
-  menuEntry = {entry, display};
+  menuEntry = {entry, display, written: renderedWritten};
   const isRest = !entry.element.pitches?.length,
     text = transposing()
       ? writtenNote(display).text
       : $('abc').value.slice(entry.element.startChar, entry.element.endChar);
   const acc = (noteParts(text)?.core.match(/^\[?(\^{1,2}|_{1,2}|=)/) || [])[1] || '',
-    len = entry.element.duration || 0;
+    len = entry.element.duration || 0,
+    chord = shownChord({entry, display});
   const durations = [
     [1, '𝅝 Whole'],
     [0.5, '𝅗𝅥 Half'],
@@ -1147,6 +1244,7 @@ function openNoteMenu(entry, display, x, y) {
       ? ''
       : `<button role="menuitemcheckbox" aria-checked="${/^-/.test(noteParts($('abc').value.slice(entry.element.startChar, entry.element.endChar))?.post || '')}" data-edit="tie">⁀ Tie to next note</button>`) +
     markItemsHTML(entry) +
+    `<button role="menuitem" data-edit="chord" aria-keyshortcuts="K" title="Chord symbol (K)">Chord symbol${chord ? ': ' + esc(chord) : ''}…</button>` +
     `<div class="menu-row"><button role="menuitem" data-edit="play-from">▶ Play from here</button><button role="menuitem" data-edit="range-from">🔁 Practice from here</button></div>` +
     `<div class="menu-label">INSERT AFTER</div><div class="menu-row"><button role="menuitem" data-edit="rest-after">𝄽 Rest</button><button role="menuitem" data-edit="bar-after">| Bar line</button></div><hr><button role="menuitem" class="danger" data-edit="delete">Delete ${isRest ? 'rest' : 'note'}</button>`;
   const menu = $('note-menu');
@@ -1296,9 +1394,156 @@ function markRange(picked, action) {
   editNotes(targets, (n, text) => (targets.includes(n) ? toggleDecoration(text, name) : text), picked);
   return `${MARK_WORDS[name]} ${all ? 'removed from' : 'added to'} ${countWords(targets.length)}.`;
 }
+// Chord symbols. K, the toolbar's Chord button or the note menu opens a box above the selected note. Enter saves,
+// Tab saves and moves on to the next note (Shift+Tab the one before), Escape cancels, and an empty box removes the
+// symbol. Symbols are typed and shown in written pitch and stored in concert pitch, like the notes.
+let chordEditing = null;
+// The chord symbol the student sees on a note: written pitch on a transposing instrument.
+function shownChord(sel) {
+  const v = $('abc').value,
+    {startChar, endChar} = sel.entry.element;
+  if (!transposing() || !sel.display) return chordSymbolOf(v.slice(startChar, endChar));
+  return chordSymbolOf(writtenNote(sel.display, (renderedSource === v && renderedWritten) || undefined).text);
+}
+// A typed (written) chord symbol in concert pitch, moved back by the letters the written key moved at that note. Other
+// text stays as typed, as the written display leaves it (both go through transposeChordSymbol).
+function concertChord(name, sel) {
+  const shift = transposing();
+  return shift
+    ? transposeChordSymbol(name, -shift, -writtenSteps($('abc').value, sel.entry.element.startChar, shift))
+    : name;
+}
+// The box sits just above the note (below it near the top of the score), inside the score's scrolling paper.
+function placeChordEntry(display) {
+  const box = $('chord-entry'),
+    paper = box.parentElement,
+    note = renderedTune?.engraver?.selectables?.find(s => s.absEl.abcelem.startChar === display.startChar),
+    rect = note?.svgEl.getBoundingClientRect?.(),
+    outer = paper.getBoundingClientRect();
+  if (!rect) return;
+  const left = rect.left - outer.left - paper.clientLeft + paper.scrollLeft,
+    top = rect.top - outer.top - paper.clientTop + paper.scrollTop,
+    above = top - box.offsetHeight - 6;
+  box.style.left =
+    Math.max(paper.scrollLeft + 4, Math.min(left - 8, paper.scrollLeft + paper.clientWidth - box.offsetWidth - 4)) +
+    'px';
+  box.style.top = (above >= 4 ? above : top + rect.height + 6) + 'px';
+}
+function chordHint() {
+  const text = tidyChordSymbol($('chord-input').value);
+  $('chord-hint').textContent =
+    text && !parseChordSymbol(text)
+      ? 'Not a chord name: it will print but not play.'
+      : !text && chordEditing?.had
+        ? 'Empty removes the chord symbol.'
+        : 'Enter saves · Tab next note · Esc cancels';
+}
+// opener is the toolbar button to return to after a keyboard press there; otherwise the keyboard goes back to the score.
+function openChordEntry(sel, opener = null) {
+  if (!sel?.display) return;
+  // On a range selection the box opens on its first note, which becomes the selection.
+  if (selectionAnchor) {
+    selectEntry(sel.entry);
+    sel = selectedNote();
+  }
+  const had = shownChord(sel);
+  chordEditing = {start: sel.entry.element.startChar, source: $('abc').value, had, opener};
+  $('chord-input').value = had || '';
+  $('chord-entry').hidden = false;
+  chordHint();
+  placeChordEntry(sel.display);
+  $('chord-input').focus({preventScroll: true});
+  $('chord-input').select();
+  $('chord-entry').scrollIntoView?.({block: 'nearest'});
+}
+function closeChordEntry(editing, focusTo) {
+  chordEditing = null;
+  $('chord-entry').hidden = true;
+  const to = focusTo || editing?.opener;
+  if (to?.isConnected) to.focus({preventScroll: true});
+  else focusScore();
+}
+// Save the box's text as one undo step, then move on by move notes (1 next, -1 previous) and open the box there.
+// focusTo is where the keyboard goes when the box closes (by default the opener or the score). Returns the status line.
+function commitChord(move = 0, focusTo = null) {
+  const editing = chordEditing;
+  if (!editing) return '';
+  const typed = tidyChordSymbol($('chord-input').value);
+  chordEditing = null;
+  $('chord-entry').hidden = true;
+  const entry = $('abc').value === editing.source && scoreNotes().find(e => e.element.startChar === editing.start);
+  if (!entry) {
+    closeChordEntry(editing, focusTo);
+    toast('Score updated. Select the note again.');
+    return '';
+  }
+  const sel = {entry, display: displayOf(entry)},
+    {startChar: start, endChar: end} = entry.element,
+    old = $('abc').value.slice(start, end);
+  let message = '',
+    moved = 0;
+  if (typed !== (editing.had || '')) {
+    const text = setChordSymbol(old, typed ? concertChord(typed, sel) : null);
+    moved = text.length - old.length;
+    if (text !== old) applyNoteEdit(start, end, text);
+    message = !typed
+      ? 'Chord symbol removed.'
+      : parseChordSymbol(typed)
+        ? `Chord symbol ${typed}.`
+        : `Chord symbol “${typed}” added. It is not a chord name, so it prints but does not play.`;
+  }
+  const notes = scoreNotes(),
+    next = move ? notes[notes.findIndex(e => e.element.startChar === start) + move] : null;
+  if (next) {
+    selectEntry(next);
+    if (message) $('selection-status').textContent = message;
+    openChordEntry(selectedNote(), editing.opener);
+    return message;
+  }
+  const clicked =
+    editing.clicked != null &&
+    editing.clicked !== start &&
+    notes.find(e => e.element.startChar === editing.clicked + (editing.clicked > start ? moved : 0));
+  if (clicked) selectEntry(clicked);
+  if (move) message += (message ? ' ' : '') + (move > 0 ? 'That was the last note.' : 'That was the first note.');
+  if (message) $('selection-status').textContent = message;
+  refreshPalette();
+  closeChordEntry(editing, focusTo);
+  return message;
+}
+$('chord-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === 'Tab') {
+    e.preventDefault();
+    commitChord(e.key === 'Tab' ? (e.shiftKey ? -1 : 1) : 0);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeChordEntry(chordEditing);
+  }
+});
+$('chord-input').addEventListener('input', chordHint);
+// Leaving the box another way (a click or tap elsewhere) saves it, and the keyboard goes where the student went.
+// Switching to another window keeps the box open.
+$('chord-input').addEventListener('blur', e => {
+  if (!chordEditing || !document.hasFocus() || $('chord-entry').contains(e.relatedTarget)) return;
+  commitChord(0, e.relatedTarget || $('notation'));
+});
+// A click or tap on another note while the box is open saves the box, then selects that note (by its place in the
+// source, which the save may move along).
+$('notation').addEventListener(
+  'mousedown',
+  e => {
+    if (!chordEditing) return;
+    const hit = selectableAt(e)?.absEl.abcelem;
+    chordEditing.clicked = (hit?.el_type === 'note' && noteSources.get(hit.startChar)?.element.startChar) ?? null;
+  },
+  true
+);
+// Next is for touch screens without a Tab key; pressing it keeps the box focused.
+$('chord-next').addEventListener('mousedown', e => e.preventDefault());
+$('chord-next').addEventListener('click', () => commitChord(1));
 // One edit on one note, shared by the note menu, the keyboard and the palette. Actions: acc:<^|_|=|>, len:<whole>,
 // dot, tie, to-rest, beam:join, beam:break, deco:<mark>, dyn:<dynamic|>, delete, rest-after, bar-after, play-from,
-// range-from, respell. Others do nothing.
+// range-from, respell, chord (opens the chord symbol box). Others do nothing.
 function editNote(entry, display, action) {
   const area = $('abc'),
     v = area.value,
@@ -1320,6 +1565,10 @@ function editNote(entry, display, action) {
   }
   if (action === 'play-from') {
     playFromNote(display);
+    return;
+  }
+  if (action === 'chord') {
+    openChordEntry({entry, display});
     return;
   }
   if (action === 'range-from') {
@@ -1422,7 +1671,9 @@ $('note-menu').addEventListener('click', e => {
   if (!b || !picked) return;
   e.stopPropagation();
   closeNoteMenu();
-  if (renderedSource !== $('abc').value) {
+  // The menu's note offsets belong to the drawing it was opened on. A new instrument or Concert pitch view draws
+  // other text from the same source, so the source alone does not show that they are stale.
+  if (renderedSource !== $('abc').value || picked.written !== writtenABC()) {
     clearTimeout(renderTimer);
     render();
     toast('Score updated. Right-click the note again.');
@@ -1449,7 +1700,8 @@ window.addEventListener(
 // Keyboard note entry on the score (MuseScore-style): A–G add a note after the selection in the nearest octave,
 // Shift+A–G add a pitch to the selected chord, R or 0 a rest, 3–7 set the length (16th…whole), . dots, ↑↓ move by
 // step (Ctrl: octave), ←→ change the selection, # - = set sharp/flat/natural, + ties, | adds a bar line, Delete
-// removes the note, [ ] halve or double the length, ; : > " ^ toggle staccato, tenuto, accent, marcato and fermata.
+// removes the note, [ ] halve or double the length, ; : > " ^ toggle staccato, tenuto, accent, marcato and fermata,
+// K opens the chord symbol box.
 // Shift+←→ and Ctrl/Cmd+A, C, X, V, D work on a range selection (see below).
 const LENGTH_KEYS = {3: 1 / 16, 4: 1 / 8, 5: 1 / 4, 6: 1 / 2, 7: 1};
 function focusScore() {
@@ -1506,10 +1758,11 @@ function insertAt(at, token, select = true, hear = false, keep = false) {
   );
   return at + before.length;
 }
-// Where a new note goes with nothing selected: before the closing bar line, or at the end of the music.
+// Where a new note goes with nothing selected: before the closing bar line, or at the end of the music. In a score
+// with several voices that is the end of the first voice (the top staff).
 function tuneEndPosition() {
   const all = [...new Set(noteSources.values())]
-      .filter(Boolean)
+      .filter(e => e && voiceOf(e) === '0:0')
       .sort((a, b) => a.element.startChar - b.element.startChar),
     last = all.at(-1);
   if (!last) return $('abc').value.length;
@@ -1582,7 +1835,7 @@ function addToChord(sel, core) {
 // them), as the key signature spells it.
 function addLetterToChord(letter, sel) {
   const target = chordTarget(sel),
-    steps = writtenSteps($('abc').value, target.entry.element.startChar, instruments[currentInstrument()].shift),
+    steps = writtenSteps($('abc').value, target.entry.element.startChar, displayShift()),
     top = Math.max(...target.entry.element.pitches.map(p => p.pitch)) + steps,
     index = 'CDEFGAB'.indexOf(letter),
     pitch = index + 7 * (Math.floor((top - index) / 7) + 1);
@@ -1626,7 +1879,8 @@ function respellSelected(sel) {
   if (edit) applyNoteEdit(start, edit.end, edit.text, [start, start + text.length], start);
   else applyNoteEdit(start, end, text, undefined, start, true);
   respellRun = {at: start, note: again ? again.note : old, from: again ? again.from : source, after: $('abc').value};
-  // Name the new spelling as the staff shows it (written pitch for transposing instruments).
+  // Name the new spelling as the staff shows it (written pitch for transposing instruments, unless Concert pitch
+  // view is on).
   const display = selectedNote()?.display,
     label =
       display &&
@@ -1634,20 +1888,22 @@ function respellSelected(sel) {
       noteLabels(ABCJS.parseOnly(writtenABC())[0], 'letters').find(l => l.at === display.startChar);
   status.textContent = `${label ? 'Respelled as ' + label.text : 'Respelled the chord'}. Respell again (Z) for the next spelling.`;
 }
-// Written-pitch note token for a letter, in the octave nearest the last note before a source position.
+// Note token for a letter as the staff shows it (written pitch, or concert in Concert pitch view), in the octave
+// nearest the last note before a source position in the same voice, or else the middle of that voice's staff.
 function letterToken(letter, at) {
   if (letter === 'z') return 'z';
-  const steps = writtenSteps($('abc').value, at, instruments[currentInstrument()].shift),
-    prev = scoreNotes()
-      .filter(n => n.element.startChar < at && n.element.pitches?.length)
-      .pop();
-  const ref = prev ? prev.element.pitches[0].pitch + steps : 6 + (staffClefs[0]?.[0] || 0),
+  const notes = scoreNotes(),
+    here = notes.filter(n => n.element.startChar <= at).pop() || notes[0],
+    voice = here ? voiceOf(here) : '0:0',
+    steps = writtenSteps($('abc').value, at, displayShift()),
+    prev = notes.filter(n => n.element.startChar < at && n.element.pitches?.length && voiceOf(n) === voice).pop();
+  const ref = prev ? prev.element.pitches[0].pitch + steps : 6 + (staffClefs[0]?.[+voice.split(':')[0]] || 0),
     letterIndex = 'CDEFGAB'.indexOf(letter);
   return pitchToken(letterIndex + 7 * Math.round((ref - letterIndex) / 7) - steps);
 }
 // Put a note (its pitch token, without a length) at the start of a rest, taking its length from the rest; the rest
 // keeps what is left, which stays selected so the next note continues. A filled rest passes the selection on.
-// Returns where the note starts.
+// Chord symbols and text written on the rest mark that beat, so the note takes them. Returns where the note starts.
 function fillRest(rest, core, wanted = inputLength ?? beatLength(), keep = false) {
   const v = $('abc').value,
     start = rest.element.startChar,
@@ -1656,8 +1912,9 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength(), keep = false
     unit = unitLengthAt(start);
   const restLength = rest.element.duration || 0,
     length = Math.min(wanted, restLength || Infinity),
-    left = restLength - length;
-  const token = core + lengthText(length / unit),
+    left = restLength - length,
+    chords = (noteParts(old.trim())?.pre.match(/"[^"]*"/g) || []).join('');
+  const token = chords + core + lengthText(length / unit),
     trail = old.match(/\s*$/)[0],
     lead = old.match(/^\s*/)[0] || (start > 0 && !/\s/.test(v[start - 1]) ? ' ' : '');
   if (left > 1e-6) {
@@ -1775,6 +2032,11 @@ function scoreKey(e) {
     if (typeof showPianoSelection === 'function') showPianoSelection();
     $('selection-status').textContent = 'Nothing selected. Letters add notes at the end.';
     refreshPalette();
+    return true;
+  }
+  if (key === 'k' || key === 'K') {
+    if (sel) openChordEntry(sel);
+    else $('selection-status').textContent = 'Select a note on the score first.';
     return true;
   }
   if (key === 'z' || key === 'Z') {
@@ -2500,7 +2762,7 @@ function updateNoteColors() {
       const cx = box.x + box.width / 2,
         cy = box.y + box.height / 2,
         text = document.createElementNS(ns, 'text');
-      text.setAttribute('class', hollow ? 'notehead-letter hollow' : 'notehead-letter');
+      text.setAttribute('class', 'notehead-letter' + (hollow ? ' hollow' : color ? '' : ' on-ink'));
       text.setAttribute('x', cx);
       text.setAttribute('y', cy);
       text.setAttribute('text-anchor', 'middle');
@@ -2537,6 +2799,7 @@ function togglePrompts(open) {
   $('open-prompts').setAttribute('aria-expanded', open);
   if (open) {
     if (typeof toggleAssignmentBuilder === 'function') toggleAssignmentBuilder(false);
+    if (typeof toggleNewScore === 'function') toggleNewScore(false);
     renderPromptCards();
     $('prompt-picker').scrollIntoView({block: 'nearest', behavior: 'smooth'});
   }
@@ -2575,12 +2838,16 @@ function updatePromptCheck(shown) {
     box.innerHTML = '';
     return;
   }
+  // Goals are written pitch (a B-flat clarinet asked for G major writes in G), so Concert pitch view checks a written
+  // copy of the score and says so above the checklist.
+  const concert = concertView();
+  if (concert) shown = ABCJS.parseOnly(writtenABC(instrumentShift()))[0];
   // A teacher's assignment may have instructions and no goals; then there is no checklist.
   const goals = checkPrompt(prompt, melodyBars(shown)),
     done = goals.length > 0 && goals.every(g => g.ok);
   box.hidden = false;
   box.classList.toggle('done', done);
-  box.innerHTML = `<div class="prompt-check-head"><strong>${prompt.level === 'Custom' ? 'Assignment' : 'Writing prompt'} · ${esc(prompt.title)}</strong>${goals.length ? `<span class="small">${goals.filter(g => g.ok).length} of ${goals.length} goals</span>` : ''}</div>${prompt.text ? `<p class="prompt-text">${esc(prompt.text)}</p>` : ''}${goals.length ? `<ul>${goals.map(g => `<li class="${g.ok ? 'met' : ''}"><span aria-hidden="true">${g.ok ? '✓' : '○'}</span> ${esc(g.label)}<span class="sr-only">${g.ok ? ' (done)' : ' (not yet)'}</span></li>`).join('')}</ul>` : ''}${done ? '<p class="prompt-done">All goals met. Play it back, then save it or export it to hand in.</p>' : ''}`;
+  box.innerHTML = `<div class="prompt-check-head"><strong>${prompt.level === 'Custom' ? 'Assignment' : 'Writing prompt'} · ${esc(prompt.title)}</strong>${goals.length ? `<span class="small">${goals.filter(g => g.ok).length} of ${goals.length} goals</span>` : ''}</div>${prompt.text ? `<p class="prompt-text">${esc(prompt.text)}</p>` : ''}${concert && goals.length ? '<p class="small">Goals are in written pitch; turn off Concert pitch to see the written part.</p>' : ''}${goals.length ? `<ul>${goals.map(g => `<li class="${g.ok ? 'met' : ''}"><span aria-hidden="true">${g.ok ? '✓' : '○'}</span> ${esc(g.label)}<span class="sr-only">${g.ok ? ' (done)' : ' (not yet)'}</span></li>`).join('')}</ul>` : ''}${done ? '<p class="prompt-done">All goals met. Play it back, then save it or export it to hand in.</p>' : ''}`;
 }
 $('open-prompts').onclick = () => togglePrompts($('prompt-picker').hidden);
 $('close-prompts').onclick = () => togglePrompts(false);

@@ -1,6 +1,6 @@
 'use strict';
 // Notation palette: a toolbar above the score for the selected note's length, dot, tie, rest, accidental, beam,
-// articulations, dynamics and ornaments (under More), and Delete. Buttons light up (aria-pressed) to show the
+// articulations, dynamics, chord symbol, ornaments (under More), and Delete. Buttons light up (aria-pressed) to show the
 // selection's state and send the same action as the note menu or the matching key to editNote, so each press is one
 // undo step. Later notation tools add their own groups here.
 const PALETTE_DONE = {
@@ -41,13 +41,16 @@ function paletteState() {
     tied: !isRest && /^-/.test(noteParts(source)?.post || ''),
     accidental: isRest ? null : (noteParts(text)?.core.match(/^\[?(\^{1,2}|_{1,2}|=)/) || [])[1] || '',
     beam: isRest ? null : beamGap(sel.entry),
-    marks: picked.length > 1 ? rangeMarks(picked) : noteMarks(source)
+    marks: picked.length > 1 ? rangeMarks(picked) : noteMarks(source),
+    chord: shownChord(sel)
   };
 }
 // Why a button does nothing for the current selection, or '' when it applies.
 function paletteBlocked(action, state) {
   if (action.startsWith('len:')) return '';
   if (!state.sel) return 'Select a note on the score first.';
+  // Chord opens its box on the selected note, or on the first note of a range selection.
+  if (action === 'chord') return '';
   if (/^(deco|dyn):/.test(action))
     return state.picked
       ? markTargets(action, state.picked).why
@@ -96,6 +99,10 @@ function updatePalette() {
       ? `More marks (this note has ${listWords(hidden.map(n => MARK_WORDS[n].toLowerCase()))})`
       : 'More marks'
   );
+  // Chord is marked when the note has a chord symbol, and its name says which.
+  const chord = bar.querySelector('[data-palette="chord"]');
+  chord.classList.toggle('in-use', !!state.chord);
+  chord.setAttribute('aria-label', state.chord ? `Chord symbol (${state.chord})` : 'Chord symbol');
   for (const b of bar.querySelectorAll('[data-palette]')) {
     const action = b.dataset.palette;
     if (action === 'more') continue;
@@ -131,6 +138,11 @@ $('palette').addEventListener('click', e => {
   }
   const state = paletteState(),
     blocked = paletteBlocked(action, state);
+  // The chord box takes the keyboard; it hands it back to this button after a keyboard press, else to the score.
+  if (action === 'chord' && !blocked) {
+    openChordEntry(state.sel, e.detail === 0 ? b : null);
+    return;
+  }
   if (blocked) $('selection-status').textContent = blocked;
   else if (action.startsWith('len:')) chooseLength(+action.slice(4), state.sel);
   else if (action === 'respell') respellSelected(state.sel);
