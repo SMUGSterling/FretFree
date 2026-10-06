@@ -80,6 +80,7 @@ for (const f of [
   'editor.js',
   'measure-tools.js',
   'palette.js',
+  'shortcuts.js',
   'playback.js',
   'keyboard.js',
   'assignments.js',
@@ -971,11 +972,267 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   press('dot');
   assert.equal(status(), 'Select a note on the score first.');
   run("scoreKey({key:'c'})");
-  assert.equal(status(), 'Measure 1 selected.', 'Typing a note replaces the stale hint');
+  // The new note is named for screen readers: the C♯ before it in the bar carries on, and a fifth quarter overfills it.
+  assert.equal(status(), 'Quarter note C♯4, measure 1, beat 5.', 'Typing a note replaces the stale hint');
   press('dot');
   assert.equal(status(), 'Dotted.');
   run("scoreKey({key:'ArrowLeft'})");
-  assert.match(status(), /^Measure 1 selected · type A–G/, 'Selecting another note replaces it too');
+  assert.equal(status(), 'Quarter note F4, measure 1, beat 4.', 'Selecting another note replaces it too');
+}
+// Screen-reader announcements: selecting a note, and every edit without a message of its own, names the note's length,
+// written pitch (in the key and the bar's accidentals), measure and beat in the status line.
+{
+  const status = () => run("$('selection-status').textContent"),
+    body = () => run("$('abc').value.trim().split('\\n').pop()"),
+    key = (k, extra = '') =>
+      run(
+        `$('notation').dispatchEvent(new KeyboardEvent('keydown',{key:${JSON.stringify(k)},bubbles:true,cancelable:true${extra}}))`
+      ),
+    open = instrument =>
+      run(
+        `openScore({abc:${JSON.stringify('X:1\nM:3/4\nL:1/8\nK:F\nC | B2 c3/2 d/ [FA]2 | z6 |]')},instrument:'${instrument}'})`
+      );
+  open('Flute');
+  run('selectEntry(scoreNotes()[0])');
+  assert.equal(status(), 'Eighth note C4, measure 1, beat 3½.', 'A pickup ends on the last beat');
+  key('ArrowRight');
+  assert.equal(status(), 'Quarter note B♭4, measure 2, beat 1.', 'Arrow keys name the note, in the key');
+  key('ArrowRight');
+  assert.equal(status(), 'Dotted eighth note C5, measure 2, beat 2.');
+  key('ArrowRight');
+  assert.equal(status(), '16th note D5, measure 2, beat 2¾.');
+  key('ArrowRight');
+  assert.equal(status(), 'Quarter note chord F4 A4, measure 2, beat 3.');
+  key('ArrowRight');
+  assert.equal(status(), 'Dotted half rest, measure 3, beat 1.');
+  run('scoreClick(displayOf(scoreNotes()[1]),0,[],{},null,{shiftKey:false})');
+  assert.match(status(), /^Quarter note B♭4, measure 2, beat 1 · type A–G/, 'A click adds what to do next');
+  key('ArrowUp');
+  assert.equal(status(), 'Quarter note C5, measure 2, beat 1.', 'Edits name the changed note');
+  key('+');
+  assert.equal(status(), 'Quarter note C5, tied to the next note, measure 2, beat 1.');
+  assert.equal(body(), 'C | c2- c3/2 d/ [FA]2 | z6 |]');
+  key('#');
+  assert.equal(status(), 'Quarter note C♯5, tied to the next note, measure 2, beat 1.');
+  run('stepHistory(-1);stepHistory(-1);stepHistory(-1)');
+  // Letters typed over a rest name the new note, not what is left of the rest.
+  run('inputLength=null;selectEntry(scoreNotes()[5])');
+  key('g');
+  assert.equal(status(), 'Quarter note G4, measure 3, beat 1.');
+  run('stepHistory(-1)');
+  // A transposing instrument names the written pitch, as the staff shows it.
+  open('Clarinet in B♭');
+  run('selectEntry(scoreNotes()[1])');
+  assert.equal(status(), 'Quarter note C5, measure 2, beat 1.', 'B♭ clarinet: written a tone higher');
+  run("$('concert-pitch').checked=true;$('concert-pitch').dispatchEvent(new Event('change'))");
+  run('selectEntry(scoreNotes()[1])');
+  assert.equal(status(), 'Quarter note B♭4, measure 2, beat 1.', 'Concert pitch view names the sounding note');
+  run("$('concert-pitch').checked=false;$('concert-pitch').dispatchEvent(new Event('change'))");
+  // Other lengths, rests and meters.
+  const describe = (abc, i) => {
+    run(`openScore({abc:${JSON.stringify('X:1\n' + abc)},instrument:'Flute'})`);
+    run(`selectEntry(scoreNotes()[${i}])`);
+    return status();
+  };
+  assert.equal(
+    describe('M:6/8\nL:1/8\nK:C\nA3 B C D |]', 2),
+    'Eighth note C4, measure 1, beat 2⅓.',
+    '6/8 counts two beats'
+  );
+  assert.equal(describe('M:4/4\nL:1/8\nK:C\n(3ABc d6 |]', 1), 'Eighth note B4, measure 1, beat 1⅓.', 'Triplets');
+  assert.equal(describe('M:4/4\nL:1/4\nK:C\nZ3 | C4 |]', 0), 'Rest for 3 measures, measure 1.');
+  assert.equal(describe('M:4/4\nL:1/16\nK:C\nA7 B x8 |]', 0), 'Double-dotted quarter note A4, measure 1, beat 1.');
+  assert.equal(describe('M:4/4\nL:1/16\nK:C\nA7 B x8 |]', 2), 'Invisible half rest, measure 1, beat 3.');
+  assert.equal(describe('M:none\nL:1/4\nK:C\nC ^C D |]', 1), 'Quarter note C♯4, measure 1.', 'Free meter has no beats');
+  assert.equal(
+    run("describeNote({duration:0.5,pitches:[{pitch:-3,accidental:'flat'},{pitch:9}]},2,4)"),
+    'Half note chord G♭3 E5, measure 2, beat 4',
+    'Without spelled names, the note is named from its own accidentals'
+  );
+  // A first bar shortened by deleting a note is not a pickup, so its first note stays on beat 1; a pickup the score
+  // opened with stays one as it is edited.
+  const openBody = abc => run(`dirty=false;openScore({abc:${JSON.stringify('X:1\n' + abc)},instrument:'Flute'})`);
+  openBody('M:4/4\nL:1/4\nK:C\nC D E F | G A B c |]');
+  run('selectEntry(scoreNotes()[1])');
+  key('Delete');
+  assert.equal(body(), 'C E F | G A B c |]');
+  assert.equal(status(), 'Quarter note C4, measure 1, beat 1.', 'A first bar shortened by Delete starts on beat 1');
+  key('ArrowRight');
+  assert.equal(status(), 'Quarter note E4, measure 1, beat 2.');
+  openBody('M:4/4\nL:1/4\nK:C\nC D | E F G A |]');
+  run('selectEntry(scoreNotes()[1])');
+  key('Delete');
+  assert.equal(body(), 'C | E F G A |]');
+  assert.equal(status(), 'Quarter note C4, measure 1, beat 4.', 'An opened pickup stays one');
+  // A short bar after a short bar that ends a section is the next section's pickup.
+  assert.equal(
+    describe('M:4/4\nL:1/4\nK:C\nC | E F G A | B c d :| e | f g a b |]', 8),
+    'Quarter note E5, measure 4, beat 4.'
+  );
+  assert.equal(describe('M:2/4\nL:1/16\nK:C\nC4 C4 | G2G2 G2z || G | A8 |]', 6), '16th note G4, measure 3, beat 2¾.');
+  // An edit that leaves nothing selected says so, rather than naming a note that is no longer selected.
+  openBody('M:4/4\nL:1/4\nK:C\nC D E z | G A B c |]');
+  run('selectEntry(scoreNotes()[3])');
+  assert.equal(status(), 'Quarter rest, measure 1, beat 4.');
+  key('|');
+  assert.equal(body(), 'C D E z | | G A B c |]');
+  assert.equal(run('selectedNote() ?? null'), null);
+  assert.equal(status(), 'Bar line added. Nothing selected. Letters add notes at the end.');
+  key('ArrowUp');
+  assert.equal(body(), 'C D E z | | G A B c |]', 'Nothing to move');
+  run('stepHistory(-1)');
+  key('|');
+  assert.equal(body(), 'C D E z | G A B c | |]', 'With nothing selected, | adds a bar line at the end');
+  assert.equal(status(), 'Bar line added. Nothing selected. Letters add notes at the end.');
+}
+// Shortcut sheet: one SHORTCUTS table gives the palette its key hints; ? opens a dialog that lists the commands by
+// task, keeps the keyboard, filters as you type, and runs the chosen command on the selection with Enter.
+{
+  const status = () => run("$('selection-status').textContent"),
+    body = () => run("$('abc').value.trim().split('\\n').pop()"),
+    active = () => run('document.activeElement?.id'),
+    shown = () => run("[...$('shortcuts-list').querySelectorAll('[role=option]')].map(o=>o.textContent).join(' | ')"),
+    press = (target, k, extra = '') =>
+      run(
+        `${target}.dispatchEvent(new KeyboardEvent('keydown',{key:${JSON.stringify(k)},bubbles:true,cancelable:true${extra}}))`
+      ),
+    search = q =>
+      run(`$('shortcuts-search').value=${JSON.stringify(q)};$('shortcuts-search').dispatchEvent(new Event('input'))`);
+  assert.equal(run(`document.querySelector('[data-palette="dot"]').title`), 'Dotted (.)');
+  assert.equal(run(`document.querySelector('[data-palette="len:1"]').title`), 'Whole note (7)');
+  assert.equal(
+    run(`document.querySelector('[data-palette="delete"]').getAttribute('aria-keyshortcuts')`),
+    'Delete Backspace'
+  );
+  assert.equal(
+    run('SHORTCUTS.filter(s=>s.palette).every(s=>document.querySelector(`#palette [data-palette="${s.palette}"]`))'),
+    true,
+    'Every palette command in the table has its button'
+  );
+  assert.deepEqual(
+    JSON.parse(
+      run(
+        "JSON.stringify([...document.querySelectorAll('#palette [data-palette]')].map(b=>b.dataset.palette).filter(a=>!['more','tuplets','measure'].includes(a)&&!SHORTCUTS.some(s=>s.palette===a)))"
+      )
+    ),
+    [],
+    'and every palette button is in the table'
+  );
+  assert.equal(
+    run(`document.querySelector('[data-palette="tuplet:3"]').title`),
+    'Triplet: three notes in the time of two (T)'
+  );
+  run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nC D E F |]')},instrument:'Flute'})`);
+  run('selectEntry(scoreNotes()[1]);focusScore()');
+  press("$('notation')", '?');
+  assert.equal(run("$('shortcuts').hidden"), false, '? opens the sheet');
+  assert.equal(active(), 'shortcuts-search', 'The search box has the keyboard');
+  assert.equal(run("$('shortcuts-open').getAttribute('aria-expanded')"), 'true');
+  assert.deepEqual(
+    JSON.parse(
+      run("JSON.stringify([...$('shortcuts-list').querySelectorAll('.shortcut-group')].map(g=>g.textContent))")
+    ),
+    [
+      'Select',
+      'Write',
+      'Length',
+      'Tuplets and grace notes',
+      'Pitch',
+      'Marks',
+      'Dynamics',
+      'Lines and beams',
+      'Measure',
+      'Edit',
+      'Play'
+    ],
+    'Grouped by task'
+  );
+  // Focus stays in the dialog.
+  press("$('shortcuts-search')", 'Tab');
+  assert.equal(active(), 'shortcuts-close');
+  press("$('shortcuts-close')", 'Tab');
+  assert.equal(active(), 'shortcuts-search');
+  press("$('shortcuts-search')", 'Tab', ',shiftKey:true');
+  assert.equal(active(), 'shortcuts-close');
+  run("$('play').focus()");
+  assert.equal(active(), 'shortcuts-search', 'Focus that leaves the dialog comes back');
+  search('tie');
+  assert.equal(shown(), 'Tie to the next note+', 'Typing "tie" filters to Tie');
+  assert.equal(run("$('shortcuts-search').getAttribute('aria-activedescendant')"), 'shortcut-0');
+  assert.equal(run("$('shortcuts-status').textContent"), '1 command. Enter runs Tie to the next note.');
+  press("$('shortcuts-search')", 'Enter');
+  assert.equal(run("$('shortcuts').hidden"), true, 'Enter runs it and closes the sheet');
+  assert.equal(body(), 'C D- E F |]', 'Tie applies to the selected note');
+  assert.equal(status(), 'Tied to the next note.');
+  assert.equal(active(), 'notation', 'The score gets the keyboard back');
+  run('stepHistory(-1)');
+  assert.equal(body(), 'C D E F |]', 'One undo step');
+  // Arrow keys choose among the matches; commands that need a key on the score say which.
+  run('selectEntry(scoreNotes()[1]);focusScore()');
+  press("$('notation')", '?');
+  search('octave');
+  assert.equal(shown(), 'Up an octaveCtrl+↑ | Down an octaveCtrl+↓');
+  press("$('shortcuts-search')", 'ArrowDown');
+  assert.equal(run("$('shortcuts-search').getAttribute('aria-activedescendant')"), 'shortcut-1');
+  press("$('shortcuts-search')", 'Enter');
+  assert.equal(body(), 'C D, E F |]', 'Down an octave');
+  run('stepHistory(-1)');
+  press("$('notation')", '?');
+  search('chord');
+  assert.match(shown(), /^Add a pitch to the chord.* \| Chord symbolK/);
+  press("$('shortcuts-search')", 'Enter');
+  assert.equal(run("$('shortcuts').hidden"), false, 'A command typed on the score is not run');
+  assert.equal(run("$('shortcuts-status').textContent"), 'Hold Shift and type a letter from A to G on the score.');
+  search('zzz');
+  assert.equal(run("$('shortcuts-status').textContent"), 'No commands match.');
+  search('');
+  press("$('shortcuts-search')", 'Enter');
+  assert.equal(run("$('shortcuts').hidden"), false, 'Enter with nothing chosen does nothing');
+  // Escape closes and gives the keyboard back to where it was.
+  press("$('shortcuts-search')", 'Escape');
+  assert.equal(run("$('shortcuts').hidden"), true);
+  assert.equal(active(), 'notation');
+  run("$('shortcuts-open').focus();$('shortcuts-open').click()");
+  assert.equal(active(), 'shortcuts-search', 'The Shortcuts button opens it too');
+  run("$('shortcuts-close').click()");
+  assert.equal(active(), 'shortcuts-open', 'and gets the keyboard back');
+  // Key commands, and commands on nothing.
+  run('selectEntry(scoreNotes()[1])');
+  run("runShortcut(SHORTCUTS.find(s=>s.name==='Select all notes'))");
+  assert.match(status(), /^4 notes selected in measure 1/);
+  run("scoreKey({key:'Escape'})");
+  run("runShortcut(SHORTCUTS.find(s=>s.name==='Up a step'))");
+  assert.equal(status(), 'Select a note on the score first.');
+  run("runShortcut(SHORTCUTS.find(s=>s.name==='Sharp'))");
+  assert.equal(status(), 'Select a note on the score first.', 'Palette commands say why too');
+  // ? in a text field types a question mark.
+  run("$('abc').focus()");
+  press("$('abc')", '?');
+  assert.equal(run("$('shortcuts').hidden"), true, '? in the ABC box is text');
+  assert.deepEqual(
+    JSON.parse(run("JSON.stringify(filterShortcuts('ctrl dup').map(s=>s.name))")),
+    ['Duplicate'],
+    'Every word of the query must match'
+  );
+  // ? over the note menu closes the menu, so the chosen command runs on the note, and Escape gives the keyboard to the
+  // score rather than to the hidden menu.
+  const menuOn = i =>
+    run(`selectEntry(scoreNotes()[${i}]);openNoteMenu(scoreNotes()[${i}],displayOf(scoreNotes()[${i}]),10,10)`);
+  run(`dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nC D E F |]')},instrument:'Flute'})`);
+  menuOn(1);
+  assert.equal(run("!!document.activeElement.closest('#note-menu')"), true);
+  press('document.activeElement', '?');
+  assert.equal(run("$('note-menu').hidden"), true, '? closes the note menu');
+  assert.equal(active(), 'shortcuts-search');
+  search('up a step');
+  press("$('shortcuts-search')", 'Enter');
+  assert.equal(body(), 'C E E F |]', 'The command runs on the note');
+  assert.equal(status(), 'Quarter note E4, measure 1, beat 2.');
+  menuOn(1);
+  press('document.activeElement', '?');
+  press("$('shortcuts-search')", 'Escape');
+  assert.equal(active(), 'notation', 'Escape gives the keyboard to the score');
+  run('stepHistory(-1)');
 }
 // Articulations, dynamics and ornaments: ; : > " ^ and the palette toggle marks, dynamics replace each other, rests take
 // only a dynamic or a fermata, and every edit is one undo step that keeps the selection.
@@ -1924,6 +2181,35 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   press('measure');
   assert.equal(run("$('palette-measure').hidden"), true);
 }
+// The shortcut sheet runs tuplet and Measure panel commands too. The Measure panel's commands open it, and its Time, Key
+// and Clef menus take the keyboard; with nothing selected they say so and leave it closed. This comes after the
+// Measure tools' checks, which expect a panel that has never been opened.
+{
+  const status = () => run("$('selection-status').textContent"),
+    body = () => run("$('abc').value.trim().split('\\n').pop()"),
+    active = () => run('document.activeElement?.id');
+  run(
+    `dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | G A B c |]')},instrument:'Flute'})`
+  );
+  run('selectEntry(scoreNotes()[1])');
+  run("runShortcut(SHORTCUTS.find(s=>s.name==='Triplet'))");
+  assert.equal(body(), 'C (3D/2 z/2 z/2 E F | G A B c |]', 'Triplet from the sheet');
+  assert.equal(status(), 'Triplet: type letters to fill its rests.');
+  run('stepHistory(-1);selectEntry(scoreNotes()[1])');
+  run("runShortcut(SHORTCUTS.find(s=>s.name==='Double bar line'))");
+  assert.equal(body(), 'C D E F || G A B c |]', 'A Measure command from the sheet');
+  assert.equal(status(), 'Double bar line after measure 1.');
+  assert.equal(run("$('palette-measure').hidden"), false, 'opens the Measure panel');
+  run("runShortcut(SHORTCUTS.find(s=>s.name==='Key from here'))");
+  assert.equal(active(), 'measure-key', 'The Key menu takes the keyboard');
+  run("document.querySelector('[data-palette=measure]').click();stepHistory(-1);scoreKey({key:'Escape'})");
+  run("runShortcut(SHORTCUTS.find(s=>s.name==='Double bar line'))");
+  assert.equal(body(), 'C D E F | G A B c |]');
+  assert.equal(status(), 'Select a note or bar line on the score first.');
+  run("runShortcut(SHORTCUTS.find(s=>s.name==='Clef from here'))");
+  assert.equal(status(), 'Select a note or bar line on the score first.');
+  assert.deepEqual([run("$('palette-measure').hidden"), active()], [true, 'notation']);
+}
 // Chord symbols: K, the toolbar's Chord button and the note menu open the box; Enter saves, Tab moves on, Escape
 // cancels, empty removes; written pitch on transposing instruments; the Chords switch silences the accompaniment.
 async function checkChordSymbols() {
@@ -2505,6 +2791,9 @@ async function checkLyrics() {
   assert.equal(run(`document.querySelector('[data-palette="lyric"]').getAttribute('aria-label')`), 'Lyrics');
   run(`document.querySelector('[data-palette="lyric"]').click()`);
   assert.equal(box(), '', 'The Lyrics button opens the box');
+  press('Escape');
+  run("runShortcut(SHORTCUTS.find(s=>s.name==='Lyrics'))");
+  assert.equal(box(), '', 'and so does Lyrics in the shortcut sheet');
   press('Escape');
   run('openNoteMenu(scoreNotes()[2], displayOf(scoreNotes()[2]), 10, 10)');
   assert.match(run(`$('note-menu').querySelector('[data-edit="lyric"]').textContent`), /^Lyrics: ri…$/);
@@ -3322,7 +3611,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), lyrics (L, the Lyrics button and the note menu, Space, -, _ and * as typed, Enter for the next verse, the box kept open past the last note, Tab, Shift+Tab and Backspace, rests passed over, saving on blur, one undo per syllable, the check after notes change (refrains too), marks kept inside a syllable, voices after &, and words kept through transposing, instruments, share links and ABC, MusicXML and SVG export), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, screen-reader note descriptions (selection, arrow keys, edits, typing over rests, pickups, compound and free meters, triplets, written and concert pitch), the shortcut sheet (? and the button, groups, focus trap, search, Enter running a command as one undo step, hints, Escape, tuplet and Measure panel commands), measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), lyrics (L, the Lyrics button, the shortcut sheet and the note menu, Space, -, _ and * as typed, Enter for the next verse, the box kept open past the last note, Tab, Shift+Tab and Backspace, rests passed over, saving on blur, one undo per syllable, the check after notes change (refrains too), marks kept inside a syllable, voices after &, and words kept through transposing, instruments, share links and ABC, MusicXML and SVG export), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

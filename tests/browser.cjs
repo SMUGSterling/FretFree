@@ -401,6 +401,19 @@ const {chromium} = require('playwright'),
     $('toast').style.display = 'none';
   });
   const kbody = () => page.evaluate(() => $('abc').value.trim().split('\n').pop());
+  // The shortcut sheet opened and scrolled to its last command: the bottom edges of the dialog and of that command.
+  const sheetEdges = () =>
+    page.evaluate(() => {
+      openShortcuts();
+      const list = $('shortcuts-list');
+      list.scrollTop = list.scrollHeight;
+      const bottoms = [
+        document.querySelector('.shortcuts-dialog'),
+        [...list.querySelectorAll('[role="option"]')].at(-1)
+      ].map(e => e.getBoundingClientRect().bottom);
+      closeShortcuts();
+      return {bottoms, height: innerHeight};
+    });
   await page.locator('#notation .abcjs-notehead').nth(3).click({force: true});
   for (const k of ['e', '4', 'f', 'g', 'ArrowUp', 'Control+ArrowDown', '#']) await page.keyboard.press(k);
   assert.equal(await kbody(), 'G2 A2 B2 c2 e f ^A | d8 |]', 'Keys add, resize, move and sharpen notes');
@@ -586,6 +599,118 @@ const {chromium} = require('playwright'),
     'Dynamic from the note menu'
   );
   await page.locator('[data-palette="more"]').click();
+  // Screen-reader announcements and the shortcut sheet, with real keys: a clicked note and the arrow keys are named
+  // in the status line; ? opens the sheet, "tie" filters it to Tie and Enter ties the selected note; Tab stays in
+  // the sheet, Escape gives the keyboard back to the score; and every studio button has an accessible name.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:A\nM:3/4\nL:1/8\nK:F\nC | B2 c3/2 d/ [FA]2 | z6 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  {
+    const status = () => page.locator('#selection-status').textContent();
+    await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+    assert.match(await status(), /^Quarter note B♭4, measure 2, beat 1 · /, 'A clicked note is named');
+    assert.equal(await page.locator('#selection-status').getAttribute('role'), 'status');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await status(), 'Dotted eighth note C5, measure 2, beat 2.', 'So is the next note');
+    await page.keyboard.press('ArrowUp');
+    assert.equal(await status(), 'Dotted eighth note D5, measure 2, beat 2.', 'And the note an edit changed');
+    await page.keyboard.press('Control+z');
+    await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+    await page.keyboard.press('?');
+    assert.equal(await page.locator('#shortcuts').isVisible(), true, '? opens the sheet');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'shortcuts-search');
+    await page.keyboard.type('tie');
+    assert.deepEqual(
+      await page.locator('#shortcuts-list [role="option"] .shortcut-name').allTextContents(),
+      ['Tie to the next note'],
+      'Typing "tie" filters to Tie'
+    );
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#shortcuts').isVisible(), false);
+    assert.equal(await kbody(), 'C | B2- c3/2 d/ [FA]2 | z6 |]', 'Enter ties the selected note');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'notation', 'The score has the keyboard again');
+    await page.keyboard.press('Control+z');
+    assert.equal(await kbody(), 'C | B2 c3/2 d/ [FA]2 | z6 |]', 'One undo step');
+    await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+    await page.keyboard.press('?');
+    for (let i = 0; i < 3; i++) await page.keyboard.press('Tab');
+    assert.ok(await page.evaluate(() => $('shortcuts').contains(document.activeElement)), 'Tab stays in the sheet');
+    await page.locator('#shortcuts-list [role="option"]', {hasText: 'Staccato'}).click();
+    assert.equal(await kbody(), 'C | .B2 c3/2 d/ [FA]2 | z6 |]', 'A click on a command runs it');
+    await page.keyboard.press('Control+z');
+    await page.keyboard.press('?');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#shortcuts').isVisible(), false);
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'notation', 'Escape returns to the score');
+    // A click on the sheet's heading or on a hint command keeps the keyboard in the sheet, so Escape still closes it;
+    // Ctrl+Shift+Z on its ✕ leaves the score behind it alone.
+    await page.keyboard.press('?');
+    await page.locator('#shortcuts-heading').click();
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'shortcuts-search', 'A click on the heading');
+    await page
+      .locator('#shortcuts-list [role="option"]', {hasText: 'Add a note after the selection'})
+      .click({force: true});
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'shortcuts-search', 'and on a hint');
+    assert.equal(await page.locator('#shortcuts-status').textContent(), 'Type a letter from A to G on the score.');
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'shortcuts-close');
+    await page.keyboard.press('Control+Shift+z');
+    assert.equal(await kbody(), 'C | B2 c3/2 d/ [FA]2 | z6 |]', 'No redo behind the open sheet');
+    await page.evaluate(() => document.activeElement.blur());
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#shortcuts').isVisible(), false, 'Escape closes it with focus on the page');
+    // ? over the note menu closes the menu, so the chosen command runs on the note.
+    await rightClick(page.locator('#notation .abcjs-notehead').nth(1));
+    assert.equal(await page.locator('#note-menu').isVisible(), true);
+    await page.keyboard.press('?');
+    assert.equal(await page.locator('#note-menu').isVisible(), false, '? closes the note menu');
+    await page.keyboard.type('up a step');
+    await page.keyboard.press('Enter');
+    assert.equal(await kbody(), 'C | c2 c3/2 d/ [FA]2 | z6 |]', 'The command runs on the note');
+    await page.keyboard.press('Control+z');
+    const sheet = await sheetEdges();
+    assert.ok(
+      sheet.bottoms.every(b => b <= sheet.height),
+      `The sheet and its last command fit: ${JSON.stringify(sheet)}`
+    );
+    // Every studio button has an accessible name, as Chromium computes it, with More open and the sheet shown.
+    await page.locator('[data-palette="more"]').click();
+    await page.click('#shortcuts-open');
+    const cdp = await page.context().newCDPSession(page);
+    const {root} = await cdp.send('DOM.getDocument', {depth: 0}),
+      {nodeIds} = await cdp.send('DOM.querySelectorAll', {nodeId: root.nodeId, selector: '#studio button'}),
+      unnamed = [];
+    let checked = 0;
+    for (const nodeId of nodeIds) {
+      const {nodes} = await cdp.send('Accessibility.getPartialAXTree', {nodeId, fetchRelatives: false}),
+        node = nodes[0];
+      if (!node || node.ignored) continue;
+      checked++;
+      if (!node.name?.value?.trim()) {
+        const {outerHTML} = await cdp.send('DOM.getOuterHTML', {nodeId});
+        unnamed.push(outerHTML.slice(0, 120));
+      }
+    }
+    await cdp.detach();
+    assert.ok(checked > 60, `Checked ${checked} shown buttons`);
+    assert.deepEqual(unnamed, [], 'Every shown studio button has an accessible name');
+    // Hidden ones (panels not open now) have a name in their text, aria-label or title.
+    assert.deepEqual(
+      await page.evaluate(() =>
+        [...document.querySelectorAll('#studio button')]
+          .filter(
+            b => !(b.getAttribute('aria-label') || b.textContent.trim() || b.title || b.getAttribute('aria-labelledby'))
+          )
+          .map(b => b.outerHTML.slice(0, 120))
+      ),
+      [],
+      'Every studio button has a name'
+    );
+    await page.keyboard.press('Escape');
+    await page.locator('[data-palette="more"]').click();
+  }
   // Measure tools with a real keyboard and pointer: the Measure panel opens from the toolbar, Enter inserts a bar that
   // typing fills, pointer presses add a repeat with 1st and 2nd endings that engrave, and a key change by keyboard.
   await page.evaluate(() => {
@@ -3159,14 +3284,19 @@ const {chromium} = require('playwright'),
     await page.locator('[data-palette="tuplets"]').click();
     await page.locator('[data-palette="measure"]').click();
     const boxes = await page.evaluate(() =>
-      [...document.querySelectorAll('#palette [data-palette]')].map(b => {
+      [...document.querySelectorAll('#palette [data-palette], #shortcuts-open')].map(b => {
         const r = b.getBoundingClientRect();
         return [r.left, r.right, r.width, r.height];
       })
     );
     assert.ok(
       boxes.every(([l, r, wd, h]) => l >= 0 && r <= 390 && wd >= 40 && h >= 40),
-      'Palette buttons fit a phone and are at least 40px'
+      'Palette buttons and All shortcuts fit a phone and are at least 40px'
+    );
+    const sheet = await sheetEdges();
+    assert.ok(
+      sheet.bottoms.every(b => b <= sheet.height),
+      `The shortcut sheet fits a phone: ${JSON.stringify(sheet)}`
     );
     assert.ok(
       await page.evaluate(() =>
@@ -3493,7 +3623,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), tuplets and grace notes (T and letters filling and beaming the rests, staccato on and off and Delete in a triplet, the Tuplet menu by pointer, Grace, Grace ↑ and Slashed by pointer and keyboard, undo), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), lyrics (L, a verse typed with hyphens, Enter for the next verse with the box under it, undo, the toolbar button by keyboard, click away, a verse typed past the last note then Enter, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
+    'PASS: screen-reader note names on click, arrow keys and edits, the shortcut sheet (?, search, Enter, click, focus trap, Escape, over the note menu, fits the window and a phone) and an accessible name on every studio button, dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), tuplets and grace notes (T and letters filling and beaming the rests, staccato on and off and Delete in a triplet, the Tuplet menu by pointer, Grace, Grace ↑ and Slashed by pointer and keyboard, undo), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), lyrics (L, a verse typed with hyphens, Enter for the next verse with the box under it, undo, the toolbar button by keyboard, click away, a verse typed past the last note then Enter, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);
