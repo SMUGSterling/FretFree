@@ -1205,29 +1205,6 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.equal(status(), 'Select a note on the score first.');
   run("runShortcut(SHORTCUTS.find(s=>s.name==='Sharp'))");
   assert.equal(status(), 'Select a note on the score first.', 'Palette commands say why too');
-  // Tuplet and Measure panel commands. The Measure panel's commands open it, and its Time, Key and Clef menus take the
-  // keyboard; with nothing selected they say so and leave it closed.
-  run(
-    `dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | G A B c |]')},instrument:'Flute'})`
-  );
-  run('selectEntry(scoreNotes()[1])');
-  run("runShortcut(SHORTCUTS.find(s=>s.name==='Triplet'))");
-  assert.equal(body(), 'C (3D/2 z/2 z/2 E F | G A B c |]', 'Triplet from the sheet');
-  assert.equal(status(), 'Triplet: type letters to fill its rests.');
-  run('stepHistory(-1);selectEntry(scoreNotes()[1])');
-  run("runShortcut(SHORTCUTS.find(s=>s.name==='Double bar line'))");
-  assert.equal(body(), 'C D E F || G A B c |]', 'A Measure command from the sheet');
-  assert.equal(status(), 'Double bar line after measure 1.');
-  assert.equal(run("$('palette-measure').hidden"), false, 'opens the Measure panel');
-  run("runShortcut(SHORTCUTS.find(s=>s.name==='Key from here'))");
-  assert.equal(active(), 'measure-key', 'The Key menu takes the keyboard');
-  run("stepHistory(-1);document.querySelector('[data-palette=measure]').click();scoreKey({key:'Escape'})");
-  run("runShortcut(SHORTCUTS.find(s=>s.name==='Double bar line'))");
-  assert.equal(body(), 'C D E F | G A B c |]');
-  assert.equal(status(), 'Select a note or bar line on the score first.');
-  run("runShortcut(SHORTCUTS.find(s=>s.name==='Clef from here'))");
-  assert.equal(status(), 'Select a note or bar line on the score first.');
-  assert.deepEqual([run("$('palette-measure').hidden"), active()], [true, 'notation']);
   // ? in a text field types a question mark.
   run("$('abc').focus()");
   press("$('abc')", '?');
@@ -2203,6 +2180,35 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.match(status(), /Keys are concert pitch\.$/);
   press('measure');
   assert.equal(run("$('palette-measure').hidden"), true);
+}
+// The shortcut sheet runs tuplet and Measure panel commands too. The Measure panel's commands open it, and its Time, Key
+// and Clef menus take the keyboard; with nothing selected they say so and leave it closed. This comes after the
+// Measure tools' checks, which expect a panel that has never been opened.
+{
+  const status = () => run("$('selection-status').textContent"),
+    body = () => run("$('abc').value.trim().split('\\n').pop()"),
+    active = () => run('document.activeElement?.id');
+  run(
+    `dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | G A B c |]')},instrument:'Flute'})`
+  );
+  run('selectEntry(scoreNotes()[1])');
+  run("runShortcut(SHORTCUTS.find(s=>s.name==='Triplet'))");
+  assert.equal(body(), 'C (3D/2 z/2 z/2 E F | G A B c |]', 'Triplet from the sheet');
+  assert.equal(status(), 'Triplet: type letters to fill its rests.');
+  run('stepHistory(-1);selectEntry(scoreNotes()[1])');
+  run("runShortcut(SHORTCUTS.find(s=>s.name==='Double bar line'))");
+  assert.equal(body(), 'C D E F || G A B c |]', 'A Measure command from the sheet');
+  assert.equal(status(), 'Double bar line after measure 1.');
+  assert.equal(run("$('palette-measure').hidden"), false, 'opens the Measure panel');
+  run("runShortcut(SHORTCUTS.find(s=>s.name==='Key from here'))");
+  assert.equal(active(), 'measure-key', 'The Key menu takes the keyboard');
+  run("document.querySelector('[data-palette=measure]').click();stepHistory(-1);scoreKey({key:'Escape'})");
+  run("runShortcut(SHORTCUTS.find(s=>s.name==='Double bar line'))");
+  assert.equal(body(), 'C D E F | G A B c |]');
+  assert.equal(status(), 'Select a note or bar line on the score first.');
+  run("runShortcut(SHORTCUTS.find(s=>s.name==='Clef from here'))");
+  assert.equal(status(), 'Select a note or bar line on the score first.');
+  assert.deepEqual([run("$('palette-measure').hidden"), active()], [true, 'notation']);
 }
 // Chord symbols: K, the toolbar's Chord button and the note menu open the box; Enter saves, Tab moves on, Escape
 // cancels, empty removes; written pitch on transposing instruments; the Chords switch silences the accompaniment.
@@ -3384,7 +3390,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, screen-reader note descriptions (selection, arrow keys, edits, typing over rests, pickups, compound and free meters, triplets, written and concert pitch), the shortcut sheet (? and the button, groups, focus trap, search, Enter running a command as one undo step, hints, Escape), measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, screen-reader note descriptions (selection, arrow keys, edits, typing over rests, pickups, compound and free meters, triplets, written and concert pitch), the shortcut sheet (? and the button, groups, focus trap, search, Enter running a command as one undo step, hints, Escape, tuplet and Measure panel commands), measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }
