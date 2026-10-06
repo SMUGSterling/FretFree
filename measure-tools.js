@@ -52,7 +52,7 @@ function measureTarget() {
   if (!m) return null;
   return {voice, m, bar: true, side: m.bar?.startChar === bar.element.startChar ? 'close' : 'open'};
 }
-const glyphOf = (source, bar) => (bar ? barParts(source.slice(bar.startChar, bar.endChar)) : {glyph: '', ending: null});
+const glyphOf = (source, bar) => (bar ? barOf(source, bar) : {glyph: '', ending: null});
 // What the panel shows for the target: the bar line after it (or the selected bar line), its repeats and ending, its
 // form marks, its rehearsal mark, and the time signature, key and clef in force.
 function measureToolState() {
@@ -244,8 +244,9 @@ function measureChange(what) {
         `Time signature ${value === 'none' ? 'none (free time)' : value} from measure ${n}.`
       );
     else if (what === 'clef')
+      // Against the clef shown before the measure: the cello and trombone show the source in the bass clef.
       commitMeasure(
-        clefChange(source, tune, t.voice, n, value),
+        clefChange(source, tune, t.voice, n, value, shownTune() && measureBounds(shownTune(), t.voice, n)?.clefBefore),
         focus,
         `${$('measure-clef').selectedOptions[0].text} clef from measure ${n}.`
       );

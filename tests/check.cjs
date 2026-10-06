@@ -633,6 +633,47 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
   );
   assert.equal(body(run('deleteMeasure', H + '|: C8 | D8 :| E8 |]', 2)), '|: C8 :| E8 |]', 'The repeat moves back');
   assert.throws(() => context.deleteMeasure(H + 'C8 |]', P(H + 'C8 |]'), 1), /at least one bar/);
+  // The bar lines either side of a deleted measure join: a repeat, double or final bar line that closed it moves back,
+  // a repeat or an ending that held only that measure goes, and a start repeat or an ending that opened it moves on.
+  for (const [abc, measure, want] of [
+    ['C8 || D8 |]', 2, 'C8 |]'],
+    ['C8 :| D8 |]', 2, 'C8 :|]'],
+    ['C8 |1 D8 :|2 E8 |]', 3, 'C8 |1 D8 :|]'],
+    ['C8 |1 D8 :|2 E8 |]', 2, 'C8 :|2 E8 |]'],
+    ['|: C8 | D8 |1 E8 | F8 :|2 G8 |]', 3, '|: C8 | D8 |1 F8 :|2 G8 |]'],
+    ['|: C8 :| D8 |]', 1, 'D8 |]'],
+    ['C8 |: D8 :| E8 |]', 2, 'C8 | E8 |]'],
+    ['C8 :| D8', 2, 'C8 :|'],
+    ['C8 |\n|: D8 | F8 |\nE8 :|', 2, 'C8 |\n|: F8 |\nE8 :|'],
+    ['C8 |\n|: D8 :|\nE8 |]', 2, 'C8 |\nE8 |]'],
+    ['C8 :|\n[2 D8 | F8 |\nE8 |]', 2, 'C8 :|\n[2 F8 |\nE8 |]'],
+    ['C8 | D8 !fermata!|]', 2, 'C8 |]']
+  ])
+    assert.equal(body(run('deleteMeasure', H + abc, measure)), want, `Delete measure ${measure} of ${abc}`);
+  {
+    // A line that held only the measure goes with the words under it; a voice field stays when the lines after it
+    // may be in that voice.
+    const words = H + 'C D E F |\nw: a b c d\nG A B c |\nw: e f g h\n',
+      piano = 'X:1\nL:1/4\n%%score {RH LH}\nV:RH\nV:LH clef=bass\nK:C\n';
+    assert.equal(body(run('deleteMeasure', words, 1)), 'G A B c |\nw: e f g h\n');
+    assert.equal(body(run('deleteMeasure', words, 2)), 'C D E F |\nw: a b c d\n');
+    assert.equal(
+      body(
+        run(
+          'deleteMeasure',
+          piano + '[V:RH] C D E F |\nw: a b c d\n[V:LH] C, D, E, F, |\n[V:RH] G A B c |]\n[V:LH] G,4 |]',
+          1
+        )
+      ),
+      '[V:RH] G A B c |]\n[V:LH] G,4 |]'
+    );
+    assert.equal(
+      body(run('deleteMeasure', piano + '[V:RH] C4 |\nG4 |]\n[V:LH] C,4 |\nG,4 |]', 1)),
+      '[V:RH]\nG4 |]\n[V:LH]\nG,4 |]'
+    );
+    // Rehearsal letters stay in order.
+    assert.equal(body(run('deleteMeasure', H + '[P:A] C8 | [P:B] D8 | [P:C] E8 |]', 2)), '[P:A] C8 | [P:B] E8 |]');
+  }
   // Every voice gets the bar, in its own meter and clef; an & overlay is covered by its voice.
   const duet = H + '%%score 1 2\nV:1\nC8 | D8 |\nE8 | F8 |]\nV:2 clef=bass\nC,8 | D,8 |\nE,8 | F,8 |]';
   assert.deepEqual([...context.scoreVoices(P(duet), duet)], ['0:0', '1:0']);
@@ -646,6 +687,35 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     '%%score 1 2\nV:1\nC8 |\nE8 | F8 |]\nV:2 clef=bass\nC,8 |\nE,8 | F,8 |]'
   );
   assert.equal(body(run('insertMeasure', H + 'C8 & E8 | D8 |]', 1, true)), 'C8 & E8 | z8 | D8 |]');
+  {
+    // A multi-measure rest (Z3) is one measure of its voice but three bars, so the staves no longer line up after it.
+    const rest = H + '%%score 1 2\nV:1\nC8 | D8 | E8 | F8 |]\nV:2\nZ3 | F,8 |]';
+    for (const edit of [
+      () => context.insertMeasure(rest, P(rest), 2),
+      () => context.deleteMeasure(rest, P(rest), 1),
+      () => context.editBars(rest, P(rest), 2, 'close', style('||')),
+      () => context.meterChange(rest, P(rest), 2, '3/4'),
+      () => context.keyChange(rest, P(rest), 2, 'G')
+    ])
+      assert.throws(edit, /out of step/);
+    assert.equal(
+      body(run('insertMeasure', H + '%%score 1 2\nV:1\nC8 | Z2 | F8 |]\nV:2\nC,8 | Z2 | F,8 |]', 3)),
+      '%%score 1 2\nV:1\nC8 | Z2 | z8 | F8 |]\nV:2\nC,8 | Z2 | z8 | F,8 |]',
+      'Rests in step'
+    );
+    // Staves are numbered by place, so a score whose staves change partway through is left to the ABC text.
+    const restaffed = duet.replace('V:2 clef=bass', '%%score 1\nV:2 clef=bass');
+    assert.throws(() => context.insertMeasure(restaffed, P(restaffed), 2), /staves change/);
+    // Edits that would overlap are refused rather than garbling the score.
+    assert.throws(
+      () =>
+        context.spliceAll('abcdef', [
+          {start: 1, end: 3, text: 'x'},
+          {start: 2, end: 4, text: 'y'}
+        ]),
+      /does not fit/
+    );
+  }
   // Bar lines replace each other instead of stacking, and keep the ending they start.
   let x = bars(tune, 2, 'close', style('||'));
   assert.equal(body(x), 'C2 D2 E2 F2 | G2 A2 B2 c2 || d2 e2 f2 g2 | c8 |]');
@@ -731,10 +801,23 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
   assert.equal(body(run('toggleRehearsal', x, 2)), 'C2 D2 E2 F2 | G2 A2 B2 c2 | [P:A] d2 e2 f2 g2 | c8 |]');
   assert.equal(
     body(run('toggleRehearsal', H.replace('K:', 'P:AB\nK:') + 'C8 | [P:Intro] D8 | E8 |]', 3)),
-    'C8 | [P:Intro] D8 | [P:A] E8 |]',
-    'The header P: line and named marks are left alone'
+    'C8 | [P:Intro] D8 | [P:C] E8 |]',
+    'Named marks are left alone, and the letters of a header P: line are taken'
   );
   assert.equal(vm.runInContext('rehearsalLetter(27)', context), 'BB');
+  // A header order of parts (P:AABA) or a letter that comes back makes the letters part names: they stay, and a new
+  // mark takes the first letter not in use.
+  {
+    const parts = H.replace('K:C\n', 'P:AABA\nK:C\nP:A\n') + 'C8 | D8 | E8 |\nP:B\nF8 | G8 |]',
+      added = run('toggleRehearsal', parts, 2);
+    assert.equal(body(added), 'P:A\nC8 | [P:C] D8 | E8 |\nP:B\nF8 | G8 |]');
+    assert.equal(run('toggleRehearsal', added, 2), parts, 'Taken away again');
+    assert.equal(body(run('deleteMeasure', added, 2)), 'P:A\nC8 | E8 |\nP:B\nF8 | G8 |]');
+    assert.equal(
+      body(run('toggleRehearsal', H + '[P:A] C8 | [P:B] D8 | [P:A] E8 | F8 |]', 4)),
+      '[P:A] C8 | [P:B] D8 | [P:A] E8 | [P:C] F8 |]'
+    );
+  }
   // A meter change from measure 3 writes [M:3/4] in every voice; the bar check counts 3/4 from there.
   const four = H + 'C8 | D8 | E6 | F6 | G6 |]';
   x = run('meterChange', four, 3, '3/4');
@@ -770,6 +853,28 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     body(run('meterChange', duet, 2, '3/4')),
     '%%score 1 2\nV:1\nC8 | [M:3/4] D8 |\nE8 | F8 |]\nV:2 clef=bass\nC,8 | [M:3/4] D,8 |\nE,8 | F,8 |]'
   );
+  // Piano music often switches voices with inline [V:] fields. abcjs gives a time signature written straight after
+  // one to another staff, so the voice field moves to a line of its own; the bar check reads the meter there.
+  const inline =
+    'X:1\nM:4/4\nL:1/4\n%%score {RH LH}\nV:RH clef=treble\nV:LH clef=bass\nK:C\n' +
+    '[V:RH] C D E F | G A B c |\n[V:LH] C, D, E, F, | G, A, B, C |\n' +
+    '[V:RH] d e f g | c4 |]\n[V:LH] D, E, F, G, | C,4 |]\n';
+  {
+    const clefs = abc => P(abc).lines.map(l => l.staff.map(s => s.clef.type).join()),
+      out = run('meterChange', inline, 3, '3/4');
+    assert.equal(
+      body(out),
+      '[V:RH] C D E F | G A B c |\n[V:LH] C, D, E, F, | G, A, B, C |\n' +
+        'V:RH\n[M:3/4] d e f g | c4 |]\nV:LH\n[M:3/4] D, E, F, G, | C,4 |]\n'
+    );
+    assert.deepEqual(clefs(out), ['treble,bass', 'treble,bass']);
+    assert.deepEqual(
+      [...context.barProblems(P(out))].map(m => m.voice + ' ' + m.measure),
+      ['0:0 3', '0:0 4', '1:0 3', '1:0 4'],
+      'Bars of 4 beats in 3/4'
+    );
+    assert.equal(context.measureBounds(P(out), '1:0', 4).meter.label, '3/4');
+  }
   // Key changes: keep the notes, or move them to the new key up to the next key change; a clef after the key stays.
   const keyed = H + 'C2 E2 G2 c2 | C2 E2 G2 c2 | [K:F] F8 |]';
   assert.equal(body(run('keyChange', keyed, 2, 'G')), 'C2 E2 G2 c2 | [K:G] C2 E2 G2 c2 | [K:F] F8 |]');
@@ -794,6 +899,53 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     assert.equal(context.voiceKeyAt(out, P(out), '1:0', out.indexOf('D,8')), 'G');
     assert.equal(context.voiceKeyAt(out, P(out), '1:0', out.indexOf('C,8')), 'C');
   }
+  {
+    // With inline [V:] fields a key written straight after one gives the staff the first staff's clef, so the voice
+    // field moves to a line of its own: the left hand keeps its bass clef.
+    const clefs = abc => P(abc).lines.map(l => l.staff.map(s => s.clef.type).join()),
+      keys = abc => P(abc).lines.map(l => l.staff.map(s => s.key.accidentals.length).join()),
+      piano =
+        'X:1\nM:4/4\nL:1/4\n%%score {RH LH}\nV:RH clef=treble\nV:LH clef=bass\nK:C\n' +
+        '[V:RH] C D E F | G A B c | d e f g | c4 |]\n[V:LH] C,, D,, E,, F,, | G,, A,, B,, C, | D, E, F, G, | C,4 |]\n';
+    let out = run('keyChange', piano, 3, 'D');
+    assert.equal(
+      body(out),
+      '[V:RH] C D E F | G A B c | [K:D] d e f g | c4 |]\n' +
+        'V:LH\n[K:C] C,, D,, E,, F,, | G,, A,, B,, C, | [K:D] D, E, F, G, | C,4 |]\n'
+    );
+    assert.deepEqual(clefs(out), ['treble,bass']);
+    assert.deepEqual(keys(out), ['0,0']);
+    out = run('keyChange', inline, 3, 'D');
+    assert.deepEqual(clefs(out), ['treble,bass', 'treble,bass'], 'A key at the start of a line');
+    assert.deepEqual(keys(out), ['0,0', '2,2']);
+    // A staff's second voice takes the staff's key at the start of a line; a key field written there after an inline
+    // [V:] field stops abcjs parsing the tune.
+    const hymn =
+      'X:1\nL:1/4\n%%score (S A) (T B)\nV:S clef=treble\nV:A\nV:T clef=bass\nV:B\nK:F\n' +
+      '[V:S] c2 | c c d c |\n[V:A] A2 | A F F F |\n[V:T] C2 | C A, B, A, |\n[V:B] F,2 | F, F, B, F, |\n' +
+      '[V:S] c4 |]\n[V:A] A4 |]\n[V:T] C4 |]\n[V:B] F,4 |]\n';
+    for (const measure of [2, 3]) {
+      out = run('keyChange', hymn, measure, 'D');
+      assert.deepEqual(clefs(out), ['treble,bass', 'treble,bass'], `Hymn, key at measure ${measure}`);
+      assert.deepEqual(
+        [...context.parseMidi(context.midiBytes(out)).notes].map(n => n.note).slice(-4),
+        [73, 69, 61, 54],
+        'Every voice plays in D'
+      );
+    }
+    // A line that starts with the end of a measure begun on the line before: the later staff names its own key at
+    // the very start of its line.
+    const carried =
+      'X:1\nL:1/4\n%%score (S A) (T B)\nV:S clef=treble\nV:A\nV:T clef=bass\nV:B\nK:F\n' +
+      '[V:S] c c d c | c2\n[V:A] A F F F | A2\n[V:T] C A, B, A, | C2\n[V:B] F, F, B, F, | F,2\n' +
+      '[V:S] c2 | c4 |]\n[V:A] A2 | A4 |]\n[V:T] C2 | C4 |]\n[V:B] F,2 | F,4 |]\n';
+    out = run('keyChange', carried, 3, 'D');
+    assert.equal(
+      body(out).split('\n').slice(4).join('\n'),
+      '[V:S] c2 | [K:D] c4 |]\n[V:A] A2 | [K:D] A4 |]\nV:T\n[K:F] C2 | [K:D] C4 |]\n[V:B] F,2 | [K:D] F,4 |]\n'
+    );
+    assert.deepEqual(keys(out).at(-1).split(',').map(Number), [1, 1], 'Line 2 starts in F on both staves');
+  }
   // Clef changes in one voice; the clef already in force writes nothing.
   assert.equal(
     body(run('clefChange', tune, '0:0', 3, 'bass')),
@@ -808,6 +960,37 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     body(run('clefChange', duet, '1:0', 2, 'treble')),
     '%%score 1 2\nV:1\nC8 | D8 |\nE8 | F8 |]\nV:2 clef=bass\nC,8 | [K:clef=treble] D,8 |\nE,8 | F,8 |]'
   );
+  // Against the clef shown: the cello shows a treble-clef source in the bass clef, so Treble is written and Bass is not.
+  assert.equal(
+    body(run('clefChange', tune, '0:0', 2, 'treble', 'bass')),
+    'C2 D2 E2 F2 | [K:clef=treble] G2 A2 B2 c2 | d2 e2 f2 g2 | c8 |]'
+  );
+  assert.equal(run('clefChange', tune, '0:0', 2, 'bass', 'bass'), tune);
+  assert.equal(
+    body(run('clefChange', H + 'C8 | [K:D clef=bass] D8 |]', '0:0', 2, 'alto')),
+    'C8 | [K:D clef=alto] D8 |]'
+  );
+  {
+    // Every voice of the staff takes the clef; after an inline [V:] field the voice field moves to a line of its own.
+    const shared =
+      'X:1\nM:4/4\nL:1/4\n%%score (S A)\nV:S\nV:A\nK:C\n' +
+      '[V:S] c d e f | g a b c |\n[V:A] C D E F | G A B c |\n[V:S] c4 |]\n[V:A] C4 |]\n';
+    assert.equal(
+      body(run('clefChange', shared, '0:1', 2, 'alto')),
+      '[V:S] c d e f | [K:clef=alto] g a b c |\n[V:A] C D E F | [K:clef=alto] G A B c |\n[V:S] c4 |]\n[V:A] C4 |]\n'
+    );
+    const out = run('clefChange', shared, '0:1', 3, 'alto');
+    assert.equal(
+      body(out),
+      '[V:S] c d e f | g a b c |\n[V:A] C D E F | G A B c |\nV:S\n[K:clef=alto] c4 |]\nV:A\n[K:clef=alto] C4 |]\n'
+    );
+    assert.deepEqual(
+      P(out).lines.map(l => l.staff[0].clef.type),
+      ['treble', 'alto']
+    );
+  }
+  // A bar line's decorations are not part of its symbol.
+  assert.equal(body(bars(H + 'C8 | D8 !fermata!|]', 2, 'close', repeat('end', true))), 'C8 | D8 !fermata!:|]');
   // Every construct the tools write parses without warnings.
   const noisy = made.filter(abc => (P(abc).warnings || []).length);
   assert.deepEqual(noisy, [], 'Measure tools write ABC that parses without warnings');

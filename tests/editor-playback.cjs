@@ -1377,10 +1377,38 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.equal(status(), 'Added a bar before measure 2 on every staff. Type a letter to write over its rest.');
   undo();
   assert.equal(run("$('abc').value"), piano);
+  // Piano music that switches voices with inline [V:] fields and declares its clefs in the header keeps its bass clef
+  // through a key change.
+  const inline =
+    'X:1\nM:4/4\nL:1/4\n%%score {RH LH}\nV:RH clef=treble\nV:LH clef=bass\nK:C\n' +
+    '[V:RH] C D E F | G A B c | d e f g | c4 |]\n[V:LH] C,, D,, E,, F,, | G,, A,, B,, C, | D, E, F, G, | C,4 |]';
+  run(`openScore({abc:${JSON.stringify(inline)},instrument:'Piano'})`);
+  run("selectEntry(scoreNotes().find(e=>$('abc').value.slice(e.element.startChar,e.element.endChar).trim()==='d'))");
+  choose('key', 'D');
+  run("$('measure-key-keep').click()");
+  assert.equal(status(), 'Key: D major (2♯) from measure 3. The notes stay where they are.');
+  assert.equal(
+    run("render(),ABCJS.parseOnly(renderedWritten)[0].lines.map(l=>l.staff.map(s=>s.clef.type).join()).join(' ')"),
+    'treble,bass'
+  );
   // A transposing instrument: the clef shown is the written one, keys are concert pitch.
   run(`openScore({abc:${JSON.stringify(abc)},instrument:'Cello'})`);
   pick(8);
   assert.equal(run("$('measure-clef').value"), 'bass');
+  // The clef menu acts on the clef shown: the cello shows this treble-clef source in the bass clef.
+  choose('clef', 'bass');
+  assert.equal(body(), tune);
+  assert.equal(status(), 'No change.');
+  choose('clef', 'treble');
+  assert.equal(body(), 'C D E F | G A B c | [K:clef=treble] d e f g | c4 |]');
+  assert.equal(status(), 'Treble clef from measure 3.');
+  assert.equal(run("$('measure-clef').value"), 'treble');
+  choose('clef', 'bass');
+  assert.equal(body(), tune, 'Back to the clef shown before');
+  run(`openScore({abc:${JSON.stringify(abc)},instrument:'Trombone'})`);
+  pick(8);
+  choose('clef', 'treble');
+  assert.equal(body(), 'C D E F | G A B c | [K:clef=treble] d e f g | c4 |]');
   run(`openScore({abc:${JSON.stringify(abc)},instrument:'Clarinet in B♭'})`);
   pick(8);
   choose('key', 'F');
