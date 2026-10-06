@@ -205,6 +205,8 @@ const {chromium} = require('playwright'),
   });
   await page.check('#trainer');
   await page.check('#metronome');
+  // Clicking notes above sounded them (Hear notes); count only what playback schedules.
+  await page.evaluate(() => (__starts.length = 0));
   await page.click('#play');
   await page.waitForTimeout(4600);
   const starts = await page.evaluate(() => __starts);
@@ -416,6 +418,17 @@ const {chromium} = require('playwright'),
   await page.locator('#notation .abcjs-notehead').nth(1).click({button: 'right', force: true});
   await page.locator('#note-menu button', {hasText: 'Rest'}).click();
   assert.equal(await kbody(), 'C D- z E F G | G4 |]', 'Menu ties and inserts a rest');
+  // Notes that open a slur or tuplet take menu and key edits and keep the ( or (3.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:K\nM:4/4\nL:1/8\nK:C\n(C D E F) (3GAB c2 |]', instrument: 'Flute'});
+  });
+  await page.locator('#notation .abcjs-notehead').nth(0).click({button: 'right', force: true});
+  await page.locator('#note-menu button', {hasText: 'Quarter'}).click();
+  await page.locator('#notation .abcjs-notehead').nth(4).click({force: true});
+  await page.keyboard.press('#');
+  await page.keyboard.press('.');
+  assert.equal(await kbody(), '(C2 D E F) (3^G3/2AB c2 |]', 'Slur- and tuplet-start notes are editable');
   // Writing prompts: blank bars of rests, typing writes over them, goals tick off live; keys follow written pitch.
   await page.evaluate(() => {
     dirty = false;
@@ -924,6 +937,148 @@ const {chromium} = require('playwright'),
     'ode',
     'mutopia-263'
   ]);
+  // Master bus and note audition in a real AudioContext: every note and click reaches the speakers through one gain
+  // node and a limiter; Volume changes loudness without stopping; clicks, letters, arrows and drawing sound the note
+  // once; nothing sounds during playback or with Hear notes off.
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const pairs = [],
+        connect = AudioNode.prototype.connect;
+      AudioNode.prototype.connect = function (to, ...rest) {
+        pairs.push([this, to]);
+        return connect.call(this, to, ...rest);
+      };
+      const ctx = new AudioContext(),
+        bus = outputNode(ctx),
+        limiter = pairs.find(([from]) => from === bus)?.[1];
+      AudioNode.prototype.connect = connect;
+      ctx.close();
+      return [
+        bus instanceof GainNode,
+        limiter instanceof DynamicsCompressorNode,
+        pairs.some(([from, to]) => from === limiter && to === ctx.destination),
+        outputNode(ctx) === bus
+      ];
+    }),
+    [true, true, true, true],
+    'Master gain feeds a limiter, then the speakers, once per context'
+  );
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:Hear\nM:4/4\nL:1/4\nQ:1/4=60\nK:C\nC D E F | z4 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+    $('metronome').checked = true;
+    $('volume').value = '0.3';
+    window.__routes = [];
+    window.__heard = [];
+    const connect = AudioNode.prototype.connect,
+      make = AudioContext.prototype.createOscillator;
+    AudioNode.prototype.connect = function (to, ...rest) {
+      __routes.push([this, to]);
+      return connect.call(this, to, ...rest);
+    };
+    AudioContext.prototype.createOscillator = function () {
+      const o = make.call(this),
+        start = o.start.bind(o);
+      o.start = t => {
+        __heard.push({hz: Math.round(o.frequency.value * 100) / 100, type: o.type});
+        start(t);
+      };
+      return o;
+    };
+  });
+  await page.click('#play');
+  await page.waitForTimeout(300);
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const bus = outputNode(),
+        notes = __routes.filter(([from]) => from instanceof GainNode && from !== bus);
+      return [notes.length > 4, notes.every(([, to]) => to === bus), __heard.some(h => h.type === 'square')];
+    }),
+    [true, true, true],
+    'Every note and click connects to the master gain'
+  );
+  await page.locator('#volume').fill('0.8');
+  await page.waitForTimeout(250);
+  assert.deepEqual(
+    await page.evaluate(() => [playing, Math.round(outputNode().gain.value * 100) / 100]),
+    [true, 0.8],
+    'Volume changes loudness live without stopping playback'
+  );
+  await page.evaluate(() => (__heard.length = 0));
+  await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+  await page.waitForTimeout(100);
+  assert.deepEqual(
+    await page.evaluate(() => [playing, __heard.length]),
+    [true, 0],
+    'Selecting a note during playback stays quiet'
+  );
+  await page.click('#stop');
+  await page.evaluate(() => {
+    $('metronome').checked = false;
+    $('volume').value = '0.3';
+    updateVolume();
+    __heard.length = 0;
+  });
+  const heard = async () => {
+    await page.waitForTimeout(80);
+    return page.evaluate(() => __heard.splice(0).map(h => h.hz));
+  };
+  await page.locator('#notation .abcjs-notehead').nth(2).click({force: true});
+  assert.deepEqual(await heard(), [329.63], 'Clicking a note sounds it once');
+  await page.keyboard.press('g');
+  assert.deepEqual(await heard(), [392], 'Typing a letter sounds the new note');
+  await page.keyboard.press('ArrowDown');
+  assert.deepEqual(await heard(), [349.23], 'Down arrow sounds the lowered note');
+  await page.click('#draw-mode');
+  {
+    const [x, y] = await page.evaluate(() => {
+      const svg = $('notation').querySelector('svg'),
+        st = renderedTune.engraver.staffgroups[0].staffs[0],
+        rest = renderedTune.engraver.selectables.find(s => s.absEl.abcelem.rest).svgEl.getBBox();
+      const p = new DOMPoint(rest.x + rest.width / 2, st.absoluteY - (6 * 93) / 24).matrixTransform(svg.getScreenCTM());
+      return [p.x, p.y];
+    });
+    await page.mouse.click(x, y);
+  }
+  assert.match(await page.evaluate(() => $('abc').value), /\| B z3 \|\]/, 'Drawing writes over the rest');
+  assert.deepEqual(await heard(), [493.88], 'Drawing a note sounds it');
+  await page.click('#draw-mode');
+  // Note buttons: a ♯ ♭ ♮ button and then a letter sound the altered note once; letters follow the key signature.
+  const cursorAfter = (abc, after) =>
+    page.evaluate(
+      ([abc, after]) => {
+        dirty = false;
+        openScore({abc, instrument: 'Flute'});
+        const a = $('abc'),
+          at = a.value.lastIndexOf(after) + after.length;
+        a.focus();
+        a.setSelectionRange(at, at);
+        __heard.length = 0;
+      },
+      [abc, after]
+    );
+  await cursorAfter('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | z4 |]', 'F ');
+  await page.click('[data-token="^"]');
+  await page.click('[data-token="C"]');
+  assert.match(await page.evaluate(() => $('abc').value), /F \^C \| z4/);
+  assert.deepEqual(await heard(), [277.18], 'Sharp then C on the note buttons sounds C sharp once');
+  await cursorAfter('X:1\nM:4/4\nL:1/4\nK:D\nD E | z2 |]', 'E ');
+  await page.click('[data-token="F"]');
+  assert.deepEqual(await heard(), [369.99], 'A note button follows the key signature');
+  await page.uncheck('#audition');
+  await page.locator('#notation .abcjs-notehead').nth(0).click({force: true});
+  await page.keyboard.press('ArrowUp');
+  assert.deepEqual(await heard(), [], 'Hear notes off is silent');
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem('fretfree-audition')),
+    'false',
+    'Hear notes is remembered'
+  );
+  await page.check('#audition');
+  await page.evaluate(() => {
+    dirty = false;
+  });
   await page.setViewportSize({width: 390, height: 844});
   assert.ok(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
@@ -932,7 +1087,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.'
+    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), legacy storage, mobile width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

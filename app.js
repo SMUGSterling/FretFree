@@ -169,12 +169,8 @@ $('instrument').onchange = () => {
   instrumentShown = currentInstrument();
   changed();
 };
-$('volume').oninput = () => {
-  if (playing) {
-    stop();
-    toast('Volume updated. Press Play to resume.');
-  }
-};
+// Volume is live: the master bus follows the slider, so playback carries on.
+$('volume').oninput = updateVolume;
 $('help-toggle').onclick = () => {
   $('abc-help').hidden = !$('abc-help').hidden;
 };
@@ -246,6 +242,7 @@ function applyStoredSettings() {
     $(id).checked = !!storage.get(KEYS.practice(id), false);
   $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
   $('note-names').value = storage.get(KEYS.noteNames, 'off');
+  $('audition').checked = storage.get(KEYS.audition, true) !== false;
   prepareTrainer();
 }
 for (const id of ['loop', 'metronome', 'count-in', 'trainer']) {
@@ -342,6 +339,8 @@ $('fingering').onchange = () => {
   storage.set(KEYS.fingering, $('fingering').checked);
   render();
 };
+$('audition').checked = storage.get(KEYS.audition, true) !== false;
+$('audition').onchange = () => storage.set(KEYS.audition, $('audition').checked);
 $('note-names').value = storage.get(KEYS.noteNames, 'off');
 if (noteNamesMode() !== 'off') render();
 $('note-names').onchange = () => {

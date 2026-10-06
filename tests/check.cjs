@@ -118,6 +118,38 @@ for (const score of context.library) {
 }
 const chords = context.parseMidi(context.midiBytes(context.library.find(x => x.id === 'chords').abc));
 assert.ok(chords.notes.filter(x => x.start === 0).length === 3, 'chord playback is polyphonic');
+// Note edits keep slur openings and tuplet specs in the prefix, mixed in any order with decorations and annotations.
+for (const [text, pre, core] of [
+  ['(C', '(', 'C'],
+  ['(3C/2', '(3', 'C'],
+  ['(3:2:3C', '(3:2:3', 'C'],
+  ['(3::2 G ', '(3::2 ', 'G'],
+  ['"G"(C', '"G"(', 'C'],
+  ['!f!(C', '!f!(', 'C'],
+  ['"G"!f!(C', '"G"!f!(', 'C'],
+  ['.(c ', '.(', 'c'],
+  ['("G"C', '("G"', 'C'],
+  ['([CE]', '(', '[CE]'],
+  ['(3(z', '(3(', 'z']
+]) {
+  const parts = context.noteParts(text);
+  assert.ok(parts, 'noteParts reads ' + text);
+  assert.equal(parts.pre + '|' + parts.core, pre + '|' + core, 'noteParts prefix of ' + text);
+}
+assert.equal(context.noteParts('(3C/2').length, 0.5);
+assert.equal(context.noteParts('C)').post, ')');
+assert.equal(context.noteParts('3C'), null, 'A bare digit is not a prefix');
+for (const [text, edit, expected] of [
+  ['(C', {length: 2}, '(C2'],
+  ['(3C/2', {length: 1.5, accidental: '^'}, '(3^C3/2'],
+  ['(3:2:3C', {tie: true}, '(3:2:3C-'],
+  ['"G"!f!(C2- ', {accidental: '_', tie: false}, '"G"!f!(_C2 '],
+  ['C)', {length: 2}, 'C2)'],
+  ['C2-)', {tie: false}, 'C2)'],
+  ['([CE]2', {length: 1, accidental: '='}, '([=C=E]'],
+  ['(C>', {length: 1.5, unbroken: true}, '(C3/2']
+])
+  assert.equal(context.editNoteText(text, edit), expected, `editNoteText(${text}, ${JSON.stringify(edit)})`);
 // FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
 // Share links: the payload round-trips through deflate+base64url, and through plain base64url where
 // CompressionStream is missing; damaged links decode to null.
@@ -352,5 +384,5 @@ for (const prompt of context.writingPrompts) {
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.'
 );

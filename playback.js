@@ -1,6 +1,6 @@
 'use strict';
 // Playback: Web Audio scheduling of the practice range, loop, count-in, metronome, speed trainer,
-// the moving note highlight, and play from a note.
+// the moving note highlight, play from a note, the master volume bus and note audition.
 let audio = null,
   playing = false,
   nodes = [],
@@ -86,17 +86,46 @@ function clickTimes(from, until, end = until) {
   }
   return out;
 }
+// Master bus: every note and click goes through one gain node that follows the Volume slider live, then a limiter
+// (where the browser has one) so chords and accompaniment do not clip. Built once per audio context, on first use.
+const masterBuses = new WeakMap();
+function outputNode(ctx = audio) {
+  let bus = masterBuses.get(ctx);
+  if (bus) return bus;
+  bus = ctx.createGain();
+  bus.gain.value = +$('volume').value;
+  let out = bus;
+  if (typeof ctx.createDynamicsCompressor === 'function') {
+    out = ctx.createDynamicsCompressor();
+    for (const [name, value] of Object.entries({threshold: -6, knee: 4, ratio: 20, attack: 0.003, release: 0.2}))
+      if (out[name]) out[name].value = value;
+    bus.connect(out);
+  }
+  out.connect(ctx.destination);
+  masterBuses.set(ctx, bus);
+  return bus;
+}
+// Volume changes glide over a few milliseconds, so moving the slider during playback does not crackle.
+function updateVolume() {
+  const bus = audio && masterBuses.get(audio),
+    volume = +$('volume').value;
+  if (!bus) return;
+  if (typeof bus.gain.setTargetAtTime === 'function') {
+    bus.gain.cancelScheduledValues?.(audio.currentTime);
+    bus.gain.setTargetAtTime(volume, audio.currentTime, 0.02);
+  } else bus.gain.value = volume;
+}
 function click(time, down) {
   const osc = audio.createOscillator(),
     gain = audio.createGain(),
-    level = +$('volume').value * (down ? 0.5 : 0.3);
+    level = down ? 0.5 : 0.3;
   osc.type = 'square';
   osc.frequency.value = down ? 1760 : 1320;
   gain.gain.setValueAtTime(0, time);
   gain.gain.linearRampToValueAtTime(level, time + 0.002);
   gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.05);
   osc.connect(gain);
-  gain.connect(audio.destination);
+  gain.connect(outputNode());
   osc.start(time);
   osc.stop(time + 0.06);
   osc.onended = () => (osc.done = true);
@@ -104,7 +133,7 @@ function click(time, down) {
 }
 function scheduleNotes(notes, base, instrument = currentInstrument(), into = nodes) {
   const config = instruments[instrument] || instruments.Piano,
-    volume = +$('volume').value;
+    output = outputNode();
   for (const n of notes) {
     const osc = audio.createOscillator(),
       gain = audio.createGain();
@@ -114,15 +143,34 @@ function scheduleNotes(notes, base, instrument = currentInstrument(), into = nod
       end = start + n.duration,
       attack = Math.min(0.012, n.duration / 3);
     gain.gain.setValueAtTime(0, start);
-    gain.gain.linearRampToValueAtTime((volume * 0.12 * n.velocity) / 100, start + attack);
-    gain.gain.setValueAtTime((volume * 0.08 * n.velocity) / 100, Math.max(start + attack, end - 0.04));
+    gain.gain.linearRampToValueAtTime((0.12 * n.velocity) / 100, start + attack);
+    gain.gain.setValueAtTime((0.08 * n.velocity) / 100, Math.max(start + attack, end - 0.04));
     gain.gain.linearRampToValueAtTime(0, end + 0.025);
     osc.connect(gain);
-    gain.connect(audio.destination);
+    gain.connect(output);
     osc.start(start);
     osc.stop(end + 0.03);
     osc.onended = () => (osc.done = true);
     into.push(osc);
+  }
+}
+// Note audition: a short note when the student enters, selects or moves a note (Hear notes), in the chosen
+// instrument's sound and octave. It keeps its own node list, so the render() after an edit (which stops playback)
+// does not cut it off, and it stays silent while the score is playing.
+const AUDITION_SECONDS = 0.35;
+let auditionNodes = [];
+function auditionPitches(midis) {
+  const Context = window.AudioContext || window.webkitAudioContext;
+  if (playing || !midis?.length || $('audition')?.checked === false || !Context) return false;
+  try {
+    audio ||= new Context();
+    audio.resume?.()?.catch?.(() => {});
+    auditionNodes = auditionNodes.filter(n => !n.done);
+    const notes = midis.map(note => ({note, start: 0, duration: AUDITION_SECONDS, velocity: 80}));
+    scheduleNotes(notes, audio.currentTime + 0.02, currentInstrument(), auditionNodes);
+    return true;
+  } catch {
+    return false;
   }
 }
 function schedulePass(p, from, percent, base, pass) {
