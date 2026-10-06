@@ -117,6 +117,8 @@ const {chromium} = require('playwright'),
   await page.click('#draw-mode');
   {
     const [x, y] = await page.evaluate(() => {
+      // The controls above the score push its staff low in a 900 px window; a mouse click needs it in view.
+      $('notation').scrollIntoView({block: 'center', behavior: 'instant'});
       const svg = $('notation').querySelector('svg'),
         st = renderedTune.engraver.staffgroups[0].staffs[0],
         [a, b] = renderedTune.engraver.selectables.slice(1, 3).map(s => {
@@ -387,6 +389,8 @@ const {chromium} = require('playwright'),
     saved = saved.filter(x => x.id !== savedId);
     localStorage.setItem('commonnote-scores-v1', JSON.stringify(saved));
     dirty = false;
+    // The "Score saved" toast sits over the lower edge of the window, where the forced clicks below may land.
+    $('toast').style.display = 'none';
   });
   // Keyboard note entry: letters in the nearest octave at the input length, arrows, accidentals, tie, delete; menu inserts.
   await page.evaluate(() => {
@@ -437,6 +441,53 @@ const {chromium} = require('playwright'),
   await page.keyboard.press('#');
   await page.keyboard.press('.');
   assert.equal(await kbody(), '(C2 D E F) (3^G3/2AB c2 |]', 'Slur- and tuplet-start notes are editable');
+  // Range selection and the clipboard with real keys and clicks: Shift+→ selects and highlights a run, Ctrl+C/V/D/X
+  // copy, paste, duplicate and cut (one undo each), and the buttons do the same.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:R\nM:4/4\nL:1/4\nK:G\nG A B c | d4 | z4 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  const rbody = () => page.evaluate(() => $('abc').value.trim().split('\n').pop()),
+    rsel = () => page.evaluate(() => $('abc').value.slice($('abc').selectionStart, $('abc').selectionEnd).trim()),
+    lit = () => page.evaluate(() => document.querySelectorAll('#notation .abcjs-note[fill="#317761"]').length);
+  await page.locator('#notation .abcjs-notehead').nth(0).click({force: true});
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Shift+ArrowRight');
+  assert.equal(await rsel(), 'G A B c', 'Shift+→ three times selects four notes in the ABC text');
+  assert.equal(await lit(), 4, 'and highlights all four');
+  await page.keyboard.press('Control+c');
+  await page.locator('#notation .abcjs-rest').first().click({force: true});
+  await page.keyboard.press('Control+v');
+  assert.equal(await rbody(), 'G A B c | d4 | G A B c |]', 'Ctrl+V writes the copy over a whole-bar rest');
+  assert.equal(await lit(), 4, 'The pasted notes are selected');
+  await page.keyboard.press('Control+d');
+  await page.keyboard.press('Control+d');
+  assert.equal(await rbody(), 'G A B c | d4 | G A B c | G A B c | G A B c |]', 'Ctrl+D twice: three copies');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('#');
+  assert.equal(await rbody(), 'G A B c | d4 | G A B c | G A B c | ^A ^B ^c ^d |]', '↑ and # change every note');
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('Control+z');
+  assert.equal(await rbody(), 'G A B c | d4 | G A B c | G A B c |]', 'One undo per edit');
+  await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.keyboard.press('Control+x');
+  assert.equal(await rbody(), 'G z z c | d4 | G A B c | G A B c |]', 'Ctrl+X leaves rests of the same length');
+  assert.equal(await page.locator('#bar-check').getAttribute('class'), 'bar-check ok', 'The bar check stays clean');
+  await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+  await page
+    .locator('#notation .abcjs-notehead')
+    .nth(2)
+    .click({force: true, modifiers: ['Shift']});
+  assert.equal(await rsel(), 'c | d4', 'Shift+click selects across a bar line');
+  await page.click('#duplicate-notes');
+  assert.equal(await rbody(), 'G z z c | d4 c | d4 | G A B c | G A B c |]', 'The Duplicate button');
+  assert.equal(
+    await page.evaluate(() => document.activeElement.id),
+    'notation',
+    'Focus goes back to the score, ready for keys'
+  );
   // Notation palette: a click on a note lights up its state; pointer presses return the keyboard to the score, and
   // the toolbar works from the keyboard with one tab stop and arrow keys.
   await page.evaluate(() => {
@@ -483,6 +534,56 @@ const {chromium} = require('playwright'),
   );
   await page.keyboard.press('Control+z');
   assert.equal(await kbody(), '^G6- G EF G A | B8 |]', 'A palette edit is one undo step');
+  // Articulations and dynamics: real key presses on a clicked note, palette clicks, More from the keyboard, the note menu.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:K\nM:4/4\nL:1/4\nK:C\nC D E F | G4 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  await page.locator('#notation .abcjs-notehead').nth(0).click({force: true});
+  for (const k of [';', ':', '>', '"', '^']) await page.keyboard.press(k);
+  assert.equal(await kbody(), '.!tenuto!!accent!!marcato!!fermata!C D E F | G4 |]', 'The five articulation keys');
+  assert.equal(
+    await pressedNow(),
+    'len:0.25 acc: deco:staccato deco:tenuto deco:accent deco:marcato deco:fermata',
+    'The palette shows every mark on the note'
+  );
+  await page.keyboard.press('>');
+  assert.equal(await page.locator('#selection-status').textContent(), 'Accent removed.');
+  await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+  await page.locator('[data-palette="dyn:mf"]').click();
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'notation', 'A mark press returns to the score');
+  await page.keyboard.press(';');
+  assert.equal(await kbody(), '.!tenuto!!marcato!!fermata!C !mf!.D E F | G4 |]');
+  assert.equal(
+    await page.evaluate(() => document.querySelectorAll('#notation .abcjs-dynamics').length),
+    1,
+    'The dynamic is engraved'
+  );
+  await page.keyboard.press('Control+z');
+  assert.equal(await kbody(), '.!tenuto!!marcato!!fermata!C !mf!D E F | G4 |]', 'Each mark is one undo step');
+  // Keyboard only: More opens from the toolbar and the arrow keys reach its buttons; closed, they are skipped.
+  await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+  await page.locator('[data-palette="more"]').focus();
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.palette), 'delete', 'Closed More is skipped');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.locator('[data-palette="more"]').getAttribute('aria-expanded'), 'true');
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.palette), 'deco:wedge');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Space');
+  assert.equal(await kbody(), '.!tenuto!!marcato!!fermata!C !mf!!trill!D E F | G4 |]', 'Space on Trill adds a trill');
+  // The note menu adds a dynamic.
+  await rightClick(page.locator('#notation .abcjs-notehead').nth(2));
+  await page.locator('#note-menu [data-edit="dyn:pp"]').click();
+  assert.equal(
+    await kbody(),
+    '.!tenuto!!marcato!!fermata!C !mf!!trill!D !pp!E F | G4 |]',
+    'Dynamic from the note menu'
+  );
+  await page.locator('[data-palette="more"]').click();
   // Writing prompts: blank bars of rests, typing writes over them, goals tick off live; keys follow written pitch.
   await page.evaluate(() => {
     dirty = false;
@@ -531,7 +632,7 @@ const {chromium} = require('playwright'),
     newScore();
   });
   assert.ok(await page.locator('#prompt-check').isHidden(), 'No prompt panel on a plain score');
-  // Phase 1: play from a note, note names, guitar tab, recorder fingering.
+  // Phase 1: play from a note, note names, classroom colors, guitar tab, recorder fingering.
   await page.evaluate(() => {
     dirty = false;
     openScore({abc: 'X:1\nT:P\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nC D E F | G A B c |]', instrument: 'Flute'});
@@ -568,6 +669,123 @@ const {chromium} = require('playwright'),
   );
   assert.ok(!(await page.evaluate(() => $('abc').value)).includes('"_'), 'Labels never touch the ABC source');
   await page.selectOption('#note-names', 'off');
+  // Classroom colors and letters in noteheads: chosen from the keyboard, shown on screen, in print and in SVG export.
+  {
+    const before = await page.evaluate(() => $('abc').value),
+      abc = 'X:1\nT:Colors\nM:4/4\nL:1/4\nK:G\nC, c [CEG] g | G, ^c z [G^g] | {a}_B2 e2 |]';
+    await page.evaluate(abc => {
+      dirty = false;
+      openScore({abc, instrument: 'Flute'});
+    }, abc);
+    await page.focus('#note-colors');
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.inputValue('#note-colors'), 'classroom', 'Colors chosen from the keyboard');
+    const fillsOf = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll('#notation .abcjs-notehead')].map(
+          h =>
+            h
+              .getAttribute('data-name')
+              .replace(/[^A-G]/gi, '')
+              .toUpperCase() +
+            '=' +
+            getComputedStyle(h).fill
+        )
+      );
+    const byLetter = fills => Object.fromEntries(fills.map(f => f.split('=')));
+    let fills = await fillsOf();
+    assert.equal(fills.filter(f => f.startsWith('C=')).length, 4);
+    assert.ok(
+      fills.filter(f => /^[CG]=/.test(f)).every(f => f === 'C=rgb(214, 40, 40)' || f === 'G=rgb(76, 201, 240)'),
+      'Every C is red and every G light blue, in all octaves and chords: ' + fills
+    );
+    assert.ok(
+      await page.evaluate(() =>
+        [...document.querySelectorAll('#notation .abcjs-stem, #notation .abcjs-rest path')].every(
+          el => getComputedStyle(el).fill === getComputedStyle(document.querySelector('#notation .abcjs-bar path')).fill
+        )
+      ),
+      'Stems and rests keep the ink color'
+    );
+    await page.selectOption('#note-names', 'heads');
+    assert.equal(
+      await page.evaluate(() =>
+        [...document.querySelectorAll('#notation .notehead-letter')].map(t => t.textContent).join('')
+      ),
+      'CCCEGGGCGGBE',
+      'A letter inside every head but the grace note'
+    );
+    assert.equal(
+      await page.evaluate(() =>
+        document.querySelector('#notation .abcjs-notehead[data-name="a"]').getAttribute('fill')
+      ),
+      '#1d3fbb',
+      'The grace note is colored'
+    );
+    await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+    assert.equal(
+      await page.evaluate(() => getComputedStyle(document.querySelectorAll('#notation .abcjs-notehead')[1]).fill),
+      'rgb(49, 119, 97)',
+      'A selected colored note shows the selection color'
+    );
+    await page.evaluate(() => {
+      selectedRange = null;
+      render();
+    });
+    const svg = await page.evaluate(() => creditedSVG($('notation'), $('abc').value, current));
+    assert.ok(svg.includes('fill="#d62828"') && svg.includes('class="notehead-letter"'), 'Colors and letters export');
+    assert.deepEqual(
+      await page.evaluate(() => {
+        const heads = [...document.querySelectorAll('#notation .abcjs-notehead')],
+          fills = heads.map(h => h.getAttribute('fill'));
+        for (const h of heads) {
+          h.removeAttribute('data-name');
+          h.removeAttribute('fill');
+        }
+        document.querySelectorAll('#notation .notehead-letter').forEach(t => t.remove());
+        updateNoteColors();
+        const letters = [...document.querySelectorAll('#notation .notehead-letter')].map(t => t.textContent).join(''),
+          same = heads.every((h, i) => h.getAttribute('fill') === fills[i]);
+        render();
+        return [letters, same];
+      }),
+      ['CCCEGGGCGGBE', true],
+      'Without data-name, heads pair with pitches by height and grace heads with the grace notes'
+    );
+    await page.emulateMedia({media: 'print'});
+    assert.equal(byLetter(await fillsOf()).C, 'rgb(214, 40, 40)', 'Colors print');
+    assert.ok(await page.locator('#notation .notehead-letter').first().isVisible(), 'Letters print');
+    await page.emulateMedia({media: 'screen'});
+    assert.equal(await page.evaluate(() => $('abc').value), abc, 'The ABC source is byte-identical');
+    const later = await browser.newContext({storageState: await page.context().storageState()}),
+      again = await later.newPage();
+    await again.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    await again.evaluate(abc => {
+      show('studio');
+      openScore({abc, instrument: 'Clarinet in B♭'});
+    }, 'X:1\nL:1/4\nK:C\nC E G c|]');
+    assert.deepEqual(
+      [await again.inputValue('#note-colors'), await again.inputValue('#note-names')],
+      ['classroom', 'heads'],
+      'Settings persist'
+    );
+    assert.equal(
+      await again.evaluate(() =>
+        [...document.querySelectorAll('#notation .notehead-letter')].map(t => t.textContent).join('')
+      ),
+      'DFAD',
+      'Letters show the written pitch for a transposing instrument'
+    );
+    await later.close();
+    await page.selectOption('#note-colors', 'off');
+    await page.selectOption('#note-names', 'off');
+    assert.equal(await page.locator('#notation .notehead-letter, #notation .classroom-color').count(), 0);
+    await page.evaluate(abc => {
+      localStorage.removeItem('fretfree-note-colors');
+      dirty = false;
+      openScore({abc, instrument: 'Flute'});
+    }, before);
+  }
   await page.selectOption('#instrument', 'Recorder');
   await page.waitForTimeout(400);
   assert.equal(await page.textContent('#fingering-label'), 'Recorder fingering');
@@ -651,6 +869,8 @@ const {chromium} = require('playwright'),
   const sheet = () => page.evaluate(() => $('abc').value.trim().split('\n').pop());
   assert.equal(await sheet(), 'z4 | z4 | z4 | z4 | z4 | z4 | z4 | z4 |]', 'New score is a blank sheet');
   await page.click('#draw-mode');
+  // The controls above the score push it low in a 900 px window; a mouse click needs it in view.
+  await page.evaluate(() => $('notation').scrollIntoView({block: 'center', behavior: 'instant'}));
   const firstRest = await page.locator('#notation .abcjs-rest').first().boundingBox();
   await page.mouse.click(firstRest.x + firstRest.width / 2 - 20, firstRest.y + firstRest.height / 2);
   await page.waitForFunction(() => !$('abc').value.includes('z4 | z4 | z4 | z4 | z4 | z4 | z4 | z4'));
@@ -1009,6 +1229,8 @@ const {chromium} = require('playwright'),
   await page.click('#draw-mode');
   {
     const [x, y] = await page.evaluate(() => {
+      // The controls above the score push its staff low in a 900 px window; a mouse click needs it in view.
+      $('notation').scrollIntoView({block: 'center', behavior: 'instant'});
       const svg = $('notation').querySelector('svg'),
         st = renderedTune.engraver.staffgroups[0].staffs[0],
         [a, b] = renderedTune.engraver.selectables.slice(1, 3).map(s => {
@@ -1021,6 +1243,52 @@ const {chromium} = require('playwright'),
     await page.mouse.click(x, y);
     assert.equal(await tbody(), 'K:F# C D G E F |]', "Drawn notes follow the written key's letters");
   }
+  // Concert pitch view on a B-flat clarinet: the checkbox (reached by keyboard) shows the source's key and pitches,
+  // and drawn and typed notes are the pitches shown. The ABC itself does not change.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nM:4/4\nL:1/4\nK:F\nF G A B |]', instrument: 'Clarinet in B♭'});
+    // openScore scrolls smoothly to the top; stop that, so the page holds still for the mouse below.
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  assert.ok(await page.locator('#concert-pitch-option').isVisible(), 'Concert pitch is offered for a B-flat clarinet');
+  // A note menu still open when the view changes from the keyboard (no mouse press closed it) closes too.
+  await rightClick(page.locator('#notation .abcjs-notehead').nth(1));
+  assert.ok(await page.locator('#note-menu').isVisible());
+  await page.locator('#concert-pitch').focus();
+  await page.keyboard.press('Space');
+  assert.ok(await page.locator('#note-menu').isHidden(), 'Changing the view closes the note menu');
+  assert.equal(await tbody(), 'K:F F G A B |]', 'Turning on Concert pitch leaves the ABC alone');
+  assert.match(await page.locator('#score-caption').textContent(), /Concert pitch shown/);
+  const signature = () =>
+    page.evaluate(() =>
+      [...$('notation').querySelectorAll('.abcjs-key-signature path')].map(p => p.dataset.name).join()
+    );
+  assert.equal(await signature(), 'accidentals.flat', 'The concert key, F major, is drawn');
+  {
+    const [x, y] = await page.evaluate(() => {
+      $('notation').scrollIntoView({block: 'center', behavior: 'instant'});
+      const svg = $('notation').querySelector('svg'),
+        st = renderedTune.engraver.staffgroups[0].staffs[0],
+        [a, b] = renderedTune.engraver.selectables.slice(1, 3).map(s => {
+          const r = s.svgEl.getBBox();
+          return r.x + r.width / 2;
+        });
+      const p = new DOMPoint((a + b) / 2, st.absoluteY - (6 * 93) / 24).matrixTransform(svg.getScreenCTM());
+      return [p.x, p.y];
+    });
+    await page.mouse.click(x, y);
+    assert.equal(await tbody(), 'K:F F G B A B |]', 'The middle line drawn in concert view is concert B-flat');
+  }
+  await page.click('#draw-mode');
+  await page.locator('#notation .abcjs-note .abcjs-notehead').nth(0).click();
+  await page.keyboard.press('c');
+  assert.equal(await tbody(), 'K:F F C G B A B |]', 'A typed C is concert C, the nearest C to concert F');
+  await page.locator('#concert-pitch-option').click();
+  assert.equal(await page.locator('#concert-pitch').isChecked(), false, 'A click on the label turns it off');
+  assert.equal(await signature(), 'accidentals.sharp', 'Off, the written key is G major');
+  assert.match(await page.locator('#score-caption').textContent(), /Written pitch shown/);
+  await page.click('#draw-mode');
   await page.click('#draw-mode');
   await page.evaluate(() => {
     dirty = false;
@@ -1163,7 +1431,11 @@ const {chromium} = require('playwright'),
   assert.deepEqual(await heard(), [349.23], 'Down arrow sounds the lowered note');
   await page.click('#draw-mode');
   {
+    // The point has to be on screen for the mouse to reach it, however tall the toolbar above the score is.
+    await page.locator('#notation svg').scrollIntoViewIfNeeded();
     const [x, y] = await page.evaluate(() => {
+      // The controls above the score push its staff to the bottom of a 900 px window; a mouse click needs it in view.
+      $('notation').scrollIntoView({block: 'center', behavior: 'instant'});
       const svg = $('notation').querySelector('svg'),
         st = renderedTune.engraver.staffgroups[0].staffs[0],
         rest = renderedTune.engraver.selectables.find(s => s.absEl.abcelem.rest).svgEl.getBBox();
@@ -1207,9 +1479,495 @@ const {chromium} = require('playwright'),
     'Hear notes is remembered'
   );
   await page.check('#audition');
+  // On-screen piano: mouse taps enter notes over the selected rest and sound them; Shift+click and a held touch make
+  // chords; arrows and Enter work from the keyboard; keys light for the selection and during playback.
+  {
+    const body = () => page.evaluate(() => $('abc').value.trim().split('\n').pop()),
+      key = midi => page.locator(`[data-piano-midi="${midi}"]`);
+    await page.evaluate(() => {
+      dirty = false;
+      openScore({abc: 'X:1\nT:Piano\nM:4/4\nL:1/4\nQ:1/4=120\nK:F\nz4 | z4 |]', instrument: 'Flute'});
+      selectEntry(scoreNotes()[0]);
+      $('count-in').checked = $('loop').checked = $('metronome').checked = false;
+      __heard.length = 0;
+    });
+    await page.click('#piano-toggle');
+    assert.equal(await page.evaluate(() => localStorage.getItem('fretfree-piano')), 'true');
+    assert.ok(await key(71).isVisible(), 'The strip starts at the treble staff');
+    await key(65).click();
+    assert.deepEqual(await heard(), [349.23], 'A tap sounds its pitch');
+    await key(70).click();
+    await key(72).click();
+    await key(76).click({modifiers: ['Shift']});
+    assert.equal(await body(), 'F B [ce] z | z4 |]', 'Taps enter a melody in F; Shift+click adds to the chord');
+    assert.deepEqual(await heard(), [466.16, 523.25, 523.25, 659.26], 'Each tap sounds; a chord sounds whole');
+    // Two fingers: the second key goes down while the first is held.
+    await page.evaluate(() => {
+      const down = (midi, pointerId) =>
+        document.querySelector(`[data-piano-midi="${midi}"]`).dispatchEvent(
+          new PointerEvent('pointerdown', {
+            bubbles: true,
+            pointerId,
+            pointerType: 'touch',
+            isPrimary: pointerId === 7
+          })
+        );
+      down(69, 7);
+      down(72, 8);
+      for (const pointerId of [7, 8])
+        window.dispatchEvent(new PointerEvent('pointerup', {bubbles: true, pointerId, pointerType: 'touch'}));
+    });
+    assert.equal(await body(), 'F B [ce] [Ac] | z4 |]', 'Holding one key while tapping another makes a chord');
+    await page.waitForTimeout(20);
+    await key(67).click();
+    assert.equal(await body(), 'F B [ce] [Ac] | G z3 |]', 'After the fingers lift, a tap enters a new note');
+    assert.equal(
+      await page.evaluate(() => document.activeElement.dataset.pianoMidi),
+      '67',
+      'The tapped key keeps focus'
+    );
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Shift+Enter');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('Space');
+    assert.equal(
+      await page.evaluate(() => $('abc').value.trim().split('\n').pop()),
+      'F B [ce] [Ac] | G [AB] A z |]',
+      'Arrows move between keys; Enter enters, Shift+Enter adds to the chord, Space enters once'
+    );
+    await page.keyboard.press('Shift+C');
+    assert.equal(await body(), 'F B [ce] [Ac] | G [AB] [Ac] z |]', 'Score shortcuts work from the piano');
+    // The piano stays at the bottom of the window, so bring the score to the top before clicking on it.
+    await page.evaluate(() => $('notation').scrollIntoView({block: 'start', behavior: 'instant'}));
+    await page.locator('#notation .abcjs-notehead').nth(2).click({force: true});
+    assert.equal(await body(), 'F B [ce] [Ac] | G [AB] [Ac] z |]', 'Clicking the score does not enter a note');
+    assert.deepEqual(
+      await page.evaluate(() => [...document.querySelectorAll('#piano-keys .held')].map(k => k.dataset.pianoMidi)),
+      ['72', '76'],
+      'Clicking a chord lights its keys'
+    );
+    await page.click('#play');
+    // Sample until every key of the first bar has been seen lit, or playback has had plenty of time.
+    const lit = new Set(),
+      until = Date.now() + 8000;
+    while (!['65', '70', '72', '76'].every(k => lit.has(k)) && Date.now() < until) {
+      await page.waitForTimeout(40);
+      for (const k of await page.evaluate(() =>
+        [...document.querySelectorAll('#piano-keys .sounding')].map(k => k.dataset.pianoMidi)
+      ))
+        lit.add(k);
+    }
+    await page.click('#stop');
+    assert.ok(
+      ['65', '70', '72', '76'].every(k => lit.has(k)),
+      'Keys light during playback: ' + [...lit]
+    );
+    assert.equal(await page.locator('#piano-keys .sounding').count(), 0, 'Stopping clears the lights');
+    await page.emulateMedia({media: 'print'});
+    assert.equal(await page.locator('#piano').isVisible(), false, 'The piano is hidden in print');
+    await page.emulateMedia({media: 'screen'});
+    await page.setViewportSize({width: 390, height: 844});
+    await key(64).scrollIntoViewIfNeeded();
+    assert.ok(
+      await page.evaluate(() => {
+        const strip = $('piano-scroll');
+        return strip.scrollWidth > strip.clientWidth && document.documentElement.scrollWidth <= innerWidth + 1;
+      }),
+      'At 390px the keys scroll inside their strip, not the page'
+    );
+    await page.setViewportSize({width: 1280, height: 900});
+    await page.click('#piano-toggle');
+    assert.equal(
+      await page.evaluate(() => [$('piano').hidden, localStorage.getItem('fretfree-piano')]).then(String),
+      'true,false'
+    );
+  }
+  // On-screen piano on a phone, with the setting saved as on: the strip faces the instrument's range when a score opens
+  // from the library. A key enters its note when the finger lifts, so swiping the strip or the page from a key enters
+  // nothing; a tap still enters, and a second finger while one is down makes a chord.
+  {
+    const phone = await browser.newPage({viewport: {width: 390, height: 844}, hasTouch: true, isMobile: true});
+    phone.on('pageerror', e => errors.push(e.message));
+    await phone.addInitScript(() => localStorage.setItem('fretfree-piano', 'true'));
+    await phone.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    const cdp = await phone.context().newCDPSession(phone),
+      touch = (type, touchPoints = []) => cdp.send('Input.dispatchTouchEvent', {type, touchPoints}),
+      body = () => phone.evaluate(() => $('abc').value.trim().split('\n').pop()),
+      shown = midi =>
+        phone
+          .waitForFunction(
+            midi => {
+              const strip = $('piano-scroll').getBoundingClientRect(),
+                key = document.querySelector(`[data-piano-midi="${midi}"]`).getBoundingClientRect();
+              return strip.width > 0 && key.left >= strip.left && key.right <= strip.right;
+            },
+            midi,
+            {timeout: 3000}
+          )
+          .then(
+            () => true,
+            () => false
+          ),
+      center = midi =>
+        phone.evaluate(midi => {
+          const r = document.querySelector(`[data-piano-midi="${midi}"]`).getBoundingClientRect();
+          return {x: r.left + r.width / 2, y: r.bottom - 15};
+        }, midi),
+      swipe = async (from, to) => {
+        await touch('touchStart', [from]);
+        for (let i = 1; i <= 10; i++) {
+          await touch('touchMove', [{x: from.x + ((to.x - from.x) * i) / 10, y: from.y + ((to.y - from.y) * i) / 10}]);
+          await phone.waitForTimeout(16);
+        }
+        await touch('touchEnd');
+        await phone.waitForTimeout(300);
+      };
+    assert.equal(await phone.evaluate(() => $('studio').hidden && !$('piano').hidden), true, 'Starts on the library');
+    await phone.evaluate(() => {
+      const bars = Array(40).fill('z4').join(' | ');
+      openScore({abc: 'X:1\nT:Touch\nM:4/4\nL:1/4\nK:C\n' + bars + ' |]', instrument: 'Flute'});
+    });
+    assert.ok(await shown(71), 'Opened from the library, the strip shows B4 for a flute');
+    await phone.waitForTimeout(500);
+    await phone.evaluate(() => {
+      selectEntry(scoreNotes()[0]);
+      $('piano').scrollIntoView({block: 'end', behavior: 'instant'});
+    });
+    const before = await phone.evaluate(() => [$('abc').value, $('piano-scroll').scrollLeft, scrollY]),
+      e4 = await center(64);
+    await swipe(e4, {x: e4.x - 250, y: e4.y});
+    const top = await phone.evaluate(() => $('piano-keys').getBoundingClientRect().top + 10);
+    await swipe({x: 200, y: top}, {x: 200, y: Math.min(top + 200, 835)});
+    const after = await phone.evaluate(() => [$('abc').value, $('piano-scroll').scrollLeft, scrollY]);
+    assert.ok(after[1] > before[1], 'A sideways swipe scrolls the strip');
+    assert.ok(after[2] < before[2], 'A swipe down from a key scrolls the page');
+    assert.equal(after[0], before[0], 'Swiping from a key enters nothing');
+    await phone.evaluate(() => scrollPianoTo(67, true));
+    await phone.tap('[data-piano-midi="67"]');
+    assert.equal(await body(), 'G z3 | ' + Array(39).fill('z4').join(' | ') + ' |]', 'A tap enters the note');
+    await phone.evaluate(() => {
+      scrollPianoTo(74, true);
+      $('piano').scrollIntoView({block: 'end', behavior: 'instant'});
+    });
+    const c = await center(72),
+      e = await center(76);
+    await touch('touchStart', [{...c, id: 1}]);
+    await touch('touchStart', [
+      {...c, id: 1},
+      {...e, id: 2}
+    ]);
+    await touch('touchEnd', [{...c, id: 1}]);
+    await touch('touchEnd');
+    await phone.waitForTimeout(300);
+    assert.match(await body(), /^G \[ce\] z2 \|/, 'Two fingers make a chord');
+    await phone.evaluate(() => {
+      dirty = false;
+      show('library');
+    });
+    await phone.waitForTimeout(100);
+    await phone.evaluate(() => openScore({abc: 'X:1\nT:Low\nM:4/4\nL:1/4\nK:C\nz4 |]', instrument: 'Cello'}));
+    assert.ok(await shown(50), 'A bass-clef score shows D3');
+    await phone.close();
+  }
   await page.evaluate(() => {
     dirty = false;
   });
+  // MIDI keyboards, with a mocked Web MIDI input: the toggle works by keyboard, notes 100 ms apart enter one after
+  // another, notes within 40 ms make a chord, held keys light the piano, Z respells; without Web MIDI there is no
+  // toggle, and a refusal says so.
+  {
+    const tab = await browser.newPage({viewport: {width: 1280, height: 900}});
+    tab.on('pageerror', e => errors.push(e.message));
+    tab.on('dialog', dialog => dialog.accept());
+    await tab.addInitScript(() => {
+      const input = {name: 'Practice Keys', state: 'connected', onmidimessage: null};
+      window.__midi = {input, asked: [], deny: false};
+      navigator.requestMIDIAccess = async options => {
+        __midi.asked.push(options);
+        if (__midi.deny) throw new DOMException('Permission denied', 'NotAllowedError');
+        return (__midi.access = {inputs: new Map([['in', input]]), onstatechange: null});
+      };
+      window.__note = (on, ...notes) =>
+        notes.forEach(note => input.onmidimessage?.({data: [on ? 0x90 : 0x80, note, on ? 100 : 0]}));
+    });
+    await tab.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    const body = () => tab.evaluate(() => $('abc').value.trim().split('\n').pop());
+    await tab.evaluate(() => {
+      openScore({abc: 'X:1\nT:MIDI\nM:4/4\nL:1/4\nK:C\nz4 | z4 |]', instrument: 'Flute'});
+      show('studio');
+      selectEntry(scoreNotes()[0]);
+    });
+    assert.equal(await tab.locator('#midi-toggle').isVisible(), true, 'The toggle shows with Web MIDI');
+    await tab.focus('#midi-toggle');
+    await tab.keyboard.press('Enter');
+    await tab.waitForFunction(() => $('midi-toggle').getAttribute('aria-pressed') === 'true');
+    assert.match(await tab.locator('#midi-status').textContent(), /^MIDI input from Practice Keys\./);
+    assert.deepEqual(await tab.evaluate(() => __midi.asked), [{sysex: false}], 'No SysEx is requested');
+    await tab.click('#piano-toggle');
+    const entered = text => tab.waitForFunction(text => $('abc').value.includes(text), text);
+    await tab.evaluate(() => ((window.__t = performance.now()), __note(true, 60)));
+    assert.equal(await tab.locator('[data-piano-midi="60"].down').count(), 1, 'A held MIDI key lights the piano');
+    // 64 comes 100 ms after 60 on the page's clock, after the 40 ms chord timer (due first, so it fires first).
+    await tab.evaluate(
+      () =>
+        new Promise(done =>
+          setTimeout(() => done((__note(false, 60), __note(true, 64))), __t + 100 - performance.now())
+        )
+    );
+    await entered('C E z2');
+    await tab.evaluate(() => __note(false, 64));
+    assert.equal(await body(), 'C E z2 | z4 |]', 'Note-on 60 then 64, 100 ms apart, enter C then E');
+    assert.equal(await tab.locator('#piano-keys .down').count(), 0, 'Released keys go dark');
+    await tab.evaluate(() => {
+      __note(true, 67);
+      setTimeout(() => __note(true, 60), 5);
+      setTimeout(() => __note(true, 64), 10);
+    });
+    await entered('[CEG]');
+    assert.deepEqual(
+      await tab.evaluate(() => [...document.querySelectorAll('#piano-keys .down')].map(k => +k.dataset.pianoMidi)),
+      [60, 64, 67],
+      "The held chord's keys are lit"
+    );
+    await tab.evaluate(() => __note(false, 60, 64, 67));
+    assert.equal(await body(), 'C E [CEG] z | z4 |]', '60, 64 and 67 within 40 ms enter [CEG]');
+    // Black keys come in as sharps in C major; Z respells the note just entered from the keyboard.
+    await tab.evaluate(() => __note(true, 61));
+    await entered('^C |');
+    await tab.evaluate(() => __note(false, 61));
+    assert.equal(await body(), 'C E [CEG] ^C | z4 |]');
+    await tab.evaluate(() => selectEntry(scoreNotes()[3]));
+    await tab.keyboard.press('z');
+    assert.equal(await body(), 'C E [CEG] _D | z4 |]', 'Z turns ^C into _D');
+    await tab.keyboard.press('z');
+    assert.equal(await body(), 'C E [CEG] ^C | z4 |]', 'and back');
+    await tab.click('#midi-toggle');
+    await tab.waitForFunction(() => $('midi-toggle').getAttribute('aria-pressed') === 'false');
+    assert.equal(await tab.evaluate(() => __midi.input.onmidimessage), null, 'Off stops listening');
+    // At phone width the toggle and status fit.
+    await tab.setViewportSize({width: 390, height: 844});
+    await tab.click('#midi-toggle');
+    await tab.waitForFunction(() => $('midi-toggle').getAttribute('aria-pressed') === 'true');
+    assert.equal(
+      await tab.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      true,
+      'No sideways scroll at 390 px'
+    );
+    await tab.close();
+    // Without a hardware keyboard (a phone or tablet), the palette's Respell button does what Z does.
+    const touch = await browser.newPage({viewport: {width: 390, height: 844}, hasTouch: true, isMobile: true});
+    touch.on('pageerror', e => errors.push(e.message));
+    await touch.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    await touch.evaluate(() => {
+      openScore({abc: 'X:1\nT:Respell\nM:4/4\nL:1/4\nK:C\n^C D E F |]', instrument: 'Flute'});
+      show('studio');
+      selectEntry(scoreNotes()[0]);
+    });
+    const touchBody = () => touch.evaluate(() => $('abc').value.trim().split('\n').pop());
+    await touch.tap('[data-palette="respell"]');
+    assert.equal(await touchBody(), '_D =D E F |]', 'Tapping Respell turns ^C into _D');
+    assert.match(await touch.locator('#selection-status').textContent(), /^Respelled as D♭\./);
+    await touch.tap('[data-palette="respell"]');
+    assert.equal(await touchBody(), '^C D E F |]', 'and back, with the natural gone again');
+    await touch.close();
+    const denied = await browser.newPage({viewport: {width: 1280, height: 900}});
+    denied.on('pageerror', e => errors.push(e.message));
+    await denied.addInitScript(() => {
+      navigator.requestMIDIAccess = async () => {
+        throw new DOMException('Permission denied', 'NotAllowedError');
+      };
+    });
+    await denied.goto((process.env.FRETFREE_URL || 'http://localhost:8000') + '#studio');
+    await denied.click('#midi-toggle');
+    await denied.waitForFunction(() => $('midi-status').textContent);
+    assert.match(await denied.locator('#midi-status').textContent(), /^MIDI access was blocked\./);
+    assert.equal(await denied.locator('#midi-toggle').getAttribute('aria-pressed'), 'false');
+    await denied.close();
+    const without = await browser.newPage({viewport: {width: 1280, height: 900}});
+    without.on('pageerror', e => errors.push(e.message));
+    await without.addInitScript(() => delete Navigator.prototype.requestMIDIAccess);
+    await without.goto((process.env.FRETFREE_URL || 'http://localhost:8000') + '#studio');
+    assert.equal(await without.locator('#midi-toggle').isHidden(), true, 'No toggle without Web MIDI');
+    await without.close();
+  }
+  // Zoom and measures per line. Zoom only narrows the staff width, so at 70% and 200% a native click still selects the
+  // note, a 40 px drag still moves it four staff steps, and the draw ghost and click land on the line under the
+  // pointer. 200% about doubles the noteheads and still fits a phone; 4 per line engraves eight bars as two systems
+  // of four; both settings survive a reload. Each zoom step is announced. Titles and credits stay inside the narrower
+  // layout and the SVG export, and a re-flowed guitar score keeps its tab.
+  {
+    const tab = await browser.newPage({viewport: {width: 1280, height: 900}});
+    tab.on('pageerror', e => errors.push(e.message));
+    tab.on('dialog', dialog => dialog.accept());
+    await tab.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    const eight =
+      'X:1\nT:Zoom test\nM:4/4\nL:1/4\nK:C\nC D E F | G A B c | c B A G | F E D C | C E G c | c G E C | D F A c | c4 |]';
+    const open = (instrument = 'Flute') =>
+      tab.evaluate(
+        ([eight, instrument]) => {
+          openScore({abc: eight, instrument});
+          dirty = false;
+          window.scrollTo({top: 0, behavior: 'instant'});
+        },
+        [eight, instrument]
+      );
+    const head = () => tab.locator('#notation .abcjs-notehead').first();
+    const zoomTo = async (button, presses) => {
+      await tab.focus(button);
+      for (let i = 0; i < presses; i++) await tab.keyboard.press('Enter');
+    };
+    await open();
+    const width100 = (await head().boundingBox()).width;
+    for (const [zoom, button, presses] of [
+      [70, '#zoom-out', 2],
+      [200, '#zoom-in', 4]
+    ]) {
+      await tab.click('#zoom-reset');
+      await zoomTo(button, presses);
+      assert.equal(await tab.locator('#zoom-reset').textContent(), zoom + '%');
+      assert.equal(await tab.evaluate(() => document.activeElement.id), button.slice(1), 'Zoom keeps keyboard focus');
+      assert.equal(await tab.textContent('#selection-status'), `Zoom ${zoom}%.`, 'The new size is announced');
+      await tab.keyboard.press('Enter');
+      assert.deepEqual(
+        [await tab.textContent('#zoom-reset'), await tab.textContent('#selection-status')],
+        [zoom + '%', `Zoom ${zoom}%. This is the ${zoom === 200 ? 'largest' : 'smallest'} size.`],
+        'Pressing past the last size says so'
+      );
+      await open();
+      const ratio = (await head().boundingBox()).width / width100;
+      if (zoom === 200) assert.ok(ratio > 1.7 && ratio < 2.3, 'Noteheads about twice as large at 200%: ' + ratio);
+      else assert.ok(ratio > 0.6 && ratio < 0.8, 'Noteheads smaller at 70%: ' + ratio);
+      await head().scrollIntoViewIfNeeded();
+      let box = await head().boundingBox();
+      await tab.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      assert.equal(
+        await tab.evaluate(() => $('abc').value.slice($('abc').selectionStart, $('abc').selectionEnd).trim()),
+        'C',
+        'A click selects the note at ' + zoom + '%'
+      );
+      box = await head().boundingBox();
+      const x = box.x + box.width / 2,
+        y = box.y + box.height / 2;
+      await tab.mouse.move(x, y);
+      await tab.mouse.down();
+      for (let i = 1; i <= 20; i++) await tab.mouse.move(x + (i % 2 ? 3 : -3), y + (40 * i) / 20);
+      await tab.mouse.up();
+      assert.match(
+        await tab.evaluate(() => $('abc').value),
+        /\nF, D E F \|/,
+        '40 px down lowers four staff steps at ' + zoom + '%'
+      );
+      await open();
+      await tab.click('#draw-mode');
+      const [gx, gy, lineY] = await tab.evaluate(() => {
+        // The controls above the score push its staff low in a 900 px window; a mouse move needs it in view.
+        renderedTune.engraver.selectables[1].svgEl.scrollIntoView({block: 'center', behavior: 'instant'});
+        const svg = $('notation').querySelector('svg'),
+          st = renderedTune.engraver.staffgroups[0].staffs[0],
+          [a, b] = renderedTune.engraver.selectables.slice(1, 3).map(s => {
+            const r = s.svgEl.getBBox();
+            return r.x + r.width / 2;
+          });
+        const p = new DOMPoint((a + b) / 2, st.absoluteY - (6 * 93) / 24).matrixTransform(svg.getScreenCTM());
+        return [p.x, p.y, st.absoluteY - (6 * 93) / 24];
+      });
+      await tab.mouse.move(gx, gy);
+      assert.ok(
+        Math.abs(
+          (await tab.evaluate(() => +document.querySelector('#notation .draw-ghost').getAttribute('cy'))) - lineY
+        ) < 0.01,
+        'The draw ghost sits on the middle line at ' + zoom + '%'
+      );
+      await tab.mouse.click(gx, gy);
+      assert.match(
+        await tab.evaluate(() => $('abc').value),
+        /\nC D B E F \|/,
+        'Draw adds B at the clicked line at ' + zoom + '%'
+      );
+      await tab.click('#draw-mode');
+    }
+    // Still at 200%: a library hymn whose long title and composer credit fit at 100% keeps them inside the score, and
+    // its SVG export is as wide as the score, with the credit wrapped inside it.
+    const hymn = await tab.evaluate(() => {
+      dirty = false;
+      openScore(catalog.find(x => x.id === 'openhymnal-o-for-a-thousand-tongues-azmon'));
+      const svg = $('notation').querySelector('svg'),
+        width = svg.viewBox.baseVal.width,
+        inside = (els, right) =>
+          els.length > 0 && els.every(el => el.getBBox().x >= 0 && el.getBBox().x + el.getBBox().width <= right),
+        holder = document.createElement('div');
+      holder.innerHTML = creditedSVG($('notation'), $('abc').value, current);
+      document.body.appendChild(holder);
+      const exported = holder.querySelector('svg'),
+        lines = [...exported.children].filter(el => el.tagName === 'text'),
+        result = {
+          header: inside([...svg.querySelectorAll('.abcjs-title, .abcjs-composer')], width),
+          exportWidth: Math.round(exported.viewBox.baseVal.width - width),
+          credit: inside(lines, exported.viewBox.baseVal.width),
+          licence: lines
+            .map(el => el.textContent)
+            .join('')
+            .includes(scoreLicense(current))
+        };
+      holder.remove();
+      return result;
+    });
+    assert.deepEqual(
+      hymn,
+      {header: true, exportWidth: 0, credit: true, licence: true},
+      'At 200% the title and composer fit, and the SVG export is as wide as the score with its credit inside'
+    );
+    // Guitar re-flowed at 200% (Auto) and at 4 per line keeps a tab staff on every line and a number under every note.
+    const guitarTab = async label => {
+      await open('Guitar');
+      assert.deepEqual(
+        await tab.evaluate(() => {
+          const groups = renderedTune.engraver.staffgroups;
+          return [
+            groups.length > 1,
+            groups.every(g => g.staffs.some(s => s.isTabStaff)),
+            $('notation').querySelectorAll('.abcjs-tab-number').length,
+            $('warnings').textContent
+          ];
+        }),
+        [true, true, 29, ''],
+        'Guitar tab survives re-flow at ' + label
+      );
+    };
+    await guitarTab('200%');
+    await open();
+    const systems = () =>
+      tab.evaluate(() =>
+        renderedTune.lines.filter(l => l.staff).map(l => l.staff[0].voices[0].filter(e => e.el_type === 'bar').length)
+      );
+    await tab.click('#zoom-reset');
+    assert.equal((await systems()).length, 1, 'Auto at 100% keeps the one source line');
+    await tab.selectOption('#measures-per-line', '4');
+    assert.deepEqual(await systems(), [4, 4], '4 per line engraves eight bars as two systems of four');
+    await guitarTab('4 per line');
+    await zoomTo('#zoom-in', 4);
+    await tab.reload();
+    await tab.evaluate(() => show('studio'));
+    assert.deepEqual(
+      await tab.evaluate(() => [
+        $('zoom-reset').textContent,
+        $('measures-per-line').value,
+        engraveOptions().staffwidth
+      ]),
+      ['200%', '4', 370],
+      'Zoom and measures per line survive a reload'
+    );
+    await tab.setViewportSize({width: 390, height: 844});
+    await open();
+    assert.ok(
+      await tab.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+      'No sideways scroll at 200% on a phone'
+    );
+    await tab.close();
+  }
   // Unsaved-work recovery: an edit made with the keyboard survives a reload; Restore (keyboard) brings it back with
   // its instrument and credits, Save clears it, and on a phone the banner fits and Discard removes the draft.
   {
@@ -1317,6 +2075,7 @@ const {chromium} = require('playwright'),
     $('toast').style.display = 'none';
   });
   {
+    await page.locator('[data-palette="more"]').click();
     const boxes = await page.evaluate(() =>
       [...document.querySelectorAll('#palette [data-palette]')].map(b => {
         const r = b.getBoundingClientRect();
@@ -1394,7 +2153,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
+    'PASS: zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

@@ -149,6 +149,85 @@ function editNoteText(text, {accidental, length, unbroken, tie, rest} = {}) {
   if (tie === false) post = post.replace(/^-/, '');
   return pre + core + len + post;
 }
+// Articulations, ornaments and dynamics offered by the editor, as abcjs names them. Each one parses without warnings,
+// and dynamics, accents, marcato and staccato change playback (see midiBytes); abcjs plays ornaments with fixed
+// neighbour notes, whatever the key. abcjs knows staccato only as '.' and has no fp or !staccatissimo! (wedge is the
+// staccatissimo mark).
+const NOTE_MARKS = [
+  'staccato',
+  'tenuto',
+  'accent',
+  'marcato',
+  'fermata',
+  'wedge',
+  'upbow',
+  'downbow',
+  'breath',
+  'trill',
+  'mordent',
+  'turn',
+  'arpeggio'
+];
+const DYNAMICS = ['ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'sfz'];
+// One item of a note's prefix (the items NOTE_PARTS allows), and the prefix of a note, chord or rest, including a
+// multi-measure rest (Z), which can carry a dynamic or a fermata. Invisible rests (x) take no marks.
+const PRE_ITEM = /"[^"]*"|![^!]*!|\+[^+]*\+|\{[^}]*\}|\((?:\d+(?::\d*){0,2})?|[.~HLMOPSTuv]|\s/g;
+const MARK_PRE = new RegExp(`^(?:${PRE_ITEM.source})*(?=[[A-Ga-g^_=zZ])`);
+// Shorthands and other spellings of the marks: . H L T u v M, !>!, !emphasis!, !lowermordent! and +name+.
+const MARK_ALIASES = {
+  '.': 'staccato',
+  H: 'fermata',
+  L: 'accent',
+  T: 'trill',
+  u: 'upbow',
+  v: 'downbow',
+  M: 'mordent',
+  '>': 'accent',
+  emphasis: 'accent',
+  lowermordent: 'mordent'
+};
+// Any dynamic a score may already have, including ones the editor does not offer, so setDynamic replaces it.
+const DYNAMIC_MARK = /^(?:p{1,4}|f{1,4}|m[pf]|sfz?|sffz|fz|rfz|s?fp)$/;
+function markName(item) {
+  const name = /^([!+])(.*)\1$/.exec(item)?.[2] ?? item;
+  return MARK_ALIASES[name] || name;
+}
+// A note's prefix split into items, and the rest of its text; null when the text is not a note, chord or rest.
+function markItems(text) {
+  const pre = String(text).match(MARK_PRE)?.[0];
+  return pre == null ? null : {items: pre.match(PRE_ITEM) || [], rest: String(text).slice(pre.length)};
+}
+const isDynamicItem = item => !!item.trim() && DYNAMIC_MARK.test(markName(item));
+// The marks on a note: its articulations and ornaments (canonical names, in source order) and its dynamic.
+function noteMarks(text) {
+  const parts = markItems(text);
+  if (!parts) return null;
+  const names = parts.items.filter(i => i.trim()).map(markName);
+  return {marks: names.filter(n => NOTE_MARKS.includes(n)), dynamic: names.find(n => DYNAMIC_MARK.test(n)) || null};
+}
+// Add an articulation or ornament just before the pitch (after chord symbols, annotations, slur and tuplet openings
+// and grace notes), or remove it in whatever spelling it has. Staccato is written '.', the others !name!.
+function toggleDecoration(text, name) {
+  const parts = markItems(text);
+  if (!parts || !NOTE_MARKS.includes(name)) return text;
+  const kept = parts.items.filter(i => !i.trim() || markName(i) !== name);
+  if (kept.length === parts.items.length) kept.push(name === 'staccato' ? '.' : `!${name}!`);
+  return kept.join('') + parts.rest;
+}
+// Set the note's dynamic (one of DYNAMICS) in place of any it has, or remove it with null. Dynamics never stack.
+function setDynamic(text, dyn) {
+  const parts = markItems(text);
+  if (!parts || (dyn != null && !DYNAMICS.includes(dyn))) return text;
+  let placed = !dyn;
+  const items = parts.items.map(i => {
+    if (!isDynamicItem(i)) return i;
+    if (placed) return '';
+    placed = true;
+    return `!${dyn}!`;
+  });
+  if (!placed) items.push(`!${dyn}!`);
+  return items.join('') + parts.rest;
+}
 // Bar-length check. Measures are numbered as in scoreEvents (a bar line ends a measure only once it holds notes).
 const SECTION_END = /repeat|thin_thin|thin_thick|thick_thin|dbl/;
 // A time signature as {length (whole notes), den, label}; 'free' for M:none, null when absent.
@@ -281,11 +360,147 @@ function barProblems(tune) {
 // The first voice as written, bar by bar: each note's MIDI pitch (null for rests) and sounding length. Accidentals
 // follow ABC rules: the key signature, inline key changes, and accidentals carried to the end of the bar.
 const LETTER_SEMIS = [0, 2, 4, 5, 7, 9, 11],
-  ALTER = {sharp: 1, flat: -1, natural: 0, dblsharp: 2, dblflat: -2};
+  ALTER = {sharp: 1, flat: -1, natural: 0, dblsharp: 2, dblflat: -2},
+  ALTER_SIGN = {'-2': '__', '-1': '_', 0: '=', 1: '^', 2: '^^'};
 function keyAlters(key) {
   const alters = {};
   for (const a of key?.accidentals || []) alters[a.note.toUpperCase()] = ALTER[a.acc] ?? 0;
   return alters;
+}
+// ABC pitch for a MIDI note in a key (a parsed abcjs key, as keyAlters takes). A note in the key needs no accidental;
+// any other uses a natural if one fits, else a sharp, or a flat in flat keys. With explicit, the accidental is always
+// written (for a bar where an earlier accidental would otherwise change the note). midiToken(61, C major) is '^C'.
+function midiToken(midi, key, explicit = false) {
+  const alters = keyAlters(key),
+    pc = ((midi % 12) + 12) % 12,
+    token = (letter, alter, written) =>
+      (written ? ALTER_SIGN[alter] : '') +
+      pitchToken(letter + 7 * Math.round((midi - 60 - LETTER_SEMIS[letter] - alter) / 12));
+  for (let letter = 0; letter < 7; letter++) {
+    const alter = alters['CDEFGAB'[letter]] || 0;
+    if ((LETTER_SEMIS[letter] + alter + 12) % 12 === pc) return token(letter, alter, explicit);
+  }
+  const natural = LETTER_SEMIS.indexOf(pc);
+  if (natural >= 0) return token(natural, 0, true);
+  return Object.values(alters).some(a => a < 0)
+    ? token(LETTER_SEMIS.indexOf((pc + 1) % 12), -1, true)
+    : token(LETTER_SEMIS.indexOf(pc - 1), 1, true);
+}
+// Add a pitch (an ABC pitch without a length, such as 'E' or '^f') to a note or chord, keeping its length, ties and
+// decorations: C2 becomes [CE]2. A pitch already in the chord, or a rest, is left as it was.
+function addChordPitch(text, core) {
+  const parts = noteParts(text);
+  if (!parts || /^[zx]/.test(parts.core)) return text;
+  const pitches = parts.core.match(/(?:\^{1,2}|_{1,2}|=)?[A-Ga-g][,']*/g) || [];
+  if (pitches.includes(core)) return text;
+  // Chords written with a length on each pitch ([C2E2]) give the new pitch the same length.
+  const each =
+    parts.core[0] === '[' ? (parts.core.match(/^\[(?:\^{1,2}|_{1,2}|=)?[A-Ga-g][,']*(\d*\/*\d*)/) || [])[1] : '';
+  const inner = parts.core[0] === '[' ? parts.core.slice(1, -1) : parts.core;
+  return parts.pre + '[' + inner + core + (each || '') + ']' + text.slice(parts.pre.length + parts.core.length);
+}
+// An accidental carries to later notes on the same line or space in the bar, so writing ^C before a plain C would
+// make that C sharp too. Widen an edit (replace source[start..end] with text) to write out the accidental each later
+// note had, so only the edited note changes: '^C' over the rest in 'z C' gives '^C =C'. select is a range in the edited
+// source, moved to match. Returns {end, text, select}.
+function keepLaterPitches(source, start, end, text, select) {
+  const later = (src, from) => noteLabels(ABCJS.parseOnly(src)[0], 'letters').filter(l => l.at >= from),
+    was = later(source, end),
+    base = start + text.length;
+  let tail = source.slice(end);
+  // One pass per changed note, earliest first: writing out its accidental puts back the pitch of those after it.
+  for (let pass = 0; pass < 8; pass++) {
+    const now = later(source.slice(0, start) + text + tail, base),
+      i = now.findIndex((l, j) => String(l.written) !== String(was[j]?.written));
+    if (i < 0 || now.length !== was.length) break;
+    const k = now[i].written.findIndex((m, j) => m !== was[i].written[j]),
+      parts = noteParts(tail.slice(now[i].at - base)),
+      pitch = parts && [...parts.core.matchAll(/(\^{1,2}|_{1,2}|=)?([A-Ga-g])([,']*)/g)][k];
+    if (!pitch || pitch[1]) break;
+    const step =
+        'CDEFGAB'.indexOf(pitch[2].toUpperCase()) +
+        (pitch[2] === pitch[2].toLowerCase() ? 7 : 0) +
+        [...pitch[3]].reduce((n, c) => n + (c === "'" ? 7 : -7), 0),
+      sign = ALTER_SIGN[was[i].written[k] - (60 + 12 * Math.floor(step / 7) + LETTER_SEMIS[((step % 7) + 7) % 7])],
+      at = now[i].at - base + parts.pre.length + pitch.index;
+    if (!sign) break;
+    tail = tail.slice(0, at) + sign + tail.slice(at);
+    select = select && select.map(x => (x > base + at ? x + sign.length : x));
+  }
+  // Replace only up to the last change: the rest of the source is as it was.
+  const old = source.slice(end);
+  let same = 0;
+  while (same < old.length && old[old.length - 1 - same] === tail[tail.length - 1 - same]) same++;
+  return {end: source.length - same, text: text + tail.slice(0, tail.length - same), select};
+}
+// Z's edit: the note at source[start..end] respelled as text. Later notes keep their pitch (keepLaterPitches), and
+// an accidental later in the bar that only the old spelling needed goes: '_D =D' respelled gives '^C D', not
+// '^C =D', so that pressing Z again comes back to where it started. An accidental goes only on a letter the old
+// spelling used, when its note sounded different without it before and sounds the same without it now; a courtesy
+// accidental stays. Returns {end, text} for the source, as keepLaterPitches does.
+function respellEdit(source, start, end, text) {
+  const kept = keepLaterPitches(source, start, end, text, null),
+    to = start + text.length,
+    plain = t => noteParts(t)?.core.match(/[A-Ga-g][,']*/g) || [],
+    letters = new Set(plain(source.slice(start, end))),
+    heard = src => noteLabels(ABCJS.parseOnly(src)[0], 'letters'),
+    sounds = labels => labels.map(l => l.written.join()).join(' '),
+    drop = (src, at, n) => src.slice(0, at) + src.slice(at + n);
+  let after = source.slice(0, start) + kept.text + source.slice(kept.end);
+  // The rest of the bar: an accidental carries no further than the next bar line.
+  const barEnd = (src, from) => (src.indexOf('|', from) + 1 || src.length + 1) - 1,
+    was = heard(source),
+    now = heard(after),
+    soundedBefore = sounds(was),
+    soundsNow = sounds(now),
+    rest = (labels, from, src, stop = barEnd(src, from)) =>
+      labels.filter(l => l.at >= from && l.at < stop).sort((a, b) => a.at - b.at),
+    laterWas = rest(was, end, source),
+    laterNow = rest(now, to, after);
+  if (laterWas.length !== laterNow.length) return {end: kept.end, text: kept.text};
+  // The pitches of the note at a position: [where its accidental starts, how long it is, the plain pitch].
+  const marked = (src, at) => {
+    const parts = noteParts(src.slice(at));
+    return parts
+      ? [...parts.core.matchAll(/(\^{1,2}|_{1,2}|=)?([A-Ga-g][,']*)/g)].map(m => [
+          at + parts.pre.length + m.index,
+          (m[1] || '').length,
+          m[2]
+        ])
+      : [];
+  };
+  const done = new Set();
+  let shift = 0;
+  for (let j = 0; j < laterNow.length && done.size < letters.size; j++) {
+    const before = marked(source, laterWas[j].at),
+      current = marked(after, laterNow[j].at + shift);
+    // Last pitch first, so a dropped accidental does not move the ones still to look at.
+    for (let k = current.length - 1; k >= 0; k--) {
+      const [at, n, pitch] = current[k],
+        [atBefore, nBefore, pitchBefore] = before[k] || [];
+      if (!n || !letters.has(pitch) || done.has(pitch) || pitchBefore !== pitch || nBefore !== n) continue;
+      if (source.slice(atBefore, atBefore + n) !== after.slice(at, at + n)) continue;
+      done.add(pitch);
+      if (sounds(heard(drop(source, atBefore, n))) === soundedBefore) continue;
+      const without = drop(after, at, n);
+      if (sounds(heard(without)) !== soundsNow) continue;
+      after = without;
+      shift -= n;
+    }
+  }
+  return sourceEdit(source, after, start, end, to);
+}
+// The edit that turns source into after, two texts that are the same up to start: {end, text} for source[start..end],
+// leaving out the tail they share. It always covers source[start..end] and after[start..to].
+function sourceEdit(source, after, start, end, to) {
+  let same = 0;
+  while (
+    same < source.length - end &&
+    same < after.length - to &&
+    source[source.length - 1 - same] === after[after.length - 1 - same]
+  )
+    same++;
+  return {end: source.length - same, text: after.slice(start, after.length - same)};
 }
 function melodyBars(tune) {
   const bars = [],
@@ -584,6 +799,48 @@ function respellMusic(text, d) {
       return ok ? out : name;
     }
   );
+}
+// Enharmonic respelling (Z): every pitch of a note or chord moves to its next spelling at the same pitch, keeping
+// length, ties and decorations. ^C becomes _D and back; E becomes _F; D, G and A, which have no other spelling with
+// one accidental, cycle through double ones (D, __E, ^^C). A chord moves as one, so that two presses bring it back:
+// its D, G and A stay plain while any other pitch can swap ([GCE] gives [G^B,_F]), and cycle only in a chord of
+// nothing else. key is a parsed abcjs key, as midiToken takes: an accidental is written only where the key signature
+// would not give the new spelling, or always with explicit. midis gives each pitch's MIDI note in source order, for a
+// bar where an earlier accidental changes a plain letter; without it, a pitch is read from its own accidental or the
+// key. Rests are left as they are.
+function respell(text, key, {midis = null, explicit = false} = {}) {
+  const parts = noteParts(text);
+  if (!parts || /^[zx]/.test(parts.core)) return text;
+  const alters = keyAlters(key),
+    PITCH = /(\^{1,2}|_{1,2}|=)?([A-Ga-g])([,']*)/g;
+  const pitches = [...parts.core.matchAll(PITCH)].map(([, acc, letter, marks], i) => {
+    const step =
+        'CDEFGAB'.indexOf(letter.toUpperCase()) +
+        (letter >= 'a' ? 7 : 0) +
+        [...marks].reduce((n, c) => n + (c === "'" ? 7 : -7), 0),
+      midi = midis?.[i] ?? 60 + diatonicSemis(step) + (acc ? ACC_VALUE[acc] : alters[letter.toUpperCase()] || 0);
+    // Spellings of the pitch on nearby letters, lowest letter (most sharps) first.
+    const spellings = [];
+    for (let s = step - 2; s <= step + 2; s++) {
+      const alter = midi - 60 - diatonicSemis(s);
+      if (Math.abs(alter) <= 2) spellings.push({step: s, alter});
+    }
+    return {step, spellings, single: spellings.filter(s => Math.abs(s.alter) <= 1)};
+  });
+  const swap = pitches.some(p => p.single.length > 1);
+  let i = 0;
+  const core = parts.core.replace(PITCH, whole => {
+    const {step, spellings, single} = pitches[i++];
+    if (!spellings.length) return whole;
+    const cycle = swap ? single : spellings,
+      at = cycle.findIndex(s => s.step === step),
+      // A spelling outside the cycle (__D for C) goes to the plainest one.
+      next = at < 0 ? spellings.find(s => !s.alter) || cycle[0] : cycle[(at + 1) % cycle.length],
+      keyAlter = alters['CDEFGAB'[posMod(next.step, 7)]] || 0;
+    if (next.step === step && !explicit) return whole;
+    return (explicit || next.alter !== keyAlter ? ACC_TEXT[next.alter] : '') + pitchToken(next.step);
+  });
+  return parts.pre + core + text.slice(parts.pre.length + parts.core.length);
 }
 // A tune without a K: line is read in C major. Transposing it needs a key to move, so K:C closes its header.
 function withKey(source) {
@@ -912,7 +1169,8 @@ function validPrompt(q) {
 // Note-name labels for every voice, as written: letters (F♯) or movable-do solfège (do-based major,
 // la-based minor; notes raised against the key signature use sharp syllables, lowered ones flat syllables).
 // Each voice keeps its own key and bar accidentals; a note tied across a bar line keeps the accidental it was tied
-// from. Each label also has `midis`: every pitch of the note as playback sounds it (see playbackShift).
+// from. Each label also has `midis`: every pitch of the note as playback sounds it (see playbackShift), and
+// `written`: every pitch as the staff shows it, before that shift.
 const SOLFEGE_SHARP = ['do', 'di', 're', 'ri', 'mi', 'fa', 'fi', 'sol', 'si', 'la', 'li', 'ti'],
   SOLFEGE_FLAT = ['do', 'ra', 're', 'me', 'mi', 'fa', 'se', 'sol', 'le', 'la', 'te', 'ti'];
 function noteLabels(tune, mode) {
@@ -969,7 +1227,13 @@ function noteLabels(tune, mode) {
             mode === 'solfege'
               ? (alter < (key[name] ?? 0) ? SOLFEGE_FLAT : SOLFEGE_SHARP)[(pc - (state.doPc || 0) + 12) % 12]
               : name + ({1: '♯', 2: '𝄪', '-1': '♭', '-2': '𝄫'}[alter] || '');
-          labels.push({at: e.startChar, text, midi, midis: spelled.map(x => x.midi + state.shift)});
+          labels.push({
+            at: e.startChar,
+            text,
+            midi,
+            midis: spelled.map(x => x.midi + state.shift),
+            written: spelled.map(x => x.midi)
+          });
         }
       }
   return labels;
@@ -1178,9 +1442,31 @@ function hashText(text) {
 }
 
 // MIDI for playback and export. abcjs generates the file; parseMidi decodes its notes and tempo events.
+// Two abcjs slips are mended first. abcjs engraves sfz and marcato but plays them at the current volume, so they get
+// an accent (half as loud again). Its MIDI writer scales each note's gap by the tempo a second time, so above about
+// 95 bpm a staccato note-off comes before its note-on and the note rings on, and a tenuto or slurred note runs into
+// a repeat of its pitch, so one of the two is lost. Here staccato notes sound for 60% of their length (abcjs's
+// length at 60 bpm) and other notes for their full length.
 function midiBytes(source) {
-  const result = ABCJS.synth.getMidiFile(source, {midiOutputType: 'encoded'});
-  const uri = Array.isArray(result) ? result[0] : result;
+  const tune = ABCJS.parseOnly(source)[0];
+  for (const line of tune?.lines || [])
+    for (const staff of line.staff || [])
+      for (const e of (staff.voices || []).flat())
+        if (e.decoration?.some(d => /^(?:sfz|u?marcato)$/.test(d)) && !e.decoration.includes('accent'))
+          e.decoration.push('accent');
+  const setUpAudio = tune?.setUpAudio;
+  if (setUpAudio)
+    tune.setUpAudio = function (options) {
+      const sequence = setUpAudio.call(this, options);
+      for (const track of sequence.tracks)
+        for (const e of track)
+          if (e.cmd === 'note' && e.gap) {
+            if (e.gap > 0) e.duration *= 0.6;
+            e.gap = 0;
+          }
+      return sequence;
+    };
+  const uri = tune && ABCJS.synth.getMidiFile(tune, {midiOutputType: 'encoded'});
   if (typeof uri !== 'string' || !uri.startsWith('data:'))
     throw new Error('MIDI could not be generated. Check your notation.');
   const [meta, body] = uri.split(',');

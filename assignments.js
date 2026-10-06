@@ -6,7 +6,7 @@
 // What the builder takes from the open score: written key and mode, meter, note unit, tempo, the number of bars, and
 // whether every bar is a full bar of the meter (the bars goal can be met only then; a pickup, for one, never is).
 function assignmentBasis() {
-  const written = writtenABC(),
+  const written = writtenABC(instrumentShift()),
     tune = ABCJS.parseOnly(written)[0],
     // The key as K:Am or K:A minor. A word after the key note that is not a mode (a clef, say) leaves it major.
     k = written.match(/^K:[ \t]*([A-G][#b]?)[ \t]*([A-Za-z]*)/m),

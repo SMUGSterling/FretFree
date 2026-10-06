@@ -587,6 +587,8 @@ footer .brand {
   border-radius: 7px;
   display: none;
   z-index: 10;
+  /* Information only: a note under the toast can still be clicked. */
+  pointer-events: none;
 }
 svg {
   max-width: 100%;
@@ -924,6 +926,8 @@ input[type='range'] {
   box-shadow: 0 10px 28px #21372d2e;
   padding: 6px;
   min-width: 210px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   display: grid;
   gap: 2px;
 }
@@ -955,6 +959,15 @@ input[type='range'] {
   background: #e7ebdc;
   color: var(--green);
   border-color: #c9d4b3;
+}
+.note-menu .menu-marks {
+  grid-template-columns: repeat(5, 1fr);
+}
+.note-menu .menu-marks button {
+  min-height: 34px;
+  padding: 4px;
+  font-size: 15px;
+  text-align: center;
 }
 .note-menu hr {
   border: 0;
@@ -1350,6 +1363,116 @@ input[type='range'] {
   background: var(--paper);
   color: var(--ink);
 }
+/* On-screen piano: a scrolling strip of keys under the score, kept in view at the bottom of the window. */
+#piano-toggle[aria-pressed='true'],
+#midi-toggle[aria-pressed='true'] {
+  background: var(--green);
+  color: white;
+  border-color: var(--green);
+}
+.piano {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin: -8px 0 20px;
+  padding: 8px 10px 10px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 -4px 14px #21372d14;
+}
+.piano-head {
+  margin: 0 0 6px;
+  color: var(--muted);
+}
+.piano-head strong {
+  color: var(--ink);
+  margin-right: 4px;
+}
+.piano-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: 2px 2px 4px;
+}
+.piano-keys {
+  --white-w: 30px;
+  --black-w: 20px;
+  --white-h: 112px;
+  position: relative;
+  width: calc(var(--whites, 36) * var(--white-w));
+  height: var(--white-h);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.piano-key {
+  position: absolute;
+  top: 0;
+  padding: 0;
+  border-radius: 0 0 5px 5px;
+  font-weight: 500;
+}
+.piano-key.white {
+  left: calc(var(--x) * var(--white-w));
+  width: var(--white-w);
+  height: var(--white-h);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 6px;
+  background: white;
+  color: var(--muted);
+  border: 1px solid #b9bdb0;
+  font-size: 10px;
+}
+.piano-key.black {
+  left: calc(var(--x) * var(--white-w) - var(--black-w) / 2);
+  width: var(--black-w);
+  height: calc(var(--white-h) * 0.6);
+  z-index: 1;
+  background: #26302d;
+  border: 1px solid #111;
+}
+.piano-key.white:hover {
+  background: #edf1e4;
+}
+.piano-key.black:hover {
+  background: #3d4a46;
+}
+.piano-key:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: -3px;
+  z-index: 2;
+}
+.piano-key.held {
+  background: var(--lime);
+  border-color: var(--green);
+  color: var(--green);
+}
+.piano-key.black.held {
+  background: var(--green);
+}
+.piano-key.white.sounding,
+.piano-key.black.sounding,
+.piano-key.white.down,
+.piano-key.black.down {
+  background: #f59f00;
+  border-color: #d9480f;
+  color: #4a1a00;
+}
+@media (pointer: coarse) {
+  .piano-keys {
+    --white-w: 36px;
+    --black-w: 24px;
+    --white-h: 124px;
+  }
+}
+@media print {
+  .piano {
+    display: none !important;
+  }
+}
 .palette {
   display: flex;
   flex-wrap: wrap;
@@ -1400,6 +1523,25 @@ input[type='range'] {
 }
 .palette .danger {
   color: #9e4d28;
+}
+.palette .articulation button {
+  font-size: 19px;
+}
+.palette .dynamic,
+.note-menu .dynamic {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-weight: 700;
+}
+.palette .dynamic {
+  font-size: 16px;
+}
+.palette-more:not([hidden]) {
+  display: contents;
+}
+.palette [data-palette='more'].in-use {
+  border-color: var(--green);
+  box-shadow: inset 0 -3px 0 var(--green);
 }
 @media (max-width: 720px) {
   .palette {
@@ -1549,4 +1691,96 @@ input[type='range'] {
   .prompt-check .prompt-done {
     display: none !important;
   }
+}
+/* Copy, cut, paste and duplicate for the selected notes; the same commands as Ctrl+C, X, V and D, for touch screens.
+   The buttons keep the full button size, as big a target as Undo and Play. */
+.selection-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+@media print {
+  .selection-tools {
+    display: none !important;
+  }
+}
+/* Classroom colors and letters in noteheads: a selected or playing note still shows its highlight color. Both print. */
+#notation .abcjs-note_selected .classroom-color,
+#notation .abcjs-playing .classroom-color {
+  fill: inherit;
+  stroke: none;
+}
+#notation .abcjs-note_selected .notehead-letter:not(.hollow),
+#notation .abcjs-playing .notehead-letter:not(.hollow) {
+  fill: white;
+}
+#notation .notehead-letter {
+  pointer-events: none;
+}
+@media print {
+  #notation svg {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+/* Zoom and measures per line sit just above the score; they change the engraving, not the source. */
+.score-view {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 18px;
+  margin: 14px 0 -8px;
+}
+.zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.zoom-label {
+  margin-right: 4px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--muted);
+}
+.zoom-controls button {
+  min-width: 40px;
+  min-height: 36px;
+  padding: 6px 10px;
+  font-variant-numeric: tabular-nums;
+}
+#zoom-out,
+#zoom-in {
+  font-size: 17px;
+  line-height: 1;
+}
+.zoom-controls #zoom-reset {
+  min-width: 62px;
+}
+.zoom-controls button[aria-disabled='true'] {
+  cursor: default;
+  opacity: 0.45;
+}
+@media print {
+  .score-view {
+    display: none !important;
+  }
+}
+/* Concert pitch view: the checkbox sits under the instrument it belongs to, shown only for transposing instruments. */
+.instrument-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.instrument-field .concert-pitch {
+  gap: 7px;
+  min-height: 32px;
+  cursor: pointer;
+}
+.instrument-field .concert-pitch input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
 }

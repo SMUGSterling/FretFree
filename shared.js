@@ -10,8 +10,13 @@ const KEYS = {
   played: 'fretfree-played',
   fingering: 'fretfree-fingering',
   noteNames: 'fretfree-note-names',
+  noteColors: 'fretfree-note-colors',
   draft: 'fretfree-draft',
   audition: 'fretfree-audition',
+  zoom: 'fretfree-zoom',
+  measuresPerLine: 'fretfree-measures-per-line',
+  piano: 'fretfree-piano',
+  concertPitch: 'fretfree-concert-pitch',
   practice: id => 'fretfree-practice-' + id
 };
 let storageOK = true;

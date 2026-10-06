@@ -9,6 +9,74 @@
 
 ---
 
+# Concert pitch view · 2026-10-06
+
+- **Concert pitch** (a checkbox under Instrument) appears for Clarinet in B♭, Trumpet in B♭ and Alto sax in E♭. Ticked, the score shows the key and pitches of the ABC source, as the instrument sounds; unticked, it shows the written part as before. The caption under the score says which one is shown.
+- Typed letters, drawn notes, accidentals in the note menu and palette, Shift+letter chord notes, piano keys and MIDI keyboard notes all enter the pitch shown, so on a B♭ clarinet the C key writes concert C in Concert pitch view and concert B♭ in the written view.
+- Note names, letters in noteheads, classroom colors and the spelling Respell names in the status line follow the pitch shown.
+- Playback, the ABC source and the undo history do not change when the view changes. Writing-prompt goals and new assignments still use written pitch, so a clarinet asked for G major is judged in G major in either view; while Concert pitch is on, the checklist says its goals are in written pitch.
+- Changing the view closes an open note menu. A note menu left open while the score is redrawn for another instrument asks for a fresh right-click instead of editing the wrong note.
+- Display only, remembered in the browser (`fretfree-concert-pitch`) and included in backups. Prints and SVG exports show the score as it is on screen.
+
+---
+
+# MIDI keyboard input and respelling · 2026-10-06
+
+- **MIDI input** (next to Piano keys) enters notes and chords from a USB MIDI keyboard. The button shows only where the browser has Web MIDI (Chrome, Edge and other Chromium browsers, and Firefox); it asks for MIDI access without SysEx, listens to every connected input, and the status line names the keyboards and follows them being plugged in or out. Blocked access gets a plain message, and the button stays off.
+- Each note goes in through the piano strip's entry path: keys are written pitch, notes land over the selected rest or after the selected note at the current length, spelled for the key in force, and each sounds with Hear notes. Notes that start within 40 ms of each other make one chord, entered lowest first (60, 64 and 67 together give `[CEG]`). Held keys light the piano strip. Notes played while the score is playing, or away from Compose, are ignored, and so are drum pads (MIDI channel 10). Turning MIDI input off closes the keyboard's connection, so other apps can use it.
+- **Z** respells the selected note or chord at the same pitch: `^C` becomes `_D` and back, `E` becomes `_F`, and D, G and A cycle through double accidentals. On a touch screen, **Respell** in the notation palette (and in the note menu) does the same. A chord moves as one and comes back in two presses: its other pitches swap (`[GCE]` becomes `[G^B,_F]`) while D, G and A stay plain, unless the chord has nothing else. A plain letter is read with the key signature and the bar's earlier accidentals, accidentals are written out only where the plain letter would change the pitch, and later notes in the bar keep theirs: `^C D` becomes `_D =D`, and the natural goes again with `^C`. Pressing again on the same note returns exactly the text it started from, and each press is one undo step. It works on one note or chord at a time; on a range selection it says so and changes nothing. The status line names the new spelling in written pitch. The pure `respell(text, key, {midis, explicit})` and `respellEdit()` are in score-tools.js.
+
+---
+
+# Articulations, dynamics and ornaments · 2026-10-06
+
+- With a note selected, **;** **:** **>** **"** **^** toggle staccato, tenuto, accent, marcato and fermata. The notation toolbar gains an **Articulation** group with the same five and a **Dynamics** group (ppp to fff, and sfz); **More** opens staccatissimo, up bow, down bow, breath mark, trill, mordent, turn and arpeggio. The note menu has a Marks section with the five articulations and the dynamics.
+- Buttons light up for the marks the selected note has; pressing a lit one takes it off. A new dynamic replaces the note's old one. Rests take a dynamic or a fermata, and invisible rests nothing; the status line says what changed or why nothing did. On a range selection a mark goes on every selected note that can take it, or comes off them all when they all have it, and a dynamic goes on the first note. While More is closed, its button shows when the note has one of its marks.
+- Marks go into the ABC as decorations just before the pitch, after chord symbols, slur and tuplet openings and grace notes: staccato as `.`, the others as `!tenuto!`, `!mf!` and so on. Shorthands already in a score (`L`, `H`, `T`, `u`, `v`, `M`, `!>!`) count as their mark and come off with it. Each change is one undo step, and marks stay through instrument changes and the written-pitch display.
+- Playback follows dynamics, accents and staccato, and sfz and marcato now play as accents (abcjs engraved them but played them at the current volume). Ornaments play only roughly: abcjs trills and mordents a whole step from the note, and turns a whole step above and a half step below, whatever the key, so they can sound a half step off. Every offered mark parses in abcjs without warnings; `fp` and `!staccatissimo!` do not, so they are not offered.
+- Two abcjs playback slips are mended. Above about 95 bpm a staccato note rang on to the next note of its pitch, and a repeated note after a tenuto or inside a slur went unheard (404 library scores lost notes this way). Staccato notes now sound for 60% of their length at any tempo and other notes for their full length, in playback and in exported MIDI.
+- The note menu scrolls when it is taller than the window.
+
+---
+
+# Zoom and measures per line · 2026-10-06
+
+- **Zoom** (− / 100% / +) above the score sets the notation size from 70% to 200%. Zoom narrows the width abcjs lays the score out in and the drawing is stretched back to the panel width, so notes grow without changing the engraving scale; clicking, dragging (10 px per staff step) and drawing stay accurate at every size. Above 100% on Auto, lines re-flow so they fit. Titles, composer, tempo and other text around the music keep their 100% size, so a long title still fits. Each step is announced in the status line (*Zoom 140%.*), including at the smallest and largest sizes.
+- **Measures per line** (Auto, 2, 3, 4 or 6) lays the score out with that many bars on each line where they fit. Auto keeps the line breaks written in the ABC at 100% and below. Re-flowing lays the score out twice, so very long scores redraw more slowly.
+- Print / PDF and SVG exports use the same layout, so a zoomed score prints in large print. The SVG is as wide as the score, with the credit wrapped to fit. Both settings are display only, remembered in the browser (`fretfree-zoom`, `fretfree-measures-per-line`) and included in backups.
+
+---
+
+# Select, copy, paste and duplicate · 2026-10-06
+
+- **Shift+←→** and **Shift+click** select a run of notes in one voice; **Ctrl/Cmd+A** selects the whole voice. Shift+click still sets the practice range, as before.
+- **Ctrl/Cmd+C** copies the selection, **Ctrl/Cmd+X** copies it and leaves rests of the same length, **Ctrl/Cmd+V** pastes after the selection or over a selected rest that is long enough, and **Ctrl/Cmd+D** repeats the selection right after itself and selects the copy. Whole measures copy with their bar line (the last measure too when no bar line closes the music). Pasted notes keep their length and pitch, in another score too: lengths are respelled for its unit length, and a note gets an accidental where the key or an accidental earlier in the measure needs one, including a note whose sharp or flat came from earlier in the measure it was copied from. Key, meter and unit-length changes inside a selection are not copied. The clip stays in memory, and is offered to the system clipboard as ABC where the browser allows.
+- ↑↓ (Ctrl: octave), sharp/flat/natural, dot, tie, length keys and Delete act on every selected note, as do the notation toolbar's Length, Dot, Tie, ♯ ♭ ♮ and Delete buttons, and the new **[** and **]** keys halve or double every length (a single note too). Letters and piano keys add notes after the last selected note. Notes after an edit in the same measure keep their pitch, with an accidental where they now need one (a pasted, cut or deleted sharp no longer changes them). Deleting whole measures takes one bar line with them, and a line left empty goes too, as a blank line would end the tune.
+- **◂ Select, Select ▸, Copy, Cut, Paste and Duplicate** buttons under the keyboard help do the same on touch screens. Every edit is one undo step; pasting does not re-bar, and the bar check reports any overflow.
+- **Selection only** in the Transpose panel now covers every measure of a range selection.
+- Messages at the bottom of the window no longer block clicks on the notes beneath them.
+
+---
+
+# Classroom colors and letters in noteheads · 2026-10-06
+
+- **Colors: Classroom** (next to Note names) colors each notehead by its letter, in the Boomwhacker and handbell order: C red, D orange, E yellow with a dark outline, F green, G light blue, A dark blue, B purple. Sharps and flats keep their letter's color, in every octave and inside chords. Stems, rests and accidentals stay black.
+- **Letters in noteheads** (a new Note names choice) writes the letter inside each head, in black or white for contrast, and in ink on half and whole notes. Grace notes are colored but too small for a letter.
+- Both follow written pitch for transposing instruments, appear in prints and SVG exports, are remembered and backed up (`fretfree-note-colors`; the letters reuse `fretfree-note-names`), and never change the ABC source. A selected or playing note still shows its highlight color.
+- Fixes: a note under the "Score saved" message can be clicked, and the note menu no longer closes at once when the page shifts a few pixels as the status line above the score rewraps.
+
+---
+
+# On-screen piano keys · 2026-10-06
+
+- **Piano keys** (under the note buttons) shows a piano strip, C2 to C7, under the score. It stays at the bottom of the window and scrolls to the selected note or to the instrument's range. Tap a key to write the note over the selected rest or after the selected note; tapping in turn enters a melody at the current length, and each tap sounds with Hear notes. On a touch screen the note goes in when the finger lifts, so a swipe that starts on a key scrolls the strip or the page without entering anything. Keys are written pitch: on Clarinet in B♭ the D key writes concert `C`.
+- **Chords:** Shift+tap, or hold one key while tapping others on a touch screen, to add the pitch to the selected note or the note just entered (`C2` becomes `[CE]2`). <kbd>Shift</kbd>+<kbd>A</kbd>–<kbd>G</kbd> on the score does the same with the letter just above the chord's top note.
+- **Spelling** follows the key in force: in-key notes need no accidental (the black key between A and B is `B` in F major, F♯ is `F` in G major), others take sharps in sharp keys and C (`^C`) and flats in flat keys, and a natural is written where an earlier accidental in the bar would change the note. An accidental from the piano does not change notes after it in the bar: they get their own accidental (`z C` with C♯ tapped over the rest becomes `^C =C`).
+- The selected note's keys are lit, and keys light as playback sounds them. From the keyboard, ←→ move between keys, Enter adds the note, Shift+Enter adds it to the chord, and the score's other shortcuts still work. The setting is remembered and backed up (`fretfree-piano`), and the strip is hidden in print.
+- `midiToken(midi, key)`, `addChordPitch(text, pitch)` and `keepLaterPitches(...)` in score-tools.js spell a MIDI note for a key signature, add a pitch to a note or chord, and write out the accidentals later notes in the bar need after an edit; `insertNote` now goes through `insertCore(pitch, selection)`, which later input methods (MIDI keyboards, fretboard) can share.
+
+---
+
 # MusicXML export · 2026-10-06
 
 - **Studio → MusicXML** downloads the score as MusicXML 4.0 for MuseScore, Noteflight, Finale, Sibelius or Dorico, at concert pitch. The converter (`musicxml.js`) walks the abcjs parse: each staff is a part, and staves braced with `%%score {RH | LH}` share one part. It writes key (with mode), time and clef changes, pickups, notes, rests, chords, ties, tuplets, grace notes, multi-bar rests, chord symbols as harmony, lyrics (syllables and extenders), dynamics, hairpins, articulations, ornaments, fingerings, slurs, segno/coda/D.C. text, repeats with numbered endings, and tempo marks.

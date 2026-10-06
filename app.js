@@ -180,6 +180,14 @@ $('instrument').onchange = () => {
   instrumentShown = currentInstrument();
   changed();
 };
+// Concert pitch view is display only: the source, playback and the undo history stay as they are. An open note menu
+// points into the old drawing, so it closes first.
+$('concert-pitch').onchange = () => {
+  storage.set(KEYS.concertPitch, $('concert-pitch').checked);
+  closeNoteMenu();
+  clearTimeout(renderTimer);
+  render();
+};
 // Volume is live: the master bus follows the slider, so playback carries on.
 $('volume').oninput = updateVolume;
 $('help-toggle').onclick = () => {
@@ -286,9 +294,26 @@ function applyStoredSettings() {
     $(id).checked = !!storage.get(KEYS.practice(id), false);
   $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
   $('note-names').value = storage.get(KEYS.noteNames, 'off');
+  $('note-colors').value = storage.get(KEYS.noteColors, 'off');
   $('audition').checked = storage.get(KEYS.audition, true) !== false;
+  if (typeof setPiano === 'function') setPiano(storage.get(KEYS.piano, false) === true, false);
+  applyStoredLayout();
   prepareTrainer();
 }
+// Zoom, measures per line and Concert pitch view are read before the first render, so the start-up score is drawn
+// once as the student left it.
+function applyStoredLayout() {
+  $('concert-pitch').checked = storage.get(KEYS.concertPitch, false) === true;
+  showZoom(storage.get(KEYS.zoom, 100));
+  $('measures-per-line').value = String(validMeasuresPerLine(storage.get(KEYS.measuresPerLine, 0)));
+}
+$('zoom-out').onclick = () => stepZoom(-1);
+$('zoom-in').onclick = () => stepZoom(1);
+$('zoom-reset').onclick = () => stepZoom(0);
+$('measures-per-line').onchange = () => {
+  storage.set(KEYS.measuresPerLine, measuresPerLine());
+  render();
+};
 for (const id of ['loop', 'metronome', 'count-in', 'trainer']) {
   $(id).checked = !!storage.get(KEYS.practice(id), false);
   $(id).addEventListener('change', () => {
@@ -398,6 +423,7 @@ ABCJS.renderAbc('hero-notation', catalog[0].abc, {
   paddingbottom: 30
 });
 renderCards();
+applyStoredLayout();
 // Unsaved work from an earlier visit is offered once the start-up score is open; a share link opens first.
 loadDrafts();
 newScore();
@@ -419,9 +445,14 @@ $('fingering').onchange = () => {
 $('audition').checked = storage.get(KEYS.audition, true) !== false;
 $('audition').onchange = () => storage.set(KEYS.audition, $('audition').checked);
 $('note-names').value = storage.get(KEYS.noteNames, 'off');
-if (noteNamesMode() !== 'off') render();
+$('note-colors').value = storage.get(KEYS.noteColors, 'off');
+if (noteNamesMode() !== 'off' || lettersInHeads() || noteColorsShown()) render();
 $('note-names').onchange = () => {
   storage.set(KEYS.noteNames, $('note-names').value);
+  render();
+};
+$('note-colors').onchange = () => {
+  storage.set(KEYS.noteColors, $('note-colors').value);
   render();
 };
 // A remembered speed trainer needs the same below-goal start as a freshly ticked one.

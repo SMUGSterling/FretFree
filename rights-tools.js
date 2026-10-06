@@ -170,8 +170,9 @@ function creditedSVG(container, source, item) {
     root = document.createElementNS(ns, 'svg');
   root.setAttribute('xmlns', ns);
   root.setAttribute('style', 'color:black;background:white');
+  // The canvas is as wide as the score, so a zoomed-in score fills it (large print), and the credit wraps to fit.
   let y = 0,
-    width = 800;
+    width = 0;
   for (const svg of svgs) {
     const copy = svg.cloneNode(true);
     copy.querySelectorAll('.range-shade,.bar-flag,.draw-ghost').forEach(el => el.remove());
@@ -191,7 +192,10 @@ function creditedSVG(container, source, item) {
     const metadata = document.createElementNS(ns, 'metadata');
     metadata.textContent = credit + '\nCorresponding editable ABC source:\n' + creditedABC(source, item);
     root.appendChild(metadata);
-    const lines = credit.split('\n').flatMap(line => line.match(/.{1,105}(?:\s|$)|.{1,105}/g) || ['']);
+    // At most 105 characters a line, and fewer on a narrow score: 12 units of margin a side, 7.2 units a character.
+    const n = Math.max(20, Math.min(105, Math.floor((width - 24) / 7.2))),
+      wrap = new RegExp(`.{1,${n}}(?:\\s|$)|.{1,${n}}`, 'g');
+    const lines = credit.split('\n').flatMap(line => line.match(wrap) || ['']);
     for (const line of lines) {
       const t = document.createElementNS(ns, 'text');
       t.setAttribute('x', '12');
