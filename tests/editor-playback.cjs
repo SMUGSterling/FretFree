@@ -3319,6 +3319,8 @@ async function checkRoadMap() {
       run(
         `playEvents().filter(e=>e.type==='event').map(e=>e.milliseconds/1000+':'+noteSources.get(e.startCharArray[0]).measure).join(' ')`
       );
+  // Note times below count from the mocked clock at 10 s, where the recording checks may have left it elsewhere.
+  run('audio.currentTime=10');
   open('C4|D4 !fine!|E4|F4 !D.C.alfine!|]');
   assert.equal(await heard(), 'C D E F C D', 'D.C. al Fine plays from the start to Fine');
   assert.equal(lit(), '0:1 2:2 4:3 6:4 8:1 10:2', 'The highlight follows the jump');
