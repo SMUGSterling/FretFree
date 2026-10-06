@@ -8,28 +8,28 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=a7f93870c30c" />
-    <script defer src="vendor/abcjs-basic-min.js?v=a7f93870c30c"></script>
-    <script defer src="catalog.js?v=a7f93870c30c"></script>
-    <script defer src="catalog-expanded.js?v=a7f93870c30c"></script>
-    <script defer src="score-tools.js?v=a7f93870c30c"></script>
-    <script defer src="rights-tools.js?v=a7f93870c30c"></script>
-    <script defer src="musicxml.js?v=a7f93870c30c"></script>
-    <script defer src="catalog-licensed.js?v=a7f93870c30c"></script>
-    <script defer src="catalog-lieder.js?v=a7f93870c30c"></script>
-    <script defer src="catalog-quartets.js?v=a7f93870c30c"></script>
-    <script defer src="catalog-pgh.js?v=a7f93870c30c"></script>
-    <script defer src="catalog-skills.js?v=a7f93870c30c"></script>
-    <script defer src="prompts.js?v=a7f93870c30c"></script>
-    <script defer src="shared.js?v=a7f93870c30c"></script>
-    <script defer src="library.js?v=a7f93870c30c"></script>
-    <script defer src="backup.js?v=a7f93870c30c"></script>
-    <script defer src="editor.js?v=a7f93870c30c"></script>
-    <script defer src="palette.js?v=a7f93870c30c"></script>
-    <script defer src="playback.js?v=a7f93870c30c"></script>
-    <script defer src="keyboard.js?v=a7f93870c30c"></script>
-    <script defer src="assignments.js?v=a7f93870c30c"></script>
-    <script defer src="app.js?v=a7f93870c30c"></script>
+    <link rel="stylesheet" href="style.css?v=7a946246d623" />
+    <script defer src="vendor/abcjs-basic-min.js?v=7a946246d623"></script>
+    <script defer src="catalog.js?v=7a946246d623"></script>
+    <script defer src="catalog-expanded.js?v=7a946246d623"></script>
+    <script defer src="score-tools.js?v=7a946246d623"></script>
+    <script defer src="rights-tools.js?v=7a946246d623"></script>
+    <script defer src="musicxml.js?v=7a946246d623"></script>
+    <script defer src="catalog-licensed.js?v=7a946246d623"></script>
+    <script defer src="catalog-lieder.js?v=7a946246d623"></script>
+    <script defer src="catalog-quartets.js?v=7a946246d623"></script>
+    <script defer src="catalog-pgh.js?v=7a946246d623"></script>
+    <script defer src="catalog-skills.js?v=7a946246d623"></script>
+    <script defer src="prompts.js?v=7a946246d623"></script>
+    <script defer src="shared.js?v=7a946246d623"></script>
+    <script defer src="library.js?v=7a946246d623"></script>
+    <script defer src="backup.js?v=7a946246d623"></script>
+    <script defer src="editor.js?v=7a946246d623"></script>
+    <script defer src="palette.js?v=7a946246d623"></script>
+    <script defer src="playback.js?v=7a946246d623"></script>
+    <script defer src="keyboard.js?v=7a946246d623"></script>
+    <script defer src="assignments.js?v=7a946246d623"></script>
+    <script defer src="app.js?v=7a946246d623"></script>
   </head>
   <body>
     <header>
@@ -173,18 +173,46 @@
               title="Write instructions and goals for this score, then share it as an assignment"
             >
               ✎ Assignment</button
-            ><label class="inline bars-label"
-              >Bars
-              <input
-                id="new-bars"
-                type="number"
-                min="1"
-                max="64"
-                value="8"
-                aria-label="Bars in a new blank score" /></label
-            ><button id="new-score">＋ New score</button>
+            ><button
+              id="new-score-open"
+              aria-expanded="false"
+              aria-controls="new-score-panel"
+              title="Start a score from a template: melody, lead sheet, piano, duet, choir or string quartet"
+            >
+              ＋ New score</button
+            ><button id="new-score" title="Start a blank 8-bar melody in 4/4 and C major">Blank melody</button>
           </div>
         </div>
+        <section id="new-score-panel" class="prompt-picker new-score-panel" aria-labelledby="new-score-heading" hidden>
+          <div class="prompt-picker-head">
+            <div>
+              <h2 id="new-score-heading">New score</h2>
+              <p class="small">
+                Pick a template and set up the score. Every bar starts as a rest you can write over, and you can change
+                the title, key, time signature and tempo later.
+              </p>
+            </div>
+            <button id="close-new-score" type="button" aria-label="Close new score">✕</button>
+          </div>
+          <form id="new-score-form" class="new-score-form" novalidate>
+            <label>Title<input id="new-title" maxlength="120" placeholder="Untitled" autocomplete="off" /></label
+            ><label>Template<select id="new-template"></select></label><label>Key<select id="new-key"></select></label
+            ><label>Time signature<select id="new-meter"></select></label
+            ><label>Tempo (BPM)<input id="new-tempo" type="number" min="40" max="200" value="100" /></label
+            ><label
+              >Pickup<select id="new-pickup">
+                <option value="0">None</option>
+                <option value="1">1 beat</option>
+                <option value="2">2 beats</option>
+                <option value="3">3 beats</option>
+              </select></label
+            ><label>Bars<input id="new-bars" type="number" min="1" max="64" value="8" /></label>
+            <p id="new-score-summary" class="small new-score-summary" aria-live="polite"></p>
+            <div class="assignment-actions">
+              <button type="submit" class="primary">Create score</button>
+            </div>
+          </form>
+        </section>
         <section id="prompt-picker" class="prompt-picker" aria-label="Writing prompts" hidden>
           <div class="prompt-picker-head">
             <div>
@@ -377,13 +405,23 @@
                 chord, and ^F is F sharp.
               </p>
               <p>
-                Headers: T:title, C:composer, M:meter, L:default note length, Q:tempo, K:key. Enter notes after K:. To
-                write multiple parts, use ABC V: voices.
+                Headers: T:title, C:composer, M:meter, L:default note length, Q:tempo, K:key. Enter notes after K:. For
+                several parts, start from a template under ＋ New score, or write ABC V: voices.
               </p>
             </div>
             <div class="editor-actions">
-              <button class="primary" id="save">Save to my scores</button><button id="import">Open .abc</button
-              ><input type="file" id="import-file" accept=".abc,text/plain" hidden />
+              <button class="primary" id="save">Save to my scores</button
+              ><button
+                id="import"
+                title="ABC (.abc) or MusicXML (.musicxml, .xml, .mxl) from MuseScore, Noteflight, Finale, Sibelius or Dorico"
+              >
+                Open ABC or MusicXML</button
+              ><input
+                type="file"
+                id="import-file"
+                accept=".abc,.musicxml,.xml,.mxl,text/plain,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml"
+                hidden
+              />
             </div>
             <p class="small" id="save-status" role="status"></p>
           </aside>
@@ -394,6 +432,8 @@
               ><label class="inline"><input type="checkbox" id="loop" /> Loop</label
               ><label class="inline"><input type="checkbox" id="metronome" /> Metronome</label
               ><label class="inline"><input type="checkbox" id="count-in" /> Count-in</label
+              ><label class="inline" title="Play the chord symbols as an accompaniment"
+                ><input type="checkbox" id="chords" checked /> Chords</label
               ><label class="volume"
                 >Volume<input id="volume" type="range" min="0" max="1" step="0.05" value="0.3" /></label
               ><span id="play-status" role="status">Ready to play</span>
@@ -471,11 +511,11 @@
               <kbd>.</kbd> dot · <kbd>↑</kbd><kbd>↓</kbd> pitch (<kbd>Ctrl</kbd> octave) · <kbd>←</kbd
               ><kbd>→</kbd> select · <kbd>#</kbd> <kbd>-</kbd> <kbd>=</kbd> sharp, flat, natural · <kbd>+</kbd> tie ·
               <kbd>Z</kbd> respell (C♯ to D♭) · <kbd>;</kbd> <kbd>:</kbd> <kbd>&gt;</kbd> <kbd>"</kbd>
-              <kbd>^</kbd> staccato, tenuto, accent, marcato, fermata · <kbd>|</kbd> bar line · <kbd>Delete</kbd> ·
-              <kbd>Space</kbd> play from the note (or double-click it) · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> or
-              Shift+click select more · <kbd>Ctrl</kbd>+<kbd>A</kbd> all · <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd>
-              <kbd>V</kbd> copy, cut, paste · <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>[</kbd> <kbd>]</kbd> halve,
-              double lengths
+              <kbd>^</kbd> staccato, tenuto, accent, marcato, fermata · <kbd>K</kbd> chord symbol · <kbd>|</kbd> bar
+              line · <kbd>Delete</kbd> · <kbd>Space</kbd> play from the note (or double-click it) ·
+              <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> or Shift+click select more · <kbd>Ctrl</kbd>+<kbd>A</kbd> all ·
+              <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd> <kbd>V</kbd> copy, cut, paste · <kbd>Ctrl</kbd>+<kbd>D</kbd>
+              duplicate · <kbd>[</kbd> <kbd>]</kbd> halve, double lengths
             </p>
             <div class="selection-tools" role="group" aria-label="Selected notes">
               <button id="select-left" aria-label="Select left" title="Move the end of the selection left (Shift+←)">
@@ -495,7 +535,7 @@
             <p class="small" id="selection-status" role="status">
               Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag
               up/down to change pitch; use the toolbar above the score or right-click a note for length, accidentals,
-              ties, articulations and dynamics. Playback speed leaves the score tempo unchanged.
+              ties, articulations, dynamics and chord symbols. Playback speed leaves the score tempo unchanged.
             </p>
             <div id="prompt-check" class="prompt-check" aria-live="polite" hidden></div>
             <div id="bar-check" class="bar-check" aria-live="polite" hidden></div>
@@ -609,6 +649,11 @@
                   sfz
                 </button>
               </div>
+              <div role="group" aria-label="Chord symbol">
+                <button data-palette="chord" aria-label="Chord symbol" aria-keyshortcuts="K" title="Chord symbol (K)">
+                  Chord
+                </button>
+              </div>
               <div role="group" aria-label="More marks">
                 <button
                   data-palette="more"
@@ -667,6 +712,23 @@
                 tabindex="0"
                 aria-label="Score. Click a note, then type A to G to add notes after it; arrow keys move and select, Shift+arrows select more."
               ></div>
+              <div id="chord-entry" class="chord-entry" role="group" aria-label="Chord symbol" hidden>
+                <input
+                  id="chord-input"
+                  type="text"
+                  maxlength="40"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  enterkeyhint="done"
+                  placeholder="G7"
+                  aria-label="Chord symbol"
+                  aria-describedby="chord-hint"
+                /><button id="chord-next" type="button" tabindex="-1" title="Save and go to the next note (Tab)">
+                  Next ▸
+                </button>
+                <p id="chord-hint" class="chord-hint" aria-live="polite">Enter saves · Tab next note · Esc cancels</p>
+              </div>
             </div>
             <div
               id="piano"
@@ -793,14 +855,15 @@
           Use ABC notation, the note buttons, the notation toolbar above the score, the on-screen piano keys, or a USB
           MIDI keyboard (in browsers with Web MIDI, such as Chrome and Edge) to write music and chords, with
           articulations, dynamics and ornaments; dynamics, accents and staccato change the playback. Press Z or Respell
-          to respell a note, such as C♯ as D♭. Hear each note as you enter it, play the score with built-in synthesized
+          to respell a note, such as C♯ as D♭. Add chord symbols to make a lead sheet; they play as an accompaniment,
+          which the Chords switch turns off. Hear each note as you enter it, play the score with built-in synthesized
           tones, change tempo, loop playback, and export ABC, MIDI, SVG, or MusicXML (for MuseScore, Noteflight, Finale,
-          Sibelius or Dorico). Select a passage to copy, cut, paste or repeat it, or to move or lengthen every note in
-          it at once. Zoom in for larger notation, or choose how many measures go on each line. Use Print / PDF to
-          produce a paper score, in large print if you zoom in first. Transpose a score or a few measures by any
-          interval or to a new key. Choose a B♭ or E♭ instrument for written-pitch transposition with concert-pitch
-          playback, and tick Concert pitch to see the notes as they sound. Classroom colors and letters in noteheads
-          help beginners read, and both print.
+          Sibelius or Dorico). Open MusicXML from those programs too, converted to ABC on your device. Select a passage
+          to copy, cut, paste or repeat it, or to move or lengthen every note in it at once. Zoom in for larger
+          notation, or choose how many measures go on each line. Use Print / PDF to produce a paper score, in large
+          print if you zoom in first. Transpose a score or a few measures by any interval or to a new key. Choose a B♭
+          or E♭ instrument for written-pitch transposition with concert-pitch playback, and tick Concert pitch to see
+          the notes as they sound. Classroom colors and letters in noteheads help beginners read, and both print.
         </p>
         <h2>Privacy and school access</h2>
         <p>
