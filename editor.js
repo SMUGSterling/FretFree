@@ -125,6 +125,7 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
     const from = anchor ?? entry.measure,
       to = anchor == null ? +$('end-measure').max : entry.measure;
     setRange(from, to);
+    refreshPalette();
     return;
   }
   $('selection-status').textContent =
@@ -132,6 +133,11 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
   // A pointer click sounds the note (Hear notes); a drag sounded it before the render. Calls from code pass no
   // event, so the note menu stays quiet.
   if (event && !drag?.step) auditionAt(start);
+  refreshPalette();
+}
+// The notation palette (palette.js) shows the selection's state; it is optional, so editing works without it.
+function refreshPalette() {
+  if (typeof updatePalette === 'function') updatePalette();
 }
 function updateMeasures() {
   measureStarts = new Map();
@@ -193,6 +199,7 @@ function render() {
     $('warnings').textContent = 'Could not render this score: ' + e.message;
   }
   scheduleDraft();
+  refreshPalette();
 }
 // abcjs options for the main score. Guitar adds a tab staff; recorder leaves room below for the fingering diagrams.
 function engraveOptions() {
@@ -728,9 +735,12 @@ function showGhost(t) {
 function applyNoteEdit(start, end, text, select = text ? [start, start + text.length] : null, hear = null) {
   flushTyping();
   const area = $('abc');
+  // An edit that leaves the text as it was (a dot on a multi-measure rest) keeps the score saved.
+  if (area.value.slice(start, end) !== text) {
+    dirty = true;
+    $('save-status').textContent = 'Unsaved changes';
+  }
   area.setRangeText(text, start, end, 'end');
-  dirty = true;
-  $('save-status').textContent = 'Unsaved changes';
   clearTimeout(renderTimer);
   syncFields();
   selectedRange = select;
@@ -994,8 +1004,19 @@ $('notation').addEventListener('contextmenu', e => {
   const box = sel.svgEl.getBoundingClientRect();
   openNoteMenu(entry, display, e.clientX || box.right, e.clientY || box.bottom);
 });
-// One edit on one note, shared by the note menu and the keyboard. Actions: acc:<^|_|=|>, len:<whole>, dot, tie,
-// delete, rest-after, bar-after, play-from, range-from.
+// The source between a note and the next one (next) when only spaces or tabs separate them: notes written without a
+// space share a beam. Null at the end of the music or before a bar line, a line break or anything else.
+function beamGap(entry) {
+  const v = $('abc').value,
+    {startChar, endChar} = entry.element,
+    from = startChar + v.slice(startChar, endChar).trimEnd().length,
+    next = scoreNotes().find(n => n.element.startChar >= endChar);
+  if (!next) return null;
+  const gap = v.slice(from, next.element.startChar);
+  return /^[ \t]*$/.test(gap) ? {from, to: next.element.startChar, joined: !gap, next} : null;
+}
+// One edit on one note, shared by the note menu, the keyboard and the palette. Actions: acc:<^|_|=|>, len:<whole>,
+// dot, tie, to-rest, beam:join, beam:break, delete, rest-after, bar-after, play-from, range-from. Others do nothing.
 function editNote(entry, display, action) {
   const area = $('abc'),
     v = area.value,
@@ -1025,13 +1046,41 @@ function editNote(entry, display, action) {
     insertAt(end, token, action === 'rest-after');
     return;
   }
+  if (action === 'beam:join' || action === 'beam:break') {
+    // Join by removing the space before the next note; break by adding one. The note stays selected.
+    const gap = beamGap(entry),
+      join = action === 'beam:join';
+    if (gap && gap.joined !== join) applyNoteEdit(gap.from, gap.to, join ? '' : ' ', [start, gap.from]);
+    return;
+  }
+  const newLength = action.startsWith('len:') ? +action.slice(4) : null;
+  if (!(newLength > 0) && !['dot', 'delete', 'to-rest'].includes(action)) return;
+  if (action === 'to-rest' && !entry.element.pitches?.length) return;
   const unit = unitLength(),
     len = entry.element.duration || 0,
     dotted = DOTTABLE.some(x => Math.abs(len - x * 1.5) < 1e-9);
   const change = t =>
     action === 'delete'
       ? ''
-      : editNoteText(t, {length: (action === 'dot' ? (dotted ? len / 1.5 : len * 1.5) : +action.slice(4)) / unit});
+      : action === 'to-rest'
+        ? editNoteText(t, {rest: true})
+        : editNoteText(t, {length: (action === 'dot' ? (dotted ? len / 1.5 : len * 1.5) : newLength) / unit});
+  // Nothing can be tied to a rest, so a note that becomes one also takes the tie off the note before it in its voice,
+  // in the same edit (one undo step).
+  const voice = e => e.key.replace(/:\d+$/, ''),
+    tiedFrom =
+      action === 'to-rest' &&
+      scoreNotes()
+        .filter(n => voice(n) === voice(entry) && n.element.startChar < start)
+        .pop()?.element,
+    untie =
+      tiedFrom && /^-/.test(noteParts(v.slice(tiedFrom.startChar, tiedFrom.endChar))?.post || '') ? tiedFrom : null;
+  const edit = (from, to, text) => {
+    if (!untie || untie.endChar > from) return applyNoteEdit(from, to, text);
+    const lead = editNoteText(v.slice(untie.startChar, untie.endChar), {tie: false}) + v.slice(untie.endChar, from),
+      at = untie.startChar + lead.length;
+    applyNoteEdit(untie.startChar, to, lead + text, [at, at + text.length]);
+  };
   const pair = brokenPair(entry);
   if (!pair) {
     // Deleting keeps the previous note selected so typing can carry on from there.
@@ -1048,7 +1097,7 @@ function editNote(entry, display, action) {
         '',
         prev ? [prev.element.startChar, prev.element.endChar] : null
       );
-    else applyNoteEdit(start, end, change(old));
+    else edit(start, end, change(old));
     return;
   }
   // Spell the broken-rhythm pair out with explicit lengths so the neighbour keeps its duration.
@@ -1056,7 +1105,8 @@ function editNote(entry, display, action) {
     fixed = n =>
       editNoteText(v.slice(n.element.startChar, n.element.endChar), {
         length: (n.element.duration || 0) / unit,
-        unbroken: true
+        unbroken: true,
+        tie: n.element === untie ? false : undefined
       });
   const first = a === entry ? change(fixed(a)) : fixed(a),
     second = c === entry ? change(fixed(c)) : fixed(c);
@@ -1064,7 +1114,8 @@ function editNote(entry, display, action) {
     first ? m : ''
   );
   const spaced = second || !first ? text : text.replace(/\s*$/, ' ');
-  applyNoteEdit(a.element.startChar, c.element.endChar, spaced, action === 'delete' ? null : undefined);
+  if (action === 'delete') applyNoteEdit(a.element.startChar, c.element.endChar, spaced, null);
+  else edit(a.element.startChar, c.element.endChar, spaced);
 }
 $('note-menu').addEventListener('click', e => {
   const b = e.target.closest('[data-edit]'),
@@ -1209,6 +1260,24 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength()) {
     start + lead.length
   );
 }
+// Keys 3–7 and the palette's length buttons: set the length of new notes, and of the selected note. A selected rest
+// keeps its length, so typing a letter writes a note of the new length over it.
+function chooseLength(value, sel = selectedNote()) {
+  inputLength = value;
+  const name = (NOTE_VALUES[value] || 'that length').replace(/^an? /, '');
+  if (sel && sel.entry.element.pitches?.length) {
+    const before = $('abc').value;
+    editNote(sel.entry, sel.display, 'len:' + value);
+    $('selection-status').textContent =
+      ($('abc').value === before ? 'Already ' : 'Changed to ') + (NOTE_VALUES[value] || 'that length') + '.';
+  } else {
+    // Letters write over a selected rest, but go after a multi-measure rest (Z).
+    const over = sel && sel.entry.element.rest?.type !== 'multimeasure';
+    $('selection-status').textContent =
+      'New notes will be ' + name + 's.' + (over ? ' Type a letter to write one over the rest.' : '');
+    refreshPalette();
+  }
+}
 function scoreKey(e) {
   if (e.metaKey || e.altKey || (e.ctrlKey && !/^Arrow(Up|Down)$/.test(e.key)) || !$('note-menu').hidden) return false;
   if (renderedSource !== $('abc').value) {
@@ -1233,11 +1302,7 @@ function scoreKey(e) {
     return true;
   }
   if (LENGTH_KEYS[key]) {
-    inputLength = LENGTH_KEYS[key];
-    if (sel && sel.entry.element.pitches?.length) editNote(sel.entry, sel.display, 'len:' + inputLength);
-    else
-      $('selection-status').textContent =
-        'New notes will be ' + (NOTE_VALUES[inputLength] || 'that length').replace(/^an? /, '') + 's.';
+    chooseLength(LENGTH_KEYS[key], sel);
     return true;
   }
   if (key === '|') {
@@ -1257,6 +1322,7 @@ function scoreKey(e) {
     selectedRange = null;
     renderedTune?.engraver?.rangeHighlight?.(-1, -1);
     $('selection-status').textContent = 'Nothing selected. Letters add notes at the end.';
+    refreshPalette();
     return true;
   }
   if (!sel) return false;

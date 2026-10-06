@@ -1352,6 +1352,67 @@ input[type='range'] {
   background: var(--paper);
   color: var(--ink);
 }
+.palette {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 0;
+}
+.palette [role='group'] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.palette button {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1;
+}
+.palette [data-palette^='len:'],
+.palette [data-palette^='acc:'] {
+  font-size: 19px;
+  padding: 4px 8px;
+}
+.palette [data-palette='acc:'] {
+  font-size: 12px;
+}
+.palette [data-palette='len:1'] {
+  font-size: 26px;
+}
+.palette .glyph {
+  font-size: 17px;
+  vertical-align: -2px;
+}
+.palette button[aria-pressed='true'] {
+  background: var(--green);
+  color: white;
+  border-color: var(--green);
+}
+.palette button[aria-disabled='true'] {
+  cursor: default;
+  opacity: 0.45;
+}
+.palette button[aria-disabled='true']:hover {
+  border-color: var(--border);
+  background: var(--paper);
+}
+.palette .danger {
+  color: #9e4d28;
+}
+@media (max-width: 720px) {
+  .palette {
+    gap: 6px;
+  }
+}
+@media print {
+  .palette {
+    display: none !important;
+  }
+}
 .draft-banner {
   display: flex;
   flex-wrap: wrap;
