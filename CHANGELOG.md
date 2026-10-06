@@ -1,3 +1,10 @@
+# Backup and restore · 2026-10-06
+
+- **My scores → ⬇ Back up** writes every saved score, favorite, played mark and practice setting to one JSON file. Where the browser offers a Save As dialog (Chrome, Edge) the file can go in a synced folder and is remembered for one-click repeat backups; elsewhere it downloads.
+- **⬆ Restore** merges a backup: nothing is deleted, the newer copy of a score wins, favorites and played marks are combined, settings are applied. A status line shows the last backup and how many scores have changed since.
+
+---
+
 # Paul Hardy’s Annex and Possible tunebooks · 2026-10-06
 
 - The non-commercial collection is now **Paul Hardy’s Tunebooks**: the Session Tunebook (2016) plus the Annex (2015) and Possible (2015) books, 554 tunes in all under CC BY-NC-SA 3.0. The two smaller books mostly feed the Session edition, so duplicates across books are skipped, as are blocks without the per-tune licence credit and traditional tunes carrying a named arranger’s undated variations; the net gain is 21 tunes. `scripts/import-pgh.py` now takes several tunebooks at once.
