@@ -1742,8 +1742,40 @@ assert.equal(
     assert.equal(page.$('import-file').value, '', 'The same file can be chosen again');
     assert.match(page.$('import-file').accept, /\.musicxml,\.xml,\.mxl/);
   }
+  // Offline notice and Install app. jsdom has no service worker, so the About page says offline use is unavailable.
+  {
+    assert.match($('offline-ready').textContent, /^This browser cannot keep an offline copy/);
+    assert.equal($('offline-status').textContent, '');
+    assert.equal($('offline-status').getAttribute('role'), 'status');
+    Object.defineProperty(w.navigator, 'onLine', {value: false, configurable: true});
+    w.dispatchEvent(new w.Event('offline'));
+    assert.equal($('offline-status').textContent, '● Working offline');
+    assert.match($('toast').textContent, /^You are offline\. FretFree keeps working/);
+    Object.defineProperty(w.navigator, 'onLine', {value: true, configurable: true});
+    w.dispatchEvent(new w.Event('online'));
+    assert.equal($('offline-status').textContent, '');
+    // The browser's install offer is held for the button, which uses it once and then goes.
+    assert.equal($('install-app').hidden, true);
+    let prompted = 0;
+    const offer = new w.Event('beforeinstallprompt', {cancelable: true});
+    offer.prompt = async () => prompted++;
+    offer.userChoice = Promise.resolve({outcome: 'dismissed'});
+    w.dispatchEvent(offer);
+    assert.ok(offer.defaultPrevented, 'The mini-infobar is replaced by the button');
+    assert.equal($('install-app').hidden, false);
+    $('install-app').click();
+    $('install-app').click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(prompted, 1, 'An offer prompts once');
+    assert.equal($('install-app').hidden, true);
+    assert.equal(w.document.activeElement, w.document.querySelector('.nav.active'), 'Focus goes back to the nav');
+    w.dispatchEvent(offer);
+    w.dispatchEvent(new w.Event('appinstalled'));
+    assert.equal($('install-app').hidden, true);
+    assert.match($('toast').textContent, /^FretFree is installed/);
+  }
   console.log(
-    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors, zoom and the Chords switch), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, and opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files).'
+    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors, zoom and the Chords switch), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files), and the offline notice and Install app.'
   );
 })().catch(e => {
   console.error(e);

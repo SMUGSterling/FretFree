@@ -8,30 +8,34 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <script src="theme.js?v=63555f0e5090"></script>
-    <link rel="stylesheet" href="style.css?v=63555f0e5090" />
-    <script defer src="vendor/abcjs-basic-min.js?v=63555f0e5090"></script>
-    <script defer src="vendor/qrcode.js?v=63555f0e5090"></script>
-    <script defer src="catalog.js?v=63555f0e5090"></script>
-    <script defer src="catalog-expanded.js?v=63555f0e5090"></script>
-    <script defer src="score-tools.js?v=63555f0e5090"></script>
-    <script defer src="rights-tools.js?v=63555f0e5090"></script>
-    <script defer src="musicxml.js?v=63555f0e5090"></script>
-    <script defer src="catalog-licensed.js?v=63555f0e5090"></script>
-    <script defer src="catalog-lieder.js?v=63555f0e5090"></script>
-    <script defer src="catalog-quartets.js?v=63555f0e5090"></script>
-    <script defer src="catalog-pgh.js?v=63555f0e5090"></script>
-    <script defer src="catalog-skills.js?v=63555f0e5090"></script>
-    <script defer src="prompts.js?v=63555f0e5090"></script>
-    <script defer src="shared.js?v=63555f0e5090"></script>
-    <script defer src="library.js?v=63555f0e5090"></script>
-    <script defer src="backup.js?v=63555f0e5090"></script>
-    <script defer src="editor.js?v=63555f0e5090"></script>
-    <script defer src="palette.js?v=63555f0e5090"></script>
-    <script defer src="playback.js?v=63555f0e5090"></script>
-    <script defer src="keyboard.js?v=63555f0e5090"></script>
-    <script defer src="assignments.js?v=63555f0e5090"></script>
-    <script defer src="app.js?v=63555f0e5090"></script>
+    <meta name="theme-color" content="#245c4b" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <script src="theme.js?v=2aa218bef39f"></script>
+    <link rel="stylesheet" href="style.css?v=2aa218bef39f" />
+    <script defer src="vendor/abcjs-basic-min.js?v=2aa218bef39f"></script>
+    <script defer src="vendor/qrcode.js?v=2aa218bef39f"></script>
+    <script defer src="catalog.js?v=2aa218bef39f"></script>
+    <script defer src="catalog-expanded.js?v=2aa218bef39f"></script>
+    <script defer src="score-tools.js?v=2aa218bef39f"></script>
+    <script defer src="rights-tools.js?v=2aa218bef39f"></script>
+    <script defer src="musicxml.js?v=2aa218bef39f"></script>
+    <script defer src="catalog-licensed.js?v=2aa218bef39f"></script>
+    <script defer src="catalog-lieder.js?v=2aa218bef39f"></script>
+    <script defer src="catalog-quartets.js?v=2aa218bef39f"></script>
+    <script defer src="catalog-pgh.js?v=2aa218bef39f"></script>
+    <script defer src="catalog-skills.js?v=2aa218bef39f"></script>
+    <script defer src="prompts.js?v=2aa218bef39f"></script>
+    <script defer src="shared.js?v=2aa218bef39f"></script>
+    <script defer src="library.js?v=2aa218bef39f"></script>
+    <script defer src="backup.js?v=2aa218bef39f"></script>
+    <script defer src="editor.js?v=2aa218bef39f"></script>
+    <script defer src="palette.js?v=2aa218bef39f"></script>
+    <script defer src="playback.js?v=2aa218bef39f"></script>
+    <script defer src="keyboard.js?v=2aa218bef39f"></script>
+    <script defer src="assignments.js?v=2aa218bef39f"></script>
+    <script defer src="app.js?v=2aa218bef39f"></script>
   </head>
   <body>
     <header>
@@ -48,6 +52,8 @@
       </nav>
       <div class="header-tools">
         <span class="privacy">● No account needed</span
+        ><span id="offline-status" class="offline-status" role="status"></span
+        ><button id="install-app" class="install-app" hidden>⤓ Install app</button
         ><label class="inline theme-choice"
           >Theme<select id="theme" title="Auto follows your device's light or dark setting">
             <option value="auto">Auto</option>
@@ -528,8 +534,8 @@
               <kbd>.</kbd> dot · <kbd>↑</kbd><kbd>↓</kbd> pitch (<kbd>Ctrl</kbd> octave) · <kbd>←</kbd
               ><kbd>→</kbd> select · <kbd>#</kbd> <kbd>-</kbd> <kbd>=</kbd> sharp, flat, natural · <kbd>+</kbd> tie ·
               <kbd>Z</kbd> respell (C♯ to D♭) · <kbd>;</kbd> <kbd>:</kbd> <kbd>&gt;</kbd> <kbd>"</kbd>
-              <kbd>^</kbd> staccato, tenuto, accent, marcato, fermata · <kbd>K</kbd> chord symbol · <kbd>|</kbd> bar
-              line · <kbd>Delete</kbd> · <kbd>Space</kbd> play from the note (or double-click it) ·
+              <kbd>^</kbd> staccato, tenuto, accent, marcato, fermata · <kbd>K</kbd> chord symbol · <kbd>S</kbd> slur ·
+              <kbd>|</kbd> bar line · <kbd>Delete</kbd> · <kbd>Space</kbd> play from the note (or double-click it) ·
               <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> or Shift+click select more · <kbd>Ctrl</kbd>+<kbd>A</kbd> all ·
               <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd> <kbd>V</kbd> copy, cut, paste · <kbd>Ctrl</kbd>+<kbd>D</kbd>
               duplicate · <kbd>[</kbd> <kbd>]</kbd> halve, double lengths
@@ -669,6 +675,34 @@
               <div role="group" aria-label="Chord symbol">
                 <button data-palette="chord" aria-label="Chord symbol" aria-keyshortcuts="K" title="Chord symbol (K)">
                   Chord
+                </button>
+              </div>
+              <div role="group" aria-label="Lines">
+                <button
+                  data-palette="line:slur"
+                  aria-label="Slur"
+                  aria-keyshortcuts="S"
+                  title="Slur over the selected notes, or to the next note (S)"
+                >
+                  <span class="glyph" aria-hidden="true">⌒</span> Slur</button
+                ><button
+                  data-palette="line:crescendo"
+                  aria-label="Crescendo"
+                  title="Crescendo (getting louder) over the selected notes, or to the next note"
+                >
+                  <span class="glyph" aria-hidden="true">&lt;</span> Cresc.</button
+                ><button
+                  data-palette="line:diminuendo"
+                  aria-label="Diminuendo"
+                  title="Diminuendo (getting softer) over the selected notes, or to the next note"
+                >
+                  <span class="glyph" aria-hidden="true">&gt;</span> Dim.</button
+                ><button
+                  data-palette="line:trill"
+                  aria-label="Trill line"
+                  title="Trill line over the selected notes, or to the next note"
+                >
+                  <span class="glyph trill-glyph" aria-hidden="true">tr</span> Trill line
                 </button>
               </div>
               <div role="group" aria-label="More marks">
@@ -943,10 +977,11 @@
         <p>
           Use ABC notation, the note buttons, the notation toolbar above the score, the on-screen piano keys, or a USB
           MIDI keyboard (in browsers with Web MIDI, such as Chrome and Edge) to write music and chords, with
-          articulations, dynamics and ornaments; dynamics, accents and staccato change the playback. Press Z or Respell
-          to respell a note, such as C♯ as D♭. Add chord symbols to make a lead sheet; they play as an accompaniment,
-          which the Chords switch turns off. Hear each note as you enter it, play the score with a built-in synthesized
-          sound for each instrument, change tempo, play with a swing feel, loop playback, and export ABC, MIDI, SVG, or
+          articulations, dynamics and ornaments; dynamics, accents and staccato change the playback. Select some notes
+          and press S for a slur, or add a crescendo, diminuendo or trill line from the toolbar. Press Z or Respell to
+          respell a note, such as C♯ as D♭. Add chord symbols to make a lead sheet; they play as an accompaniment, which
+          the Chords switch turns off. Hear each note as you enter it, play the score with a built-in synthesized sound
+          for each instrument, change tempo, play with a swing feel, loop playback, and export ABC, MIDI, SVG, or
           MusicXML (for MuseScore, Noteflight, Finale, Sibelius or Dorico). Open MusicXML from those programs too,
           converted to ABC on your device. Select a passage to copy, cut, paste or repeat it, or to move or lengthen
           every note in it at once. Zoom in for larger notation, or choose how many measures go on each line. Use Print
@@ -970,6 +1005,13 @@
           draft in the browser, so a closed or discarded tab offers them back on the next visit. Saving a changed score
           keeps the copy it replaces: <strong>History</strong> in My scores previews, plays and restores earlier
           versions.
+        </p>
+        <p>
+          <strong>Offline and installing.</strong> After one visit, FretFree opens and works without internet: the
+          library, your saved scores, the editor and playback. A PDF or MIDI file works offline once you have opened it.
+          In Chrome and Edge, <strong>Install app</strong> at the top of the page adds FretFree to your apps; on an iPad
+          or iPhone, use Share → Add to Home Screen. A new version loads the next time you open FretFree online.
+          <span id="offline-ready"></span>
         </p>
         <p>
           A school can still block any website or disable browser audio/downloads. This design makes the educational

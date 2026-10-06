@@ -1702,6 +1702,12 @@ input[type='range'] {
 .palette .dynamic {
   font-size: 16px;
 }
+.palette .trill-glyph {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-weight: 700;
+  font-size: 15px;
+}
 .palette-more:not([hidden]) {
   display: contents;
 }
@@ -2303,5 +2309,37 @@ body.embed .practice-controls .speed-control {
   flex-wrap: wrap;
 }
 body.embed #speed-reset {
+  padding: 7px 12px;
+}
+/* Offline notice and Install app sit with the theme choice in the header. When they do not fit beside the nav they
+   move to a row of their own, on the right, and the nav labels stay on one line. At 820px and below they sit above
+   the nav, beside the logo when there is room. */
+header {
+  flex-wrap: wrap;
+}
+.header-tools {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 16px;
+  margin-left: auto;
+}
+@media (min-width: 721px) {
+  .nav {
+    white-space: nowrap;
+  }
+}
+.offline-status:empty {
+  display: none;
+}
+.offline-status {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--danger);
+  background: var(--warn-bg);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+.install-app {
+  font-size: 12px;
   padding: 7px 12px;
 }
