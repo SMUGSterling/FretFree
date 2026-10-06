@@ -25,6 +25,8 @@
   --warn-border: #c46a3a;
   --played-bg: #e5ecf6;
   --played-ink: #2b4d7a;
+  --prompt-bg: #fbfbf6;
+  --help-bg: #edf1e5;
   --shadow-tint: #e6e9dd;
   --shadow-faint: #21372d08;
   --shadow-soft: #21372d14;
@@ -57,9 +59,9 @@
   --score-flag: #f3c4ae;
   --score-ghost: #245c4b;
 }
-/* Dark theme: Auto follows the device setting, and data-theme on <html> (set by shared.js) overrides it. The same
-   tokens appear twice because CSS cannot join a media query and a selector in one rule. Screen only: print stays
-   black on white. */
+/* Dark theme: Auto follows the device setting, and data-theme on <html> (set by theme.js and shared.js) overrides
+   it. The same tokens appear twice because CSS cannot join a media query and a selector in one rule. Screen only:
+   print stays black on white. */
 @media screen and (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     color-scheme: dark;
@@ -88,6 +90,8 @@
     --warn-border: #d9805a;
     --played-bg: #1e2b3d;
     --played-ink: #a8c5ee;
+    --prompt-bg: #18201d;
+    --help-bg: #1f2926;
     --shadow-tint: #0a0e0d;
     --shadow-faint: #00000033;
     --shadow-soft: #00000059;
@@ -148,6 +152,8 @@
     --warn-border: #d9805a;
     --played-bg: #1e2b3d;
     --played-ink: #a8c5ee;
+    --prompt-bg: #18201d;
+    --help-bg: #1f2926;
     --shadow-tint: #0a0e0d;
     --shadow-faint: #00000033;
     --shadow-soft: #00000059;
@@ -718,7 +724,7 @@ textarea {
 .help {
   font-size: 12px;
   line-height: 1.7;
-  background: var(--panel);
+  background: var(--help-bg);
   padding: 15px;
   margin-top: 10px;
 }
@@ -1300,7 +1306,7 @@ input[type='range'] {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--subtle);
+  background: var(--prompt-bg);
 }
 .prompt-card h3 {
   font:
@@ -1975,6 +1981,7 @@ input[type='range'] {
 }
 .dark-paper-option {
   gap: 7px;
+  min-height: 36px;
   cursor: pointer;
 }
 .dark-paper-option input {
@@ -2003,7 +2010,15 @@ input[type='range'] {
 #notation .notehead-letter.on-ink {
   fill: var(--score-paper);
 }
-@media (max-width: 720px) {
+/* Below 820px the theme choice leaves the nav too little room, so it moves up beside the brand and the nav takes a row
+   of its own (iPad mini and older iPads in portrait are 744 and 768px wide). */
+@media (max-width: 820px) {
+  header {
+    flex-wrap: wrap;
+  }
+  nav {
+    width: 100%;
+  }
   .header-tools {
     order: -1;
     margin-left: auto;

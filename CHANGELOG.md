@@ -1,9 +1,10 @@
 # Dark theme · 2026-10-06
 
-- **Theme** in the header: Auto, Light or Dark. Auto follows the device's light or dark setting, and changes when the device does. Every view goes dark: library, Compose, My scores and About, with body text at a contrast of at least 4.5:1, dark form controls and scroll bars, and a dimmer piano strip.
+- **Theme** in the header: Auto, Light or Dark. Auto follows the device's light or dark setting, and changes when the device does. Below 820px wide (tablets in portrait, phones) it sits beside the logo and the page buttons take a row of their own. Every view goes dark: library, Compose, My scores and About, with body text at a contrast of at least 4.5:1, dark form controls and scroll bars, and a dimmer piano strip.
 - The score stays black on white in the dark theme, and so do the music-stand sheet and the card previews in the library. **Dark paper** (beside Zoom, shown only in the dark theme) turns them light-on-dark, with lighter selection, drag and playback highlights, open recorder holes in the paper color, and letters in noteheads that stay readable.
 - Prints and SVG exports are black on white in every theme and with Dark paper; the score's SVG is not redrawn when the theme changes.
-- Both choices are remembered in the browser (`fretfree-theme`, `fretfree-dark-paper`) and included in backups. The page colors are now tokens on `:root` in style.css, redefined for the dark theme.
+- Both choices are remembered in the browser (`fretfree-theme`, `fretfree-dark-paper`) and included in backups. A small script, `theme.js`, loads before the stylesheet and applies them before the page first paints, so a page that loads slowly does not show in the other theme first. If the browser cannot save them (storage full or blocked), they still apply until the page is reloaded or closed.
+- The page colors are now tokens on `:root` in style.css, redefined for the dark theme. In the light theme a few panel tints that were almost the same now share one token and shift by at most 3 of 255 per channel; the rest are unchanged.
 
 ---
 

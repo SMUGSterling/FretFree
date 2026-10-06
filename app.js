@@ -276,14 +276,15 @@ function applyStoredLayout() {
   showZoom(storage.get(KEYS.zoom, 100));
   $('measures-per-line').value = String(validMeasuresPerLine(storage.get(KEYS.measuresPerLine, 0)));
 }
-// Theme and Dark paper only change colors in style.css, so the score is not redrawn.
+// Theme and Dark paper only change colors in style.css, so the score is not redrawn. Each choice applies even when
+// it cannot be saved.
 $('theme').onchange = () => {
   storage.set(KEYS.theme, $('theme').value);
-  applyTheme();
+  applyTheme($('theme').value, $('dark-paper').checked);
 };
 $('dark-paper').onchange = () => {
   storage.set(KEYS.darkPaper, $('dark-paper').checked);
-  applyTheme();
+  applyTheme($('theme').value, $('dark-paper').checked);
 };
 $('zoom-out').onclick = () => stepZoom(-1);
 $('zoom-in').onclick = () => stepZoom(1);

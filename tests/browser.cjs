@@ -2172,6 +2172,59 @@ const {chromium} = require('playwright'),
     assert.ok(await tab.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'No sideways scroll');
     await tab.close();
   }
+  // The stored theme is on <html> before the first paint. Here the catalogs are held back, so the deferred scripts
+  // have not run, and a light device still shows the stored Dark. Tablet widths keep the nav labels on one line next to
+  // the theme choice, and Dark paper is easy to tap on a phone.
+  {
+    const context = await browser.newContext({viewport: {width: 768, height: 900}, colorScheme: 'light'});
+    await context.addInitScript(() => {
+      localStorage.setItem('fretfree-theme', '"dark"');
+      localStorage.setItem('fretfree-dark-paper', 'true');
+    });
+    let release;
+    const held = new Promise(resolve => (release = resolve));
+    await context.route(/catalog-licensed\.js/, async route => {
+      await held;
+      await route.continue();
+    });
+    const tab = await context.newPage();
+    tab.on('pageerror', e => errors.push(e.message));
+    const loaded = tab.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    await tab.waitForFunction(
+      () =>
+        document.readyState === 'interactive' && getComputedStyle(document.body).backgroundColor !== 'rgba(0, 0, 0, 0)'
+    );
+    assert.deepEqual(
+      await tab.evaluate(() => [
+        typeof applyTheme,
+        document.documentElement.dataset.theme,
+        document.documentElement.dataset.paper,
+        getComputedStyle(document.body).backgroundColor
+      ]),
+      ['undefined', 'dark', 'dark', 'rgb(18, 24, 22)'],
+      'The stored theme paints before the deferred scripts run'
+    );
+    release();
+    await loaded;
+    assert.deepEqual(await tab.evaluate(() => [$('theme').value, $('dark-paper').checked]), ['dark', true]);
+    for (const width of [721, 744, 768, 820, 821, 1024]) {
+      await tab.setViewportSize({width, height: 900});
+      const header = await tab.evaluate(() => ({
+        nav: [...document.querySelectorAll('.nav')].map(b => b.getBoundingClientRect().height),
+        theme: $('theme').getBoundingClientRect().right,
+        scroll: document.documentElement.scrollWidth
+      }));
+      assert.ok(
+        header.nav.every(h => h < 45),
+        `Nav labels stay on one line at ${width}px`
+      );
+      assert.ok(header.theme <= width && header.scroll <= width + 1, `The header fits at ${width}px`);
+    }
+    await tab.setViewportSize({width: 390, height: 844});
+    await tab.evaluate(() => document.querySelector('.nav[data-view="studio"]').click());
+    assert.ok((await tab.locator('#dark-paper-option').boundingBox()).height >= 32, 'Dark paper is easy to tap');
+    await context.close();
+  }
   await page.setViewportSize({width: 390, height: 844});
   await page.evaluate(() => {
     dirty = false;
@@ -2225,7 +2278,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
+    'PASS: dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

@@ -7,6 +7,7 @@ const fs = require('node:fs'),
 const {JSDOM} = require(process.env.JSDOM_PATH || 'jsdom');
 const root = path.resolve(__dirname, '..');
 const SCRIPTS = [
+  'theme.js',
   'vendor/abcjs-basic-min.js',
   'catalog.js',
   'catalog-expanded.js',
@@ -848,28 +849,98 @@ assert.equal(
       'A restored theme applies at once'
     );
     // A device in dark mode: Auto is dark and offers Dark paper; switching the device back to light hides it.
-    const listeners = [];
-    let deviceDark = true;
+    let listeners = [],
+      deviceDark = true;
+    const darkDevice = win => {
+        listeners = [];
+        deviceDark = true;
+        win.matchMedia = query => ({
+          media: query,
+          get matches() {
+            return /dark/.test(query) && deviceDark;
+          },
+          addEventListener: (type, fn) => listeners.push(fn)
+        });
+      },
+      switchDevice = dark => {
+        deviceDark = dark;
+        listeners.forEach(fn => fn({matches: dark}));
+      };
     const device = boot((storage, win) => {
-      win.matchMedia = query => ({
-        media: query,
-        get matches() {
-          return /dark/.test(query) && deviceDark;
-        },
-        addEventListener: (type, fn) => listeners.push(fn)
-      });
+      darkDevice(win);
       storage.setItem('fretfree-dark-paper', 'true');
     });
     assert.equal(device.$('theme').value, 'auto');
     assert.equal(device.w.document.documentElement.dataset.paper, 'dark', 'Dark paper is applied at start-up');
     assert.equal(device.$('dark-paper-option').hidden, false, 'Auto on a dark device offers Dark paper');
     assert.equal(device.$('dark-paper').checked, true);
-    deviceDark = false;
-    listeners.forEach(fn => fn());
+    switchDevice(false);
     assert.equal(device.$('dark-paper-option').hidden, true, 'Auto follows the device back to light');
+    // Storage full or blocked: Theme and Dark paper still apply for the session, and a device switch keeps them.
+    const full = boot((storage, win) => {
+        darkDevice(win);
+        win.Storage.prototype.setItem = () => {
+          throw new win.DOMException('Storage is full', 'QuotaExceededError');
+        };
+      }),
+      fullRoot = full.w.document.documentElement,
+      choose = (id, value) => {
+        if (id === 'theme') full.$(id).value = value;
+        else full.$(id).checked = value;
+        full.$(id).dispatchEvent(new full.w.Event('change'));
+      },
+      shown = () => [
+        full.$('theme').value,
+        fullRoot.getAttribute('data-theme'),
+        full.$('dark-paper').checked,
+        fullRoot.getAttribute('data-paper'),
+        full.$('dark-paper-option').hidden
+      ];
+    choose('theme', 'dark');
+    assert.deepEqual(shown(), ['dark', 'dark', false, null, false], 'Dark applies although it cannot be saved');
+    assert.equal(full.run('storage.get(KEYS.theme)'), undefined, 'and nothing was saved');
+    choose('dark-paper', true);
+    assert.deepEqual(shown(), ['dark', 'dark', true, 'dark', false], 'Dark paper applies although it cannot be saved');
+    switchDevice(false);
+    assert.deepEqual(shown(), ['dark', 'dark', true, 'dark', false], 'A device switch keeps the unsaved choice');
+    choose('theme', 'auto');
+    assert.deepEqual(shown(), ['auto', null, true, 'dark', true], 'Auto on a light device hides Dark paper');
+    switchDevice(true);
+    assert.deepEqual(shown(), ['auto', null, true, 'dark', false], 'and the device going dark shows it, still ticked');
+  }
+  // theme.js runs first, without defer and ahead of the stylesheet, so the stored theme is on <html> before the first
+  // paint instead of after the catalogs download. It reads the KEYS names before KEYS exists and skips damaged values.
+  {
+    const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8'),
+      tag = html.match(/<script[^>]*\ssrc="theme\.js[^"]*"[^>]*>/);
+    assert.ok(tag, 'index.html loads theme.js');
+    assert.doesNotMatch(tag[0], /\s(defer|async)\b/, 'theme.js is not deferred');
+    assert.ok(
+      tag.index < html.indexOf('<link rel="stylesheet"') && tag.index < html.indexOf('<script defer'),
+      'theme.js comes before the stylesheet and the deferred scripts'
+    );
+    const keys = run('[KEYS.theme, KEYS.darkPaper]'),
+      early = (theme, paper, blocked) => {
+        const dom = new JSDOM(html, {runScripts: 'outside-only', url: 'http://localhost:8000'});
+        if (theme !== undefined) dom.window.localStorage.setItem(keys[0], theme);
+        if (paper !== undefined) dom.window.localStorage.setItem(keys[1], paper);
+        if (blocked)
+          dom.window.Storage.prototype.getItem = () => {
+            throw new dom.window.DOMException('Blocked', 'SecurityError');
+          };
+        vm.runInContext(fs.readFileSync(path.join(root, 'theme.js'), 'utf8'), dom.getInternalVMContext());
+        const el = dom.window.document.documentElement;
+        return [el.getAttribute('data-theme'), el.getAttribute('data-paper')];
+      };
+    assert.deepEqual(early('"dark"', 'true'), ['dark', 'dark'], 'Stored Dark and Dark paper apply before shared.js');
+    assert.deepEqual(early('"light"', 'false'), ['light', null]);
+    assert.deepEqual(early('"auto"'), [null, null], 'Auto leaves the choice to the device');
+    assert.deepEqual(early('"purple"', '"yes"'), [null, null], 'Damaged values are ignored');
+    assert.deepEqual(early('{broken', 'true'), [null, 'dark']);
+    assert.deepEqual(early('"dark"', 'true', true), [null, null], 'Blocked storage does not stop the page');
   }
   console.log(
-    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors and zoom), blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
+    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors and zoom), blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
   );
 })().catch(e => {
   console.error(e);

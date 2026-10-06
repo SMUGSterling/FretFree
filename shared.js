@@ -51,37 +51,38 @@ const storedList = key => {
   return Array.isArray(value) ? value : [];
 };
 // Theme: Auto follows the device's light or dark setting, and Light or Dark overrides it. style.css reads data-theme
-// and data-paper on <html>; they are set here, as the scripts start, so the library is drawn in the chosen theme.
-// Dark paper turns the score dark too, and only shows in the dark theme.
+// and data-paper on <html>. theme.js sets them from storage before the first paint; applyTheme keeps them and the
+// controls in step after that. Dark paper turns the score dark too, and only shows in the dark theme.
 const THEMES = ['auto', 'light', 'dark'],
-  storedTheme = () => {
-    const theme = storage.get(KEYS.theme, 'auto');
-    return THEMES.includes(theme) ? theme : 'auto';
-  },
   darkScheme = (() => {
     try {
       return typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null;
     } catch {
       return null;
     }
-  })(),
-  themeShown = () => (storedTheme() === 'auto' ? (darkScheme?.matches ? 'dark' : 'light') : storedTheme());
-function applyTheme() {
-  const root = document.documentElement,
-    theme = storedTheme(),
-    paper = storage.get(KEYS.darkPaper, false) === true;
-  if (theme === 'auto') root.removeAttribute('data-theme');
-  else root.dataset.theme = theme;
-  if (paper) root.dataset.paper = 'dark';
+  })();
+let themeChoice = 'auto',
+  darkPaperChoice = false;
+const themeShown = () => (themeChoice === 'auto' ? (darkScheme?.matches ? 'dark' : 'light') : themeChoice);
+// Without arguments it applies the stored choice (start-up, a restored backup). The controls pass their own values, so
+// a choice still applies for the session when it cannot be saved (storage full or blocked).
+function applyTheme(theme = storage.get(KEYS.theme, 'auto'), paper = storage.get(KEYS.darkPaper, false)) {
+  const root = document.documentElement;
+  themeChoice = THEMES.includes(theme) ? theme : 'auto';
+  darkPaperChoice = paper === true;
+  if (themeChoice === 'auto') root.removeAttribute('data-theme');
+  else root.dataset.theme = themeChoice;
+  if (darkPaperChoice) root.dataset.paper = 'dark';
   else root.removeAttribute('data-paper');
-  if ($('theme')) $('theme').value = theme;
-  if ($('dark-paper')) $('dark-paper').checked = paper;
+  if ($('theme')) $('theme').value = themeChoice;
+  if ($('dark-paper')) $('dark-paper').checked = darkPaperChoice;
   if ($('dark-paper-option')) $('dark-paper-option').hidden = themeShown() !== 'dark';
 }
 applyTheme();
 // Auto follows the device as it switches; older Safari only has addListener.
-if (darkScheme?.addEventListener) darkScheme.addEventListener('change', applyTheme);
-else darkScheme?.addListener?.(applyTheme);
+const followDevice = () => applyTheme(themeChoice, darkPaperChoice);
+if (darkScheme?.addEventListener) darkScheme.addEventListener('change', followDevice);
+else darkScheme?.addListener?.(followDevice);
 let saved = storedList(KEYS.scores),
   favorites = storedList(KEYS.favorites),
   played = new Set(storedList(KEYS.played));
