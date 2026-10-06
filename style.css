@@ -2509,6 +2509,90 @@ header {
   font-size: 12px;
   padding: 7px 12px;
 }
+/* Record yourself: the panel under the practice controls, its takes list and the recording state. */
+.record-panel h2 {
+  font-size: 20px;
+}
+.transport #record.recording,
+#record-start.recording {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--on-green);
+}
+#record-start[aria-disabled='true'] {
+  cursor: wait;
+  opacity: 0.6;
+}
+.record-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 10px;
+}
+.record-panel .record-row p {
+  margin: 0;
+  flex: 1 1 220px;
+}
+.record-row label {
+  white-space: nowrap;
+}
+.record-level meter {
+  width: 90px;
+}
+.take-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.take-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.take-list li:last-child {
+  border-bottom: 1px solid var(--border);
+}
+.take-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.take-actions button {
+  font-size: 12px;
+}
+@media print {
+  .record-panel {
+    display: none !important;
+  }
+}
+/* Lyrics box: the chord symbol box's look (.chord-entry), under the selected note's staff, where the words go. */
+.lyric-verse {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+#lyric-input {
+  width: 8em;
+  min-height: 38px;
+  padding: 4px 8px;
+  font:
+    16px Georgia,
+    'Times New Roman',
+    serif;
+}
+.lyric-check {
+  margin-top: 8px;
+  padding: 8px 16px;
+}
+.palette [data-palette='lyric'].in-use {
+  border-color: var(--green);
+  box-shadow: inset 0 -3px 0 var(--green);
+}
 /* Audio file (WAV) panel under the export bar. Like the share panel, it does not print. */
 .wav-panel h2 {
   font-size: 20px;
