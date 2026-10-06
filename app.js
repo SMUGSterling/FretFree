@@ -243,7 +243,7 @@ $('import-file').onchange = async () => {
         throw /^(This|There)\b/.test(e.message) ? e : Error('This MusicXML file could not be read. It may be damaged.');
       }
       source = result.abc;
-      metadata = result.metadata;
+      metadata = importedRights(result.metadata);
     } else {
       source = await file.text();
       if (ABCJS.numberOfTunes(source) !== 1) throw new Error('Please import one ABC tune at a time.');
@@ -252,8 +252,7 @@ $('import-file').onchange = async () => {
       const notice = source.match(/^% FretFree-Rights: (.*)$/m);
       if (notice) {
         try {
-          metadata = JSON.parse(notice[1]);
-          if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) metadata = {};
+          metadata = importedRights(JSON.parse(notice[1]));
         } catch {}
       }
     }

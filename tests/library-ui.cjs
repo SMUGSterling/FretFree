@@ -826,7 +826,7 @@ assert.equal(
     assert.ok(page.$('abc').value.includes('%%score 1 2 {(3 4) | 5}'));
     assert.equal(page.$('notation').querySelectorAll('svg').length > 0, true, 'The imported score is engraved');
     await choose(fixture('left-out.musicxml'), 'left-out.musicxml');
-    assert.equal(page.$('instrument').value, 'Trumpet in B♭', 'A part written for B♭ trumpet chooses it');
+    assert.equal(page.$('instrument').value, 'Piano', 'A B♭ trumpet with a guitar is shown at concert pitch');
     assert.match(page.$('save-status').textContent, /^Imported from MusicXML \(2 parts, 2 measures\)\. .* Left out: /);
     assert.match(page.$('save-status').textContent, /Left out: pedal marks, .*, tremolos, .* and string numbers\.$/);
     assert.ok(page.$('abc').value.includes('%%abc-copyright © 2026 Sam Writer. CC BY 4.0'), 'The copyright is kept');
@@ -843,6 +843,56 @@ assert.equal(
     );
     assert.ok(page.run("creditedABC($('abc').value, current)").includes('Notation/edition license: CC-BY-SA'));
     assert.equal(page.run('current.kind'), 'personal', 'An imported edition is a personal copy');
+    // Links come back only as web addresses or paths on this site: a crafted file's javascript: or data: link is
+    // dropped, in a MusicXML file and in an ABC file alike, and so is anything that is not rights metadata.
+    const edition = page.run('catalog.find(x => x.pdf && x.originalSource)'),
+      editionXML = page.run(
+        `abcToMusicXML(catalog.find(x => x.id === ${JSON.stringify(edition.id)}).abc, {item: catalog.find(x => x.id === ${JSON.stringify(edition.id)})})`
+      );
+    await choose(editionXML, 'pdf-edition.musicxml');
+    assert.deepEqual(
+      [page.run('current.pdf'), page.run('current.originalSource'), page.$('source-edition').hidden],
+      [edition.pdf, edition.originalSource, false],
+      'A source edition keeps its PDF and source links'
+    );
+    const {abc: _, ...fields} = edition,
+      crafted = {
+        ...fields,
+        pdf: "javascript:void(document.title='pwned')",
+        originalMidi: ' javascript:alert(1)',
+        originalSource: 'data:text/html,<b>hi</b>',
+        licenseURL: 'java\tscript:alert(1)',
+        source: 'JAVASCRIPT:alert(1)',
+        instrument: 'Alto sax in E♭',
+        prompt: {title: 'Not from this file'},
+        id: 'ode'
+      },
+      linksSafe = () =>
+        [...page.$('rights').querySelectorAll('a'), ...page.$('source-edition').querySelectorAll('a')].every(a =>
+          /^https?:$/.test(a.protocol)
+        );
+    for (const [data, name] of [
+      [
+        editionXML.replace(
+          /(<miscellaneous-field name="fretfree-rights">)[^<]*/,
+          (field, open) => open + JSON.stringify(crafted).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        ),
+        'crafted.musicxml'
+      ],
+      [`% FretFree-Rights: ${JSON.stringify(crafted)}\nX:1\nT:Crafted\nK:C\nCDE|]\n`, 'crafted.abc']
+    ]) {
+      await choose(data, name);
+      assert.equal(page.run('current.rights'), edition.rights, `${name}: the rights text comes back`);
+      for (const key of ['pdf', 'originalMidi', 'originalSource', 'licenseURL', 'source', 'prompt', 'id'])
+        assert.equal(page.run(`current.${key}`), undefined, `${name}: ${key} is dropped`);
+      assert.notEqual(
+        page.$('instrument').value,
+        crafted.instrument,
+        `${name}: the file does not choose the instrument`
+      );
+      assert.equal(page.$('source-edition').hidden, true);
+      assert.ok(linksSafe(), `${name}: every link opens a web page`);
+    }
     // Problems: the open score stays, and the message is shown and kept in the status line.
     const before = page.$('abc').value;
     await choose('X:1\nK:C\nCDE|', 'not-really.xml');
@@ -860,7 +910,7 @@ assert.equal(
     assert.match(page.$('import-file').accept, /\.musicxml,\.xml,\.mxl/);
   }
   console.log(
-    'PASS (jsdom): unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore, blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, and opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, damaged and oversized files).'
+    'PASS (jsdom): unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore, blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, and opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files).'
   );
 })().catch(e => {
   console.error(e);

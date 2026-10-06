@@ -48,6 +48,59 @@ function exportCredit(item) {
     .filter(Boolean)
     .join('\n');
 }
+// Rights metadata read back from an opened file: a FretFree export's FretFree-Rights line or fretfree-rights field.
+// Anyone can write such a file, so only the credit and source fields come back, as text, and a link only when it is a
+// web address or a path on this site; a javascript: or data: link would run code or show a fake page when clicked.
+const RIGHTS_TEXT = [
+    'title',
+    'composer',
+    'lyricist',
+    'attribution',
+    'rights',
+    'collection',
+    'notationLicense',
+    'declaredLicense',
+    'compositionStatus',
+    'copyrightDeclaration',
+    'studyTransform',
+    'sourceLabel',
+    'edition',
+    'credits',
+    'date',
+    'opus',
+    'set',
+    'origin',
+    'originalInstrument',
+    'sourceCommit'
+  ],
+  RIGHTS_LINKS = [
+    'source',
+    'licenseURL',
+    'localLicense',
+    'sourceFile',
+    'sourceMirror',
+    'pdfURL',
+    'midURL',
+    'lyURL',
+    'pdf',
+    'originalMidi',
+    'originalSource',
+    'originalSourceDownload'
+  ];
+function webLink(text) {
+  try {
+    return /^https?:$/.test(new URL(text, 'https://fretfree.invalid/').protocol);
+  } catch {
+    return false;
+  }
+}
+function importedRights(value) {
+  const rights = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return rights;
+  for (const key of RIGHTS_TEXT) if (typeof value[key] === 'string') rights[key] = value[key];
+  for (const key of RIGHTS_LINKS) if (typeof value[key] === 'string' && webLink(value[key])) rights[key] = value[key];
+  return rights;
+}
 function creditedABC(source, item) {
   if (!item?.rights) return source;
   source = source

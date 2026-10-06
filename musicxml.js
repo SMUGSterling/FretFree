@@ -1059,11 +1059,13 @@ const xmlChildList = new WeakMap(),
   xmlKids = (el, name) => (el ? xmlChildren(el).filter(c => c.localName === name) : []),
   xmlKid = (el, name) => (el ? xmlChildren(el).find(c => c.localName === name) || null : null),
   xmlValue = (el, name) => xmlKid(el, name)?.textContent.trim() ?? '',
-  // Text for an ABC field: one line, with % (a comment in ABC) escaped. Inside quotes, a quote becomes an apostrophe.
+  // Text for an ABC field: one line. % starts a comment in ABC and abcjs does not read \% back, so a percent sign
+  // becomes the full-width ％, which looks the same and keeps the rest of the line. Inside quotes, a quote becomes an
+  // apostrophe.
   abcText = text =>
     String(text ?? '')
       .replace(/\s+/g, ' ')
-      .replace(/%/g, '\\%')
+      .replace(/%/g, '％')
       .trim(),
   abcQuoted = text => abcText(text).replace(/"/g, "'");
 // A written pitch moved by a <transpose>: its letter by `diatonic` steps and its sound by `chromatic` semitones.
@@ -1323,8 +1325,10 @@ function musicXMLToABC(doc, {name = ''} = {}) {
     };
     v.verses = Math.max(0, ...v.items.flat().flatMap(x => [...(x.lyric?.keys() || [])]));
   }
-  // abcjs keeps one key for the whole score and starts each voice's line in its V: clef, so when the parts' keys
-  // differ, or a voice has changed clef, each line of that voice starts by naming them again.
+  // abcjs keeps one key for the whole score: an inline [K:] in one voice also sets the key of every voice written after
+  // it, from the start of that voice's line, and a [K:clef=…] takes that key too. So when the parts' keys differ, or
+  // the key changes in a score of several voices, each line of every voice starts by naming its key. abcjs also starts
+  // each voice's line in its V: clef, so a voice that has changed clef names its clef (with its key) again.
   const keyTrail = v =>
       [
         mxiKeyText(v.start.key),
@@ -1333,6 +1337,10 @@ function musicXMLToABC(doc, {name = ''} = {}) {
         )
       ].join(),
     keysDiffer = voices.some(v => keyTrail(v) !== keyTrail(voices[0])),
+    keyChanges = voices.some(v =>
+      v.part.measures.some((m, i) => m.changes.some(c => c.type === 'key' && applies(c, v) && (i || c.t)))
+    ),
+    restate = keysDiffer || (voices.length > 1 && keyChanges),
     multi = voices.length > 1 || voices[0].start.clef !== 'treble',
     body = [];
   lineStarts.forEach((from, li) => {
@@ -1348,8 +1356,8 @@ function musicXMLToABC(doc, {name = ''} = {}) {
           st.alters = mxiKeyAlters(c.key);
         }
       }
-      const key = keysDiffer || st.key !== before.key ? st.key : '',
-        clef = (li && st.clef !== v.start.clef) || st.clef !== before.clef ? 'clef=' + st.clef : '';
+      const clef = (li && st.clef !== v.start.clef) || st.clef !== before.clef ? 'clef=' + st.clef : '',
+        key = restate || clef || st.key !== before.key ? st.key : '';
       v.lyrics = Array.from({length: v.verses}, () => []);
       let line = key || clef ? `[K:${[key, clef].filter(Boolean).join(' ')}] ` : '';
       const left = v.part.measures[from]?.left || {};
@@ -1431,23 +1439,30 @@ function musicXMLToABC(doc, {name = ''} = {}) {
           })
           .join(' ')
     );
+  // A score of one voice is a melody like FretFree's own, with no staff name (the caption above it names the
+  // instrument), whatever its clef; a voice on a bass staff still needs a V: line for the clef.
   if (multi)
     for (const v of voices) {
-      const info = v.part.info;
+      const info = v.part.info,
+        named = v.first && voices.length > 1;
       lines.push(
         `V:${v.id}` +
-          (v.first && info.name ? ` name="${info.name}"` : '') +
-          (v.first && info.abbreviation ? ` snm="${info.abbreviation}"` : '') +
+          (named && info.name ? ` name="${info.name}"` : '') +
+          (named && info.abbreviation ? ` snm="${info.abbreviation}"` : '') +
           ` clef=${v.start.clef}` +
           (v.shared ? (v.index % 2 ? ' stem=down' : ' stem=up') : '')
       );
     }
   lines.push('K:' + header.key);
-  const transposed = parts[0].transposed,
-    instrument = MXI_INSTRUMENTS.find(
-      ([pattern, , chromatic]) =>
-        pattern.test(parts[0].info.instrument) && (chromatic ?? 0) === posMod(transposed || 0, 12)
-    )?.[1];
+  // The instrument setting shows every voice written for that instrument, so a B♭ or E♭ one is chosen only when all
+  // the parts are written in its transposition. Parts in different transpositions are shown at concert pitch (Piano).
+  const transposition = p => posMod(p.transposed || 0, 12),
+    same = parts.every(p => transposition(p) === transposition(parts[0])),
+    instrument =
+      MXI_INSTRUMENTS.find(
+        ([pattern, , chromatic]) =>
+          pattern.test(parts[0].info.instrument) && (chromatic ?? 0) === transposition(parts[0]) && (same || !chromatic)
+      )?.[1] || (same ? '' : 'Piano');
   return {
     abc: lines.join('\n') + '\n' + body.join('\n') + '\n',
     metadata,
@@ -1516,6 +1531,8 @@ function musicXMLToABC(doc, {name = ''} = {}) {
           st.beat = beatOf(c);
           text += `[M:${st.meter}] `;
         } else if (c.type === 'clef' && c.text !== st.clef) {
+          // The clef alone: this voice's line has named its key whenever another voice could change it, and a key
+          // here would draw the key signature again after the clef.
           st.clef = c.text;
           text += `[K:clef=${st.clef}] `;
         }
@@ -1780,9 +1797,11 @@ function musicXMLToABC(doc, {name = ''} = {}) {
           divTicks = ticks / Math.round(+child.textContent);
         else if (name === 'staves') staves = Math.max(1, Math.min(8, Math.round(+child.textContent) || 1));
         else if (name === 'transpose' && !(+child.getAttribute('number') > 1)) {
-          const octave = Math.round(+xmlValue(child, 'octave-change') || 0),
-            diatonic = Math.round(+xmlValue(child, 'diatonic') || 0) + 7 * octave,
-            chromatic = Math.round(+xmlValue(child, 'chromatic') || 0) + 12 * octave;
+          // No instrument is written more than a few octaves from its sound; larger values come from a damaged file.
+          const amount = (field, limit) => Math.max(-limit, Math.min(limit, Math.round(+xmlValue(child, field) || 0))),
+            octave = amount('octave-change', 4),
+            diatonic = amount('diatonic', 48) + 7 * octave,
+            chromatic = amount('chromatic', 48) + 12 * octave;
           transpose = diatonic || chromatic ? {diatonic, chromatic} : null;
           transposed ??= chromatic;
           // A key given earlier in this measure was written for the old transposition.
@@ -1825,7 +1844,8 @@ function musicXMLToABC(doc, {name = ''} = {}) {
           .filter(([step]) => MXI_STEPS.includes(step) && step.length === 1)
       };
     }
-    // A transposing part's written key at concert pitch: a semitone up adds seven fifths, a letter up takes twelve.
+    // A transposing part's written key at concert pitch: a semitone up adds seven fifths, a letter up takes twelve. A
+    // key past seven sharps or flats goes twelve fifths round the circle, to its enharmonic key.
     function concertKey(key) {
       if (!transpose) return key;
       if (key.steps)
@@ -1835,10 +1855,11 @@ function musicXMLToABC(doc, {name = ''} = {}) {
             return [p.step, p.alter];
           })
         };
-      let fifths = key.fifths + 7 * transpose.chromatic - 12 * transpose.diatonic;
-      while (fifths > 7) fifths -= 12;
-      while (fifths < -7) fifths += 12;
-      return {fifths, mode: key.mode};
+      const fifths = key.fifths + 7 * transpose.chromatic - 12 * transpose.diatonic;
+      return {
+        fifths: fifths > 7 ? posMod(fifths - 8, 12) - 4 : fifths < -7 ? 4 - posMod(-8 - fifths, 12) : fifths,
+        mode: key.mode
+      };
     }
     // A note: returns how far it moves the time on. A <chord/> note joins the note before it.
     function note(n, m, t) {
@@ -2017,9 +2038,10 @@ function musicXMLToABC(doc, {name = ''} = {}) {
       if (kindValue === 'none') return mark(m, t, el, {chord: 'N.C.'});
       if (step.length !== 1 || !MXI_STEPS.includes(step)) return;
       const spell = (s, alter) => {
-        let p = {step: s, alter: Math.round(+alter || 0), octave: 4};
+        let p = {step: s, alter: Math.max(-2, Math.min(2, Math.round(+alter || 0))), octave: 4};
         if (transpose) p = mxiTranspose(p, transpose.diatonic, transpose.chromatic);
-        return p.step + (p.alter > 0 ? '#'.repeat(p.alter) : 'b'.repeat(-p.alter));
+        const sharps = Math.max(-2, Math.min(2, p.alter));
+        return p.step + (sharps > 0 ? '#'.repeat(sharps) : 'b'.repeat(-sharps));
       };
       let suffix = kind?.hasAttribute('text') ? kind.getAttribute('text') : (MXI_KINDS[kindValue] ?? '');
       if (!kind?.hasAttribute('text'))

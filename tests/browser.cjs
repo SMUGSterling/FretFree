@@ -1366,10 +1366,18 @@ const {chromium} = require('playwright'),
   await importButton.scrollIntoViewIfNeeded();
   const importBox = await importButton.boundingBox();
   assert.ok(importBox && importBox.x >= 0 && importBox.x + importBox.width <= 390, 'Open button fits a phone screen');
-  // Other tabs were opened above; the file chooser opens only from the tab in front.
-  await page.bringToFront();
-  await importButton.focus();
-  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Enter')]);
+  // Other tabs were opened above, and headless Chromium shows a file chooser only from the tab in front. The tab can
+  // take a moment to come to the front under load, so Enter is pressed again if no chooser opened.
+  let chooser = null;
+  for (let attempt = 0; !chooser && attempt < 3; attempt++) {
+    await page.bringToFront();
+    await importButton.focus();
+    [chooser] = await Promise.all([
+      page.waitForEvent('filechooser', {timeout: 10000}).catch(() => null),
+      page.keyboard.press('Enter')
+    ]);
+  }
+  assert.ok(chooser, 'Enter on the open button opens the file chooser');
   await chooser.setFiles(require('node:path').join(__dirname, 'fixtures/morning-walk.mxl'));
   await page.waitForFunction(() => /^Imported from MusicXML/.test($('save-status').textContent));
   assert.equal(
