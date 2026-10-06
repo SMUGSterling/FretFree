@@ -377,6 +377,50 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
   assert.equal(add('[C2E2]', 'G'), '[C2E2G2]', 'Per-pitch chord lengths are copied');
   assert.equal(add('[CE]', 'E'), '[CE]', 'A pitch already there is not added');
   assert.equal(add('z2', 'E'), 'z2', 'Rests are left alone');
+  // respell (Z): the next spelling at the same pitch, keeping length, ties and decorations.
+  const re = (text, k = 'C', options) => context.respell(text, key(k), options),
+    cycle = (text, k = 'C') => {
+      const seen = [text];
+      for (let i = 0; i < 4 && (i === 0 || seen.at(-1) !== text); i++) seen.push(re(seen.at(-1), k));
+      return seen.join(' ');
+    };
+  assert.equal(cycle('^C'), '^C _D ^C', '^C turns into _D and back');
+  assert.equal(cycle('E'), 'E _F E');
+  assert.equal(cycle('C'), 'C ^B, C', 'B sharp is a letter lower, in the octave below');
+  assert.equal(cycle('b'), "b _c' b", 'C flat is in the octave above');
+  assert.equal(cycle('D'), 'D __E ^^C D', 'D, G and A cycle through double accidentals');
+  assert.equal(re('[^C^F]2'), '[_D_G]2', 'Every pitch of a chord');
+  assert.equal(re('[C2E2]'), '[^B,2_F2]', 'Per-pitch chord lengths stay');
+  assert.equal(re('!f!"Am"(^c/2-'), '!f!"Am"(_d/2-', 'Decorations, chord symbol, slur, length and tie stay');
+  assert.equal(re('z2'), 'z2', 'Rests are left alone');
+  assert.equal(cycle('C', 'D'), 'C _D C', 'In D major a plain C is C sharp, and comes back plain');
+  assert.equal(cycle('B', 'F'), 'B ^A B', 'In F major a plain B is B flat');
+  assert.equal(re('=C', 'D'), '^B,', 'A natural against the key');
+  assert.equal(re('^B,', 'D'), '=C', 'Back to C natural needs the natural sign in D major');
+  assert.equal(re('C', 'C', {midis: [61]}), '_D', 'midis: an earlier ^C in the bar makes this C sharp');
+  assert.equal(re('_D', 'D', {explicit: true}), '^C', 'explicit writes the accidental the key would give');
+  assert.equal(re('__D'), 'C', 'A spelling outside the cycle goes to the plainest one');
+  // A chord moves as one and comes back in two presses: D, G and A stay plain unless the chord is nothing else.
+  assert.equal(cycle('[GCE]'), '[GCE] [G^B,_F] [GCE]');
+  assert.equal(cycle('[A^CE]'), '[A^CE] [A_D_F] [A^CE]');
+  assert.equal(cycle('[^CE^G]'), '[^CE^G] [_D_F_A] [^CE^G]', 'C sharp minor as D flat minor');
+  assert.equal(cycle('[DG]'), '[DG] [__E__A] [^^C^^F] [DG]');
+  assert.equal(re('[^^CE]'), '[D_F]', 'A double sharp D in a chord goes plain');
+  // respellEdit: later notes keep their pitch, and lose an accidental that only the old spelling needed.
+  const zFirst = (body, text, k = 'C') => {
+    const source = `X:1\nM:4/4\nL:1/4\nK:${k}\n` + body,
+      start = source.length - body.length,
+      edit = context.respellEdit(source, start, start + body.indexOf(' '), text);
+    return (source.slice(0, start) + edit.text + source.slice(edit.end)).slice(start);
+  };
+  assert.equal(zFirst('^C D E F |]', '_D'), '_D =D E F |]', 'A later D keeps its pitch');
+  assert.equal(zFirst('_D =D E F |]', '^C'), '^C D E F |]', 'and loses the natural only D flat needed');
+  assert.equal(zFirst('^C C D z |]', '_D'), '_D ^C =D z |]');
+  assert.equal(zFirst('_D ^C =D z |]', '^C'), '^C ^C D z |]', 'Only on the letter the note leaves');
+  assert.equal(zFirst('C =C E _D |]', '_D', 'D'), '_D =C E _D |]', 'In D major, accidentals the key needs stay');
+  assert.equal(zFirst('_D =D =D z | =D4 |]', '^C'), '^C D =D z | =D4 |]', 'Courtesy naturals and later bars stay');
+  assert.equal(zFirst('_D [F=D] z2 |]', '^C'), '^C [FD] z2 |]', 'In a chord too');
+  assert.equal(zFirst('_D =d z2 |]', '^C'), '^C =d z2 |]', 'Only the same octave');
   // keepLaterPitches: an accidental entered on one note writes out the accidental later notes in the bar had.
   const keep = (body, from, to, text, select = null) => {
     const source = 'X:1\nL:1/4\nK:C\n' + body,
@@ -1147,5 +1191,5 @@ for (const prompt of context.writingPrompts) {
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
 );

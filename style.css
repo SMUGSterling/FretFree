@@ -1349,7 +1349,8 @@ input[type='range'] {
   }
 }
 /* On-screen piano: a scrolling strip of keys under the score, kept in view at the bottom of the window. */
-#piano-toggle[aria-pressed='true'] {
+#piano-toggle[aria-pressed='true'],
+#midi-toggle[aria-pressed='true'] {
   background: var(--green);
   color: white;
   border-color: var(--green);
@@ -1771,4 +1772,21 @@ input[type='range'] {
 .new-score-summary {
   margin: 0;
   color: var(--muted);
+}
+/* Concert pitch view: the checkbox sits under the instrument it belongs to, shown only for transposing instruments. */
+.instrument-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.instrument-field .concert-pitch {
+  gap: 7px;
+  min-height: 32px;
+  cursor: pointer;
+}
+.instrument-field .concert-pitch input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
 }

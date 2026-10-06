@@ -433,6 +433,75 @@ function keepLaterPitches(source, start, end, text, select) {
   while (same < old.length && old[old.length - 1 - same] === tail[tail.length - 1 - same]) same++;
   return {end: source.length - same, text: text + tail.slice(0, tail.length - same), select};
 }
+// Z's edit: the note at source[start..end] respelled as text. Later notes keep their pitch (keepLaterPitches), and
+// an accidental later in the bar that only the old spelling needed goes: '_D =D' respelled gives '^C D', not
+// '^C =D', so that pressing Z again comes back to where it started. An accidental goes only on a letter the old
+// spelling used, when its note sounded different without it before and sounds the same without it now; a courtesy
+// accidental stays. Returns {end, text} for the source, as keepLaterPitches does.
+function respellEdit(source, start, end, text) {
+  const kept = keepLaterPitches(source, start, end, text, null),
+    to = start + text.length,
+    plain = t => noteParts(t)?.core.match(/[A-Ga-g][,']*/g) || [],
+    letters = new Set(plain(source.slice(start, end))),
+    heard = src => noteLabels(ABCJS.parseOnly(src)[0], 'letters'),
+    sounds = labels => labels.map(l => l.written.join()).join(' '),
+    drop = (src, at, n) => src.slice(0, at) + src.slice(at + n);
+  let after = source.slice(0, start) + kept.text + source.slice(kept.end);
+  // The rest of the bar: an accidental carries no further than the next bar line.
+  const barEnd = (src, from) => (src.indexOf('|', from) + 1 || src.length + 1) - 1,
+    was = heard(source),
+    now = heard(after),
+    soundedBefore = sounds(was),
+    soundsNow = sounds(now),
+    rest = (labels, from, src, stop = barEnd(src, from)) =>
+      labels.filter(l => l.at >= from && l.at < stop).sort((a, b) => a.at - b.at),
+    laterWas = rest(was, end, source),
+    laterNow = rest(now, to, after);
+  if (laterWas.length !== laterNow.length) return {end: kept.end, text: kept.text};
+  // The pitches of the note at a position: [where its accidental starts, how long it is, the plain pitch].
+  const marked = (src, at) => {
+    const parts = noteParts(src.slice(at));
+    return parts
+      ? [...parts.core.matchAll(/(\^{1,2}|_{1,2}|=)?([A-Ga-g][,']*)/g)].map(m => [
+          at + parts.pre.length + m.index,
+          (m[1] || '').length,
+          m[2]
+        ])
+      : [];
+  };
+  const done = new Set();
+  let shift = 0;
+  for (let j = 0; j < laterNow.length && done.size < letters.size; j++) {
+    const before = marked(source, laterWas[j].at),
+      current = marked(after, laterNow[j].at + shift);
+    // Last pitch first, so a dropped accidental does not move the ones still to look at.
+    for (let k = current.length - 1; k >= 0; k--) {
+      const [at, n, pitch] = current[k],
+        [atBefore, nBefore, pitchBefore] = before[k] || [];
+      if (!n || !letters.has(pitch) || done.has(pitch) || pitchBefore !== pitch || nBefore !== n) continue;
+      if (source.slice(atBefore, atBefore + n) !== after.slice(at, at + n)) continue;
+      done.add(pitch);
+      if (sounds(heard(drop(source, atBefore, n))) === soundedBefore) continue;
+      const without = drop(after, at, n);
+      if (sounds(heard(without)) !== soundsNow) continue;
+      after = without;
+      shift -= n;
+    }
+  }
+  return sourceEdit(source, after, start, end, to);
+}
+// The edit that turns source into after, two texts that are the same up to start: {end, text} for source[start..end],
+// leaving out the tail they share. It always covers source[start..end] and after[start..to].
+function sourceEdit(source, after, start, end, to) {
+  let same = 0;
+  while (
+    same < source.length - end &&
+    same < after.length - to &&
+    source[source.length - 1 - same] === after[after.length - 1 - same]
+  )
+    same++;
+  return {end: source.length - same, text: after.slice(start, after.length - same)};
+}
 function melodyBars(tune) {
   const bars = [],
     lengths = barLengths(tune).filter(m => m.voice === '0:0');
@@ -847,6 +916,48 @@ function respellMusic(text, d) {
       return ok ? out : name;
     }
   );
+}
+// Enharmonic respelling (Z): every pitch of a note or chord moves to its next spelling at the same pitch, keeping
+// length, ties and decorations. ^C becomes _D and back; E becomes _F; D, G and A, which have no other spelling with
+// one accidental, cycle through double ones (D, __E, ^^C). A chord moves as one, so that two presses bring it back:
+// its D, G and A stay plain while any other pitch can swap ([GCE] gives [G^B,_F]), and cycle only in a chord of
+// nothing else. key is a parsed abcjs key, as midiToken takes: an accidental is written only where the key signature
+// would not give the new spelling, or always with explicit. midis gives each pitch's MIDI note in source order, for a
+// bar where an earlier accidental changes a plain letter; without it, a pitch is read from its own accidental or the
+// key. Rests are left as they are.
+function respell(text, key, {midis = null, explicit = false} = {}) {
+  const parts = noteParts(text);
+  if (!parts || /^[zx]/.test(parts.core)) return text;
+  const alters = keyAlters(key),
+    PITCH = /(\^{1,2}|_{1,2}|=)?([A-Ga-g])([,']*)/g;
+  const pitches = [...parts.core.matchAll(PITCH)].map(([, acc, letter, marks], i) => {
+    const step =
+        'CDEFGAB'.indexOf(letter.toUpperCase()) +
+        (letter >= 'a' ? 7 : 0) +
+        [...marks].reduce((n, c) => n + (c === "'" ? 7 : -7), 0),
+      midi = midis?.[i] ?? 60 + diatonicSemis(step) + (acc ? ACC_VALUE[acc] : alters[letter.toUpperCase()] || 0);
+    // Spellings of the pitch on nearby letters, lowest letter (most sharps) first.
+    const spellings = [];
+    for (let s = step - 2; s <= step + 2; s++) {
+      const alter = midi - 60 - diatonicSemis(s);
+      if (Math.abs(alter) <= 2) spellings.push({step: s, alter});
+    }
+    return {step, spellings, single: spellings.filter(s => Math.abs(s.alter) <= 1)};
+  });
+  const swap = pitches.some(p => p.single.length > 1);
+  let i = 0;
+  const core = parts.core.replace(PITCH, whole => {
+    const {step, spellings, single} = pitches[i++];
+    if (!spellings.length) return whole;
+    const cycle = swap ? single : spellings,
+      at = cycle.findIndex(s => s.step === step),
+      // A spelling outside the cycle (__D for C) goes to the plainest one.
+      next = at < 0 ? spellings.find(s => !s.alter) || cycle[0] : cycle[(at + 1) % cycle.length],
+      keyAlter = alters['CDEFGAB'[posMod(next.step, 7)]] || 0;
+    if (next.step === step && !explicit) return whole;
+    return (explicit || next.alter !== keyAlter ? ACC_TEXT[next.alter] : '') + pitchToken(next.step);
+  });
+  return parts.pre + core + text.slice(parts.pre.length + parts.core.length);
 }
 // A tune without a K: line is read in C major. Transposing it needs a key to move, so K:C closes its header.
 function withKey(source) {

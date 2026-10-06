@@ -54,14 +54,24 @@ function setHeader(name, value) {
     );
   $('abc').value = lines.join('\n');
 }
-function writtenABC() {
+// The instrument's shift: its part is written this many semitones above the concert source (2 for a B-flat clarinet,
+// 9 for an E-flat alto sax). Cello and trombone show the source an octave lower, a range change, not a transposition.
+const instrumentShift = () => instruments[currentInstrument()]?.shift || 0,
+  transposesInstrument = () => instrumentShift() % 12 !== 0;
+// Concert pitch view, display only: a transposing instrument's score shows the source's sounding pitches and key.
+// Everything that reads or enters what is shown goes through displayShift(); playback and the ABC never change.
+const concertView = () => transposesInstrument() && $('concert-pitch')?.checked === true,
+  displayShift = () => (concertView() ? 0 : instrumentShift());
+// The score as drawn: the source at the display shift (the instrument's written pitch unless Concert pitch is on),
+// with the instrument's clef and the display-only labels. Pass the instrument's shift to get the written part.
+function writtenABC(shift = displayShift()) {
   let source = $('abc').value;
   const config = instruments[currentInstrument()];
-  if (config.shift)
+  if (shift)
     try {
-      source = transposeABC(source, config.shift);
+      source = transposeABC(source, shift);
     } catch {
-      source = ABCJS.strTranspose(source, ABCJS.parseOnly(source), config.shift);
+      source = ABCJS.strTranspose(source, ABCJS.parseOnly(source), shift);
     }
   source = source.replace(/^K:(.*)$/m, (_, key) => 'K:' + key.replace(/\s+clef=\S+/g, '') + ' clef=' + config.clef);
   if (fingeringShown() === 'recorder') source = source.replace(/^(X:.*)$/m, '$1\n%%staffsep 190');
@@ -337,8 +347,9 @@ function updateCaption() {
   $('workspace-heading').textContent = field('T', 'Untitled melody');
   const config = instruments[currentInstrument()],
     staves = staffClefs[0]?.length || 1;
-  const pitch =
-    config.shift === 2 || config.shift === 9
+  const pitch = concertView()
+    ? 'Concert pitch shown, as it sounds; turn off Concert pitch for the written part.'
+    : transposesInstrument()
       ? 'Written pitch shown; ABC source and MIDI are concert pitch.'
       : config.shift === -12
         ? `${staves > 1 ? 'Parts' : 'Melody'} lowered one octave for bass range.`
@@ -348,6 +359,7 @@ function updateCaption() {
   // A score with several staves (a template or V: voices) has their own clefs, so it counts them instead.
   $('score-caption').textContent =
     `${currentInstrument()} · ${staves > 1 ? `${staves} staves` : `${config.clef} clef`} · ${pitch}`;
+  if ($('concert-pitch-option')) $('concert-pitch-option').hidden = !transposesInstrument();
 }
 // Links to the complete source edition behind a library practice part.
 function updateSourceEdition() {
@@ -907,9 +919,9 @@ function drawNote(t) {
     toast('Score updated. Click again to add the note.');
     return;
   }
-  // The staff shows written pitch; the source takes the concert note, as many letters away as the key at that point.
-  const concert = at =>
-    pitchToken(t.written - writtenSteps($('abc').value, at, instruments[currentInstrument()].shift));
+  // The staff shows written pitch (or concert pitch in Concert pitch view); the source takes the concert note, as many
+  // letters away as the key at that point.
+  const concert = at => pitchToken(t.written - writtenSteps($('abc').value, at, displayShift()));
   // Neighbours on the clicked staff, in reading order; the new note goes before the first one to the right of the click.
   const staffs = staffList(),
     items = [];
@@ -1107,8 +1119,9 @@ function closeNoteMenu() {
   $('note-menu').hidden = true;
   menuEntry = null;
 }
+// The transposition the score is drawn at: 0 for concert-pitch instruments and in Concert pitch view.
 const transposing = () => {
-  const shift = instruments[currentInstrument()].shift;
+  const shift = displayShift();
   return shift % 12 !== 0 ? shift : 0;
 };
 // Accidentals are what the player sees, so read and edit them in written pitch, then transpose back to the concert source.
@@ -1188,7 +1201,7 @@ function markItemsHTML(entry) {
   );
 }
 function openNoteMenu(entry, display, x, y) {
-  menuEntry = {entry, display};
+  menuEntry = {entry, display, written: renderedWritten};
   const isRest = !entry.element.pitches?.length,
     text = transposing()
       ? writtenNote(display).text
@@ -1209,7 +1222,7 @@ function openNoteMenu(entry, display, x, y) {
   $('note-menu').innerHTML =
     (isRest
       ? ''
-      : `<div class="menu-label">ACCIDENTAL</div><div class="menu-row">${item('acc:^', '♯ Sharp', acc === '^')}${item('acc:_', '♭ Flat', acc === '_')}${item('acc:=', '♮ Natural', acc === '=')}${item('acc:', 'None', !acc)}</div>`) +
+      : `<div class="menu-label">ACCIDENTAL</div><div class="menu-row">${item('acc:^', '♯ Sharp', acc === '^')}${item('acc:_', '♭ Flat', acc === '_')}${item('acc:=', '♮ Natural', acc === '=')}${item('acc:', 'None', !acc)}</div><button role="menuitem" aria-keyshortcuts="Z" data-edit="respell">♯♭ Respell (same pitch)</button>`) +
     `<div class="menu-label">LENGTH</div>${durations.map(([v, l]) => item('len:' + v, l, Math.abs(base - v) < 1e-9)).join('')}` +
     `<button role="menuitemcheckbox" aria-checked="${dotted}" data-edit="dot">· Dotted</button>` +
     (isRest
@@ -1367,7 +1380,7 @@ function markRange(picked, action) {
 }
 // One edit on one note, shared by the note menu, the keyboard and the palette. Actions: acc:<^|_|=|>, len:<whole>,
 // dot, tie, to-rest, beam:join, beam:break, deco:<mark>, dyn:<dynamic|>, delete, rest-after, bar-after, play-from,
-// range-from. Others do nothing.
+// range-from, respell. Others do nothing.
 function editNote(entry, display, action) {
   const area = $('abc'),
     v = area.value,
@@ -1394,6 +1407,10 @@ function editNote(entry, display, action) {
   if (action === 'range-from') {
     const to = +$('end-measure').value;
     setRange(entry.measure, to >= entry.measure ? to : +$('end-measure').max);
+    return;
+  }
+  if (action === 'respell') {
+    respellSelected({entry, display});
     return;
   }
   if (action.startsWith('acc:')) {
@@ -1487,7 +1504,9 @@ $('note-menu').addEventListener('click', e => {
   if (!b || !picked) return;
   e.stopPropagation();
   closeNoteMenu();
-  if (renderedSource !== $('abc').value) {
+  // The menu's note offsets belong to the drawing it was opened on. A new instrument or Concert pitch view draws
+  // other text from the same source, so the source alone does not show that they are stale.
+  if (renderedSource !== $('abc').value || picked.written !== writtenABC()) {
     clearTimeout(renderTimer);
     render();
     toast('Score updated. Right-click the note again.');
@@ -1648,7 +1667,7 @@ function addToChord(sel, core) {
 // them), as the key signature spells it.
 function addLetterToChord(letter, sel) {
   const target = chordTarget(sel),
-    steps = writtenSteps($('abc').value, target.entry.element.startChar, instruments[currentInstrument()].shift),
+    steps = writtenSteps($('abc').value, target.entry.element.startChar, displayShift()),
     top = Math.max(...target.entry.element.pitches.map(p => p.pitch)) + steps,
     index = 'CDEFGAB'.indexOf(letter),
     pitch = index + 7 * (Math.floor((top - index) / 7) + 1);
@@ -1656,14 +1675,59 @@ function addLetterToChord(letter, sel) {
     ? `Added ${letter} to the chord. Shift+A–G adds more.`
     : `${letter} is already in the chord.`;
 }
-// Written-pitch note token for a letter, in the octave nearest the last note before a source position in the same
-// voice, or else the middle of that voice's staff.
+// Z or Respell: spell the selected note or chord another way at the same pitch (C♯ as D♭ and back), as one undo
+// step. The bar's accidentals decide what a plain letter sounds, so the new text is checked against the parse and its
+// accidentals are written out where the plain spelling would change the pitch; later notes in the bar keep theirs,
+// and lose an accidental only the old spelling needed (respellEdit). Pressing again on the same note, with nothing
+// else edited in between, comes back to the very text it started from once the spelling comes round (respellRun).
+let respellRun = null;
+function respellSelected(sel) {
+  const status = $('selection-status');
+  if (!sel?.entry.element.pitches?.length) {
+    status.textContent = 'Z respells a note. Select a note or chord first.';
+    return;
+  }
+  const source = $('abc').value,
+    {startChar: start, endChar: end} = sel.entry.element,
+    old = source.slice(start, end),
+    pitchesAt = (text, at) => noteLabels(ABCJS.parseOnly(text)[0], 'letters').find(l => l.at === at)?.written,
+    midis = pitchesAt(source, start),
+    key = pianoKeyAt(ABCJS.parseOnly(source)[0], start, sel.entry.key.split(':').slice(0, 2).join(':')),
+    sounds = text => String(pitchesAt(source.slice(0, start) + text + source.slice(end), start)) === String(midis);
+  let text = midis && respell(old, key, {midis});
+  if (text && !sounds(text)) text = respell(old, key, {midis, explicit: true});
+  if (!text || text === old) {
+    status.textContent = 'This note has no other spelling.';
+    return;
+  }
+  const again = respellRun?.at === start && respellRun.after === source ? respellRun : null;
+  let edit = null;
+  try {
+    edit =
+      again && text === again.note
+        ? sourceEdit(source, again.from, start, end, start + text.length)
+        : respellEdit(source, start, end, text);
+  } catch {}
+  if (edit) applyNoteEdit(start, edit.end, edit.text, [start, start + text.length], start);
+  else applyNoteEdit(start, end, text, undefined, start, true);
+  respellRun = {at: start, note: again ? again.note : old, from: again ? again.from : source, after: $('abc').value};
+  // Name the new spelling as the staff shows it (written pitch for transposing instruments, unless Concert pitch
+  // view is on).
+  const display = selectedNote()?.display,
+    label =
+      display &&
+      midis.length === 1 &&
+      noteLabels(ABCJS.parseOnly(writtenABC())[0], 'letters').find(l => l.at === display.startChar);
+  status.textContent = `${label ? 'Respelled as ' + label.text : 'Respelled the chord'}. Respell again (Z) for the next spelling.`;
+}
+// Note token for a letter as the staff shows it (written pitch, or concert in Concert pitch view), in the octave
+// nearest the last note before a source position in the same voice, or else the middle of that voice's staff.
 function letterToken(letter, at) {
   if (letter === 'z') return 'z';
   const notes = scoreNotes(),
     here = notes.filter(n => n.element.startChar <= at).pop() || notes[0],
     voice = here ? voiceOf(here) : '0:0',
-    steps = writtenSteps($('abc').value, at, instruments[currentInstrument()].shift),
+    steps = writtenSteps($('abc').value, at, displayShift()),
     prev = notes.filter(n => n.element.startChar < at && n.element.pitches?.length && voiceOf(n) === voice).pop();
   const ref = prev ? prev.element.pitches[0].pitch + steps : 6 + (staffClefs[0]?.[+voice.split(':')[0]] || 0),
     letterIndex = 'CDEFGAB'.indexOf(letter);
@@ -1800,6 +1864,12 @@ function scoreKey(e) {
     if (typeof showPianoSelection === 'function') showPianoSelection();
     $('selection-status').textContent = 'Nothing selected. Letters add notes at the end.';
     refreshPalette();
+    return true;
+  }
+  if (key === 'z' || key === 'Z') {
+    // Respelling works on one note or chord, as the palette's Respell does.
+    if (many) $('selection-status').textContent = 'Z respells one note or chord. Select a single note for this.';
+    else respellSelected(sel);
     return true;
   }
   if (!sel) return false;
@@ -2595,12 +2665,16 @@ function updatePromptCheck(shown) {
     box.innerHTML = '';
     return;
   }
+  // Goals are written pitch (a B-flat clarinet asked for G major writes in G), so Concert pitch view checks a written
+  // copy of the score and says so above the checklist.
+  const concert = concertView();
+  if (concert) shown = ABCJS.parseOnly(writtenABC(instrumentShift()))[0];
   // A teacher's assignment may have instructions and no goals; then there is no checklist.
   const goals = checkPrompt(prompt, melodyBars(shown)),
     done = goals.length > 0 && goals.every(g => g.ok);
   box.hidden = false;
   box.classList.toggle('done', done);
-  box.innerHTML = `<div class="prompt-check-head"><strong>${prompt.level === 'Custom' ? 'Assignment' : 'Writing prompt'} · ${esc(prompt.title)}</strong>${goals.length ? `<span class="small">${goals.filter(g => g.ok).length} of ${goals.length} goals</span>` : ''}</div>${prompt.text ? `<p class="prompt-text">${esc(prompt.text)}</p>` : ''}${goals.length ? `<ul>${goals.map(g => `<li class="${g.ok ? 'met' : ''}"><span aria-hidden="true">${g.ok ? '✓' : '○'}</span> ${esc(g.label)}<span class="sr-only">${g.ok ? ' (done)' : ' (not yet)'}</span></li>`).join('')}</ul>` : ''}${done ? '<p class="prompt-done">All goals met. Play it back, then save it or export it to hand in.</p>' : ''}`;
+  box.innerHTML = `<div class="prompt-check-head"><strong>${prompt.level === 'Custom' ? 'Assignment' : 'Writing prompt'} · ${esc(prompt.title)}</strong>${goals.length ? `<span class="small">${goals.filter(g => g.ok).length} of ${goals.length} goals</span>` : ''}</div>${prompt.text ? `<p class="prompt-text">${esc(prompt.text)}</p>` : ''}${concert && goals.length ? '<p class="small">Goals are in written pitch; turn off Concert pitch to see the written part.</p>' : ''}${goals.length ? `<ul>${goals.map(g => `<li class="${g.ok ? 'met' : ''}"><span aria-hidden="true">${g.ok ? '✓' : '○'}</span> ${esc(g.label)}<span class="sr-only">${g.ok ? ' (done)' : ' (not yet)'}</span></li>`).join('')}</ul>` : ''}${done ? '<p class="prompt-done">All goals met. Play it back, then save it or export it to hand in.</p>' : ''}`;
 }
 $('open-prompts').onclick = () => togglePrompts($('prompt-picker').hidden);
 $('close-prompts').onclick = () => togglePrompts(false);
