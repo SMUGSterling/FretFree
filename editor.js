@@ -154,6 +154,7 @@ function render() {
     updateMeasures();
     updateBarCheck(original);
     updatePromptCheck(display);
+    if (typeof updateAssignmentBuilder === 'function') updateAssignmentBuilder();
     restoreSelection(display);
     $('warnings').textContent = (renderedTune?.warnings || []).map(x => String(x).replace(/<[^>]+>/g, '')).join(' · ');
     updateCaption();

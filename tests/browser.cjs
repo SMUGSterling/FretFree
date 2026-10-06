@@ -757,10 +757,16 @@ const {chromium} = require('playwright'),
     await page.evaluate(() => [...document.querySelectorAll('#assignment-goals [data-goal]:checked')].map(b => b.id)),
     ['goal-bars', 'goal-end', 'goal-steps', 'goal-inKey']
   );
-  await page.click('#assignment-form button[type="submit"]');
+  // With the clipboard allowed, the link is copied and focus returns to ✎ Assignment instead of being lost.
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.focus('#assignment-form button[type="submit"]');
+  await page.keyboard.press('Enter');
   await page.waitForFunction(() => $('share-url').value.includes('#s='));
   const assignmentUrl = await page.inputValue('#share-url');
   assert.equal(await page.locator('#assignment-builder').isHidden(), true);
+  await page.waitForFunction(() => $('toast').textContent.includes('Link copied'));
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'open-assignment', 'Focus is not lost');
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), assignmentUrl);
   const student = await browser.newPage({viewport: {width: 1280, height: 900}});
   student.on('pageerror', e => errors.push(e.message));
   await student.goto(assignmentUrl);

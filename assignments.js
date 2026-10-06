@@ -3,30 +3,37 @@
 // The score on the page is the students' starting point, and a share link hands each student their own copy with the
 // instructions and a live checklist. makeAssignment and validPrompt in score-tools.js build and check the object.
 
-// What the builder takes from the open score: written key, meter, note unit, tempo and the number of bars.
+// What the builder takes from the open score: written key and mode, meter, note unit, tempo, the number of bars, and
+// whether every bar is a full bar of the meter (the bars goal can be met only then; a pickup, for one, never is).
 function assignmentBasis() {
   const written = writtenABC(),
     tune = ABCJS.parseOnly(written)[0],
-    k = written.match(/^K:\s*(\S+)/m)?.[1] || '',
-    key = /^[A-G][#b]?[A-Za-z]{0,7}$/.test(k) ? k : 'C',
+    // The key as K:Am or K:A minor. A word after the key note that is not a mode (a clef, say) leaves it major.
+    k = written.match(/^K:[ \t]*([A-G][#b]?)[ \t]*([A-Za-z]*)/m),
+    mode = {m: 'm', min: 'm', aeo: 'm', dor: 'dor', phr: 'phr', lyd: 'lyd', mix: 'mix', loc: 'loc'}[
+      k?.[2].toLowerCase().slice(0, 3)
+    ],
+    key = k ? k[1] + (mode || '') : 'C',
     m = field('M', '4/4').replace(/^C\|$/, '2/2').replace(/^C$/, '4/4'),
     meter = /^[1-9]\d?\/[1-9]\d?$/.test(m) ? m : '4/4',
     [n, d] = meter.split('/').map(Number),
     l = field('L'),
-    tempo = +(field('Q').match(/(\d+)\s*$/)?.[1] || 100);
+    tempo = +(field('Q').match(/(\d+)\s*$/)?.[1] || 100),
+    bars = melodyBars(tune);
   return {
     key,
     meter,
     // ABC's default unit when L: is missing: an eighth, or a sixteenth for meters under 3/4.
     unit: /^1\/[1-9]\d?$/.test(l) ? l : n / d < 0.75 ? '1/16' : '1/8',
     tempo: Math.max(20, Math.min(400, tempo)),
-    bars: Math.max(1, Math.min(999, melodyBars(tune).length)),
+    bars: Math.max(1, Math.min(999, bars.length)),
+    fullBars: bars.length >= 1 && bars.length <= 999 && bars.every(b => fullMeterBar(b, n / d)),
     scale: keyScale(key).scale
   };
 }
 // One row per goal type: a checkbox with the goal in plain words, then the inputs that set it.
 const ASSIGNMENT_GOALS = [
-  {type: 'bars', lead: 'Fill all <span id="goal-bars-count"></span> bars with notes', controls: ''},
+  {type: 'bars', lead: '<span id="goal-bars-name"></span>', controls: ''},
   {
     type: 'lengths',
     lead: 'Use only these lengths:',
@@ -62,46 +69,71 @@ $('assignment-goals').innerHTML = ASSIGNMENT_GOALS.map(
     `<div class="goal-row"><label class="inline"><input type="checkbox" id="goal-${g.type}" data-goal="${g.type}" /><span>${g.lead}</span></label>${g.controls ? ` <span class="goal-controls">${g.controls}</span>` : ''}</div>`
 ).join('');
 const goalBox = type => $('goal-' + type);
+const pickGoalOption = (id, value) => {
+  if ([...$(id).options].some(o => +o.value === value)) $(id).value = value;
+};
+// The parts of the builder that come from the score: the basis line, note names in the written key, the bar count and
+// which goals can be checked. Redrawn while the builder is open, so what it shows is what it will store. A note choice
+// is a number of semitones above the key note, so it keeps its place when the key or the instrument changes.
+let assignmentKeyShown = null;
+function showAssignmentBasis() {
+  const basis = assignmentBasis();
+  $('assignment-basis').textContent =
+    `From the score: ${basis.bars} bar${basis.bars === 1 ? '' : 's'} · ${basis.meter} · key of ${keyInWords(basis.key)} (written)`;
+  if (assignmentKeyShown !== basis.key) {
+    assignmentKeyShown = basis.key;
+    const degrees = keyDegrees(basis.key);
+    for (const id of ['goal-start-degree', 'goal-end-degree', 'goal-endBar-degree']) {
+      const chosen = +$(id).value;
+      $(id).innerHTML = degrees
+        .map(d => `<option value="${d.degree}">${esc(d.name)}${d.degree === 0 ? ' (home note)' : ''}</option>`)
+        .join('');
+      pickGoalOption(id, chosen);
+    }
+  }
+  $('goal-bars-name').textContent =
+    goalLabel({type: 'bars'}, basis) +
+    (basis.fullBars ? '' : ` (only scores whose bars are all full bars of ${basis.meter} can be checked)`);
+  $('goal-inKey-name').textContent = basis.scale
+    ? `${keyDegrees(basis.key)[0].name} ${basis.scale}`
+    : `${keyInWords(basis.key)} (only major and minor keys can be checked)`;
+  for (const [type, can] of [
+    ['bars', basis.fullBars],
+    ['inKey', !!basis.scale]
+  ]) {
+    goalBox(type).disabled = !can;
+    if (!can) goalBox(type).checked = false;
+  }
+  $('goal-endBar-bar').max = basis.bars;
+  return basis;
+}
+// Kept in step with the score while the builder is open: edits, undo and instrument changes all render.
+function updateAssignmentBuilder() {
+  if (!$('assignment-builder').hidden) showAssignmentBasis();
+}
 // Fill the builder from the score, and from its current prompt when it has one (a built-in prompt can be adapted).
 function fillAssignmentBuilder() {
-  const basis = assignmentBasis(),
-    prompt = activePrompt(),
-    goals = new Map((prompt?.goals || []).map(g => [g.type, g])),
-    degrees = keyDegrees(basis.key),
-    tonicName = degrees[0].name;
+  const prompt = activePrompt(),
+    goals = new Map((prompt?.goals || []).map(g => [g.type, g]));
+  assignmentKeyShown = null;
+  const basis = showAssignmentBasis();
   $('assignment-title').value = prompt?.title || field('T', 'Untitled');
   $('assignment-text').value = prompt?.text || '';
-  $('assignment-basis').textContent =
-    `From the score: ${basis.bars} bar${basis.bars === 1 ? '' : 's'} · ${basis.meter} · key of ${basis.key.replace('#', '♯').replace(/^([A-G])b/, '$1♭')} (written)`;
-  for (const id of ['goal-start-degree', 'goal-end-degree', 'goal-endBar-degree'])
-    $(id).innerHTML = degrees
-      .map(d => `<option value="${d.degree}">${esc(d.name)}${d.degree === 0 ? ' (home note)' : ''}</option>`)
-      .join('');
-  $('goal-bars-count').textContent = basis.bars;
-  $('goal-inKey-name').textContent = basis.scale
-    ? `${tonicName} ${basis.scale}`
-    : `${basis.key} (only major and minor keys can be checked)`;
   // A built-in prompt's "use this note" goal has no row here, so it is left out rather than shown as something else.
   if (goals.get('atLeast')?.kind === 'degree') goals.delete('atLeast');
   const defaults = prompt ? new Set(goals.keys()) : new Set(['bars', 'end', 'inKey']);
-  for (const {type} of ASSIGNMENT_GOALS) goalBox(type).checked = defaults.has(type);
-  goalBox('inKey').disabled = !basis.scale;
-  if (!basis.scale) goalBox('inKey').checked = false;
+  for (const {type} of ASSIGNMENT_GOALS) goalBox(type).checked = defaults.has(type) && !goalBox(type).disabled;
   const allowed = goals.get('lengths')?.allowed || [0.25, 0.5];
   for (const box of document.querySelectorAll('#assignment-goals [data-length]'))
     box.checked = allowed.includes(+box.dataset.length);
-  const pick = (id, value) => {
-    if ([...$(id).options].some(o => +o.value === value)) $(id).value = value;
-  };
-  pick('goal-start-degree', goals.get('start')?.degree ?? 0);
-  pick('goal-end-degree', goals.get('end')?.degree ?? 0);
-  pick('goal-endBar-degree', goals.get('endBar')?.degree ?? 7);
-  $('goal-endBar-bar').max = basis.bars;
+  pickGoalOption('goal-start-degree', goals.get('start')?.degree ?? 0);
+  pickGoalOption('goal-end-degree', goals.get('end')?.degree ?? 0);
+  pickGoalOption('goal-endBar-degree', goals.get('endBar')?.degree ?? 7);
   $('goal-endBar-bar').value = Math.min(
     basis.bars,
     goals.get('endBar')?.bar || Math.max(1, Math.floor(basis.bars / 2))
   );
-  pick('goal-range-max', goals.get('range')?.max ?? 12);
+  pickGoalOption('goal-range-max', goals.get('range')?.max ?? 12);
   const atLeast = goals.get('atLeast');
   if (Object.hasOwn(GOAL_KINDS, atLeast?.kind || '')) $('goal-atLeast-kind').value = atLeast.kind;
   $('goal-atLeast-count').value = atLeast?.count || 2;
@@ -204,11 +236,10 @@ function useAssignment(share) {
   if (!prompt) return;
   setAssignment(prompt);
   toggleAssignmentBuilder(false);
+  // Focus goes back to the button; shareLink moves it to the link itself when it could not copy it.
+  $('open-assignment').focus();
   if (share) shareLink().catch(e => toast('Could not make a link: ' + e.message));
-  else {
-    toast('Assignment added. Share link hands it out; Save keeps it here.');
-    $('open-assignment').focus();
-  }
+  else toast('Assignment added. Share link hands it out; Save keeps it here.');
 }
 $('assignment-form').addEventListener('submit', e => {
   e.preventDefault();

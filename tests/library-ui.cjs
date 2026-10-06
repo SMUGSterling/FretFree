@@ -419,9 +419,98 @@ assert.equal(
   $('assignment-remove').click();
   assert.equal(run('"prompt" in current'), false);
   assert.equal($('prompt-check').hidden, true);
+  // The builder describes the score it was opened on: opening another score closes it, so its title, bar count and
+  // note names are never read back against a different score.
+  const checkedGoals = () =>
+    [...$('assignment-goals').querySelectorAll('[data-goal]:checked')].map(b => b.dataset.goal);
+  run('dirty = false; openScore({kind: "personal", abc: "X:1\\nT:First\\nM:4/4\\nL:1/4\\nK:G\\nG A B c | d4 |]"})');
+  $('open-assignment').click();
+  $('goal-end-degree').value = '7';
+  run('dirty = false; openScore(catalog.find(x => x.id === "elise"))');
+  assert.equal($('assignment-builder').hidden, true, 'Opening another score closes the builder');
+  assert.equal($('open-assignment').getAttribute('aria-expanded'), 'false');
+  // Für Elise starts with a pickup, which is never a full bar, so the bars goal could not be met: it is not offered.
+  $('open-assignment').click();
+  assert.equal($('assignment-title').value, run('field("T")'), 'Reopened with the new score');
+  assert.match($('assignment-basis').textContent, /9 bars · 3\/4 · key of A minor/);
+  assert.deepEqual([$('goal-bars').checked, $('goal-bars').disabled], [false, true], 'No bars goal over a pickup');
+  assert.match($('goal-bars').parentElement.textContent, /Fill all 9 bars with notes \(only scores whose bars are all/);
+  assert.deepEqual(checkedGoals(), ['end', 'inKey']);
+  assert.equal($('goal-end-degree').selectedOptions[0].textContent, 'A (home note)');
+  // The builder follows edits while it is open: with the pickup and the short last bar made whole, the goal returns.
+  run(
+    'dirty = false; openScore({kind: "personal", abc: "X:1\\nT:Pickup\\nM:4/4\\nL:1/4\\nK:D\\nA | d2 f2 | a4 | f2 d2 | d3 |]"})'
+  );
+  $('open-assignment').click();
+  assert.match($('assignment-basis').textContent, /5 bars · 4\/4 · key of D/);
+  assert.equal($('goal-bars').disabled, true, 'A short pickup and closing bar rule out the bars goal');
+  $('abc').value = $('abc').value.replace('A | d2 f2', 'z3 A | d2 f2').replace('d3 |]', 'd4 |]');
+  run('render()');
+  assert.equal($('goal-bars').disabled, false);
+  assert.equal($('goal-bars').parentElement.textContent.trim(), 'Fill all 5 bars with notes');
+  // An instrument change while it is open redraws the note names in the new written key. A note choice keeps its
+  // place above the key note, so concert A chosen on flute is the clarinet's written B.
+  $('goal-end-degree').value = '7';
+  $('goal-bars').checked = true;
+  $('instrument').value = 'Clarinet in B♭';
+  $('instrument').dispatchEvent(new w.Event('change'));
+  await new Promise(r => setTimeout(r, 300));
+  assert.match($('assignment-basis').textContent, /key of E \(written\)/);
+  assert.equal($('goal-end-degree').selectedOptions[0].textContent, 'B');
+  assert.equal($('goal-inKey').parentElement.textContent.trim(), 'Stay in E major');
+  $('assignment-apply').click();
+  assert.equal(run('current.prompt.key'), 'E', 'The assignment is in the written key');
+  assert.equal(
+    run('current.prompt.goals.map(g => g.label).join(" / ")'),
+    'Fill all 5 bars with notes / End on B / Stay in E major'
+  );
+  assert.equal($('prompt-check').querySelectorAll('li.met').length, 2, 'The teacher’s own music meets them');
+  // A key written with a spaced mode is read with its mode, on every instrument.
+  run(
+    'dirty = false; openScore({kind: "personal", instrument: "Flute", abc: "X:1\\nT:Minor\\nM:4/4\\nL:1/4\\nK:A minor\\nA B c d | e4 |]"})'
+  );
+  $('open-assignment').click();
+  assert.match($('assignment-basis').textContent, /key of A minor/);
+  assert.equal($('goal-inKey').parentElement.textContent.trim(), 'Stay in A minor');
+  const names = () => [...$('goal-end-degree').options].map(o => o.textContent.replace(' (home note)', '')).join(' ');
+  assert.equal(names(), 'A B C D E F G G♯');
+  $('instrument').value = 'Clarinet in B♭';
+  run('render()');
+  assert.equal($('goal-inKey').parentElement.textContent.trim(), 'Stay in B minor');
+  assert.equal(names(), 'B C♯ D E F♯ G A A♯');
+  $('assignment-apply').click();
+  assert.equal(run('current.prompt.key'), 'Bm');
+  assert.match(run('current.prompt.goals.map(g => g.label).join(" / ")'), /End on B \/ Stay in B minor/);
+  // One bar is "the bar"; a score with no bars has none to fill.
+  run(
+    'dirty = false; openScore({kind: "personal", instrument: "Flute", abc: "X:1\\nT:One\\nM:4/4\\nL:1/4\\nK:G\\nG4 |]"})'
+  );
+  $('open-assignment').click();
+  assert.equal($('goal-bars').parentElement.textContent.trim(), 'Fill the bar with notes');
+  run(
+    'dirty = false; openScore({kind: "personal", instrument: "Flute", abc: "X:1\\nT:Empty\\nM:4/4\\nL:1/4\\nK:G\\n"})'
+  );
+  $('open-assignment').click();
+  assert.equal($('goal-bars').disabled, true, 'An empty score has no bars to fill');
+  // After Use and copy link, focus returns to ✎ Assignment when the link was copied, or goes to the link when not.
+  Object.defineProperty(w.navigator, 'clipboard', {configurable: true, value: {writeText: async () => {}}});
+  run('dirty = false; newScore(4)');
+  $('open-assignment').click();
+  $('assignment-form').querySelector('[type="submit"]').focus();
+  $('assignment-form').requestSubmit();
+  for (let i = 0; i < 100 && !$('toast').textContent.includes('Link copied'); i++)
+    await new Promise(r => setTimeout(r, 20));
+  assert.match($('toast').textContent, /Link copied/);
+  assert.equal(w.document.activeElement.id, 'open-assignment', 'Focus returns to the button');
+  delete w.navigator.clipboard;
+  $('open-assignment').click();
+  $('assignment-form').requestSubmit();
+  for (let i = 0; i < 100 && w.document.activeElement.id !== 'share-url'; i++)
+    await new Promise(r => setTimeout(r, 20));
+  assert.equal(w.document.activeElement.id, 'share-url', 'Without a clipboard the link is selected to copy by hand');
   run('dirty = false');
   console.log(
-    'PASS (jsdom): teacher-written assignments (builder defaults, escaping, q links, save, reopen, backup, tampered links), backup and restore, blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
+    'PASS (jsdom): teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore, blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
   );
 })().catch(e => {
   console.error(e);

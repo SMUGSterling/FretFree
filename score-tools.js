@@ -333,6 +333,8 @@ function promptTonic(key) {
   const m = String(key).match(/^([A-G])([#b]?)/);
   return m ? (LETTER_SEMIS['CDEFGAB'.indexOf(m[1])] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) + 12) % 12 : 0;
 }
+// The bars goal counts a bar only when it is a full bar of the prompt's meter and is written under that meter.
+const fullMeterBar = (bar, length) => Math.abs(bar.length - length) < 1e-6 && Math.abs(bar.expected - length) < 1e-6;
 function checkPrompt(prompt, bars) {
   const near = (a, b) => Math.abs(a - b) < 1e-6,
     tonic = promptTonic(prompt.key),
@@ -352,8 +354,7 @@ function checkPrompt(prompt, bars) {
     // Bars must match the prompt's own meter, so changing the time signature can't satisfy the goal.
     if (g.type === 'bars')
       ok =
-        bars.length === prompt.bars &&
-        bars.every(b => near(b.length, promptBar) && near(b.expected, promptBar) && b.notes.some(n => n.midi != null));
+        bars.length === prompt.bars && bars.every(b => fullMeterBar(b, promptBar) && b.notes.some(n => n.midi != null));
     else if (g.type === 'lengths')
       ok = pitched.length > 0 && pitched.every(n => g.allowed.some(a => near(a, n.duration)));
     else if (g.type === 'start') ok = !!pitched.length && degree(pitched[0]) === g.degree;
@@ -404,6 +405,7 @@ function keyScale(key) {
   return {
     letter: m ? 'CDEFGAB'.indexOf(m[1]) : 0,
     tonic: m ? promptTonic(key) : 0,
+    mode: MODE_STEPS[name] ? name : 'major',
     steps: MODE_STEPS[name] || MODE_STEPS.major,
     scale: m && (name === 'major' || name === 'minor') ? name : null
   };
@@ -417,6 +419,12 @@ function keyDegrees(key) {
   });
 }
 const degreeName = (key, degree) => keyDegrees(key).find(d => d.degree === degree)?.name || `${degree} semitones up`;
+// A key in words, as written: "G", "F♯ minor", "D dorian".
+const MODE_WORDS = {minor: 'minor', dor: 'dorian', phr: 'phrygian', lyd: 'lydian', mix: 'mixolydian', loc: 'locrian'};
+function keyInWords(key) {
+  const words = MODE_WORDS[keyScale(key).mode];
+  return keyDegrees(key)[0].name + (words ? ' ' + words : '');
+}
 // The lengths, ranges and countable kinds a teacher can pick, with the words goal labels use.
 const GOAL_LENGTHS = [
     [1 / 16, 'sixteenth'],
@@ -444,7 +452,7 @@ const GOAL_LENGTHS = [
 const listWords = words => (words.length > 1 ? words.slice(0, -1).join(', ') + ' and ' + words.at(-1) : words[0]);
 function goalLabel(goal, prompt) {
   const name = d => degreeName(prompt.key, d);
-  if (goal.type === 'bars') return `Fill all ${prompt.bars} bars with notes`;
+  if (goal.type === 'bars') return `Fill ${prompt.bars === 1 ? 'the bar' : `all ${prompt.bars} bars`} with notes`;
   if (goal.type === 'lengths') {
     const words = GOAL_LENGTHS.filter(([v]) => goal.allowed.includes(v)).map(([, w]) => w);
     return `Use only ${listWords(words.length ? words : ['the chosen'])} notes`;

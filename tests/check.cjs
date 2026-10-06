@@ -257,6 +257,10 @@ for (const prompt of context.writingPrompts) {
   assert.equal(names('F#m'), 'F♯ G♯ A B C♯ D E E♯', 'Minor adds the raised 7th');
   assert.equal(names('Edor'), 'E F♯ G A B C♯ D', 'Modal keys use their own degrees');
   assert.equal(context.keyScale('Edor').scale, null, 'Only major and minor keys have an inKey scale');
+  assert.deepEqual(
+    ['G', 'F#m', 'Bbmin', 'Edor', 'Amix'].map(k => context.keyInWords(k)),
+    ['G', 'F♯ minor', 'B♭ minor', 'E dorian', 'A mixolydian']
+  );
   const json = x => JSON.stringify(x);
   for (const prompt of context.writingPrompts) {
     const goals = prompt.goals.map(({label, ...g}) => g),
@@ -298,6 +302,11 @@ for (const prompt of context.writingPrompts) {
     'Fill all 8 bars with notes / Use only quarter, half and dotted half notes / Bar 4 ends on A / Stay within one octave / Stay in D major / Use at least one rest'
   );
   assert.equal(
+    context.makeAssignment({...base, bars: 1, goals: [{type: 'bars'}]}).goals[0].label,
+    'Fill the bar with notes',
+    'One bar is not "all 1 bars"'
+  );
+  assert.equal(
     context.makeAssignment({...base, goals: base.goals}).id,
     context.makeAssignment({...base, goals: base.goals}).id,
     'The same assignment always gets the same id'
@@ -315,7 +324,9 @@ for (const prompt of context.writingPrompts) {
       'empty title': {...plain, title: '  '},
       'bar past the end': {...plain, goals: [{type: 'endBar', bar: 9, degree: 0, label: 'x'}]},
       'degree out of range': {...plain, goals: [{type: 'end', degree: 12, label: 'x'}]},
-      'NaN length': {...plain, goals: [{type: 'lengths', allowed: [null], label: 'x'}]},
+      'null length': {...plain, goals: [{type: 'lengths', allowed: [null], label: 'x'}]},
+      'NaN length': {...plain, goals: [{type: 'lengths', allowed: [NaN], label: 'x'}]},
+      'NaN degree': {...plain, goals: [{type: 'start', degree: NaN, label: 'x'}]},
       'bad id': {...plain, id: 'first-melody'},
       'bad key': {...plain, key: 'K:C\nX:2'},
       'bad meter': {...plain, meter: 'C'},
