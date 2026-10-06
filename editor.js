@@ -231,12 +231,45 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
     refreshPalette();
     return;
   }
-  $('selection-status').textContent =
-    `Measure ${entry.measure} selected · type A–G to add notes after it, ↑↓ to change pitch · Shift+click another note to practice from here to there`;
+  // A note is named for screen readers (its length, pitch, measure and beat). A pointer click adds what to do next;
+  // the arrow keys and code select quietly, so moving along the score reads one note at a time.
+  const named = noteDescription(entry);
+  $('selection-status').textContent = event
+    ? `${named || `Measure ${entry.measure} selected`} · type A–G to add notes after it, ↑↓ to change pitch · Shift+click another note to practice from here to there`
+    : named
+      ? named + '.'
+      : `Measure ${entry.measure} selected.`;
   // A pointer click sounds the note (Hear notes); a drag sounded it before the render. Calls from code pass no
   // event, so the note menu stays quiet.
   if (event && !drag?.step) auditionAt(start);
   refreshPalette();
+}
+// A note, chord or rest of the source as the staff shows it, in words (describeNote): its length, written pitch,
+// measure and beat. The engraved score is read once per render for its spelling and beats. '' for a bar line.
+let writtenFacts = null;
+function noteDescription(entry) {
+  const display = entry?.element.el_type === 'note' && displayOf(entry);
+  if (!display || renderedWritten == null) return '';
+  if (writtenFacts?.source !== renderedWritten) {
+    const tune = ABCJS.parseOnly(renderedWritten)[0];
+    writtenFacts = {
+      source: renderedWritten,
+      names: new Map(noteLabels(tune, 'letters').map(l => [l.at, l.names])),
+      beats: noteBeats(tune)
+    };
+  }
+  const at = display.startChar;
+  return describeNote(display, entry.measure, writtenFacts.beats.get(at), writtenFacts.names.get(at));
+}
+// After an edit the status line names the note it changed, or the selected note, so a screen reader hears the
+// result of every key; an edit with its own message ("Dotted.") sets that afterwards instead. A range selection is
+// left to its own messages.
+function announceNote(at) {
+  if (selectionAnchor) return;
+  const entry =
+      at == null ? selectedNote()?.entry : scoreNotes().find(n => n.element.startChar <= at && at < n.element.endChar),
+    named = noteDescription(entry);
+  if (named) $('selection-status').textContent = named + '.';
 }
 // The notation palette (palette.js) shows the selection's state; it is optional, so editing works without it.
 function refreshPalette() {
@@ -909,6 +942,7 @@ function applyNoteEdit(
   render();
   if (selectedRange) area.setSelectionRange(...selectedRange);
   focusScore();
+  announceNote(hear);
 }
 // Note audition: the concert pitches of the note or chord that starts at a source position, as playback sounds them
 // (octave clefs and transpose= included), keyed by startChar and cached per source text. scheduleNotes then adds the

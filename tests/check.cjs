@@ -669,6 +669,57 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     .map(x => x.id);
   assert.equal(own.join(', '), '', 'FretFree teaching scores have correct bar lengths');
 }
+// Screen-reader note descriptions: noteBeats places each note on a beat, noteLabels spells it with its octave in the
+// key and the bar's accidentals, and describeNote puts them into words.
+{
+  const describeAll = abc => {
+    const tune = ABCJS.parseOnly('X:1\n' + abc)[0],
+      beats = context.noteBeats(tune),
+      names = new Map(context.noteLabels(tune, 'letters').map(l => [l.at, l.names]));
+    return [...context.scoreEvents(tune)]
+      .filter(e => e.element.el_type === 'note')
+      .map(e =>
+        context.describeNote(e.element, e.measure, beats.get(e.element.startChar), names.get(e.element.startChar))
+      );
+  };
+  assert.deepEqual(describeAll('M:4/4\nL:1/8\nK:D\nF2 | C2 [CEG]2 z2 x2 | ^c =c c4- | c8 |]'), [
+    'Quarter note F♯4, measure 1, beat 4',
+    'Quarter note C♯4, measure 2, beat 1',
+    'Quarter note chord C♯4 E4 G4, measure 2, beat 2',
+    'Quarter rest, measure 2, beat 3',
+    'Invisible quarter rest, measure 2, beat 4',
+    'Eighth note C♯5, measure 3, beat 1',
+    'Eighth note C5, measure 3, beat 1½',
+    'Half note C5, tied to the next note, measure 3, beat 2',
+    'Whole note C5, measure 4, beat 1'
+  ]);
+  assert.deepEqual(describeAll('M:6/8\nL:1/8\nK:F\nB3 B/c/ d e | Z2 |]'), [
+    'Dotted quarter note B♭4, measure 1, beat 1',
+    '16th note B♭4, measure 1, beat 2',
+    '16th note C5, measure 1, after beat 2',
+    'Eighth note D5, measure 1, beat 2⅓',
+    'Eighth note E5, measure 1, beat 2⅔',
+    'Rest for 2 measures, measure 2'
+  ]);
+  assert.deepEqual(describeAll('M:2/2\nL:1/4\nK:C\nC D2 E | (3FGA B2 |]').slice(1), [
+    'Half note D4, measure 1, beat 1½',
+    'Quarter note E4, measure 1, beat 2½',
+    'Quarter note F4, measure 2, beat 1',
+    'Quarter note G4, measure 2, beat 1⅓',
+    'Quarter note A4, measure 2, beat 1⅔',
+    'Half note B4, measure 2, beat 2'
+  ]);
+  assert.deepEqual(describeAll('M:3/4\nL:1/16\nK:C\nG,,3 A,,7 B,,14 |]'), [
+    'Dotted eighth note G2, measure 1, beat 1',
+    'Double-dotted quarter note A2, measure 1, beat 1¾',
+    'Double-dotted half note B2, measure 1, beat 3½'
+  ]);
+  assert.deepEqual(describeAll('M:none\nL:1/4\nK:C\n__D ^^F/3 |]'), [
+    'Quarter note D𝄫4, measure 1',
+    'Note F𝄪4, measure 1'
+  ]);
+  assert.equal(context.describeNote({duration: 0.375, rest: {type: 'rest'}}, 5), 'Dotted quarter rest, measure 5');
+}
 // On-screen piano spelling and chords: midiToken spells a MIDI note for a key signature; addChordPitch builds chords.
 {
   const key = k => ABCJS.parseOnly(`X:1\nK:${k}\nC`)[0].lines[0].staff[0].key,
@@ -2307,7 +2358,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, swing feel (tempo text kept with other text, a written-out beat that keeps the tempo, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, swing feel (tempo text kept with other text, a written-out beat that keeps the tempo, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {

@@ -1,3 +1,14 @@
+# Screen-reader announcements and a shortcut sheet · 2026-10-06
+
+- Selecting a note names it in the status line under the score, which screen readers announce: its length, its pitch as the staff shows it, its measure and its beat, as in "Quarter note B♭4, measure 2, beat 1" or "Quarter note chord F4 A4, measure 2, beat 3". Pitches follow the key signature and the bar's accidentals, and are written pitch for transposing instruments (concert pitch in Concert pitch view). Ties, rests, invisible rests and multi-measure rests are named too.
+- Beats count the meter's lower note, or dotted quarters in 6/8, 9/8 and 12/8. Notes between beats are named as part of a beat (beat 2½, beat 2⅓ for a triplet or the second eighth in 6/8), a pickup ends on the last beat, and free meter gives no beat.
+- The arrow keys name each note they reach, without the longer hint a click gets. An edit that has no message of its own, such as typing a letter, ↑↓, an accidental key or a tie, names the note it changed; typing over a rest names the new note, not what is left of the rest.
+- **?** on the studio (outside text fields), or **All shortcuts** in the keyboard help line, opens a list of every editing command and its keys, grouped by task: Select, Write, Length, Pitch, Marks, Dynamics, Lines and beams, Edit and Play. Its search box filters the list as you type, matching the start of any word in a command's name, its task, its keys or a few other words ("articulation" finds Staccato). ↑↓ choose a command, and Enter, or a click or tap, runs it on the selected notes as one undo step, with the same message as its key or palette button. Commands that need a letter typed on the score say so instead.
+- The list is a modal dialog: Tab stays inside it, focus that wanders off comes back to the search box, and Esc, ✕ or a tap outside closes it. Closing gives the keyboard back to where it was; running a command gives it to the score. It fits a 390 px phone and is left out of prints.
+- The notation palette's key hints and `aria-keyshortcuts` now come from the same table (`SHORTCUTS` in the new `shortcuts.js`). `describeNote`, `noteBeats` and the spelled `names` of `noteLabels` are in score-tools.js. A browser test checks that every studio button has an accessible name.
+
+---
+
 # Install as an app and work offline · 2026-10-06
 
 - After one visit FretFree opens and works without internet: the library, saved scores, a score opened before, the editor and playback. A PDF or MIDI file from the library works offline once it has been opened; one never opened does not.

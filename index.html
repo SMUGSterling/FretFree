@@ -12,30 +12,31 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-    <script src="theme.js?v=437a292aa9fd"></script>
-    <link rel="stylesheet" href="style.css?v=437a292aa9fd" />
-    <script defer src="vendor/abcjs-basic-min.js?v=437a292aa9fd"></script>
-    <script defer src="vendor/qrcode.js?v=437a292aa9fd"></script>
-    <script defer src="catalog.js?v=437a292aa9fd"></script>
-    <script defer src="catalog-expanded.js?v=437a292aa9fd"></script>
-    <script defer src="score-tools.js?v=437a292aa9fd"></script>
-    <script defer src="rights-tools.js?v=437a292aa9fd"></script>
-    <script defer src="musicxml.js?v=437a292aa9fd"></script>
-    <script defer src="catalog-licensed.js?v=437a292aa9fd"></script>
-    <script defer src="catalog-lieder.js?v=437a292aa9fd"></script>
-    <script defer src="catalog-quartets.js?v=437a292aa9fd"></script>
-    <script defer src="catalog-pgh.js?v=437a292aa9fd"></script>
-    <script defer src="catalog-skills.js?v=437a292aa9fd"></script>
-    <script defer src="prompts.js?v=437a292aa9fd"></script>
-    <script defer src="shared.js?v=437a292aa9fd"></script>
-    <script defer src="library.js?v=437a292aa9fd"></script>
-    <script defer src="backup.js?v=437a292aa9fd"></script>
-    <script defer src="editor.js?v=437a292aa9fd"></script>
-    <script defer src="palette.js?v=437a292aa9fd"></script>
-    <script defer src="playback.js?v=437a292aa9fd"></script>
-    <script defer src="keyboard.js?v=437a292aa9fd"></script>
-    <script defer src="assignments.js?v=437a292aa9fd"></script>
-    <script defer src="app.js?v=437a292aa9fd"></script>
+    <script src="theme.js?v=f061be12fd98"></script>
+    <link rel="stylesheet" href="style.css?v=f061be12fd98" />
+    <script defer src="vendor/abcjs-basic-min.js?v=f061be12fd98"></script>
+    <script defer src="vendor/qrcode.js?v=f061be12fd98"></script>
+    <script defer src="catalog.js?v=f061be12fd98"></script>
+    <script defer src="catalog-expanded.js?v=f061be12fd98"></script>
+    <script defer src="score-tools.js?v=f061be12fd98"></script>
+    <script defer src="rights-tools.js?v=f061be12fd98"></script>
+    <script defer src="musicxml.js?v=f061be12fd98"></script>
+    <script defer src="catalog-licensed.js?v=f061be12fd98"></script>
+    <script defer src="catalog-lieder.js?v=f061be12fd98"></script>
+    <script defer src="catalog-quartets.js?v=f061be12fd98"></script>
+    <script defer src="catalog-pgh.js?v=f061be12fd98"></script>
+    <script defer src="catalog-skills.js?v=f061be12fd98"></script>
+    <script defer src="prompts.js?v=f061be12fd98"></script>
+    <script defer src="shared.js?v=f061be12fd98"></script>
+    <script defer src="library.js?v=f061be12fd98"></script>
+    <script defer src="backup.js?v=f061be12fd98"></script>
+    <script defer src="editor.js?v=f061be12fd98"></script>
+    <script defer src="palette.js?v=f061be12fd98"></script>
+    <script defer src="shortcuts.js?v=f061be12fd98"></script>
+    <script defer src="playback.js?v=f061be12fd98"></script>
+    <script defer src="keyboard.js?v=f061be12fd98"></script>
+    <script defer src="assignments.js?v=f061be12fd98"></script>
+    <script defer src="app.js?v=f061be12fd98"></script>
   </head>
   <body>
     <header>
@@ -548,7 +549,17 @@
               <kbd>|</kbd> bar line · <kbd>Delete</kbd> · <kbd>Space</kbd> play from the note (or double-click it) ·
               <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> or Shift+click select more · <kbd>Ctrl</kbd>+<kbd>A</kbd> all ·
               <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd> <kbd>V</kbd> copy, cut, paste · <kbd>Ctrl</kbd>+<kbd>D</kbd>
-              duplicate · <kbd>[</kbd> <kbd>]</kbd> halve, double lengths
+              duplicate · <kbd>[</kbd> <kbd>]</kbd> halve, double lengths ·
+              <button
+                id="shortcuts-open"
+                class="shortcuts-open"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-keyshortcuts="?"
+                title="Every shortcut, and a search box that runs commands (?)"
+              >
+                All shortcuts <kbd>?</kbd>
+              </button>
             </p>
             <div class="selection-tools" role="group" aria-label="Selected notes">
               <button id="select-left" aria-label="Select left" title="Move the end of the selection left (Shift+←)">
@@ -815,6 +826,39 @@
               <div id="piano-scroll" class="piano-scroll"><div id="piano-keys" class="piano-keys"></div></div>
             </div>
             <div id="note-menu" class="note-menu" role="menu" aria-label="Note properties" hidden></div>
+            <div id="shortcuts" class="shortcuts" hidden>
+              <div
+                class="shortcuts-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="shortcuts-heading"
+                aria-describedby="shortcuts-help"
+              >
+                <div class="shortcuts-head">
+                  <h2 id="shortcuts-heading">Shortcuts and commands</h2>
+                  <button id="shortcuts-close" aria-label="Close shortcuts">✕</button>
+                </div>
+                <label for="shortcuts-search">Find a command</label>
+                <input
+                  id="shortcuts-search"
+                  type="search"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded="true"
+                  aria-controls="shortcuts-list"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  enterkeyhint="go"
+                  placeholder="tie, sharp, copy…"
+                />
+                <p id="shortcuts-help" class="small">
+                  Type to filter, ↑↓ to choose, Enter to run it on the selected notes. Esc closes.
+                </p>
+                <p id="shortcuts-status" class="small" role="status"></p>
+                <div id="shortcuts-list" class="shortcuts-list" role="listbox" aria-label="Commands"></div>
+              </div>
+            </div>
             <div class="export-bar">
               <span>Take your music with you</span><button id="print">Print / PDF</button
               ><button id="export-abc">ABC</button><button id="export-midi">MIDI</button
@@ -994,12 +1038,14 @@
           change tempo, play with a swing feel, loop playback, and export ABC, MIDI, SVG, or MusicXML (for MuseScore,
           Noteflight, Finale, Sibelius or Dorico). Open MusicXML from those programs too, converted to ABC on your
           device. Select a passage to copy, cut, paste or repeat it, or to move or lengthen every note in it at once.
-          Zoom in for larger notation, or choose how many measures go on each line. Use Print / PDF to produce a paper
-          score, in large print if you zoom in first. Transpose a score or a few measures by any interval or to a new
-          key. Choose a B♭ or E♭ instrument for written-pitch transposition with concert-pitch playback, and tick
-          Concert pitch to see the notes as they sound. Classroom colors and letters in noteheads help beginners read,
-          and both print. Theme in the header switches to a dark theme, or follows your device; the score stays black on
-          white unless you tick Dark paper, and prints stay black on white.
+          Screen readers hear the selected note named with its length, pitch, measure and beat, and ? lists every
+          shortcut, with a search box that runs the command you type. Zoom in for larger notation, or choose how many
+          measures go on each line. Use Print / PDF to produce a paper score, in large print if you zoom in first.
+          Transpose a score or a few measures by any interval or to a new key. Choose a B♭ or E♭ instrument for
+          written-pitch transposition with concert-pitch playback, and tick Concert pitch to see the notes as they
+          sound. Classroom colors and letters in noteheads help beginners read, and both print. Theme in the header
+          switches to a dark theme, or follows your device; the score stays black on white unless you tick Dark paper,
+          and prints stay black on white.
         </p>
         <h2>Privacy and school access</h2>
         <p>

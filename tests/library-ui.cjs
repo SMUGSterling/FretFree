@@ -26,6 +26,7 @@ const SCRIPTS = [
   'backup.js',
   'editor.js',
   'palette.js',
+  'shortcuts.js',
   'playback.js',
   'keyboard.js',
   'assignments.js',
