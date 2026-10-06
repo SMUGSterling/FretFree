@@ -147,7 +147,18 @@ $('new-score-form').onsubmit = e => {
   e.preventDefault();
   createScore();
 };
-for (const name of Object.keys(instruments)) $('instrument').add(new Option(name, name));
+// The editor's instrument menu and the library's instrument filter both list `instruments` (catalog.js), by family.
+function fillInstrumentSelect(select) {
+  const groups = new Map();
+  for (const [name, config] of Object.entries(instruments)) {
+    const family = config.family || 'Other';
+    if (!groups.has(family))
+      groups.set(family, select.appendChild(Object.assign(document.createElement('optgroup'), {label: family})));
+    groups.get(family).append(new Option(name, name));
+  }
+}
+fillInstrumentSelect($('instrument'));
+fillInstrumentSelect($('instrument-filter'));
 fillKeySelect($('key'));
 fillKeySelect($('transpose-key'));
 for (const i of TRANSPOSE_INTERVALS)

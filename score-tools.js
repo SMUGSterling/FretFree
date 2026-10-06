@@ -896,6 +896,68 @@ const TRANSPOSE_INTERVALS = [
   {id: 'M7', name: 'major 7th', semitones: 11, letters: 6},
   {id: 'P8', name: 'octave', semitones: 12, letters: 7}
 ];
+// An interval in words, with its article, for captions: "a major 2nd", "a major 9th", "an octave and a major 6th".
+function intervalPhrase(semitones) {
+  semitones = Math.abs(Math.round(semitones));
+  const article = name => (/^[aeiou]/.test(name) ? 'an ' : 'a ') + name,
+    simple = n => article(TRANSPOSE_INTERVALS.find(i => i.semitones === n).name),
+    compound = {13: 'minor 9th', 14: 'major 9th', 15: 'minor 10th', 16: 'major 10th'}[semitones];
+  if (!semitones) return 'a unison';
+  if (semitones <= 12) return simple(semitones);
+  if (compound) return article(compound);
+  const octaves = Math.floor(semitones / 12),
+    words = octaves === 1 ? 'an octave' : octaves === 2 ? 'two octaves' : `${octaves} octaves`;
+  return semitones % 12 ? `${words} and ${simple(semitones % 12)}` : words;
+}
+// An instrument's playback octave against the ABC source (`instruments` in catalog.js): its `sound`, or an octave
+// down for the bass-range instruments (shift -12) that read treble-range melodies an octave lower.
+const instrumentSound = config => config?.sound ?? (config?.shift === -12 ? -12 : 0);
+// How far an instrument's part is written above how it sounds: 2 for a B-flat clarinet, 14 for a tenor sax, 12 for a
+// double bass, -24 for a glockenspiel and 0 for a cello.
+const writtenAboveSound = config => (config?.shift || 0) - instrumentSound(config);
+// A note's loudness: [kind, level, time] steps for a gain AudioParam, kind 'set', 'linear' or 'exp' (the three
+// automation calls every browser has). A plucked or struck sound (`pluck`) fades while it is held; others rise to
+// `peak`, settle at `sustain` and hold it to the end. Both then release to silence; `stop` is when the oscillator
+// can stop.
+function noteEnvelope(env = {}, start, duration, peak) {
+  const end = start + duration,
+    release = env.release ?? 0.025,
+    stop = end + +(release + 0.005).toFixed(4);
+  if (env.pluck) {
+    const attack = Math.min(0.005, duration / 4),
+      held = Math.max(1e-4, peak * Math.exp(-(duration - attack) / env.pluck));
+    const steps = [
+      ['set', 0, start],
+      ['linear', peak, start + attack],
+      ['exp', held, end],
+      ['linear', 0, end + release]
+    ];
+    return {steps, stop};
+  }
+  const attack = Math.min(env.attack ?? 0.012, duration / 3),
+    decay = Math.min(env.decay ?? 0.04, duration / 3),
+    level = peak * (env.sustain ?? 2 / 3);
+  const steps = [
+    ['set', 0, start],
+    ['linear', peak, start + attack],
+    ['linear', level, start + attack + decay],
+    ['linear', level, end],
+    ['linear', 0, end + release]
+  ];
+  return {steps, stop};
+}
+// Vibrato as detune values in cents for setValueCurveAtTime, sampled 16 times a cycle: it starts `delay` seconds into
+// the note and fades in over a quarter second. Null for no vibrato or a note too short to hear it.
+function vibratoCurve(vibrato, duration) {
+  const length = duration - (vibrato?.delay ?? 0);
+  if (!vibrato?.rate || !vibrato.depth || !(length > 0.15)) return null;
+  const n = Math.min(2048, Math.ceil(length * vibrato.rate * 16) + 1),
+    values = Array.from({length: n}, (_, i) => {
+      const t = (i / (n - 1)) * length;
+      return vibrato.depth * Math.min(1, t / 0.25) * Math.sin(2 * Math.PI * vibrato.rate * t);
+    });
+  return {values, start: vibrato.delay ?? 0, length};
+}
 // The move from one key to another, the nearer way round: semitones and letter names (C to F# is 6 and 3, C to Gb
 // 6 and 4). Keys of different modes move by their signatures, so C major to E minor moves the notes to G major.
 function keyInterval(from, to) {

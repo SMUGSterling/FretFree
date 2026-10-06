@@ -72,10 +72,12 @@ function scrollPianoTo(midi, center = false) {
     strip.scrollLeft = left - (strip.clientWidth - key.offsetWidth) / 2;
   return true;
 }
-// The middle line of the instrument's staff, B4 in treble clef and D3 in bass, starts in the middle of the strip.
-// The instrument counts as faced only once the strip could scroll, so a strip set up while hidden faces it on showing.
+// The middle line of the instrument's staff, B4 in treble clef, C4 in alto and D3 in bass, starts in the middle of the
+// strip. The instrument counts as faced only once the strip could scroll, so a strip set up while hidden faces it on
+// showing.
+const STAFF_MIDDLE = {treble: 71, alto: 60, bass: 50};
 function scrollPianoToRange() {
-  if (scrollPianoTo(instruments[currentInstrument()]?.clef === 'bass' ? 50 : 71, true))
+  if (scrollPianoTo(STAFF_MIDDLE[instruments[currentInstrument()]?.clef] || 71, true))
     pianoInstrument = currentInstrument();
 }
 // Playback lights: abcjs timing events name the drawn note (display offset); a key stays lit while any note on it sounds.

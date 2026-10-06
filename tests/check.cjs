@@ -1095,6 +1095,110 @@ for (const prompt of context.writingPrompts) {
   assert.ok(!('onload' in cleaned), 'Unknown top-level fields are dropped');
   assert.equal(cleaned.text.length, 2000, '2,000 characters of instructions are allowed');
 }
+// Instrument sounds: every instrument has its own timbre (partials, envelope and vibrato) with a basic wave that is
+// never the metronome's square; plucked and struck ones fade while held, winds, strings and voice sustain. The
+// written interval above the sound and the playback octave come from shift and sound.
+{
+  const all = vm.runInContext('instruments', context),
+    names = Object.keys(all),
+    plucked = ['Guitar', 'Ukulele', 'Bass guitar', 'Piano', 'Glockenspiel'];
+  assert.ok(names.length >= 22, 'At least 22 instruments');
+  for (const name of ['Voice', 'Viola', 'Double bass', 'Horn in F', 'Tenor sax in B♭', 'Baritone sax in E♭', 'Oboe'])
+    assert.ok(all[name], name + ' is listed');
+  for (const name of ['Bassoon', 'Tuba', 'Euphonium', 'Ukulele', 'Bass guitar', 'Glockenspiel'])
+    assert.ok(all[name], name + ' is listed');
+  const timbres = new Set();
+  for (const [name, config] of Object.entries(all)) {
+    assert.ok(['treble', 'bass', 'alto'].includes(config.clef), name + ' clef');
+    assert.ok(['sine', 'triangle', 'sawtooth'].includes(config.wave), name + ' falls back to a basic wave, not square');
+    assert.equal(typeof config.family, 'string', name + ' family');
+    assert.ok(
+      config.partials.length >= 4 && config.partials.every(a => a >= 0 && a <= 1) && config.partials.some(a => a > 0),
+      name + ' partials'
+    );
+    timbres.add(JSON.stringify([config.partials, config.env, config.vibrato]));
+    const peak = 0.12,
+      held = env => {
+        const {steps, stop} = context.noteEnvelope(env, 10, 2, peak);
+        assert.ok(
+          steps.every(([, level, time], i) => level >= 0 && level <= peak && (!i || time >= steps[i - 1][2])),
+          name + ' envelope steps run forward within the peak'
+        );
+        assert.ok(stop > steps.at(-1)[2] && steps.at(-1)[1] === 0, name + ' releases to silence before it stops');
+        return steps.find(([, , time]) => time === 12)[1] / peak;
+      };
+    if (plucked.includes(name)) assert.ok(config.env.pluck > 0 && held(config.env) < 0.3, name + ' decays');
+    else assert.ok(!config.env.pluck && held(config.env) >= 0.7, name + ' sustains');
+  }
+  assert.equal(timbres.size, names.length, 'Each instrument has a distinct timbre');
+  // Very short notes still rise and fall in order.
+  for (const env of [all.Flute.env, all.Guitar.env, {}]) {
+    const {steps} = context.noteEnvelope(env, 0, 0.02, 0.1);
+    assert.ok(
+      steps.every(([, , t], i) => !i || t >= steps[i - 1][2]),
+      'A 20 ms note keeps its steps in order'
+    );
+  }
+  // The default envelope stops 30 ms after the note, as before.
+  assert.equal(context.noteEnvelope({}, 1, 0.5, 0.1).stop, 1.53);
+  const sound = name => vm.runInContext('instrumentSound', context)(all[name]),
+    written = name => vm.runInContext('writtenAboveSound', context)(all[name]);
+  assert.deepEqual(
+    ['Flute', 'Clarinet in B♭', 'Cello', 'Trombone', 'Tuba', 'Baritone sax in E♭', 'Double bass', 'Glockenspiel'].map(
+      sound
+    ),
+    [0, 0, -12, -12, -12, -12, -24, 24],
+    'Playback octave: -12 only for shift -12 unless sound is set'
+  );
+  assert.deepEqual(
+    [
+      'Clarinet in B♭',
+      'Trumpet in B♭',
+      'Alto sax in E♭',
+      'Horn in F',
+      'Tenor sax in B♭',
+      'Baritone sax in E♭',
+      'Cello',
+      'Double bass',
+      'Glockenspiel',
+      'Viola'
+    ].map(written),
+    [2, 2, 9, 7, 14, 21, 0, 12, -24, 0],
+    'Written above sounding'
+  );
+  assert.deepEqual([2, 7, 8, 9, 11, 12, 13, 14, 16, 21, 24, -7].map(context.intervalPhrase), [
+    'a major 2nd',
+    'a perfect 5th',
+    'a minor 6th',
+    'a major 6th',
+    'a major 7th',
+    'an octave',
+    'a minor 9th',
+    'a major 9th',
+    'a major 10th',
+    'an octave and a major 6th',
+    'two octaves',
+    'a perfect 5th'
+  ]);
+  // Horn in F is written a fifth above concert and tenor sax a ninth; the transposition keeps the key's spelling.
+  const ode = 'X:1\nM:4/4\nL:1/4\nK:F\nF G A B | c4 |]';
+  assert.match(context.transposeABC(ode, all['Horn in F'].shift), /K:C\nc d e f \| g4 \|\]/);
+  assert.match(context.transposeABC(ode, all['Tenor sax in B♭'].shift), /K:G\ng a b c' \| d'4 \|\]/);
+  assert.match(context.transposeABC(ode, all['Baritone sax in E♭'].shift), /K:D\nd e f g \| a4 \|\]/);
+  // Vibrato: a detune curve from its delay to the note's end, within its depth and fading in from zero.
+  assert.equal(context.vibratoCurve(undefined, 2), null);
+  assert.equal(context.vibratoCurve(all.Violin.vibrato, 0.3), null, 'Short notes have no vibrato');
+  const curve = context.vibratoCurve(all.Violin.vibrato, 2.2);
+  assert.ok(
+    curve.start === 0.2 &&
+      Math.abs(curve.length - 2) < 1e-9 &&
+      curve.values[0] === 0 &&
+      curve.values.every(v => Math.abs(v) <= all.Violin.vibrato.depth) &&
+      Math.max(...curve.values) > all.Violin.vibrato.depth * 0.95,
+    'Violin vibrato curve'
+  );
+  assert.ok(context.vibratoCurve(all.Voice.vibrato, 600).values.length <= 2048, 'Long notes keep a bounded curve');
+}
 // MusicXML export. The notes of every voice must match the parse: count, sounding length in divisions, and pitch as
 // abcjs plays it (midiPitches, or for a tied-over note the pitch its tie started on), after the part's <transpose>.
 // A note no single note value fits is written as several, which together must last as long. abcjs's player loses an
@@ -1878,7 +1982,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, swing feel (tempo text kept with other text, a written-out beat that keeps the tempo, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits) and MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, swing feel (tempo text kept with other text, a written-out beat that keeps the tempo, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits) and MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files).'
     )
   )
   .catch(e => {

@@ -1508,6 +1508,119 @@ async function checkAudio() {
     'A note tied across a bar line sounds the held sharp'
   );
 }
+// Instrument sounds: both menus list catalog.js's instruments, every instrument plays one non-square oscillator per
+// note (FakeAudio has no periodic waves, so each falls back to its basic wave) in its octave, and the captions and
+// embed labels give the written interval, including horn in F, tenor and baritone sax and octave transpositions.
+async function checkInstrumentSounds() {
+  const hz = midi => 440 * 2 ** ((midi - 69) / 12),
+    all = run('instruments'),
+    names = Object.keys(all),
+    options = id => run(`[...$('${id}').options].map(o=>o.value).join('|')`);
+  assert.equal(options('instrument'), names.join('|'), 'The instrument menu lists every instrument');
+  assert.equal(options('instrument-filter'), ['all', ...names].join('|'), 'The library filter lists the same ones');
+  assert.equal(
+    run(`[...$('instrument-filter').querySelectorAll('optgroup')].map(g=>g.label).join('|')`),
+    'Woodwinds|Brass|Strings|Guitars|Keyboard and percussion|Voice',
+    'Grouped by family'
+  );
+  run(`$('instrument-filter').value='Horn in F';$('instrument-filter').dispatchEvent(new Event('input'))`);
+  run(`stop();dirty=false;openScore(catalog.find(x=>x.id==='ode'))`);
+  assert.equal(run("$('instrument').value"), 'Horn in F', 'A score opens in the filtered instrument');
+  run(`$('instrument-filter').value='all';$('instrument-filter').dispatchEvent(new Event('input'))`);
+  run("$('metronome').checked=false;$('count-in').checked=false");
+  const abc = 'X:1\nM:4/4\nL:1/4\nQ:1/4=240\nK:F\nF G A B | c4 |]',
+    open = name => run(`stop();dirty=false;openScore({abc:${JSON.stringify(abc)},instrument:${JSON.stringify(name)}})`);
+  for (const name of names) {
+    open(name);
+    oscillators.length = 0;
+    await run('play()');
+    run('stop()');
+    const octave = run(`instrumentSound(instruments[${JSON.stringify(name)}])`);
+    assert.equal(oscillators.length, 5, name + ' plays one oscillator per note');
+    assert.ok(
+      oscillators.every(o => o.type === all[name].wave && o.type !== 'square'),
+      name + ' falls back to its basic wave'
+    );
+    assert.deepEqual(
+      oscillators.map(o => +o.frequency.value.toFixed(6)),
+      [65, 67, 69, 70, 72].map(m => +hz(m + octave).toFixed(6)),
+      name + ' plays the concert source in its octave'
+    );
+  }
+  const caption = () => run("$('score-caption').textContent");
+  open('Horn in F');
+  assert.match(run('writtenABC()'), /K:C[^\n]*\nc d e f \| g4 \|\]/, 'Horn in F is written a fifth higher');
+  assert.equal(
+    caption(),
+    'Horn in F · treble clef · Written pitch shown; it sounds a perfect 5th lower. ABC source and MIDI are concert pitch.'
+  );
+  // Typing a written letter on a horn writes the concert note.
+  run('selectEntry(scoreNotes()[0])');
+  run(`scoreKey({key:'d'})`);
+  assert.match(run("$('abc').value"), /K:F\nF G G A B/, 'Written D on a horn is concert G');
+  open('Tenor sax in B♭');
+  assert.match(run('writtenABC()'), /K:G[^\n]*\ng a b c' \| d'4 \|\]/, 'Tenor sax is written a ninth higher');
+  assert.equal(
+    caption(),
+    'Tenor sax in B♭ · treble clef · Written pitch shown; it sounds a major 9th lower. ABC source and MIDI are concert pitch.'
+  );
+  assert.equal(run('transposing()'), 14, 'The score is drawn 14 semitones up');
+  run('selectEntry(scoreNotes()[0])');
+  run(`scoreKey({key:'a'})`);
+  assert.match(run("$('abc').value"), /K:F\nF G G A B/, 'Written A on a tenor sax is concert G');
+  run("$('concert-pitch').checked=true;$('concert-pitch').onchange()");
+  assert.match(run('writtenABC()'), /K:F[^\n]*\nF G G A B/, 'Concert pitch view shows the source');
+  open('Baritone sax in E♭');
+  assert.equal(
+    caption(),
+    'Baritone sax in E♭ · treble clef · Concert pitch shown, an octave above how it sounds; turn off Concert pitch for the written part.'
+  );
+  run("$('concert-pitch').checked=false;$('concert-pitch').onchange()");
+  assert.match(run('writtenABC()'), /K:D[^\n]*\nd e f g \| a4 \|\]/);
+  assert.equal(
+    caption(),
+    'Baritone sax in E♭ · treble clef · Written pitch shown; it sounds an octave and a major 6th lower. ABC source and MIDI are concert pitch, played an octave lower.'
+  );
+  oscillators.length = 0;
+  run(`scoreClick(scoreEvents(renderedTune).find(e=>e.element.pitches).element,0,[],{},{step:0},{})`);
+  assert.deepEqual(
+    oscillators.map(o => +o.frequency.value.toFixed(6)),
+    [+hz(53).toFixed(6)],
+    'Baritone sax audition sounds an octave below the source'
+  );
+  // A prompt's written key on a tenor sax: G written is concert F, so the written score is back in G.
+  run(`$('instrument').value='Tenor sax in B♭';$('instrument').onchange();dirty=false`);
+  run(`startPrompt({id:'in-g',title:'In G',meter:'4/4',unit:'1/4',key:'G',tempo:90,bars:2,goals:[]})`);
+  assert.match(run("$('abc').value"), /^K:F/m, 'The prompt source is in concert F');
+  assert.match(run('writtenABC()'), /^K:G/m, 'The tenor sax sees the prompt in G');
+  open('Double bass');
+  assert.equal(
+    caption(),
+    'Double bass · bass clef · Melody lowered one octave for bass range. It sounds an octave lower than written.'
+  );
+  open('Glockenspiel');
+  assert.equal(caption(), 'Glockenspiel · treble clef · Melody part. It sounds two octaves higher than written.');
+  open('Viola');
+  assert.equal(caption(), 'Viola · alto clef · Concert pitch melody part.');
+  assert.match(run('writtenABC()'), /clef=alto/);
+  open('Cello');
+  assert.equal(caption(), 'Cello · bass clef · Melody lowered one octave for bass range.', 'Cello is unchanged');
+  assert.deepEqual(
+    ['Horn in F', 'Tenor sax in B♭', 'Baritone sax in E♭', 'Double bass', 'Glockenspiel', 'Cello', 'Viola'].map(name =>
+      run(`embedPart(${JSON.stringify(name)})`)
+    ),
+    [
+      'Horn in F part, in written pitch: it sounds a perfect 5th lower.',
+      'Tenor sax in B♭ part, in written pitch: it sounds a major 9th lower.',
+      'Baritone sax in E♭ part, in written pitch: it sounds an octave and a major 6th lower.',
+      'Double bass part, in written pitch: it sounds an octave lower.',
+      'Glockenspiel part, in written pitch: it sounds two octaves higher.',
+      '',
+      ''
+    ]
+  );
+  run('stop();dirty=false');
+}
 async function checkPlayback() {
   run(`openScore({abc:${JSON.stringify(source)},instrument:'Flute'});$('start-measure').value=3;$('speed').value=50`);
   assert.equal(run('measureStarts.get(3)'), 9.6, 'Measure after repeated section uses performed timing');
@@ -2130,12 +2243,13 @@ async function checkPlayback() {
   }
   await checkChordSymbols();
   await checkAudio();
+  await checkInstrumentSounds();
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-scores-v1')), [legacy]);
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-favorites-v1')), ['ode', 'mutopia-263']);
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

@@ -1,3 +1,12 @@
+# Instrument sounds · 2026-10-06
+
+- Thirteen more instruments: oboe, bassoon, tenor sax in B♭, baritone sax in E♭, horn in F, euphonium, tuba, viola (alto clef), double bass, ukulele, bass guitar, glockenspiel and voice. The Instrument menu and the library's Instrument filter are both built from the one list in catalog.js and grouped by family (Woodwinds, Brass, Strings, Guitars, Keyboard and percussion, Voice); the filter's hard-coded list is gone.
+- Every instrument has its own synthesized sound instead of a bare sine, triangle or sawtooth wave: a waveform built from its harmonics (`partials`, played through `createPeriodicWave` and made once per audio context), an envelope (winds, brass, strings and voice swell in and hold; guitar, ukulele, bass guitar, piano and glockenspiel fade while held) and, for flute, oboe, saxes, euphonium, strings and voice, vibrato through detune automation once the note has sounded for a moment. Each note is still one oscillator and nothing uses the metronome's square wave; browsers without periodic waves or detune automation play the basic wave without vibrato. Playback, Hear notes, library Listen and version History previews all use the new sounds.
+- An instrument's playback octave is now its own setting (`sound`), apart from its written transposition (`shift`); the default is unchanged (an octave down only for shift −12, as on cello and trombone). Horn in F is written a perfect 5th above concert pitch and tenor sax a major 9th. Baritone sax is written an octave and a major 6th above how it sounds: it reads the part a major 6th up, like alto sax, and plays the melody an octave lower. Double bass and bass guitar sound an octave below the written part and glockenspiel two octaves above.
+- The caption under the title gives the interval from the instrument (*Horn in F · treble clef · Written pitch shown; it sounds a perfect 5th lower. ABC source and MIDI are concert pitch.*), and the embed view names the part the same way, including tenor and baritone sax and the octave instruments. `intervalPhrase()`, `instrumentSound()`, `writtenAboveSound()`, `noteEnvelope()` and `vibratoCurve()` are pure helpers in score-tools.js.
+
+---
+
 # Swing feel · 2026-10-06
 
 - **Feel** in Score settings plays a score straight or with a swing feel: Light swing (60), Swing (66) or Hard swing (75). The off-beat eighth of each quarter beat starts late, at that percent of the beat, and the on-beat eighth before it lasts longer, so at Swing and 120 BPM the second of two eighths starts at 2/3 of the beat instead of halfway.
