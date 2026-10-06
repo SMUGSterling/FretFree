@@ -12,31 +12,33 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-    <script src="theme.js?v=5ca5c7d3ead0"></script>
-    <link rel="stylesheet" href="style.css?v=5ca5c7d3ead0" />
-    <script defer src="vendor/abcjs-basic-min.js?v=5ca5c7d3ead0"></script>
-    <script defer src="vendor/qrcode.js?v=5ca5c7d3ead0"></script>
-    <script defer src="catalog.js?v=5ca5c7d3ead0"></script>
-    <script defer src="catalog-expanded.js?v=5ca5c7d3ead0"></script>
-    <script defer src="score-tools.js?v=5ca5c7d3ead0"></script>
-    <script defer src="rights-tools.js?v=5ca5c7d3ead0"></script>
-    <script defer src="musicxml.js?v=5ca5c7d3ead0"></script>
-    <script defer src="catalog-licensed.js?v=5ca5c7d3ead0"></script>
-    <script defer src="catalog-lieder.js?v=5ca5c7d3ead0"></script>
-    <script defer src="catalog-quartets.js?v=5ca5c7d3ead0"></script>
-    <script defer src="catalog-pgh.js?v=5ca5c7d3ead0"></script>
-    <script defer src="catalog-skills.js?v=5ca5c7d3ead0"></script>
-    <script defer src="prompts.js?v=5ca5c7d3ead0"></script>
-    <script defer src="shared.js?v=5ca5c7d3ead0"></script>
-    <script defer src="library.js?v=5ca5c7d3ead0"></script>
-    <script defer src="backup.js?v=5ca5c7d3ead0"></script>
-    <script defer src="editor.js?v=5ca5c7d3ead0"></script>
-    <script defer src="palette.js?v=5ca5c7d3ead0"></script>
-    <script defer src="shortcuts.js?v=5ca5c7d3ead0"></script>
-    <script defer src="playback.js?v=5ca5c7d3ead0"></script>
-    <script defer src="keyboard.js?v=5ca5c7d3ead0"></script>
-    <script defer src="assignments.js?v=5ca5c7d3ead0"></script>
-    <script defer src="app.js?v=5ca5c7d3ead0"></script>
+    <script src="theme.js?v=9ef683999095"></script>
+    <link rel="stylesheet" href="style.css?v=9ef683999095" />
+    <script defer src="vendor/abcjs-basic-min.js?v=9ef683999095"></script>
+    <script defer src="vendor/qrcode.js?v=9ef683999095"></script>
+    <script defer src="catalog.js?v=9ef683999095"></script>
+    <script defer src="catalog-expanded.js?v=9ef683999095"></script>
+    <script defer src="score-tools.js?v=9ef683999095"></script>
+    <script defer src="rights-tools.js?v=9ef683999095"></script>
+    <script defer src="musicxml.js?v=9ef683999095"></script>
+    <script defer src="catalog-licensed.js?v=9ef683999095"></script>
+    <script defer src="catalog-lieder.js?v=9ef683999095"></script>
+    <script defer src="catalog-quartets.js?v=9ef683999095"></script>
+    <script defer src="catalog-pgh.js?v=9ef683999095"></script>
+    <script defer src="catalog-skills.js?v=9ef683999095"></script>
+    <script defer src="prompts.js?v=9ef683999095"></script>
+    <script defer src="shared.js?v=9ef683999095"></script>
+    <script defer src="library.js?v=9ef683999095"></script>
+    <script defer src="backup.js?v=9ef683999095"></script>
+    <script defer src="editor.js?v=9ef683999095"></script>
+    <script defer src="measure-tools.js?v=9ef683999095"></script>
+    <script defer src="palette.js?v=9ef683999095"></script>
+    <script defer src="shortcuts.js?v=9ef683999095"></script>
+    <script defer src="playback.js?v=9ef683999095"></script>
+    <script defer src="keyboard.js?v=9ef683999095"></script>
+    <script defer src="assignments.js?v=9ef683999095"></script>
+    <script defer src="turn-in.js?v=9ef683999095"></script>
+    <script defer src="app.js?v=9ef683999095"></script>
   </head>
   <body>
     <header>
@@ -113,16 +115,6 @@
           ><label
             >Instrument<select id="instrument-filter">
               <option value="all">All melody instruments</option>
-              <option>Flute</option>
-              <option>Violin</option>
-              <option>Recorder</option>
-              <option>Clarinet in B♭</option>
-              <option>Trumpet in B♭</option>
-              <option>Alto sax in E♭</option>
-              <option>Cello</option>
-              <option>Trombone</option>
-              <option>Piano</option>
-              <option>Guitar</option>
             </select></label
           ><label
             >Skill<select id="skill-filter">
@@ -201,6 +193,37 @@
             ><button id="new-score" title="Start a blank 8-bar melody in 4/4 and C major">Blank melody</button>
           </div>
         </div>
+        <section id="submission-bar" class="submission-bar" aria-label="Turned-in work" hidden>
+          <div class="submission-head">
+            <p id="submission-text" tabindex="-1" aria-live="polite"></p>
+            <div class="submission-nav">
+              <button id="submission-prev" aria-label="Previous submission">← Previous</button
+              ><span id="submission-pos" class="small"></span
+              ><button id="submission-next" aria-label="Next submission">Next →</button
+              ><button id="submission-all">All submissions</button
+              ><button id="submission-add" class="primary" hidden>Add to submissions</button>
+            </div>
+          </div>
+          <div class="feedback-form">
+            <label for="feedback-text">Feedback for <span id="feedback-name"></span></label>
+            <div class="share-row">
+              <textarea
+                id="feedback-text"
+                rows="2"
+                maxlength="2000"
+                placeholder="What went well, and what to change. It goes back inside the link with the music."
+              ></textarea
+              ><button id="feedback-link">Copy return link</button>
+            </div>
+            <div class="share-row" id="feedback-result" hidden>
+              <input id="feedback-url" readonly spellcheck="false" aria-label="Return link" /><button
+                id="feedback-copy"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        </section>
         <section id="new-score-panel" class="prompt-picker new-score-panel" aria-labelledby="new-score-heading" hidden>
           <div class="prompt-picker-head">
             <div>
@@ -256,7 +279,8 @@
               <p class="small">
                 Write instructions and pick goals for this score. The music on the page is where students start. Share
                 the link through Google Classroom or your LMS: each student opens their own copy with your instructions
-                and a checklist that ticks off as they write.
+                and a checklist that ticks off as they write. Students press Turn in to send their work back; paste
+                their links into My scores → Submissions.
               </p>
             </div>
             <button id="close-assignment" type="button" aria-label="Close assignment">✕</button>
@@ -546,10 +570,10 @@
               ><kbd>→</kbd> select · <kbd>#</kbd> <kbd>-</kbd> <kbd>=</kbd> sharp, flat, natural · <kbd>+</kbd> tie ·
               <kbd>Z</kbd> respell (C♯ to D♭) · <kbd>;</kbd> <kbd>:</kbd> <kbd>&gt;</kbd> <kbd>"</kbd>
               <kbd>^</kbd> staccato, tenuto, accent, marcato, fermata · <kbd>K</kbd> chord symbol · <kbd>S</kbd> slur ·
-              <kbd>|</kbd> bar line · <kbd>Delete</kbd> · <kbd>Space</kbd> play from the note (or double-click it) ·
-              <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> or Shift+click select more · <kbd>Ctrl</kbd>+<kbd>A</kbd> all ·
-              <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd> <kbd>V</kbd> copy, cut, paste · <kbd>Ctrl</kbd>+<kbd>D</kbd>
-              duplicate · <kbd>[</kbd> <kbd>]</kbd> halve, double lengths ·
+              <kbd>T</kbd> triplet · <kbd>|</kbd> bar line · <kbd>Delete</kbd> · <kbd>Space</kbd> play from the note (or
+              double-click it) · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> or Shift+click select more ·
+              <kbd>Ctrl</kbd>+<kbd>A</kbd> all · <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd> <kbd>V</kbd> copy, cut, paste
+              · <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>[</kbd> <kbd>]</kbd> halve, double lengths ·
               <button
                 id="shortcuts-open"
                 class="shortcuts-open"
@@ -579,8 +603,13 @@
             <p class="small" id="selection-status" role="status">
               Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag
               up/down to change pitch; use the toolbar above the score or right-click a note for length, accidentals,
-              ties, articulations, dynamics and chord symbols. Playback speed leaves the score tempo unchanged.
+              ties, tuplets, grace notes, articulations, dynamics and chord symbols. Playback speed leaves the score
+              tempo unchanged.
             </p>
+            <div id="feedback-note" class="feedback-note" hidden>
+              <strong>Feedback from your teacher</strong>
+              <p id="feedback-note-text"></p>
+            </div>
             <div id="prompt-check" class="prompt-check" aria-live="polite" hidden></div>
             <div id="bar-check" class="bar-check" aria-live="polite" hidden></div>
             <div id="palette" class="palette" role="toolbar" aria-label="Notation" aria-controls="notation">
@@ -615,6 +644,37 @@
                 ><button data-palette="to-rest" title="Change the note to a rest of the same length">
                   <span class="glyph" aria-hidden="true">𝄽</span> Rest
                 </button>
+              </div>
+              <div role="group" aria-label="Tuplets">
+                <button
+                  data-palette="tuplet:3"
+                  aria-label="Triplet"
+                  aria-keyshortcuts="T"
+                  title="Triplet: three notes in the time of two (T)"
+                >
+                  <span class="glyph" aria-hidden="true">³</span> Triplet</button
+                ><button
+                  data-palette="tuplets"
+                  aria-expanded="false"
+                  aria-controls="palette-tuplets"
+                  title="Duplets, quintuplets, sextuplets and septuplets"
+                >
+                  Tuplet <span class="glyph" aria-hidden="true">▾</span>
+                </button>
+              </div>
+              <div id="palette-tuplets" class="palette-more" hidden>
+                <div role="group" aria-label="Other tuplets">
+                  <button data-palette="tuplet:2" title="Two notes in the time of three, on a dotted note">
+                    Duplet
+                  </button>
+                  <button data-palette="tuplet:5" title="Five notes in the time of four (three on a dotted note)">
+                    Quintuplet
+                  </button>
+                  <button data-palette="tuplet:6" title="Six notes in the time of four">Sextuplet</button>
+                  <button data-palette="tuplet:7" title="Seven notes in the time of four (six on a dotted note)">
+                    Septuplet
+                  </button>
+                </div>
               </div>
               <div role="group" aria-label="Accidental">
                 <button data-palette="acc:^" aria-label="Sharp" aria-keyshortcuts="#" title="Sharp (#)">♯</button
@@ -726,6 +786,15 @@
                   <span class="glyph trill-glyph" aria-hidden="true">tr</span> Trill line
                 </button>
               </div>
+              <div role="group" aria-label="Grace notes">
+                <button data-palette="grace" title="Grace note one step above the note; press again to remove it">
+                  Grace</button
+                ><button data-palette="grace:slash" title="Slashed grace note (acciaccatura)">Slashed</button
+                ><button data-palette="grace:up" aria-label="Grace up" title="Move the grace note up">Grace ↑</button
+                ><button data-palette="grace:down" aria-label="Grace down" title="Move the grace note down">
+                  Grace ↓
+                </button>
+              </div>
               <div role="group" aria-label="More marks">
                 <button
                   data-palette="more"
@@ -759,6 +828,94 @@
                 >
                   <span class="glyph" aria-hidden="true">✕</span> Delete
                 </button>
+              </div>
+              <div role="group" aria-label="Measure">
+                <button
+                  data-palette="measure"
+                  aria-expanded="false"
+                  aria-controls="palette-measure"
+                  title="Bars, bar lines, repeats, endings, form marks and changes of time, key or clef"
+                >
+                  Measure <span class="glyph" aria-hidden="true">▾</span>
+                </button>
+              </div>
+              <div id="palette-measure" class="palette-measure" hidden>
+                <div role="group" aria-label="Bars">
+                  <button data-palette="bar:before" title="Insert an empty bar before this measure">
+                    + Bar before
+                  </button>
+                  <button data-palette="bar:after" title="Insert an empty bar after this measure">+ Bar after</button>
+                  <button data-palette="bar:delete" class="danger" title="Delete this measure on every staff">
+                    Delete bar
+                  </button>
+                </div>
+                <div role="group" aria-label="Bar line after the measure">
+                  <button data-palette="barline:|" title="Single bar line after this measure">
+                    <span class="glyph" aria-hidden="true">𝄀</span> Single</button
+                  ><button data-palette="barline:||" title="Double bar line after this measure">
+                    <span class="glyph" aria-hidden="true">𝄁</span> Double</button
+                  ><button data-palette="barline:|]" title="Final bar line after this measure">
+                    <span class="glyph" aria-hidden="true">𝄂</span> Final
+                  </button>
+                </div>
+                <div role="group" aria-label="Repeats and endings">
+                  <button data-palette="repeat:start" title="Start a repeat at this measure">
+                    <span class="glyph" aria-hidden="true">𝄆</span> Start repeat</button
+                  ><button data-palette="repeat:end" title="End a repeat after this measure">
+                    <span class="glyph" aria-hidden="true">𝄇</span> End repeat</button
+                  ><button data-palette="ending:1" title="1st ending from this measure">1st ending</button
+                  ><button data-palette="ending:2" title="2nd ending from this measure">2nd ending</button>
+                </div>
+                <div role="group" aria-label="Form">
+                  <button data-palette="form:segno" title="Segno at the start of this measure">
+                    <span class="glyph" aria-hidden="true">𝄋</span> Segno</button
+                  ><button data-palette="form:coda" title="Coda sign at the start of this measure">
+                    <span class="glyph" aria-hidden="true">𝄌</span> Coda</button
+                  ><button data-palette="form:fine" title="Fine at the end of this measure">Fine</button
+                  ><button data-palette="form:D.C." title="D.C. (da capo) at the end of this measure">D.C.</button
+                  ><button data-palette="form:D.S." title="D.S. (dal segno) at the end of this measure">D.S.</button
+                  ><button data-palette="form:D.C.alfine" title="D.C. al Fine at the end of this measure">
+                    D.C. al Fine</button
+                  ><button data-palette="form:D.S.alcoda" title="D.S. al Coda at the end of this measure">
+                    D.S. al Coda
+                  </button>
+                </div>
+                <div role="group" aria-label="Rehearsal mark">
+                  <button data-palette="rehearsal:mark" title="Rehearsal letter at this measure (A, B, C in order)">
+                    <span class="glyph boxed" aria-hidden="true">A</span> Rehearsal mark
+                  </button>
+                </div>
+                <div class="measure-changes" role="group" aria-label="Changes from this measure on">
+                  <span class="measure-changes-label" aria-hidden="true">From here:</span>
+                  <label
+                    >Time
+                    <select id="measure-meter" aria-label="Time signature from this measure"></select></label
+                  ><label
+                    >Key
+                    <select id="measure-key" aria-label="Key from this measure"></select></label
+                  ><label
+                    >Clef
+                    <select id="measure-clef" aria-label="Clef from this measure">
+                      <option value="treble">Treble</option>
+                      <option value="bass">Bass</option>
+                      <option value="alto">Alto</option>
+                      <option value="tenor">Tenor</option>
+                      <option value="treble-8">Treble 8vb</option>
+                    </select></label
+                  >
+                </div>
+                <div
+                  id="measure-key-choice"
+                  class="key-choice measure-key-choice"
+                  role="group"
+                  aria-labelledby="measure-key-choice-text"
+                  hidden
+                >
+                  <p id="measure-key-choice-text" aria-live="polite"></p>
+                  <button id="measure-key-transpose" class="primary">Transpose notes</button
+                  ><button id="measure-key-keep" title="Change only the key signature">Keep notes</button
+                  ><button id="measure-key-cancel" aria-label="Cancel the key change">✕</button>
+                </div>
               </div>
             </div>
             <div class="score-view" role="group" aria-label="Score view">
@@ -865,7 +1022,16 @@
               ><button id="export-svg">SVG</button
               ><button id="export-musicxml" title="For MuseScore, Noteflight, Finale, Sibelius or Dorico">
                 MusicXML</button
-              ><button id="share-link" class="primary">Share link</button>
+              ><button id="share-link" class="primary">Share link</button
+              ><button
+                id="turn-in"
+                aria-expanded="false"
+                aria-controls="turn-in-panel"
+                title="Send this assignment to your teacher as a link or a file"
+                hidden
+              >
+                Turn in
+              </button>
             </div>
             <div id="share-panel" class="share-panel" hidden>
               <div class="share-head">
@@ -944,6 +1110,36 @@
                 <button id="qr-large" hidden>Show full screen</button>
               </div>
             </div>
+            <section id="turn-in-panel" class="share-panel turn-in-panel" aria-labelledby="turn-in-heading" hidden>
+              <div class="share-head">
+                <h2 id="turn-in-heading">Turn in</h2>
+                <button id="turn-in-close" type="button" aria-label="Close turn in">✕</button>
+              </div>
+              <p id="turn-in-summary" class="small"></p>
+              <form id="turn-in-form" novalidate>
+                <label for="student-name">Your name</label>
+                <div class="share-row">
+                  <input
+                    id="student-name"
+                    maxlength="80"
+                    autocomplete="name"
+                    aria-describedby="turn-in-status"
+                  /><button type="submit" class="primary">Copy turn-in link</button>
+                </div>
+                <p id="turn-in-status" class="small" role="status"></p>
+              </form>
+              <div id="turn-in-result" hidden>
+                <label for="turn-in-url">Turn-in link</label>
+                <div class="share-row">
+                  <input id="turn-in-url" readonly spellcheck="false" /><button id="turn-in-copy">Copy</button>
+                </div>
+                <p class="small">
+                  Paste the link where your teacher collects work, such as Google Classroom, or attach the file. Your
+                  teacher sees your name, the time and the goals you met. Nothing is uploaded.
+                </p>
+                <button id="turn-in-download">Download file (.json)</button>
+              </div>
+            </section>
             <div id="source-edition" class="source-edition" hidden></div>
             <div class="rights-box" id="rights"></div>
             <section id="next-up" class="next-up" aria-label="Try next" hidden></section>
@@ -969,13 +1165,41 @@
               ⬇ Back up</button
             ><button id="restore" title="Merge a FretFree backup file into this device">⬆ Restore</button
             ><input id="restore-file" type="file" accept=".json,application/json" hidden /><button
-              class="primary"
-              id="saved-new"
+              id="inbox-open"
+              aria-expanded="false"
+              aria-controls="inbox-panel"
+              title="Collect the work students turn in"
             >
-              ＋ New score
-            </button>
+              Submissions</button
+            ><button class="primary" id="saved-new">＋ New score</button>
           </div>
         </div>
+        <section id="inbox-panel" class="history-panel inbox-panel" aria-labelledby="inbox-heading" hidden>
+          <div class="history-head">
+            <h2 id="inbox-heading" tabindex="-1">Submissions</h2>
+            <button id="inbox-close" aria-label="Close submissions">✕</button>
+          </div>
+          <p class="small">
+            Students press <strong>Turn in</strong> on an assignment and send you a link or a file. Paste the links
+            here, one per line, or drop the files on this box. Submissions stay on this device, and backups include
+            them.
+          </p>
+          <label for="inbox-paste">Turn-in links</label>
+          <textarea id="inbox-paste" rows="3" spellcheck="false" placeholder="One link per line"></textarea>
+          <div class="inbox-actions">
+            <button id="inbox-add" class="primary">Add links</button><button id="inbox-choose">Add files</button
+            ><input id="inbox-file" type="file" accept=".json,.txt,application/json,text/plain" multiple hidden /><label
+              class="inline"
+              >Sort by<select id="inbox-sort">
+                <option value="name">Name</option>
+                <option value="goals">Goals met</option>
+                <option value="time">Time turned in</option>
+              </select></label
+            ><button id="inbox-clear">Clear all</button>
+          </div>
+          <p id="inbox-status" class="small" role="status"></p>
+          <div id="inbox-list"></div>
+        </section>
         <section id="history-panel" class="history-panel" aria-labelledby="history-heading" hidden>
           <div class="history-head">
             <h2 id="history-heading" tabindex="-1">History</h2>
@@ -1032,20 +1256,23 @@
           Use ABC notation, the note buttons, the notation toolbar above the score, the on-screen piano keys, or a USB
           MIDI keyboard (in browsers with Web MIDI, such as Chrome and Edge) to write music and chords, with
           articulations, dynamics and ornaments; dynamics, accents and staccato change the playback. Select some notes
-          and press S for a slur, or add a crescendo, diminuendo or trill line from the toolbar. Press Z or Respell to
-          respell a note, such as C♯ as D♭. Add chord symbols to make a lead sheet; they play as an accompaniment, which
-          the Chords switch turns off. Hear each note as you enter it, play the score with built-in synthesized tones,
-          change tempo, play with a swing feel, loop playback, and export ABC, MIDI, SVG, or MusicXML (for MuseScore,
-          Noteflight, Finale, Sibelius or Dorico). Open MusicXML from those programs too, converted to ABC on your
-          device. Select a passage to copy, cut, paste or repeat it, or to move or lengthen every note in it at once.
-          Screen readers hear the selected note named with its length, pitch, measure and beat, and ? lists every
-          shortcut, with a search box that runs the command you type. Zoom in for larger notation, or choose how many
-          measures go on each line. Use Print / PDF to produce a paper score, in large print if you zoom in first.
-          Transpose a score or a few measures by any interval or to a new key. Choose a B♭ or E♭ instrument for
-          written-pitch transposition with concert-pitch playback, and tick Concert pitch to see the notes as they
-          sound. Classroom colors and letters in noteheads help beginners read, and both print. Theme in the header
-          switches to a dark theme, or follows your device; the score stays black on white unless you tick Dark paper,
-          and prints stay black on white.
+          and press S for a slur, or add a crescendo, diminuendo or trill line from the toolbar. Press T to turn a note
+          into a triplet, or pick another tuplet from the toolbar, and type letters to fill it; add grace notes with
+          Grace. Press Z or Respell to respell a note, such as C♯ as D♭. Add chord symbols to make a lead sheet; they
+          play as an accompaniment, which the Chords switch turns off. Hear each note as you enter it, play the score
+          with a built-in synthesized sound for each instrument, change tempo, play with a swing feel, loop playback,
+          and export ABC, MIDI, SVG, or MusicXML (for MuseScore, Noteflight, Finale, Sibelius or Dorico). Open MusicXML
+          from those programs too, converted to ABC on your device. Select a passage to copy, cut, paste or repeat it,
+          or to move or lengthen every note in it at once. Measure in the toolbar inserts and deletes bars, and adds
+          double and final bar lines, repeats, 1st and 2nd endings, segno, coda, D.C., D.S. and Fine, rehearsal letters,
+          and changes of time signature, key or clef. Screen readers hear the selected note named with its length,
+          pitch, measure and beat, and ? lists every shortcut, with a search box that runs the command you type. Zoom in
+          for larger notation, or choose how many measures go on each line. Use Print / PDF to produce a paper score, in
+          large print if you zoom in first. Transpose a score or a few measures by any interval or to a new key. Choose
+          a B♭, E♭ or F instrument for written-pitch transposition with concert-pitch playback, and tick Concert pitch
+          to see the notes as they sound. Classroom colors and letters in noteheads help beginners read, and both print.
+          Theme in the header switches to a dark theme, or follows your device; the score stays black on white unless
+          you tick Dark paper, and prints stay black on white.
         </p>
         <h2>Privacy and school access</h2>
         <p>
@@ -1053,14 +1280,16 @@
           score inside the link itself, so a teacher can hand out an assignment, or a student can hand work back,
           through whatever the school already uses; nothing is uploaded. <strong>✎ Assignment</strong> adds a teacher’s
           instructions and goals to the link, and each student’s copy shows them with a checklist that ticks off as they
-          write. The share panel also gives <strong>embed code</strong> for a class website, Google Sites, Canvas or a
-          blog, which shows the score read-only with Play and its credits and saves nothing on the visitor’s device, and
-          a <strong>QR code</strong> of the link for students to scan from the projector. Library scores and the
-          notation engine ship with the site, so the core experience makes no third-party requests. Local storage can be
-          cleared by the browser or school device policy; export work you want to keep. Unsaved changes are kept as a
-          draft in the browser, so a closed or discarded tab offers them back on the next visit. Saving a changed score
-          keeps the copy it replaces: <strong>History</strong> in My scores previews, plays and restores earlier
-          versions.
+          write. Students press <strong>Turn in</strong> to send a link or file with their name and the goals they met;
+          the teacher pastes the links into <strong>My scores → Submissions</strong>, steps through the class with
+          Previous and Next, and sends feedback back in a return link. The share panel also gives
+          <strong>embed code</strong> for a class website, Google Sites, Canvas or a blog, which shows the score
+          read-only with Play and its credits and saves nothing on the visitor’s device, and a
+          <strong>QR code</strong> of the link for students to scan from the projector. Library scores and the notation
+          engine ship with the site, so the core experience makes no third-party requests. Local storage can be cleared
+          by the browser or school device policy; export work you want to keep. Unsaved changes are kept as a draft in
+          the browser, so a closed or discarded tab offers them back on the next visit. Saving a changed score keeps the
+          copy it replaces: <strong>History</strong> in My scores previews, plays and restores earlier versions.
         </p>
         <p>
           <strong>Offline and installing.</strong> After one visit, FretFree opens and works without internet: the

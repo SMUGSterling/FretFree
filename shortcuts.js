@@ -1,9 +1,9 @@
 'use strict';
 // Shortcut sheet and command search. SHORTCUTS lists the editing commands by task: each has a name, its keys, and how
-// it runs (a notation palette button, a key on the score, or a function). The palette's titles and aria-keyshortcuts
-// come from it. ? on the studio, or the Shortcuts button, opens a dialog that lists it; typing in its search box
-// filters the commands, and Enter runs the chosen one on the selection, like Noteflight's Editor Guide search. The
-// dialog keeps the keyboard until it closes, then gives it back to the score.
+// it runs (a notation palette button, a key on the score, a menu in the Measure panel, or a function). The palette's
+// titles and aria-keyshortcuts come from it. ? on the studio, or the Shortcuts button, opens a dialog that lists it;
+// typing in its search box filters the commands, and Enter runs the chosen one on the selection, like Noteflight's
+// Editor Guide search. The dialog keeps the keyboard until it closes, then gives it back to the score.
 const SHORTCUTS = [
   {group: 'Select', name: 'Select the next note', keys: ['→'], aria: 'ArrowRight', key: 'ArrowRight'},
   {group: 'Select', name: 'Select the previous note', keys: ['←'], aria: 'ArrowLeft', key: 'ArrowLeft'},
@@ -52,6 +52,21 @@ const SHORTCUTS = [
   {group: 'Length', name: 'Change to a rest', keys: [], palette: 'to-rest', words: 'silence'},
   {group: 'Length', name: 'Halve the lengths', keys: ['['], key: '[', words: 'shorter diminution'},
   {group: 'Length', name: 'Double the lengths', keys: [']'], key: ']', words: 'longer augmentation'},
+  {group: 'Tuplets and grace notes', name: 'Triplet', keys: ['T'], palette: 'tuplet:3', words: 'tuplet three'},
+  {group: 'Tuplets and grace notes', name: 'Duplet', keys: [], palette: 'tuplet:2', words: 'tuplet two'},
+  {group: 'Tuplets and grace notes', name: 'Quintuplet', keys: [], palette: 'tuplet:5', words: 'tuplet five'},
+  {group: 'Tuplets and grace notes', name: 'Sextuplet', keys: [], palette: 'tuplet:6', words: 'tuplet six'},
+  {group: 'Tuplets and grace notes', name: 'Septuplet', keys: [], palette: 'tuplet:7', words: 'tuplet seven'},
+  {group: 'Tuplets and grace notes', name: 'Grace note', keys: [], palette: 'grace', words: 'ornament appoggiatura'},
+  {
+    group: 'Tuplets and grace notes',
+    name: 'Slashed grace note',
+    keys: [],
+    palette: 'grace:slash',
+    words: 'ornament acciaccatura'
+  },
+  {group: 'Tuplets and grace notes', name: 'Move the grace note up', keys: [], palette: 'grace:up', words: 'higher'},
+  {group: 'Tuplets and grace notes', name: 'Move the grace note down', keys: [], palette: 'grace:down', words: 'lower'},
   {group: 'Pitch', name: 'Up a step', keys: ['↑'], aria: 'ArrowUp', key: 'ArrowUp', words: 'higher raise'},
   {group: 'Pitch', name: 'Down a step', keys: ['↓'], aria: 'ArrowDown', key: 'ArrowDown', words: 'lower'},
   {
@@ -111,6 +126,27 @@ const SHORTCUTS = [
   {group: 'Lines and beams', name: 'Trill line', keys: [], palette: 'line:trill', words: 'ornament'},
   {group: 'Lines and beams', name: 'Join beam to the next note', keys: [], palette: 'beam:join'},
   {group: 'Lines and beams', name: 'Break the beam after this note', keys: [], palette: 'beam:break'},
+  {group: 'Measure', name: 'Insert a bar before', keys: [], palette: 'bar:before', words: 'measure add empty'},
+  {group: 'Measure', name: 'Insert a bar after', keys: [], palette: 'bar:after', words: 'measure add empty'},
+  {group: 'Measure', name: 'Delete the bar', keys: [], palette: 'bar:delete', words: 'measure remove'},
+  {group: 'Measure', name: 'Single bar line', keys: [], palette: 'barline:|', words: 'barline'},
+  {group: 'Measure', name: 'Double bar line', keys: [], palette: 'barline:||', words: 'barline'},
+  {group: 'Measure', name: 'Final bar line', keys: [], palette: 'barline:|]', words: 'barline end'},
+  {group: 'Measure', name: 'Start repeat', keys: [], palette: 'repeat:start', words: 'sign'},
+  {group: 'Measure', name: 'End repeat', keys: [], palette: 'repeat:end', words: 'sign'},
+  {group: 'Measure', name: '1st ending', keys: [], palette: 'ending:1', words: 'first volta'},
+  {group: 'Measure', name: '2nd ending', keys: [], palette: 'ending:2', words: 'second volta'},
+  {group: 'Measure', name: 'Segno', keys: [], palette: 'form:segno', words: 'sign form'},
+  {group: 'Measure', name: 'Coda', keys: [], palette: 'form:coda', words: 'sign form'},
+  {group: 'Measure', name: 'Fine', keys: [], palette: 'form:fine', words: 'end form'},
+  {group: 'Measure', name: 'D.C. (da capo)', keys: [], palette: 'form:D.C.', words: 'form'},
+  {group: 'Measure', name: 'D.S. (dal segno)', keys: [], palette: 'form:D.S.', words: 'form'},
+  {group: 'Measure', name: 'D.C. al Fine', keys: [], palette: 'form:D.C.alfine', words: 'da capo form'},
+  {group: 'Measure', name: 'D.S. al Coda', keys: [], palette: 'form:D.S.alcoda', words: 'dal segno form'},
+  {group: 'Measure', name: 'Rehearsal mark', keys: [], palette: 'rehearsal:mark', words: 'letter'},
+  {group: 'Measure', name: 'Time signature from here', keys: [], menu: 'meter', words: 'meter change'},
+  {group: 'Measure', name: 'Key from here', keys: [], menu: 'key', words: 'signature change'},
+  {group: 'Measure', name: 'Clef from here', keys: [], menu: 'clef', words: 'change'},
   {group: 'Edit', name: 'Delete', keys: ['Delete'], aria: 'Delete Backspace', palette: 'delete', words: 'remove'},
   {group: 'Edit', name: 'Copy', keys: ['Ctrl+C'], aria: 'Control+C', key: {key: 'c', ctrlKey: true}},
   {
@@ -176,9 +212,17 @@ function runShortcut(s) {
     clearTimeout(renderTimer);
     render();
   }
-  const button = s.palette && $('palette')?.querySelector(`[data-palette="${s.palette}"]`);
-  if (button && typeof pressPalette === 'function') return pressPalette(button);
+  const palette = typeof pressPalette === 'function',
+    button = palette && s.palette && $('palette')?.querySelector(`[data-palette="${s.palette}"]`);
+  // The Measure panel's tools act on the selection only while the panel is open, so its commands open it first; its
+  // Time, Key and Clef menus (menu) take the keyboard.
+  if (palette && (s.menu || button?.closest('#palette-measure')) && selectedRange && $('palette-measure')?.hidden)
+    pressPalette($('palette').querySelector('[aria-controls="palette-measure"]'));
+  if (button) return pressPalette(button);
+  const menu = s.menu && $('measure-' + s.menu);
+  if (menu && !menu.disabled && $('palette-measure')?.hidden === false) return menu.focus({preventScroll: true});
   focusScore();
+  if (s.menu) $('selection-status').textContent = 'Select a note or bar line on the score first.';
   if (s.run) return s.run();
   if (!s.key) return;
   const event = {
