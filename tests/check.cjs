@@ -285,6 +285,8 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     ['[CE]2', 3, 1 / 8, '(3[CE] z z'],
     ['[C2E2]', 3, 1 / 8, '(3[CE] z z'],
     ['z', 3, 1 / 4, '(3z/2 z/2 z/2'],
+    ['F \\', 3, 1 / 4, '(3F/2 z/2 z/2 \\'],
+    ['F- \\\n\\', 3, 1 / 4, '(3F/2 z/2 z/2 \\\n\\'],
     ['C', 2, 1 / 4, null],
     ['C3', 3, 1 / 8, null],
     ['C/16', 3, 1 / 4, null],
@@ -294,6 +296,18 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     ['Z', 3, 1 / 4, null]
   ])
     assert.equal(context.makeTuplet(text, p, unit), expected, `makeTuplet(${text}, ${p}, ${unit})`);
+  // abcjs counts a line continuation (\) as part of the last note on a line; it stays after the last member, so the
+  // tuplet and its filled form stay on one line of music without warnings.
+  for (const made of [context.makeTuplet('F \\', 3, 1 / 4), '(3F/2G/2A/2 \\']) {
+    const tune = ABCJS.parseOnly(`X:1\nM:4/4\nL:1/4\nK:C\nC D E ${made}\n| G A B c|]`)[0];
+    assert.ok(!tune.warnings?.length, `${made}: ${tune.warnings}`);
+    assert.equal(tune.lines.length, 1, `${made}: one line of music`);
+  }
+  assert.deepEqual(
+    [1 / 4, 3 / 8, 7 / 16, 2, 1 / 3, 5 / 8, 0].map(context.oneNoteLength),
+    [true, true, true, true, false, false, false],
+    'Plain, dotted and double-dotted lengths are one note; 1/3 and 5/8 are not'
+  );
   assert.deepEqual({...context.tupletSpec('"G"(3:2:3C')}, {index: 3, text: '(3:2:3', p: 3});
   assert.equal(context.tupletSpec('(C'), null, 'A slur opening is not a tuplet');
   // Every tuplet parses cleanly, has p members and lasts as long as the note, so the bar stays full.

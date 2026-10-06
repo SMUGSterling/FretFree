@@ -168,6 +168,8 @@ $('palette').addEventListener('click', e => {
   else if (action === 'respell') respellSelected(state.sel);
   else if (action.startsWith('line:')) toggleLineSelected(action.slice(5));
   else if (action.startsWith('tuplet:')) tupletSelected(+action.slice(7), state.sel);
+  // Delete in a tuplet sets its own status line (see tupletDelete).
+  else if (action === 'delete' && state.tuplet && !state.picked) editNote(state.sel.entry, state.sel.display, action);
   else if (action.startsWith('grace')) graceSelected(action, state.sel);
   else {
     const before = $('abc').value,

@@ -126,6 +126,11 @@ function noteParts(text) {
   const m = String(text).match(NOTE_PARTS);
   return m && {pre: m[1], core: m[2], length: lengthValue(m[3]), post: m[4]};
 }
+// What follows a note in its source text: spaces and line continuations (\), which abcjs counts as part of the last
+// note on a line. noteHead is the note without it. Edits that rewrite a note keep its tail after the new text.
+const NOTE_TAIL = /[\s\\]*$/,
+  noteTail = text => String(text).match(NOTE_TAIL)[0],
+  noteHead = text => String(text).replace(NOTE_TAIL, '');
 // Set the accidental ('^', '_', '=', or '' for none) and/or length (multiple of L:) on every pitch of a note or chord.
 // A new length replaces any per-pitch chord lengths; unbroken drops a trailing > or < broken-rhythm marker; tie adds or removes the tie (-).
 // rest replaces the note or chord with a rest of the same length, keeping decorations, slurs and tuplet marks.
@@ -266,13 +271,14 @@ function partsLength(parts) {
 // half of a broken rhythm. The first member keeps the note's marks, chord symbol, grace notes and slurs, and loses
 // its tie; the opening goes just before its pitch, but before a staccato dot, since abcjs reads .( as a dotted slur.
 function tupletMembers(text, p, unit) {
-  const parts = noteParts(String(text).trimEnd());
+  const note = noteHead(text),
+    parts = noteParts(note);
   if (!parts || parts.core === 'x' || /[<>]/.test(parts.post) || tupletSpec(text)) return null;
   const length = partsLength(parts),
     q = tupletRatio(length * unit, p),
     member = length / (q || 1);
   if (!q || member * unit < 1 / 64 - 1e-9) return null;
-  const first = editNoteText(String(text).trimEnd(), {length: member, tie: false}),
+  const first = editNoteText(note, {length: member, tie: false}),
     pre = noteParts(first).pre,
     items = pre.match(PRE_ITEM) || [];
   let at = items.length;
@@ -280,10 +286,17 @@ function tupletMembers(text, p, unit) {
   items.splice(at, 0, TUPLET_DEFAULT_Q[p] === q ? `(${p}` : `(${p}:${q}:${p}`);
   return [items.join('') + first.slice(pre.length), ...Array(p - 1).fill('z' + lengthText(member))];
 }
-// The tuplet as text, with the note's trailing space after its last member: (3C/2 z/2 z/2 for a quarter in L:1/4.
+// The tuplet as text, with the note's tail after its last member: (3C/2 z/2 z/2 for a quarter in L:1/4.
 function makeTuplet(text, p, unit) {
   const members = tupletMembers(text, p, unit);
-  return members && members.join(' ') + String(text).match(/\s*$/)[0];
+  return members && members.join(' ') + noteTail(text);
+}
+// Whether a length in whole notes can be written as one note: plain, dotted or double-dotted.
+function oneNoteLength(whole) {
+  return [1, 1.5, 1.75].some(dots => {
+    const k = Math.log2(whole / dots);
+    return Math.abs(k - Math.round(k)) < 1e-9;
+  });
 }
 // Grace notes: the {…} group before a note ({index, text, slashed}), or null. setGrace adds one ({d} one step above
 // the note's top pitch, {/d} when slashed), sets or clears the slash of the group already there, or removes it

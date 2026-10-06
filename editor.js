@@ -360,7 +360,15 @@ function restoreSelection(display) {
     selectionAnchor = null;
     if (run.length) selectedRange = [run[0].element.startChar, run[0].element.endChar];
   }
-  const match = [...noteSources.entries()].find(([, e]) => e?.element.startChar === selectedRange[0]);
+  const sources = [...noteSources.entries()],
+    [from, to] = selectedRange;
+  let match = sources.find(([, e]) => e?.element.startChar === from);
+  // abcjs starts a note after a mark that follows a slur or tuplet opening (at the dot of (3.C), so adding or removing
+  // such a mark moves where the edited note starts; the selection follows the note it covers.
+  if (!match) {
+    match = sources.find(([, e]) => e && e.element.startChar < Math.max(to, from + 1) && e.element.endChar > from);
+    if (match) selectedRange = [match[1].element.startChar, match[1].element.endChar];
+  }
   if (!match) return;
   const shown = scoreEvents(display).find(e => e.element.startChar === match[0]);
   if (shown) renderedTune.engraver.rangeHighlight(shown.element.startChar, shown.element.endChar);
@@ -1557,7 +1565,7 @@ function tupletOpening(first) {
 }
 // Why a note's text makes no p-tuplet.
 function tupletWhy(text, p, unit) {
-  const parts = noteParts(text.trimEnd()),
+  const parts = noteParts(noteHead(text)),
     whole = (parts ? partsLength(parts) : 0) * unit,
     exact = k => Math.abs(k - Math.round(k)) < 1e-9,
     word = tupletWord(p).toLowerCase();
@@ -1597,9 +1605,12 @@ function tupletPlan(p, sel) {
     to = last.element.endChar;
     const total = group.members.reduce((sum, n) => sum + (n.element.duration || 0), 0) * group.multiplier,
       body = v.slice(from, opening.at) + v.slice(opening.at + opening.text.length, first.element.endChar);
-    note = editNoteText(body.trimEnd(), {length: total / unit}) + v.slice(from, to).match(/\s*$/)[0];
+    // Uneven members written by hand, as in (3c2zz, can add up to a length no single note has.
+    if (!oneNoteLength(total))
+      return {why: `This ${name} does not add up to a single note, so the editor cannot change it.`};
+    note = editNoteText(noteHead(body), {length: total / unit}) + noteTail(v.slice(from, to));
     if (p === group.p) {
-      const head = note.trimEnd();
+      const head = noteHead(note);
       return {from, to, text: note, select: [from, from + head.length], done: `${tupletWord(p)} removed.`};
     }
   } else {
@@ -1618,7 +1629,7 @@ function tupletPlan(p, sel) {
   return {
     from,
     to,
-    text: members.join(' ') + note.match(/\s*$/)[0],
+    text: members.join(' ') + noteTail(note),
     select: [at, at + selected.length],
     done: `${tupletWord(p)}: type letters to fill its rests.`
   };
@@ -1627,6 +1638,21 @@ function tupletSelected(p, sel = selectedNote()) {
   const plan = tupletPlan(p, sel);
   if (!plan.why) applyNoteEdit(plan.from, plan.to, plan.text, plan.select);
   $('selection-status').textContent = plan.why || plan.done;
+}
+// Delete in a tuplet keeps its count, since abcjs would otherwise pull the next note into it: a note becomes a rest
+// that letters can fill, and a rest takes the tuplet off when every member after the first is a rest, as T does.
+// Returns the status line.
+function tupletDelete(sel) {
+  const group = tupletGroup(sel.entry),
+    name = tupletWord(group.p).toLowerCase();
+  if (pitched(sel.entry)) {
+    editNote(sel.entry, sel.display, 'to-rest');
+    return `Changed to a rest, so the ${name} stays whole.`;
+  }
+  const plan = tupletPlan(group.p, sel);
+  if (plan.why) return `This rest is part of a ${name}. Type a letter to fill it.`;
+  applyNoteEdit(plan.from, plan.to, plan.text, plan.select);
+  return plan.done;
 }
 // What a grace note press (grace, grace:slash, grace:up, grace:down, grace:remove) would do: {text, done} or {why}.
 function gracePlan(action, sel) {
@@ -1842,6 +1868,10 @@ function editNote(entry, display, action) {
   }
   if (action.startsWith('tuplet:')) {
     tupletSelected(+action.slice(7), {entry, display});
+    return;
+  }
+  if (action === 'delete' && tupletGroup(entry)) {
+    $('selection-status').textContent = tupletDelete({entry, display});
     return;
   }
   if (/^grace(:(slash|up|down|remove))?$/.test(action)) {
@@ -2172,21 +2202,26 @@ function letterToken(letter, at) {
 // Put a note (its pitch token, without a length) at the start of a rest, taking its length from the rest; the rest
 // keeps what is left, which stays selected so the next note continues. A filled rest passes the selection on.
 // Chord symbols and text written on the rest mark that beat, so the note takes them, and so does a tuplet opening.
-// A rest in a tuplet is filled whole, at its own written length, so the tuplet keeps its count. Returns where the
+// A rest in a tuplet is filled whole, at its own written length, so the tuplet keeps its count, and a note shorter
+// than a quarter is beamed to the note before it in the tuplet, as tuplets are usually engraved. Returns where the
 // note starts.
 function fillRest(rest, core, wanted = inputLength ?? beatLength(), keep = false) {
   const v = $('abc').value,
-    start = rest.element.startChar,
     end = rest.element.endChar,
-    old = v.slice(start, end),
-    unit = unitLengthAt(start);
+    old = v.slice(rest.element.startChar, end),
+    unit = unitLengthAt(rest.element.startChar),
+    group = tupletGroup(rest),
+    prev = group?.members[group.members.indexOf(rest) - 1],
+    gap = core !== 'z' && prev && pitched(prev) && rest.element.duration < 0.25 ? beamGap(prev) : null,
+    join = !!gap && !gap.joined && gap.to === rest.element.startChar,
+    start = join ? gap.from : rest.element.startChar;
   const restLength = rest.element.duration || 0,
-    length = tupletGroup(rest) ? restLength : Math.min(wanted, restLength || Infinity),
+    length = group ? restLength : Math.min(wanted, restLength || Infinity),
     left = restLength - length,
-    chords = (noteParts(old.trim())?.pre.match(/"[^"]*"|\(\d+(?::\d*){0,2}/g) || []).join('');
+    chords = (noteParts(noteHead(old).trimStart())?.pre.match(/"[^"]*"|\(\d+(?::\d*){0,2}/g) || []).join('');
   const token = chords + core + lengthText(length / unit),
-    trail = old.match(/\s*$/)[0],
-    lead = old.match(/^\s*/)[0] || (start > 0 && !/\s/.test(v[start - 1]) ? ' ' : '');
+    trail = noteTail(old),
+    lead = join ? '' : old.match(/^\s*/)[0] || (start > 0 && !/\s/.test(v[start - 1]) ? ' ' : '');
   if (left > 1e-6) {
     const remainder = 'z' + lengthText(left / unit),
       text = lead + token + ' ' + remainder + trail,
@@ -2207,6 +2242,12 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength(), keep = false
     start + lead.length,
     keep
   );
+  // The status line says whether the tuplet has rests left to fill.
+  if (group)
+    $('selection-status').textContent =
+      core === 'z' || group.members.some(n => n !== rest && !pitched(n))
+        ? `${tupletWord(group.p)}: type letters to fill its rests.`
+        : `${tupletWord(group.p)} filled.`;
   return start + lead.length;
 }
 // Keys 3–7 and the palette's length buttons: set the length of new notes, and of the selected note. A selected rest
@@ -2226,10 +2267,14 @@ function chooseLength(value, sel = selectedNote()) {
     $('selection-status').textContent =
       ($('abc').value === before ? 'Already ' : 'Changed to ') + (NOTE_VALUES[value] || 'that length') + '.';
   } else {
-    // Letters write over a selected rest, but go after a multi-measure rest (Z).
-    const over = sel && sel.entry.element.rest?.type !== 'multimeasure';
-    $('selection-status').textContent =
-      'New notes will be ' + name + 's.' + (over ? ' Type a letter to write one over the rest.' : '');
+    // Letters write over a selected rest, but go after a multi-measure rest (Z). A rest in a tuplet is filled at its
+    // own length, so the new length is for notes after the tuplet.
+    const over = sel && sel.entry.element.rest?.type !== 'multimeasure',
+      group = sel && tupletGroup(sel.entry);
+    $('selection-status').textContent = group
+      ? `New notes after the ${tupletWord(group.p).toLowerCase()} will be ${name}s. ` +
+        'Letters fill its rests at their own length.'
+      : 'New notes will be ' + name + 's.' + (over ? ' Type a letter to write one over the rest.' : '');
     refreshPalette();
   }
 }
