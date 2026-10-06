@@ -394,6 +394,368 @@ function promptSource(prompt, key = prompt.key, body = null) {
     rest = 'z' + lengthText(n / d / (un / ud));
   return `X:1\nT:${prompt.title}\nC:\nM:${prompt.meter}\nL:${prompt.unit}\nQ:1/4=${prompt.tempo}\nK:${key}\n${body ?? Array(prompt.bars).fill(rest).join(' | ')} |]`;
 }
+// Keys and transposition. A key is a tonic (C, F#, Bb) and a mode (m, Dor, Mix...); its place on the circle of
+// fifths gives the signature: positive counts sharps, negative flats.
+const LETTER_FIFTHS = {F: -1, C: 0, G: 1, D: 2, A: 3, E: 4, B: 5},
+  KEY_MODES = [
+    {mode: '', name: 'major', group: 'Major', offset: 0},
+    {mode: 'm', name: 'minor', group: 'Minor', offset: -3},
+    {mode: 'Dor', name: 'Dorian', group: 'Dorian', offset: -2},
+    {mode: 'Phr', name: 'Phrygian', group: 'Phrygian', offset: -4},
+    {mode: 'Lyd', name: 'Lydian', group: 'Lydian', offset: 1},
+    {mode: 'Mix', name: 'Mixolydian', group: 'Mixolydian', offset: -1},
+    {mode: 'Loc', name: 'Locrian', group: 'Locrian', offset: -5}
+  ],
+  MODE_SUFFIX = {
+    maj: '',
+    ion: '',
+    min: 'm',
+    m: 'm',
+    aeo: 'm',
+    dor: 'Dor',
+    phr: 'Phr',
+    lyd: 'Lyd',
+    mix: 'Mix',
+    loc: 'Loc'
+  };
+const posMod = (n, m) => ((n % m) + m) % m;
+// A K: value split into its key as written (tonic and mode) and what follows (clef=, middle=, a comment).
+// tonic is null when the field names no key (K:clef=bass), and 'none', 'HP' or 'Hp' for those special keys.
+function keyParts(value) {
+  const text = String(value ?? ''),
+    special = text.match(/^\s*(none|HP|Hp)(?![\w#])/);
+  if (special) return {tonic: special[1], mode: '', key: special[1], rest: text.slice(special[0].length)};
+  const t = text.match(/^\s*([A-G])([#b]?)/);
+  if (!t) return {tonic: null, mode: '', key: '', rest: text};
+  const m = text.slice(t[0].length).match(/^\s*(maj|min|ion|aeo|dor|phr|lyd|mix|loc|m)[a-z]*(?![^\s%\]])/i),
+    end = t[0].length + (m ? m[0].length : 0);
+  return {
+    tonic: t[1] + t[2],
+    mode: m ? MODE_SUFFIX[m[1].toLowerCase()] : '',
+    key: text.slice(0, end).trim(),
+    rest: text.slice(end)
+  };
+}
+// Sharps (positive) or flats (negative) in a key's signature; null for the bagpipe keys, which do not transpose.
+function keyFifths(value) {
+  const k = keyParts(value);
+  if (!k.tonic || k.tonic === 'none') return 0;
+  if (!LETTER_FIFTHS.hasOwnProperty(k.tonic[0])) return null;
+  const acc = k.tonic[1] === '#' ? 7 : k.tonic[1] === 'b' ? -7 : 0;
+  return LETTER_FIFTHS[k.tonic[0]] + acc + KEY_MODES.find(x => x.mode === k.mode).offset;
+}
+// One spelling per key for the key menu: 'C', 'F#m', 'DDor'.
+function canonicalKey(value) {
+  const k = keyParts(value);
+  return !k.tonic ? 'C' : k.tonic + k.mode;
+}
+const tonicName = fifths =>
+  'FCGDAEB'[posMod(fifths + 1, 7)] + ['bb', 'b', '', '#', '##'][Math.floor((fifths + 1) / 7) + 2];
+function keyLabel(value) {
+  const k = keyParts(value),
+    f = keyFifths(value);
+  if (!k.tonic || k.tonic === 'none' || f == null) return k.tonic === 'none' ? 'No key signature' : k.key || 'C major';
+  const name = KEY_MODES.find(x => x.mode === k.mode).name,
+    sig = f > 0 ? ` (${f}♯)` : f < 0 ? ` (${-f}♭)` : '';
+  return `${k.tonic.replace('#', '♯').replace('b', '♭')} ${name}${sig}`;
+}
+// The key menu: 15 major and 15 minor keys, and each mode on the tonics whose signature has up to three sharps or flats.
+const KEY_LIST = KEY_MODES.flatMap(({mode, group, offset}) => {
+  const most = mode === '' || mode === 'm' ? 7 : 3,
+    sigs = [0, ...Array.from({length: most}, (_, i) => i + 1), ...Array.from({length: most}, (_, i) => -i - 1)];
+  return sigs.map(sig => {
+    const value = tonicName(sig - offset) + mode;
+    return {value, group, label: keyLabel(value)};
+  });
+});
+const TRANSPOSE_INTERVALS = [
+  {id: 'm2', name: 'minor 2nd', semitones: 1, letters: 1},
+  {id: 'M2', name: 'major 2nd', semitones: 2, letters: 1},
+  {id: 'm3', name: 'minor 3rd', semitones: 3, letters: 2},
+  {id: 'M3', name: 'major 3rd', semitones: 4, letters: 2},
+  {id: 'P4', name: 'perfect 4th', semitones: 5, letters: 3},
+  {id: 'A4', name: 'augmented 4th', semitones: 6, letters: 3},
+  {id: 'd5', name: 'diminished 5th', semitones: 6, letters: 4},
+  {id: 'P5', name: 'perfect 5th', semitones: 7, letters: 4},
+  {id: 'm6', name: 'minor 6th', semitones: 8, letters: 5},
+  {id: 'M6', name: 'major 6th', semitones: 9, letters: 5},
+  {id: 'm7', name: 'minor 7th', semitones: 10, letters: 6},
+  {id: 'M7', name: 'major 7th', semitones: 11, letters: 6},
+  {id: 'P8', name: 'octave', semitones: 12, letters: 7}
+];
+// The move from one key to another, the nearer way round: semitones and letter names (C to F# is 6 and 3, C to Gb
+// 6 and 4). Keys of different modes move by their signatures, so C major to E minor moves the notes to G major.
+function keyInterval(from, to) {
+  const a = keyFifths(from),
+    b = keyFifths(to);
+  if (a == null || b == null) return null;
+  let semitones = posMod((b - a) * 7, 12),
+    letters = posMod((b - a) * 4, 7);
+  if (semitones > 6) {
+    semitones -= 12;
+    letters -= 7;
+  }
+  return {semitones, letters};
+}
+// K: fields in order, header lines and inline [K:...] alike, with the position of their values.
+function keyFields(text) {
+  return [...text.matchAll(/(^|\n)K:([^\n]*)|\[K:([^\]\n]*)\]/g)].map(m => {
+    const value = m[2] ?? m[3],
+      start = m.index + (m[2] != null ? m[1].length + 2 : 3);
+    return {start, end: start + value.length, value};
+  });
+}
+// The key in force at a position: the last K: field before it that names a key.
+function keyAt(text, at) {
+  const found = keyFields(text.slice(0, at)).filter(f => keyParts(f.value).tonic);
+  return found.length ? keyParts(found.at(-1).value).key : 'C';
+}
+const ACC_TEXT = {'-2': '__', '-1': '_', 0: '=', 1: '^', 2: '^^'},
+  ACC_VALUE = {__: -2, _: -1, '=': 0, '^': 1, '^^': 2},
+  diatonicSemis = p => 12 * Math.floor(p / 7) + LETTER_SEMIS[posMod(p, 7)];
+// Rewrite every pitch (notes, chords, grace notes) and every chord symbol in a stretch of ABC music. Decorations,
+// annotations, inline fields and comments are kept. pitch({acc, pitch}) gets the written accidental (null when none)
+// and the diatonic pitch (0 = middle C); a callback returning null abandons the rewrite and the result is null.
+function mapMusic(text, pitch, chord = name => name) {
+  let out = '',
+    i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (
+      c === '"' ||
+      c === '!' ||
+      c === '+' ||
+      c === '%' ||
+      (c === '[' && /^[A-Za-z]:/.test(text.slice(i + 1, i + 3)))
+    ) {
+      let end = text.indexOf({'[': ']', '%': '\n'}[c] || c, i + 1);
+      // A ! or + with no partner later on its line is not a decoration: abcjs reads a lone ! as the old line break.
+      if ((c === '!' || c === '+') && (end < 0 || text.slice(i, end).includes('\n'))) {
+        out += c;
+        i++;
+        continue;
+      }
+      if (end < 0) end = text.length;
+      const inner = text.slice(i + 1, end);
+      if (c === '"' && !/^[_^<>@]/.test(inner)) {
+        const name = chord(inner);
+        if (name == null) return null;
+        out += '"' + name + text.slice(end, end + 1);
+      } else out += text.slice(i, end + (c === '%' ? 0 : 1));
+      i = end + (c === '%' ? 0 : 1);
+      continue;
+    }
+    const m = text.slice(i, i + 8).match(/^(\^{1,2}|_{1,2}|=)?([A-Ga-g])([,']*)/);
+    if (m) {
+      const p =
+        'CDEFGAB'.indexOf(m[2].toUpperCase()) +
+        (m[2] >= 'a' ? 7 : 0) +
+        [...m[3]].reduce((n, x) => n + (x === "'" ? 7 : -7), 0);
+      const r = pitch({acc: m[1] ? ACC_VALUE[m[1]] : null, pitch: p});
+      if (r == null) return null;
+      out += r;
+      i += m[0].length;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+// Spell a stretch of music d letter names away at the same pitch (Gb major written as F# major is d = -1). Written
+// accidentals change to keep each pitch; the key signature changes with the letters, so plain notes stay plain.
+function respellMusic(text, d) {
+  return mapMusic(
+    text,
+    ({acc, pitch}) => {
+      if (acc == null) return pitchToken(pitch + d);
+      const a = acc + diatonicSemis(pitch) - diatonicSemis(pitch + d);
+      return Math.abs(a) > 2 ? null : ACC_TEXT[a] + pitchToken(pitch + d);
+    },
+    name => {
+      let ok = true;
+      const out = name.replace(/(^|\/)([A-G])([#b]?)/g, (_, lead, letter, acc) => {
+        const from = 'CDEFGAB'.indexOf(letter),
+          to = posMod(from + d, 7),
+          a = posMod(LETTER_SEMIS[from] + (acc === '#' ? 1 : acc === 'b' ? -1 : 0) - LETTER_SEMIS[to] + 6, 12) - 6;
+        if (Math.abs(a) > 1) ok = false;
+        return lead + 'CDEFGAB'[to] + (a > 0 ? '#' : a < 0 ? 'b' : '');
+      });
+      return ok ? out : name;
+    }
+  );
+}
+// A tune without a K: line is read in C major. Transposing it needs a key to move, so K:C closes its header.
+function withKey(source) {
+  if (/(^|\n)K:/.test(source)) return source;
+  const lines = source.split('\n'),
+    i = lines.findIndex(x => !/^([A-Za-z]:|%)/.test(x));
+  lines.splice(i < 0 ? lines.length : i, 0, 'K:C');
+  return lines.join('\n');
+}
+// Transpose a whole tune by semitones, spelled letters names away (by default the usual interval for the distance:
+// 2 is a major 2nd, 6 a diminished 5th). abcjs's strTranspose moves the notes, keys and chord symbols; around it, K:
+// modifiers such as clef= are set aside (strTranspose garbles them), and each key it spells differently from the
+// interval is respelled, F# rather than Gb for an augmented 4th up from C, unless that needs more than maxAccidentals.
+// strTranspose also moves some keys an octave off (F# major asked up 12 semitones stays put, Bb major asked down 11
+// goes up 1, Cb major asked for 0 goes up 12), so whole octaves move here, and each note it moves is checked against
+// the source and put back in the octave the interval calls for.
+function transposeABC(source, semitones, letters = Math.round((semitones * 7) / 12), maxAccidentals = 6) {
+  if (!semitones && !posMod(letters, 7)) return source;
+  source = withKey(source);
+  const octaves = Math.trunc(semitones / 12),
+    within = semitones - 12 * octaves;
+  const fields = keyFields(source).map((f, i) => ({...f, ...keyParts(f.value), first: i === 0}));
+  if (fields.some(f => keyFifths(f.value) == null)) throw new Error('Bagpipe keys (K:HP) cannot be transposed.');
+  // A header K: without a key means C; strTranspose needs to see it. Inline clef-only fields keep the key in force.
+  let stripped = source;
+  for (const f of fields.slice().reverse())
+    if (f.tonic || f.first) stripped = stripped.slice(0, f.start) + (f.key || 'C') + stripped.slice(f.end);
+  const tune = ABCJS.parseOnly(stripped),
+    moved = within ? ABCJS.strTranspose(stripped, tune, within) : stripped,
+    after = keyFields(moved);
+  if (after.length !== fields.length) throw new Error('Could not transpose the key signatures.');
+  const regions = fields.map((f, i) => {
+    const res = keyParts(after[i].value),
+      region = {start: after[i].start, end: after[i].end, keyed: !!(f.tonic || f.first), key: res.key, d: 0};
+    if (!region.keyed) return {...region, key: after[i].value};
+    const rest = f.tonic ? f.rest : (f.rest.trim() ? ' ' : '') + f.rest.trim();
+    if (!res.tonic || res.tonic === 'none') return {...region, key: res.key + rest};
+    const want = posMod('CDEFGAB'.indexOf((f.tonic || 'C')[0]) + letters, 7),
+      have = 'CDEFGAB'.indexOf(res.tonic[0]),
+      d = posMod(want - have + 3, 7) - 3,
+      pc = LETTER_SEMIS[have] + (res.tonic[1] === '#' ? 1 : res.tonic[1] === 'b' ? -1 : 0),
+      acc = posMod(pc - LETTER_SEMIS[want] + 6, 12) - 6,
+      tonic = 'CDEFGAB'[want] + (acc > 0 ? '#' : acc < 0 ? 'b' : ''),
+      key = tonic + res.key.slice(res.tonic.length);
+    if (Math.abs(d) !== 1 || Math.abs(acc) > 1 || Math.abs(keyFifths(key)) > maxAccidentals)
+      return {...region, key: res.key + rest};
+    return {...region, key: key + rest, plain: res.key + rest, d};
+  });
+  const edits = regions.map(r => ({start: r.start, end: r.end, text: r.key}));
+  const notesOf = t =>
+      (t.lines || []).flatMap(line =>
+        (line.staff || []).flatMap(staff => (staff.voices || []).flat().filter(e => e.el_type === 'note'))
+      ),
+    pitchesOf = text => {
+      const list = [];
+      mapMusic(text, ({pitch}) => (list.push(pitch), ''));
+      return list;
+    };
+  const starts = regions.filter(r => r.keyed),
+    was = notesOf(tune[0]),
+    now = within ? notesOf(ABCJS.parseOnly(moved)[0]) : was,
+    steps = Math.round((within * 7) / 12);
+  if (was.length !== now.length) throw new Error('Could not transpose the notes.');
+  for (const [n, e] of now.entries()) {
+    const region = starts.filter(r => r.start < e.startChar).at(-1);
+    if (!within && !octaves && !region?.d) continue;
+    const old = pitchesOf(stripped.slice(was[n].startChar, was[n].endChar));
+    let j = 0,
+      text = mapMusic(moved.slice(e.startChar, e.endChar), ({acc, pitch}) => {
+        // A note moved a whole octave off the interval's letters is abcjs's octave slip; move it back.
+        const slip = j < old.length ? Math.round((pitch - old[j] - steps) / 7) : 0;
+        j++;
+        return (acc == null ? '' : ACC_TEXT[acc]) + pitchToken(pitch + 7 * (octaves - slip));
+      });
+    if (region?.d) text = respellMusic(text, region.d);
+    // A pitch that would need a triple sharp or flat: keep abcjs's spelling everywhere.
+    if (text == null) return transposeABC(source, semitones, letters, -1);
+    if (text !== moved.slice(e.startChar, e.endChar)) edits.push({start: e.startChar, end: e.endChar, text});
+  }
+  let out = '',
+    at = 0;
+  for (const e of edits.sort((a, b) => a.start - b.start)) {
+    out += moved.slice(at, e.start) + e.text;
+    at = e.end;
+  }
+  return out + moved.slice(at);
+}
+// Letter names from concert to written pitch at a position in a concert source, for an instrument whose written notes
+// sound semitones lower. Plain notes move by the letters between the keys transposeABC writes: usually the shift's own
+// interval, but F# major on a B-flat clarinet is written in Ab (G# major would need 8 sharps), 2 letters up, not 1.
+function writtenSteps(source, at, semitones) {
+  const usual = Math.round((semitones * 7) / 12);
+  if (!semitones) return 0;
+  const keyed = withKey(source),
+    from = keyFields(keyed);
+  let to;
+  try {
+    to = keyFields(transposeABC(keyed, semitones));
+  } catch {
+    return usual;
+  }
+  at += keyed.length - source.length;
+  const i = from
+    .map((f, n) => (f.start < at && (!n || keyParts(f.value).tonic) ? n : -1))
+    .reduce((a, b) => Math.max(a, b));
+  if (i < 0 || to.length !== from.length) return usual;
+  const a = keyParts(from[i].value).tonic || 'C',
+    b = keyParts(to[i].value).tonic;
+  if (!/^[A-G]/.test(a) || !/^[A-G]/.test(b || '')) return usual;
+  return usual + posMod('CDEFGAB'.indexOf(b[0]) - 'CDEFGAB'.indexOf(a[0]) - usual + 3, 7) - 3;
+}
+// Write each pitch of a tune under another key signature at the same pitch: accidentals are added where the new
+// signature (or an accidental earlier in the bar) would change a note, and written accidentals are kept.
+function rekeyMusic(source, fromFifths, toFifths) {
+  const sig = fifths => {
+    const s = {C: 0, D: 0, E: 0, F: 0, G: 0, A: 0, B: 0};
+    for (let i = 0; i < Math.abs(fifths); i++) s[(fifths > 0 ? 'FCGDAEB' : 'BEADGCF')[i % 7]] += Math.sign(fifths);
+    return s;
+  };
+  const from = sig(fromFifths),
+    to = sig(toFifths),
+    edits = [];
+  for (const line of ABCJS.parseOnly(source)[0].lines || [])
+    for (const staff of line.staff || [])
+      for (const voice of staff.voices || []) {
+        let had = new Map(),
+          has = new Map();
+        for (const e of voice) {
+          if (e.el_type === 'bar') {
+            had = new Map();
+            has = new Map();
+          }
+          if (e.el_type !== 'note') continue;
+          const text = mapMusic(source.slice(e.startChar, e.endChar), ({acc, pitch}) => {
+            const letter = 'CDEFGAB'[posMod(pitch, 7)],
+              actual = acc ?? had.get(pitch) ?? from[letter];
+            if (acc != null) had.set(pitch, acc);
+            if (acc == null && actual === (has.get(pitch) ?? to[letter])) return pitchToken(pitch);
+            has.set(pitch, actual);
+            return ACC_TEXT[actual] + pitchToken(pitch);
+          });
+          edits.push({start: e.startChar, end: e.endChar, text});
+        }
+      }
+  let out = source;
+  for (const e of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.text + out.slice(e.end);
+  return out;
+}
+// Transpose part of a tune: a slice of its music, read in the key and unit length in force there. The slice moves in
+// a small tune of its own, then is written back under the original key signature with accidentals where needed.
+function transposeSlice(slice, key, unit, semitones, letters = Math.round((semitones * 7) / 12)) {
+  if (keyFields(slice).length) throw new Error('The selection changes key. Transpose the whole score instead.');
+  const keyText = keyParts(key).key || 'C',
+    mini = `X:1\nL:${unit}\nK:${keyText}\n`,
+    moved = transposeABC(mini + slice, semitones, letters, 7),
+    head = moved.indexOf('\n', keyFields(moved)[0].start) + 1;
+  return rekeyMusic(moved, keyFifths(keyFields(moved)[0].value), keyFifths(keyText)).slice(head);
+}
+// The stretches of source text holding the notes of measures from..to, one per voice and per run of lines that
+// voice occupies, so text between voices (V: lines, other voices' bars) is never touched.
+function measureSpans(tune, from, to) {
+  const spans = [];
+  let run = null;
+  for (const e of scoreEvents(tune).sort((a, b) => a.element.startChar - b.element.startChar)) {
+    const voice = e.key.split(':').slice(0, 2).join(':'),
+      inside = e.element.el_type === 'note' && e.measure >= from && e.measure <= to;
+    if (inside && run?.voice === voice) run.end = e.element.endChar;
+    else if (inside) spans.push((run = {voice, start: e.element.startChar, end: e.element.endChar}));
+    else if (e.element.el_type === 'note' || voice !== run?.voice) run = null;
+  }
+  return spans;
+}
 // Teacher-written assignments: a prompt object built from a score and carried in saves, backups and share links.
 // Keys are written pitch, as for the built-in prompts. Goals name notes by the key's own degrees (minor adds the
 // raised 7th); only major and minor keys have a scale for the inKey goal.

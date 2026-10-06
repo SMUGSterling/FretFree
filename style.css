@@ -379,6 +379,70 @@ select {
   font-size: 11px;
   color: var(--green);
 }
+.transpose-open {
+  width: 100%;
+  margin-bottom: 14px;
+  padding: 9px;
+  font-size: 12px;
+}
+.key-choice,
+.transpose-panel {
+  margin: -4px 0 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #f3f5ec;
+}
+.key-choice p {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 650;
+}
+.key-choice button {
+  margin: 0 6px 6px 0;
+  padding: 8px 12px;
+  font-size: 11px;
+}
+.transpose-panel h3 {
+  margin: 0 0 8px;
+  font: 650 13px system-ui;
+}
+.transpose-panel fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0 0 10px;
+  padding: 0;
+  border: 0;
+}
+.transpose-panel fieldset label {
+  flex: none;
+}
+.transpose-panel input[type='radio'] {
+  width: auto;
+  margin: 0;
+  padding: 0;
+}
+.transpose-panel .pair,
+.transpose-panel > label {
+  margin-bottom: 10px;
+}
+.transpose-panel label.inline {
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink);
+}
+.transpose-panel p {
+  margin: 0 0 10px;
+}
+.transpose-actions {
+  display: flex;
+  gap: 8px;
+}
+.transpose-actions button {
+  padding: 9px 14px;
+  font-size: 11px;
+}
 .note-buttons {
   display: flex;
   gap: 5px;
