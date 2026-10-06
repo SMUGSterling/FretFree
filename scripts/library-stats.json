@@ -1,7 +1,7 @@
 {
- "total": 6153,
+ "total": 6150,
  "baseline": 841,
- "added": 5312,
+ "added": 5309,
  "collections": {
   "FretFree teaching melodies": 4,
   "FretFree original studies": 8,
@@ -10,7 +10,7 @@
   "Open Hymnal": 272,
   "OpenScore Lieder": 1345,
   "OpenScore String Quartets": 368,
-  "Paul Hardy’s Tunebooks": 557
+  "Paul Hardy’s Tunebooks": 554
  },
  "licenses": {
   "CC0-1.0": 1725,
@@ -23,7 +23,7 @@
   "CC-BY-4.0": 66,
   "CC-BY-3.0": 60,
   "CC-BY-2.5": 57,
-  "CC-BY-NC-SA-3.0": 557
+  "CC-BY-NC-SA-3.0": 554
  },
  "liederAdded": 1345,
  "liederSource": {
@@ -41,7 +41,7 @@
   "accepted": 368,
   "excluded": 27
  },
- "pghAdded": 557,
+ "pghAdded": 554,
  "pghSource": {
   "mirror": "https://github.com/danwatford/abc/tree/012724a7345d7cca7692f33d63b3d09c8ce336c0/parser/src/test/resources",
   "commit": "012724a7345d7cca7692f33d63b3d09c8ce336c0",
@@ -54,7 +54,7 @@
     "file": "pgh_session_tunebook.abc",
     "sha256": "5b39a17fd676481f39fd8d62cdd48fa69168e38cda36afa683729c439f2c1de7",
     "tunes": 569,
-    "candidates": 534
+    "candidates": 533
    },
    {
     "name": "Annex Tunebook",
@@ -64,7 +64,7 @@
     "file": "pgh_annex_tunebook.abc",
     "sha256": "9fc4b8c06acc63ab5e7e31f3e7a95e4425c42da5c98cc18754440f43ffc7ed8a",
     "tunes": 37,
-    "candidates": 1
+    "candidates": 0
    },
    {
     "name": "Possible Tunebook",
@@ -74,15 +74,15 @@
     "file": "pgh_possible_tunebook.abc",
     "sha256": "75e7ceef4a69f0d595625809c7713f8be3e9b60b122feebdc9121d6375edbb37",
     "tunes": 32,
-    "candidates": 22
+    "candidates": 21
    }
   ],
   "acceptedByBook": {
-   "Session Tunebook": 534,
-   "Annex Tunebook": 1,
-   "Possible Tunebook": 22
+   "Session Tunebook": 533,
+   "Annex Tunebook": 0,
+   "Possible Tunebook": 21
   },
-  "accepted": 557,
-  "excluded": 81
+  "accepted": 554,
+  "excluded": 84
  }
 }

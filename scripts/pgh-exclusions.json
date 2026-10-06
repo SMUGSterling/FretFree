@@ -8,7 +8,7 @@
    "file": "pgh_session_tunebook.abc",
    "sha256": "5b39a17fd676481f39fd8d62cdd48fa69168e38cda36afa683729c439f2c1de7",
    "tunes": 569,
-   "candidates": 534
+   "candidates": 533
   },
   {
    "name": "Annex Tunebook",
@@ -18,7 +18,7 @@
    "file": "pgh_annex_tunebook.abc",
    "sha256": "9fc4b8c06acc63ab5e7e31f3e7a95e4425c42da5c98cc18754440f43ffc7ed8a",
    "tunes": 37,
-   "candidates": 1
+   "candidates": 0
   },
   {
    "name": "Possible Tunebook",
@@ -28,10 +28,10 @@
    "file": "pgh_possible_tunebook.abc",
    "sha256": "75e7ceef4a69f0d595625809c7713f8be3e9b60b122feebdc9121d6375edbb37",
    "tunes": 32,
-   "candidates": 22
+   "candidates": 21
   }
  ],
- "accepted": 557,
+ "accepted": 554,
  "excluded": [
   {
    "file": "Session Tunebook X:1017",
@@ -164,6 +164,12 @@
    "title": "Nancy Clough",
    "composer": "Tom Clough (1881-1964)",
    "reason": "Composer credit \"Tom Clough (1881-1964)\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "Session Tunebook X:15017",
+   "title": "Old Lancashire Hornpipe",
+   "composer": "Trad.",
+   "reason": "No Paul Hardy cc by-nc-sa Z: credit on this block; not imported as a tune"
   },
   {
    "file": "Session Tunebook X:16012",
@@ -460,6 +466,12 @@
    "reason": "Duplicate of pgh-2020 (the same tune in an earlier book)"
   },
   {
+   "file": "Annex Tunebook X:99999",
+   "title": "Errata - Minor corrections to tunes",
+   "composer": "",
+   "reason": "No Paul Hardy cc by-nc-sa Z: credit on this block; not imported as a tune"
+  },
+  {
    "file": "Possible Tunebook X:2601",
    "title": "Barber's Pole, The",
    "composer": "Trad.",
@@ -499,7 +511,7 @@
    "file": "Possible Tunebook X:7502",
    "title": "The Gravel Walks",
    "composer": "",
-   "reason": "Duplicate of pgh-7027 (the same tune in an earlier book)"
+   "reason": "No Paul Hardy cc by-nc-sa Z: credit on this block; not imported as a tune"
   },
   {
    "file": "Possible Tunebook X:13033",
@@ -518,6 +530,12 @@
    "title": "Ninety-three Not Out",
    "composer": "Will Atkinson (1908-2003)",
    "reason": "Composer credit \"Will Atkinson (1908-2003)\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "Possible Tunebook X:15002",
+   "title": "Oh! Dear! What can the matter be?",
+   "composer": "Trad. - Variations by Tom Clough",
+   "reason": "Traditional tune with a named arranger’s contribution (\"Trad. - Variations by Tom Clough\") and no pre-1930 dates; the arrangement may still be in copyright"
   }
  ]
 }

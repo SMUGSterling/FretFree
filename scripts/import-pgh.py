@@ -79,7 +79,11 @@ def composition_status(composer):
     c = composer.strip()
     years = [int(y) for y in re.findall(r'(?<!\d)(1[0-9]{3}|20[0-9]{2})(?!\d)', c)]
     if not c or TRAD.match(c):
-        # Later dates after a traditional credit refer to words or to the source person, not to the tune.
+        # A named arranger's variations or setting are a separate contribution; without pre-1930 dates it is not
+        # established as public domain. Later dates after a plain traditional credit refer to words or to the source
+        # person ("via", "Words by"), not to the tune.
+        if re.search(r'(variations?|arr\.?|arranged|setting|adapted)\s+by\b', c, re.I) and not (years and max(years) < 1930):
+            return False, '', f'Traditional tune with a named arranger’s contribution ("{c}") and no pre-1930 dates; the arrangement may still be in copyright'
         return True, 'Traditional tune, public domain; CC BY-NC-SA 3.0 transcription', ''
     if years and max(years) < 1930:
         return True, f'Composition by {c}, published before 1930 (US public domain); CC BY-NC-SA 3.0 transcription', ''
@@ -115,8 +119,11 @@ def main():
         text, raw = read_text(path)
         whole_sha = hashlib.sha256(raw).hexdigest()
         header, tunes = split_tunes(text)
-        if not any('by-nc-sa' in l for l in header.splitlines() if re.search(r'Copyright|licen[cs]ed|creativecommons', l)):
-            sys.exit(f'{path}: header does not declare the expected cc by-nc-sa licence; refusing to import.')
+        # Every entry is labelled Paul Hardy / CC-BY-NC-SA-3.0, so the header must say exactly that.
+        if not re.search(r'Copyright Paul Hardy', header):
+            sys.exit(f'{path}: header does not carry the "Copyright Paul Hardy" declaration; refusing to import.')
+        if not re.search(r'creativecommons\.org/licenses/by-nc-sa/3\.0/', header):
+            sys.exit(f'{path}: header does not cite creativecommons.org/licenses/by-nc-sa/3.0/; refusing to import.')
         book = book_info(header, path, tunes[0] if tunes else '')
         book.update({'file': os.path.basename(path), 'sha256': whole_sha, 'tunes': len(tunes)})
         with open(os.path.join(ROOT, 'licenses', f"pgh-{book['slug']}-tunebook-{book['year']}.abc"), 'wb') as fh:
@@ -143,6 +150,10 @@ def main():
             composer = field(tune, 'C', '')
             entry_id = f'{id_prefix}{x}'
             label = f"{book['name']} X:{x}"
+            # The licence rests on the per-tune Z: credit; a block without one (such as an errata page) is not a tune.
+            if not re.search(r'^Z:.*Paul Hardy.*by-nc-sa', tune, re.M | re.I):
+                excluded.append({'file': label, 'title': title, 'composer': composer, 'reason': 'No Paul Hardy cc by-nc-sa Z: credit on this block; not imported as a tune'})
+                continue
             dup = next((titles_before[title_key(t)] for t in titles if title_key(t) in titles_before), None)
             if dup:
                 excluded.append({'file': label, 'title': title, 'composer': composer, 'reason': f'Duplicate of {dup} (the same tune in an earlier book)'})
