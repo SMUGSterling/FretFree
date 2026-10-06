@@ -31,10 +31,21 @@ function syncFields() {
   assignSelect('meter', field('M', '4/4'));
   assignSelect('key', canonicalKey(field('K', 'C')), keyLabel(field('K', 'C')));
   hideKeyChoice();
-  const m = tempoParts(field('Q', '100')).beat.match(/(\d+)\s*$/);
+  const m = sliderBeat().match(/(\d+)$/);
   $('bpm').value = m ? Math.max(40, Math.min(200, +m[1])) : 100;
   $('bpm-value').textContent = $('bpm').value;
   syncFeel();
+}
+// The Tempo slider reads and writes the tempo as played, in the header's own beat: Q:1/2=60 reads 60, and moving it
+// writes 1/2=61, not 1/4=61 at half the speed. A score with no Q:, tempo text alone or a bare number reads the beat it
+// plays at (playedBeat), 180 quarter notes or 120 dotted quarters in 6/8, so the first move keeps its speed. Only the
+// header is parsed, as this runs on every keystroke, with a rest after K: so that abcjs has a staff to read the meter
+// from.
+function sliderBeat() {
+  const source = $('abc').value,
+    k = source.search(/^K:/m),
+    end = k < 0 ? -1 : source.indexOf('\n', k);
+  return playedBeat((end < 0 ? source : source.slice(0, end)) + '\nz');
 }
 // Feel menu: Straight or a swing amount read from the score; an amount typed into the ABC gets its own entry.
 function syncFeel() {
@@ -69,7 +80,8 @@ function setHeader(name, value) {
   $('abc').value = lines.join('\n');
 }
 // The instrument's shift: its part is written this many semitones above the concert source (2 for a B-flat clarinet,
-// 9 for an E-flat alto sax). Cello and trombone show the source an octave lower, a range change, not a transposition.
+// 9 for an E-flat alto sax, 14 for a tenor sax). Cello and trombone show the source an octave lower, a range change,
+// not a transposition; how each sounds is instrumentSound (score-tools.js).
 const instrumentShift = () => instruments[currentInstrument()]?.shift || 0,
   transposesInstrument = () => instrumentShift() % 12 !== 0;
 // Concert pitch view, display only: a transposing instrument's score shows the source's sounding pitches and key.
@@ -245,7 +257,8 @@ function refreshPalette() {
 function updateMeasures() {
   measureStarts = new Map();
   if (renderedTune?.engraver) {
-    renderedTune.setTiming();
+    // The sound's tempo (see settleTempo), so the highlight, ranges, metronome and count-in keep time with it.
+    settleTempo(renderedTune).setTiming();
     for (const event of renderedTune.noteTimings || []) {
       if (event.type !== 'event') continue;
       const entries = (event.startCharArray || []).map(c => noteSources.get(c)).filter(Boolean);
@@ -362,24 +375,42 @@ function restoreSelection(display) {
     selectionAnchor = null;
     if (run.length) selectedRange = [run[0].element.startChar, run[0].element.endChar];
   }
-  const match = [...noteSources.entries()].find(([, e]) => e?.element.startChar === selectedRange[0]);
+  const sources = [...noteSources.entries()],
+    [from, to] = selectedRange;
+  let match = sources.find(([, e]) => e?.element.startChar === from);
+  // abcjs starts a note after a mark that follows a slur or tuplet opening (at the dot of (3.C), so adding or removing
+  // such a mark moves where the edited note starts; the selection follows the note it covers.
+  if (!match) {
+    match = sources.find(([, e]) => e && e.element.startChar < Math.max(to, from + 1) && e.element.endChar > from);
+    if (match) selectedRange = [match[1].element.startChar, match[1].element.endChar];
+  }
   if (!match) return;
   const shown = scoreEvents(display).find(e => e.element.startChar === match[0]);
   if (shown) renderedTune.engraver.rangeHighlight(shown.element.startChar, shown.element.endChar);
 }
+// The caption names the instrument, its clef or staves, and what is shown against what plays: written pitch and the
+// interval it sounds below, a bass-range octave, or an octave transposition such as a double bass or glockenspiel.
+// A transposing instrument that also plays in another octave (baritone sax) does not sound at the source's pitch, so
+// its caption gives the source's distance from the sound instead of calling it concert pitch.
 function updateCaption() {
   $('workspace-heading').textContent = field('T', 'Untitled melody');
   const config = instruments[currentInstrument()],
-    staves = staffClefs[0]?.length || 1;
+    staves = staffClefs[0]?.length || 1,
+    sound = instrumentSound(config),
+    written = writtenAboveSound(config),
+    sounds = written ? ` It sounds ${intervalPhrase(written)} ${written > 0 ? 'lower' : 'higher'} than written.` : '',
+    source = sound ? `${intervalPhrase(sound)} ${sound < 0 ? 'above' : 'below'} how it sounds` : '';
   const pitch = concertView()
-    ? 'Concert pitch shown, as it sounds; turn off Concert pitch for the written part.'
+    ? `${sound ? `ABC source shown, ${source}` : 'Concert pitch shown, as it sounds'}; turn off Concert pitch for the written part.`
     : transposesInstrument()
-      ? 'Written pitch shown; ABC source and MIDI are concert pitch.'
+      ? `Written pitch shown; it sounds ${intervalPhrase(written)} lower. ABC source and MIDI are ${source || 'concert pitch'}.`
       : config.shift === -12
-        ? `${staves > 1 ? 'Parts' : 'Melody'} lowered one octave for bass range.`
-        : staves > 1
-          ? 'Concert pitch.'
-          : 'Concert pitch melody part.';
+        ? `${staves > 1 ? 'Parts' : 'Melody'} lowered one octave for bass range.${sounds}`
+        : written
+          ? `${staves > 1 ? 'Parts' : 'Melody part'}.${sounds}`
+          : staves > 1
+            ? 'Concert pitch.'
+            : 'Concert pitch melody part.';
   // A score with several staves (a template or V: voices) has their own clefs, so it counts them instead.
   $('score-caption').textContent =
     `${currentInstrument()} · ${staves > 1 ? `${staves} staves` : `${config.clef} clef`} · ${pitch}`;
@@ -1234,6 +1265,36 @@ function markItemsHTML(entry) {
     '</div>'
   );
 }
+// The note menu's tuplet counts and grace note items. Multi-measure and invisible rests take neither, and other rests
+// take no grace note.
+function tupletItemsHTML(entry) {
+  const {rest} = entry.element;
+  if (rest?.type === 'multimeasure' || rest?.type === 'invisible') return '';
+  const p = tupletGroup(entry)?.p,
+    grace = graceOf($('abc').value.slice(entry.element.startChar, entry.element.endChar)),
+    item = (action, label, checked, extra = '') =>
+      `<button role="menuitemcheckbox" aria-checked="${!!checked}" data-edit="${action}"${extra}>${label}</button>`;
+  return (
+    `<div class="menu-label">TUPLET</div><div class="menu-row">` +
+    Object.keys(TUPLET_WORDS)
+      .map(n =>
+        item(
+          'tuplet:' + n,
+          n,
+          +n === p,
+          ` aria-label="${TUPLET_WORDS[n]} (${n})" title="${TUPLET_WORDS[n]}${n === '3' ? ' (T)' : ''}"${n === '3' ? ' aria-keyshortcuts="T"' : ''}`
+        )
+      )
+      .join('') +
+    '</div>' +
+    (rest && !grace
+      ? ''
+      : `<div class="menu-label">GRACE NOTE</div><div class="menu-row">${item('grace', 'Grace', grace)}${item('grace:slash', 'Slashed', grace?.slashed)}</div>` +
+        (grace
+          ? `<div class="menu-row"><button role="menuitem" data-edit="grace:up">Grace ↑</button><button role="menuitem" data-edit="grace:down">Grace ↓</button><button role="menuitem" data-edit="grace:remove">Remove grace</button></div>`
+          : ''))
+  );
+}
 function openNoteMenu(entry, display, x, y) {
   menuEntry = {entry, display, written: renderedWritten};
   const isRest = !entry.element.pitches?.length,
@@ -1264,6 +1325,7 @@ function openNoteMenu(entry, display, x, y) {
       ? ''
       : `<button role="menuitemcheckbox" aria-checked="${/^-/.test(noteParts($('abc').value.slice(entry.element.startChar, entry.element.endChar))?.post || '')}" data-edit="tie">⁀ Tie to next note</button>`) +
     markItemsHTML(entry) +
+    tupletItemsHTML(entry) +
     `<button role="menuitem" data-edit="chord" aria-keyshortcuts="K" title="Chord symbol (K)">Chord symbol${chord ? ': ' + esc(chord) : ''}…</button>` +
     `<div class="menu-row"><button role="menuitem" data-edit="play-from">▶ Play from here</button><button role="menuitem" data-edit="range-from">🔁 Practice from here</button></div>` +
     `<div class="menu-label">INSERT AFTER</div><div class="menu-row"><button role="menuitem" data-edit="rest-after">𝄽 Rest</button><button role="menuitem" data-edit="bar-after">| Bar line</button></div><hr><button role="menuitem" class="danger" data-edit="delete">Delete ${isRest ? 'rest' : 'note'}</button>`;
@@ -1494,6 +1556,154 @@ function toggleLineSelected(kind, picked = selectedNotes()) {
     ? `${LINE_WORDS[kind]} added over ${countWords(ends.count)}.`
     : `${LINE_WORDS[kind]} removed.`;
 }
+// Tuplets and grace notes (tupletMembers, setGrace and moveGrace in score-tools.js). T or the toolbar's Triplet
+// button splits the selected note or rest into a triplet, and the Tuplet menu into 2, 5, 6 or 7: the note becomes the
+// first member, rests fill the others and the first of them is selected, so letters fill them in turn. The same count
+// on a tuplet whose other members are rests puts the note back, and another count splits it again. Grace adds a grace
+// note one step above the note, Slashed slashes it, and Grace ↑↓ move only the grace notes. Each is one undo step.
+const TUPLET_WORDS = {2: 'Duplet', 3: 'Triplet', 5: 'Quintuplet', 6: 'Sextuplet', 7: 'Septuplet'},
+  tupletWord = p => TUPLET_WORDS[p] || `${p}-tuplet`;
+// The tuplet a note or rest is in: its members in reading order (abcjs marks the first startTriplet and the last
+// endTriplet), its count and its multiplier; null when it is in none.
+function tupletGroup(entry) {
+  const voice = notesByVoice().get(voiceOf(entry)) || [],
+    i = voice.indexOf(entry);
+  for (let s = i; s >= 0; s--) {
+    const el = voice[s].element;
+    if (s < i && el.endTriplet) return null;
+    if (!el.startTriplet) continue;
+    const e = voice.findIndex((n, k) => k >= s && n.element.endTriplet),
+      members = voice.slice(s, e < 0 ? voice.length : e + 1);
+    return members.includes(entry) ? {members, p: el.startTriplet, multiplier: el.tripletMultiplier || 1} : null;
+  }
+  return null;
+}
+// Where a tuplet's opening (3 is written: in its first note's text, or just before it, where abcjs leaves it when a
+// mark follows the ( (as in (3.C).
+function tupletOpening(first) {
+  const v = $('abc').value,
+    {startChar, endChar} = first.element,
+    inside = tupletSpec(v.slice(startChar, endChar));
+  if (inside) return {at: startChar + inside.index, text: inside.text};
+  const before = v.slice(Math.max(0, startChar - 24), startChar).match(/(\(\d+(?::\d*){0,2})\(?$/);
+  return before && {at: startChar - before[0].length, text: before[1]};
+}
+// Why a note's text makes no p-tuplet.
+function tupletWhy(text, p, unit) {
+  const parts = noteParts(noteHead(text)),
+    whole = (parts ? partsLength(parts) : 0) * unit,
+    exact = k => Math.abs(k - Math.round(k)) < 1e-9,
+    word = tupletWord(p).toLowerCase();
+  if (/[<>]/.test(parts?.post || '')) return 'Take off the broken rhythm (> or <) first.';
+  if (exact(Math.log2(whole))) {
+    if (tupletRatio(whole, p)) return `This note is too short to split into a ${word}.`;
+    return `A ${word} goes on a dotted note, such as a dotted quarter.`;
+  }
+  if (exact(Math.log2(whole / 3)))
+    return tupletRatio(whole, p)
+      ? `This note is too short to split into a ${word}.`
+      : `A dotted note already splits into ${p} without a tuplet.`;
+  return 'This length cannot be split into a tuplet.';
+}
+// What a tuplet press would do to a note or rest: {from, to, text, select, done} for one edit, or {why}.
+function tupletPlan(p, sel) {
+  if (!sel) return {why: 'Select a note on the score first.'};
+  const v = $('abc').value,
+    {element} = sel.entry,
+    group = tupletGroup(sel.entry),
+    unit = unitLengthAt(element.startChar);
+  if (element.rest?.type === 'multimeasure') return {why: 'A multi-measure rest cannot be split into a tuplet.'};
+  if (element.rest?.type === 'invisible') return {why: 'An invisible rest cannot be split into a tuplet.'};
+  let from = element.startChar,
+    to = element.endChar,
+    note = v.slice(from, to);
+  if (group) {
+    // Taking a tuplet off (or splitting it again) puts its first note back at the length of the whole group.
+    const [first] = group.members,
+      last = group.members.at(-1),
+      opening = tupletOpening(first),
+      name = tupletWord(group.p).toLowerCase();
+    if (group.members.slice(1).some(pitched))
+      return {why: `To change this ${name}, turn its other notes into rests first.`};
+    if (!opening) return {why: `This ${name} is written in a way the editor cannot change.`};
+    from = Math.min(opening.at, first.element.startChar);
+    to = last.element.endChar;
+    const total = group.members.reduce((sum, n) => sum + (n.element.duration || 0), 0) * group.multiplier,
+      body = v.slice(from, opening.at) + v.slice(opening.at + opening.text.length, first.element.endChar);
+    // Uneven members written by hand, as in (3c2zz, can add up to a length no single note has.
+    if (!oneNoteLength(total))
+      return {why: `This ${name} does not add up to a single note, so the editor cannot change it.`};
+    note = editNoteText(noteHead(body), {length: total / unit}) + noteTail(v.slice(from, to));
+    if (p === group.p) {
+      const head = noteHead(note);
+      return {from, to, text: note, select: [from, from + head.length], done: `${tupletWord(p)} removed.`};
+    }
+  } else {
+    // The note after a > or < shares its length with the note before it (tupletMembers turns down the one before).
+    const voice = notesByVoice().get(voiceOf(sel.entry)) || [],
+      prev = voice[voice.indexOf(sel.entry) - 1]?.element;
+    if (prev && /[<>]/.test(noteParts(v.slice(prev.startChar, prev.endChar))?.post || ''))
+      return {why: 'Take off the broken rhythm (> or <) first.'};
+  }
+  const members = tupletMembers(note, p, unit);
+  if (!members) return {why: tupletWhy(note, p, unit)};
+  // A note stays the first member, so the first rest after it is selected; a rest split up is selected from its start.
+  const onNote = pitched(group ? group.members[0] : sel.entry),
+    at = onNote ? from + members[0].length + 1 : from,
+    selected = onNote ? members[1] : members[0];
+  return {
+    from,
+    to,
+    text: members.join(' ') + noteTail(note),
+    select: [at, at + selected.length],
+    done: `${tupletWord(p)}: type letters to fill its rests.`
+  };
+}
+function tupletSelected(p, sel = selectedNote()) {
+  const plan = tupletPlan(p, sel);
+  if (!plan.why) applyNoteEdit(plan.from, plan.to, plan.text, plan.select);
+  $('selection-status').textContent = plan.why || plan.done;
+}
+// Delete in a tuplet keeps its count, since abcjs would otherwise pull the next note into it: a note becomes a rest
+// that letters can fill, and a rest takes the tuplet off when every member after the first is a rest, as T does.
+// Returns the status line.
+function tupletDelete(sel) {
+  const group = tupletGroup(sel.entry),
+    name = tupletWord(group.p).toLowerCase();
+  if (pitched(sel.entry)) {
+    editNote(sel.entry, sel.display, 'to-rest');
+    return `Changed to a rest, so the ${name} stays whole.`;
+  }
+  const plan = tupletPlan(group.p, sel);
+  if (plan.why) return `This rest is part of a ${name}. Type a letter to fill it.`;
+  applyNoteEdit(plan.from, plan.to, plan.text, plan.select);
+  return plan.done;
+}
+// What a grace note press (grace, grace:slash, grace:up, grace:down, grace:remove) would do: {text, done} or {why}.
+function gracePlan(action, sel) {
+  if (!sel) return {why: 'Select a note on the score first.'};
+  const {startChar, endChar} = sel.entry.element,
+    old = $('abc').value.slice(startChar, endChar),
+    grace = graceOf(old);
+  if (!grace && !pitched(sel.entry)) return {why: 'Grace notes go before notes, not rests.'};
+  if (!grace && action !== 'grace' && action !== 'grace:slash') return {why: 'This note has no grace note.'};
+  if (action === 'grace' || action === 'grace:remove')
+    return grace
+      ? {text: setGrace(old, null), done: 'Grace note removed.'}
+      : {text: setGrace(old, {slashed: false}), done: 'Grace note added.'};
+  if (action === 'grace:slash')
+    return {
+      text: setGrace(old, {slashed: !grace?.slashed}),
+      done: grace?.slashed ? 'Slash removed.' : grace ? 'Grace note slashed.' : 'Slashed grace note added.'
+    };
+  const up = action === 'grace:up';
+  return {text: moveGrace(old, up ? 1 : -1), done: `Grace note moved ${up ? 'up' : 'down'}.`};
+}
+function graceSelected(action, sel = selectedNote()) {
+  const plan = gracePlan(action, sel);
+  if (!plan.why) applyNoteEdit(sel.entry.element.startChar, sel.entry.element.endChar, plan.text);
+  $('selection-status').textContent = plan.why || plan.done;
+}
 // Chord symbols. K, the toolbar's Chord button or the note menu opens a box above the selected note. Enter saves,
 // Tab saves and moves on to the next note (Shift+Tab the one before), Escape cancels, and an empty box removes the
 // symbol. Symbols are typed and shown in written pitch and stored in concert pitch, like the notes.
@@ -1643,7 +1853,8 @@ $('chord-next').addEventListener('mousedown', e => e.preventDefault());
 $('chord-next').addEventListener('click', () => commitChord(1));
 // One edit on one note, shared by the note menu, the keyboard and the palette. Actions: acc:<^|_|=|>, len:<whole>,
 // dot, tie, to-rest, beam:join, beam:break, deco:<mark>, dyn:<dynamic|>, delete, rest-after, bar-after, play-from,
-// range-from, respell, chord (opens the chord symbol box). Others do nothing.
+// range-from, respell, chord (opens the chord symbol box), tuplet:<count>, grace, grace:<slash|up|down|remove>.
+// Others do nothing.
 function editNote(entry, display, action) {
   const area = $('abc'),
     v = area.value,
@@ -1678,6 +1889,18 @@ function editNote(entry, display, action) {
   }
   if (action === 'respell') {
     respellSelected({entry, display});
+    return;
+  }
+  if (action.startsWith('tuplet:')) {
+    tupletSelected(+action.slice(7), {entry, display});
+    return;
+  }
+  if (action === 'delete' && tupletGroup(entry)) {
+    $('selection-status').textContent = tupletDelete({entry, display});
+    return;
+  }
+  if (/^grace(:(slash|up|down|remove))?$/.test(action)) {
+    graceSelected(action, {entry, display});
     return;
   }
   if (action.startsWith('acc:')) {
@@ -1801,7 +2024,7 @@ window.addEventListener(
 // Shift+A–G add a pitch to the selected chord, R or 0 a rest, 3–7 set the length (16th…whole), . dots, ↑↓ move by
 // step (Ctrl: octave), ←→ change the selection, # - = set sharp/flat/natural, + ties, | adds a bar line, Delete
 // removes the note, [ ] halve or double the length, ; : > " ^ toggle staccato, tenuto, accent, marcato and fermata,
-// K opens the chord symbol box.
+// K opens the chord symbol box, S slurs and T makes a triplet (or takes it off).
 // Shift+←→ and Ctrl/Cmd+A, C, X, V, D work on a range selection (see below).
 const LENGTH_KEYS = {3: 1 / 16, 4: 1 / 8, 5: 1 / 4, 6: 1 / 2, 7: 1};
 function focusScore() {
@@ -2003,20 +2226,27 @@ function letterToken(letter, at) {
 }
 // Put a note (its pitch token, without a length) at the start of a rest, taking its length from the rest; the rest
 // keeps what is left, which stays selected so the next note continues. A filled rest passes the selection on.
-// Chord symbols and text written on the rest mark that beat, so the note takes them. Returns where the note starts.
+// Chord symbols and text written on the rest mark that beat, so the note takes them, and so does a tuplet opening.
+// A rest in a tuplet is filled whole, at its own written length, so the tuplet keeps its count, and a note shorter
+// than a quarter is beamed to the note before it in the tuplet, as tuplets are usually engraved. Returns where the
+// note starts.
 function fillRest(rest, core, wanted = inputLength ?? beatLength(), keep = false) {
   const v = $('abc').value,
-    start = rest.element.startChar,
     end = rest.element.endChar,
-    old = v.slice(start, end),
-    unit = unitLengthAt(start);
+    old = v.slice(rest.element.startChar, end),
+    unit = unitLengthAt(rest.element.startChar),
+    group = tupletGroup(rest),
+    prev = group?.members[group.members.indexOf(rest) - 1],
+    gap = core !== 'z' && prev && pitched(prev) && rest.element.duration < 0.25 ? beamGap(prev) : null,
+    join = !!gap && !gap.joined && gap.to === rest.element.startChar,
+    start = join ? gap.from : rest.element.startChar;
   const restLength = rest.element.duration || 0,
-    length = Math.min(wanted, restLength || Infinity),
+    length = group ? restLength : Math.min(wanted, restLength || Infinity),
     left = restLength - length,
-    chords = (noteParts(old.trim())?.pre.match(/"[^"]*"/g) || []).join('');
+    chords = (noteParts(noteHead(old).trimStart())?.pre.match(/"[^"]*"|\(\d+(?::\d*){0,2}/g) || []).join('');
   const token = chords + core + lengthText(length / unit),
-    trail = old.match(/\s*$/)[0],
-    lead = old.match(/^\s*/)[0] || (start > 0 && !/\s/.test(v[start - 1]) ? ' ' : '');
+    trail = noteTail(old),
+    lead = join ? '' : old.match(/^\s*/)[0] || (start > 0 && !/\s/.test(v[start - 1]) ? ' ' : '');
   if (left > 1e-6) {
     const remainder = 'z' + lengthText(left / unit),
       text = lead + token + ' ' + remainder + trail,
@@ -2037,6 +2267,12 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength(), keep = false
     start + lead.length,
     keep
   );
+  // The status line says whether the tuplet has rests left to fill.
+  if (group)
+    $('selection-status').textContent =
+      core === 'z' || group.members.some(n => n !== rest && !pitched(n))
+        ? `${tupletWord(group.p)}: type letters to fill its rests.`
+        : `${tupletWord(group.p)} filled.`;
   return start + lead.length;
 }
 // Keys 3–7 and the palette's length buttons: set the length of new notes, and of the selected note. A selected rest
@@ -2056,10 +2292,14 @@ function chooseLength(value, sel = selectedNote()) {
     $('selection-status').textContent =
       ($('abc').value === before ? 'Already ' : 'Changed to ') + (NOTE_VALUES[value] || 'that length') + '.';
   } else {
-    // Letters write over a selected rest, but go after a multi-measure rest (Z).
-    const over = sel && sel.entry.element.rest?.type !== 'multimeasure';
-    $('selection-status').textContent =
-      'New notes will be ' + name + 's.' + (over ? ' Type a letter to write one over the rest.' : '');
+    // Letters write over a selected rest, but go after a multi-measure rest (Z). A rest in a tuplet is filled at its
+    // own length, so the new length is for notes after the tuplet.
+    const over = sel && sel.entry.element.rest?.type !== 'multimeasure',
+      group = sel && tupletGroup(sel.entry);
+    $('selection-status').textContent = group
+      ? `New notes after the ${tupletWord(group.p).toLowerCase()} will be ${name}s. ` +
+        'Letters fill its rests at their own length.'
+      : 'New notes will be ' + name + 's.' + (over ? ' Type a letter to write one over the rest.' : '');
     refreshPalette();
   }
 }
@@ -2147,6 +2387,11 @@ function scoreKey(e) {
   }
   if (key === 's' || key === 'S') {
     toggleLineSelected('slur', picked);
+    return true;
+  }
+  if (key === 't' || key === 'T') {
+    if (many) $('selection-status').textContent = 'T makes one note a triplet. Select a single note for this.';
+    else tupletSelected(3, sel);
     return true;
   }
   if (!sel) return false;
@@ -3499,8 +3744,10 @@ async function openEmbed(hash) {
 // A transposing instrument's part is drawn in written pitch while playback sounds at concert pitch, so the embed, which
 // hides the instrument menu, names the part and how it sounds. Empty for parts that sound as written.
 function embedPart(name) {
-  const interval = TRANSPOSE_INTERVALS.find(i => i.semitones === instruments[name]?.shift);
-  return interval ? `${name} part, in written pitch: it sounds a ${interval.name} lower.` : '';
+  const written = instruments[name] ? writtenAboveSound(instruments[name]) : 0;
+  return written
+    ? `${name} part, in written pitch: it sounds ${intervalPhrase(written)} ${written > 0 ? 'lower' : 'higher'}.`
+    : '';
 }
 // The iframe snippet for a score page. Width is pixels (with or without "px") or a percentage up to 100% (else 100%);
 // height is 200 to 2,000 pixels (else clamped to that range, or 420 when empty). A field whose value is replaced is

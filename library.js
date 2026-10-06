@@ -194,7 +194,7 @@ async function playPreview(id, abc, instrument, tune, seconds, show) {
     scheduleNotes(data.notes, base, instrument, previewNodes);
     // Light up each note group on the drawing while it sounds.
     try {
-      tune?.setTiming?.();
+      if (tune?.setTiming) settleTempo(tune).setTiming();
     } catch {}
     const events = (tune?.noteTimings || []).filter(
       e => e.type === 'event' && e.elements?.length && e.milliseconds / 1000 < until
