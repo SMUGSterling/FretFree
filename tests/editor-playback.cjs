@@ -1712,6 +1712,115 @@ async function checkAudio() {
     'A note tied across a bar line sounds the held sharp'
   );
 }
+// WAV export: without OfflineAudioContext the panel says so. With a fake one, the file has the notes Play schedules, at
+// the same times and speed, clicks only with Include metronome and the chords only with Include chords; the export
+// never touches the live context, downloads <title>.wav, and a file still being made when the panel closes is dropped.
+async function checkWavExport() {
+  const abc = 'X:1\nT:Wav test\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\n"C"C D "G"E F | G4 |]',
+    downloads = [],
+    offline = [];
+  run(`openScore({abc:${JSON.stringify(abc)},instrument:'Flute'})`);
+  assert.equal(typeof w.OfflineAudioContext, 'undefined');
+  run("$('export-wav').click()");
+  assert.equal(run("$('wav-panel').hidden"), false);
+  assert.equal(run("$('export-wav').getAttribute('aria-expanded')"), 'true');
+  assert.equal(run("$('wav-make').disabled"), true, 'Nothing to press without offline audio');
+  assert.match(run("$('wav-summary').textContent"), /can’t make audio files\. Export MIDI instead/);
+  assert.equal(run('document.activeElement.id'), 'wav-close');
+  run("$('wav-close').click()");
+  assert.equal(run("$('wav-panel').hidden"), true);
+  assert.equal(run("$('export-wav').getAttribute('aria-expanded')"), 'false');
+  assert.equal(run('document.activeElement.id'), 'export-wav', 'Closing hands focus back to the WAV button');
+  class FakeOffline extends FakeAudio {
+    constructor(channels, length, rate) {
+      super();
+      this.currentTime = 0;
+      this.args = [channels, length, rate];
+      offline.push(this);
+    }
+    async startRendering() {
+      const data = [new Float32Array(this.args[1]), new Float32Array(this.args[1])];
+      data[0][100] = 0.25;
+      data[1][200] = -0.5;
+      return {numberOfChannels: 2, length: this.args[1], getChannelData: i => data[i]};
+    }
+  }
+  w.OfflineAudioContext = FakeOffline;
+  w.__wavDownloads = downloads;
+  run('var keepDownload=download;download=(data,name,type)=>__wavDownloads.push({data,name,type})');
+  run("$('speed').value='50';$('metronome').checked=true;$('count-in').checked=false;$('loop').checked=false");
+  run("$('chords').checked=true");
+  oscillators.length = 0;
+  await run('play()');
+  const live = oscillators.slice(),
+    liveBus = run('outputNode()'),
+    base = Math.min(...live.map(o => o.startAt)),
+    sounds = list =>
+      list
+        .filter(o => o.type !== 'square')
+        .map(o => `${o.frequency.value.toFixed(2)}@${o.startAt.toFixed(4)}`)
+        .sort();
+  run('stop()');
+  run("$('export-wav').click()");
+  assert.equal(run("$('wav-metronome').checked"), true, 'Include metronome starts from the Metronome switch');
+  assert.equal(run("$('wav-chords-option').hidden"), false, 'Include chords shows for a score with chord symbols');
+  assert.match(run("$('wav-summary').textContent"), /^The whole score in the Flute sound at 50% speed/);
+  oscillators.length = 0;
+  await run('makeWav()');
+  const made = oscillators.slice();
+  assert.deepEqual(
+    sounds(made),
+    sounds(live.map(o => ({...o, startAt: o.startAt - base}))),
+    'The file has the notes Play schedules, at the same times and speed'
+  );
+  assert.ok(sounds(made).length > 5, 'with the chords');
+  assert.equal(
+    made.filter(o => o.type === 'square').length,
+    live.filter(o => o.type === 'square').length,
+    'and the same metronome clicks'
+  );
+  assert.ok(
+    made.every(o => o.to.to !== liveBus && o.to.to.gain.value === 1),
+    'The export has its own bus at full level'
+  );
+  const [ctx] = offline;
+  assert.deepEqual([ctx.args[0], ctx.args[2]], [2, 44100], 'Stereo at 44.1 kHz');
+  assert.equal(ctx.args[1], Math.ceil((4 / 0.5 + 1) * 44100), 'Two bars at 120 BPM and 50% speed, and a second more');
+  assert.equal(downloads.length, 1);
+  const file = downloads[0],
+    bytes = Buffer.from(file.data),
+    view = new DataView(file.data.buffer),
+    data = bytes.indexOf('data') + 8;
+  assert.deepEqual([file.name, file.type], ['Wav-test.wav', 'audio/wav']);
+  assert.equal(bytes.subarray(0, 4).toString(), 'RIFF');
+  assert.ok(bytes.includes('INAM\x09\0\0\0Wav test\0'), 'The title is in INFO');
+  assert.equal(view.getInt16(data + 200 * 4 + 2, true), Math.round(-0.89 * 0x8000), 'Scaled to 1 dB under full');
+  assert.equal(view.getInt16(data + 100 * 4, true), Math.round(0.445 * 0x7fff));
+  assert.match(run("$('wav-status').textContent"), /^Downloaded Wav-test\.wav \(0:09, 1\.5 MB\)\.$/);
+  assert.equal(run("$('wav-make').disabled"), false);
+  // Without the metronome or the chords: only the five melody notes.
+  run("$('wav-metronome').checked=false;$('wav-chords').checked=false");
+  oscillators.length = 0;
+  await run('makeWav()');
+  assert.equal(oscillators.length, 5, 'Only the melody, no clicks');
+  // Closing the panel while the file is being made drops it.
+  const pending = run('makeWav()');
+  run("$('wav-close').click()");
+  await pending;
+  assert.equal(downloads.length, 2, 'A file still being made when the panel closes is dropped');
+  // A score that would play for over 10 minutes is refused with a reason; one without chords has no chords option.
+  run(`openScore({abc:${JSON.stringify('X:1\nT:Slow\nM:4/4\nL:1/4\nQ:1/4=5\nK:C\nC D E F | G4 | E4 | C4 |]')}})`);
+  run("$('speed').value='25'");
+  run("$('export-wav').click()");
+  assert.equal(run("$('wav-chords-option').hidden"), true, 'No chords option without chord symbols');
+  await run('makeWav()');
+  assert.match(run("$('wav-status').textContent"), /more than 10 minutes/);
+  assert.equal(downloads.length, 2);
+  run(`openScore({abc:${JSON.stringify(abc)}})`);
+  assert.equal(run("$('wav-panel').hidden"), true, 'Opening another score closes the panel');
+  run("download=keepDownload;$('speed').value='100';$('metronome').checked=false");
+  delete w.OfflineAudioContext;
+}
 // Instrument sounds: both menus list catalog.js's instruments, every instrument plays one non-square oscillator per
 // note (FakeAudio has no periodic waves, so each falls back to its basic wave) in its octave, and the captions and
 // embed labels give the written interval, including horn in F, tenor and baritone sax and octave transpositions.
@@ -2585,12 +2694,13 @@ async function checkPlayback() {
   await checkChordSymbols();
   await checkAudio();
   await checkInstrumentSounds();
+  await checkWavExport();
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-scores-v1')), [legacy]);
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-favorites-v1')), ['ode', 'mutopia-263']);
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, WAV export (the notes, times, speed, clicks and chords Play has, its own full-level bus, INFO title, scaling, no offline audio, a closed panel, too long), instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

@@ -1,3 +1,12 @@
+# Audio export (WAV) · 2026-10-06
+
+- **WAV** in the export bar makes an audio file of the score to hand in, share or practice along with. A panel under the bar has **Include metronome** and **Include chords** (shown only when the score's chord symbols play), which start from the transport's Metronome and Chords switches, and **Make WAV file**, which downloads `<title>.wav`. The status line gives its length and size. Escape or ✕ closes the panel, and it closes when another score opens; a file still being made then is dropped.
+- The file has what Play sounds: the whole score in the chosen instrument's sound, with swing and dynamics, at the current playback speed, without the count-in. It is rendered on the device with `OfflineAudioContext`, faster than real time, as 16-bit stereo at 44.1 kHz, through its own master bus at full level (not the Volume slider) and the same limiter, and scaled so the loudest sample is 1 dB under full scale. A score that would play for more than 10 minutes at the chosen speed is refused with a reason, because the recording is held in memory. Browsers without `OfflineAudioContext` show a plain message suggesting MIDI.
+- Credits travel in the file's LIST/INFO chunk: the title (INAM) and composer or attribution (IART), and for a library edition its license (ICOP) and the full credit with the corresponding editable ABC (ICMT), as the MIDI export carries them, the GPL text included. A score of your own carries only its title and composer, or a copyright line kept from an imported file.
+- `scheduleNotes()` and `click()` in playback.js take an audio context and an output node, so the export schedules exactly what playback does. The pure `wavBytes()` in score-tools.js writes the file and `creditedWavInfo()` in rights-tools.js its text. The mixer is not built yet, so there are no per-track mutes or levels to apply.
+
+---
+
 # Instrument sounds · 2026-10-06
 
 - Thirteen more instruments: oboe, bassoon, tenor sax in B♭, baritone sax in E♭, horn in F, euphonium, tuba, viola (alto clef), double bass, ukulele, bass guitar, glockenspiel and voice. The Instrument menu and the library's Instrument filter are both built from the one list in catalog.js and grouped by family (Woodwinds, Brass, Strings, Guitars, Keyboard and percussion, Voice); the filter's hard-coded list is gone.

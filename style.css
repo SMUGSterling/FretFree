@@ -2462,3 +2462,16 @@ header {
   font-size: 12px;
   padding: 7px 12px;
 }
+/* Audio file (WAV) panel under the export bar. Like the share panel, it does not print. */
+.wav-panel h2 {
+  font-size: 20px;
+}
+.wav-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 10px;
+}
+#wav-make {
+  margin-top: 12px;
+}

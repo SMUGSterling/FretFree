@@ -2101,6 +2101,101 @@ const {chromium} = require('playwright'),
       $('instrument-filter').dispatchEvent(new Event('input'));
     });
   }
+  // WAV export in real Web Audio, from the keyboard: Enter on WAV opens the panel on Make WAV file, and Enter makes the
+  // file, Ode-to-Joy.wav, handed to download(): 16-bit stereo at 44.1 kHz, as long as playback at the chosen
+  // speed and a second more, sounding from the first note, scaled to 1 dB under full, with the license in INFO. A
+  // click on Include metronome adds the clicks. Escape closes the panel and hands focus back to WAV.
+  {
+    const readWav = bytes => {
+      const chunks = {};
+      for (let at = 12; at + 8 <= bytes.length;) {
+        const size = bytes.readUInt32LE(at + 4);
+        chunks[bytes.toString('latin1', at, at + 4)] = bytes.subarray(at + 8, at + 8 + size);
+        at += 8 + size + (size & 1);
+      }
+      const fmt = chunks['fmt '],
+        data = chunks.data,
+        samples = new Int16Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.length));
+      return {
+        riff: bytes.toString('latin1', 0, 4) + bytes.toString('latin1', 8, 12),
+        size: bytes.readUInt32LE(4) === bytes.length - 8,
+        format: [fmt.readUInt16LE(0), fmt.readUInt16LE(2), fmt.readUInt32LE(4), fmt.readUInt16LE(14)],
+        seconds: samples.length / 2 / 44100,
+        samples,
+        info: chunks.LIST.toString('utf8')
+      };
+    };
+    // The file the page last handed to download(), read back as bytes.
+    const lastFile = async () => {
+      const {name, type, base64} = await page.evaluate(() => {
+        const {data, name, type} = __downloads.at(-1);
+        let text = '';
+        for (let i = 0; i < data.length; i += 0x8000) text += String.fromCharCode(...data.subarray(i, i + 0x8000));
+        return {name, type, base64: btoa(text)};
+      });
+      return {name, type, bytes: Buffer.from(base64, 'base64')};
+    };
+    await page.evaluate(() => {
+      dirty = false;
+      openScore(catalog.find(x => x.id === 'ode'));
+      window.__downloads = [];
+      download = (data, name, type) => __downloads.push({data, name, type});
+      $('metronome').checked = false;
+      $('chords').checked = true;
+      $('speed').value = 200;
+      $('speed').oninput();
+    });
+    const wavButton = page.locator('#export-wav');
+    await wavButton.scrollIntoViewIfNeeded();
+    await wavButton.focus();
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => !$('wav-panel').hidden && document.activeElement.id === 'wav-make');
+    assert.equal(await wavButton.getAttribute('aria-expanded'), 'true');
+    assert.equal(await page.locator('#wav-chords-option').isHidden(), true, 'Ode to Joy has no chords to include');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => __downloads.length === 1);
+    const first = await lastFile();
+    assert.deepEqual([first.name, first.type], ['Ode-to-Joy.wav', 'audio/wav']);
+    const wav = readWav(first.bytes),
+      expected = await page.evaluate(() => parseMidi(midiBytes($('abc').value)).duration / 2 + 1);
+    assert.deepEqual([wav.riff, wav.size], ['RIFFWAVE', true], 'A valid RIFF file');
+    assert.deepEqual(wav.format, [1, 2, 44100, 16], 'PCM, stereo, 44.1 kHz, 16-bit');
+    assert.ok(Math.abs(wav.seconds - expected) < 0.001, `As long as playback at 200%: ${wav.seconds} s`);
+    let peak = 0,
+      early = 0;
+    for (const v of wav.samples) peak = Math.max(peak, Math.abs(v));
+    for (let i = 4410 * 2; i < 8820 * 2; i++) early = Math.max(early, Math.abs(wav.samples[i]));
+    assert.ok(Math.abs(peak - 0.89 * 32768) < 40, 'Scaled to 1 dB under full scale: ' + peak);
+    assert.ok(early > 3000, 'The first note sounds from the start: ' + early);
+    assert.match(
+      wav.info,
+      /^INFOINAM[\s\S]*Ode to Joy[\s\S]*ICOP[\s\S]*CC0-1\.0[\s\S]*ICMT[\s\S]*Ludwig van Beethoven/
+    );
+    assert.match(
+      await page.locator('#wav-status').textContent(),
+      /^Downloaded Ode-to-Joy\.wav \(0:\d\d, \d+\.\d MB\)\.$/
+    );
+    await page.locator('#wav-metronome').click();
+    await page.locator('#wav-make').click();
+    await page.waitForFunction(() => __downloads.length === 2);
+    const clicked = readWav((await lastFile()).bytes);
+    assert.equal(clicked.samples.length, wav.samples.length, 'The metronome does not change the length');
+    assert.ok(
+      clicked.samples.some((v, i) => v !== wav.samples[i]),
+      'Include metronome adds the clicks'
+    );
+    await page.locator('#wav-make').focus();
+    await page.keyboard.press('Escape');
+    assert.deepEqual(
+      await page.evaluate(() => [$('wav-panel').hidden, document.activeElement.id]),
+      [true, 'export-wav'],
+      'Escape closes the panel and hands focus back'
+    );
+    await page.evaluate(() => {
+      $('speed').value = 100;
+      $('speed').oninput();
+    });
+  }
   // On-screen piano: mouse taps enter notes over the selected rest and sound them; Shift+click and a held touch make
   // chords; arrows and Enter work from the keyboard; keys light for the selection and during playback.
   {
@@ -2983,6 +3078,29 @@ const {chromium} = require('playwright'),
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
     'Mobile page fits viewport'
   );
+  // WAV export at phone width: the button and its panel fit the screen, and a tap opens and closes the panel.
+  {
+    await page.evaluate(() => {
+      dirty = false;
+      openScore(catalog.find(x => x.id === 'ode'));
+    });
+    const wavButton = page.locator('#export-wav');
+    await wavButton.scrollIntoViewIfNeeded();
+    const button = await wavButton.boundingBox();
+    assert.ok(button && button.x >= 0 && button.x + button.width <= 390, 'WAV button fits a phone screen');
+    await wavButton.click();
+    await page.waitForFunction(() => !$('wav-panel').hidden);
+    const panel = await page.locator('#wav-panel').boundingBox(),
+      make = await page.locator('#wav-make').boundingBox();
+    assert.ok(panel.x >= 0 && panel.x + panel.width <= 390, 'The WAV panel fits a phone');
+    assert.ok(make.height >= 30 && make.x + make.width <= 390, 'Make WAV file is easy to tap');
+    assert.ok(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+      'No sideways scroll with the WAV panel open'
+    );
+    await page.locator('#wav-close').click();
+    assert.equal(await page.locator('#wav-panel').isHidden(), true);
+  }
   // MusicXML export at phone width, from the keyboard: the button is on screen and Enter downloads the file.
   await page.evaluate(() => {
     dirty = false;
@@ -3264,7 +3382,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
+    'PASS: dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), WAV export (keyboard and pointer, a real download as long as playback at the chosen speed, 16-bit stereo at 44.1 kHz, sound from the first note, scaling, INFO credits, metronome, Escape, phone width), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);
