@@ -1521,6 +1521,12 @@ input[type='range'] {
 .palette .dynamic {
   font-size: 16px;
 }
+.palette .trill-glyph {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-weight: 700;
+  font-size: 15px;
+}
 .palette-more:not([hidden]) {
   display: contents;
 }

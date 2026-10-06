@@ -584,6 +584,69 @@ const {chromium} = require('playwright'),
     'Dynamic from the note menu'
   );
   await page.locator('[data-palette="more"]').click();
+  // Slurs and hairpins with real clicks and keys: Shift+click selects four notes, S slurs them and S again takes the
+  // slur off; Cresc. draws a hairpin and hands the keyboard back to the score; one note and S slur to the next note;
+  // the Lines buttons work from the keyboard; each is one undo step.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:S\nM:4/4\nL:1/4\nK:C\nC D E F | G4 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  await page.locator('#notation .abcjs-notehead').nth(0).click({force: true});
+  await page
+    .locator('#notation .abcjs-notehead')
+    .nth(3)
+    .click({force: true, modifiers: ['Shift']});
+  await page.keyboard.press('s');
+  assert.equal(await kbody(), '(C D E F) | G4 |]', 'S slurs the selected notes');
+  assert.equal(await page.locator('#notation .abcjs-slur').count(), 1, 'The slur is engraved');
+  assert.equal(await page.locator('#selection-status').textContent(), 'Slur added over 4 notes.');
+  assert.equal(await page.locator('[data-palette="line:slur"]').getAttribute('aria-pressed'), 'true');
+  await page.keyboard.press('s');
+  assert.equal(await kbody(), 'C D E F | G4 |]', 'S again takes it off');
+  await page.keyboard.press('Control+z');
+  assert.equal(await kbody(), '(C D E F) | G4 |]', 'One undo step');
+  await page.locator('#notation .abcjs-notehead').nth(0).click({force: true});
+  await page
+    .locator('#notation .abcjs-notehead')
+    .nth(3)
+    .click({force: true, modifiers: ['Shift']});
+  await page.locator('[data-palette="line:crescendo"]').click();
+  assert.equal(await kbody(), '!<(!(C D E !<)!F) | G4 |]', 'Cresc. adds a hairpin');
+  assert.equal(await page.locator('#notation .abcjs-dynamics').count(), 1, 'The hairpin is engraved');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'notation', 'The press returns to the score');
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('Control+z');
+  assert.equal(await kbody(), 'C D E F | G4 |]');
+  await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+  await page.keyboard.press('S');
+  assert.equal(await kbody(), 'C (D E) F | G4 |]', 'One note slurs to the next');
+  // Keyboard only: arrow keys reach the Lines buttons in the toolbar, and Enter presses one.
+  await page.locator('[data-palette="line:slur"]').focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.palette), 'line:diminuendo');
+  await page.keyboard.press('Enter');
+  assert.equal(await kbody(), 'C !>(!(D !>)!E) F | G4 |]', 'Dim. from the keyboard');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.palette), 'line:diminuendo');
+  // abcjs draws only the tr of a trill line, so FretFree draws the wavy line from it to the last note.
+  await page.locator('#notation .abcjs-notehead').nth(3).click({force: true});
+  await page.locator('[data-palette="line:trill"]').click();
+  assert.equal(await kbody(), 'C !>(!(D !>)!E) !trill(!F | !trill)!G4 |]', 'Trill line to the next note');
+  const [tr, wave, last] = await page.evaluate(() =>
+    [
+      document.querySelector('#notation [data-name="scripts.trill"]'),
+      document.querySelector('#notation .trill-line'),
+      document.querySelectorAll('#notation .abcjs-notehead')[4]
+    ].map(e => {
+      const {x, y, width, height} = e?.getBBox() || {};
+      return e && {x, y, width, height};
+    })
+  );
+  assert.ok(tr && wave, 'The tr and the wavy line are drawn');
+  assert.ok(wave.x >= tr.x + tr.width && wave.x + wave.width > last.x, 'The line runs from the tr to the last note');
+  assert.ok(Math.abs(wave.y + wave.height / 2 - (tr.y + tr.height / 2)) < 3, 'Level with the tr');
+  assert.equal(await page.locator('#warnings').textContent(), '');
   // Chord symbols with real keys: K opens a box just above the note, Enter saves, Tab moves on; the symbols are
   // engraved and undo one at a time; the toolbar button works from the keyboard; clicking another note saves the box
   // and selects that note; Chords leaves the accompaniment out of playback.
@@ -2357,7 +2420,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
+    'PASS: zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

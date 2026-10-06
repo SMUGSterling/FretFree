@@ -257,6 +257,103 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     );
   }
 }
+// Slurs, hairpins and trill lines over a run of notes: toggleSlur and toggleSpan write ( … ) and the !<(! … !<)!,
+// !>(! … !>)! and !trill(! … !trill)! decorations, take them off again, replace lines of the same family they cover,
+// and keep each note's text whole for abcjs (decorations before slur and tuplet openings, ( before a staccato dot).
+{
+  const head = 'X:1\nL:1/4\nM:4/4\nK:C\n',
+    tuneOf = body => ABCJS.parseOnly(head + body + '\n')[0],
+    notesOf = tune =>
+      tune.lines.flatMap(l => l.staff || []).flatMap(s => s.voices[0].filter(e => e.el_type === 'note')),
+    toggle = (body, i, j, kind) => {
+      const abc = head + body + '\n',
+        notes = notesOf(tuneOf(body)),
+        last = j == null ? null : notes[j];
+      return (kind === 'slur' ? context.toggleSlur(abc, notes[i], last) : context.toggleSpan(abc, notes[i], last, kind))
+        .slice(head.length)
+        .trim();
+    };
+  for (const [body, i, j, kind, expected] of [
+    ['C D E F|', 0, 3, 'slur', '(C D E F)|'],
+    ['(C D E F)|', 0, 3, 'slur', 'C D E F|'],
+    ['(C D) E (F|G)', 0, 3, 'slur', '(C D E F)|G'],
+    ['(C D E F|G)|', 0, 2, 'slur', '(C D E) F|G|'],
+    ['"G"!p!.C D E F2-|', 0, 3, 'slur', '"G"!p!(.C D E F2-)|'],
+    ['"G"(.C D E) F|', 0, null, 'slur', '"G".C D E F|'],
+    ['C (D E F|G) A|', 1, null, 'slur', 'C D E F|G A|'],
+    ['C D E F|', 0, null, 'slur', 'C D E F|'],
+    ['(3C D E F|', 0, 3, 'slur', '(3(C D E F)|'],
+    ['C D>E F|', 0, 2, 'slur', '(C D>E) F|'],
+    ['[CE] D [EG]2-|[EG]', 0, 2, 'slur', '([CE] D [EG]2-)|[EG]'],
+    ['z D E z|', 0, 3, 'slur', 'z D E z|'],
+    ['C D E F|', 0, 3, 'crescendo', '!<(!C D E !<)!F|'],
+    ['!<(!C D E !<)!F|', 0, 3, 'crescendo', 'C D E F|'],
+    ['!crescendo(!C D E !crescendo)!F|', 0, 3, 'crescendo', 'C D E F|'],
+    ['!>(!C D E !>)!F|', 0, 3, 'crescendo', '!<(!C D E !<)!F|'],
+    ['C D E F|', 0, 3, 'diminuendo', '!>(!C D E !>)!F|'],
+    ['(3C D E F|', 0, 3, 'crescendo', '!<(!(3C D E !<)!F|'],
+    ['(C D) E F|', 1, 3, 'crescendo', '(C !<(!D) E !<)!F|'],
+    ['C D | E F|', 1, 2, 'crescendo', 'C !<(!D | !<)!E F|'],
+    ['C D | (E F)|', 1, 2, 'trill', 'C !trill(!D | !trill)!(E F)|'],
+    ['z D E Z|', 0, 3, 'crescendo', '!<(!z D E !<)!Z|'],
+    ['x D E F|', 0, 3, 'crescendo', 'x D E F|'],
+    ['C D E F|', 0, 3, 'trill', '!trill(!C D E !trill)!F|'],
+    ['!trill(!C D E !trill)!F|', 0, null, 'trill', 'C D E F|']
+  ]) {
+    const result = toggle(body, i, j, kind);
+    assert.equal(result, expected, `${kind} from note ${i} to ${j} on ${body}`);
+    assert.ok(!tuneOf(result).warnings?.length, `${result} parses cleanly: ${tuneOf(result).warnings}`);
+  }
+  // Each note keeps all its text, so a slur and its marks stay part of the note abcjs reads, and lines reach the
+  // right notes.
+  const [c, , e, f, g] = notesOf(tuneOf('"G"!p!(.C D !<(!(E F)- | !<)!F)'));
+  assert.ok(c.pitches[0].startSlur && g.pitches[0].endSlur && e.pitches[0].startSlur && f.pitches[0].endSlur);
+  assert.deepEqual([e.decoration, g.decoration], [['crescendo('], ['crescendo)']]);
+  {
+    const abc = head + 'C !p!.D E F|\n',
+      [, d, , last] = notesOf(ABCJS.parseOnly(abc)[0]),
+      slurred = context.toggleSlur(abc, d, last),
+      [, d2, , f2] = notesOf(ABCJS.parseOnly(slurred)[0]);
+    assert.equal(slurred.slice(head.length), 'C !p!(.D E F)|\n');
+    assert.ok(d2.pitches[0].startSlur && f2.pitches[0].endSlur);
+    assert.ok(
+      context.lineAt(slurred, d2, f2, 'slur'),
+      'The slur is found again, though abcjs starts the note at the dot'
+    );
+    assert.equal(context.lineAt(slurred, d2, f2, 'crescendo'), null);
+    assert.equal(context.toggleSlur(slurred, d2, f2), abc, 'And taken off');
+  }
+  // Note edits on slurred notes keep working: length, accidental, tie, rest and pitch moves keep ( and ).
+  for (const [text, edit, expected] of [
+    ['(C ', {length: 2}, '(C2 '],
+    ['"G"(C', {accidental: '^'}, '"G"(^C'],
+    ['F2-)', {tie: false}, 'F2)'],
+    ['F2)', {tie: true}, 'F2-)'],
+    ['!<(!(E', {rest: true}, '!<(!(z']
+  ])
+    assert.equal(context.editNoteText(text, edit), expected, `editNoteText(${text}, ${JSON.stringify(edit)})`);
+  assert.equal(context.moveNoteText('!<(!(E2-)', 1), '!<(!(F2-)');
+  // A crescendo raises the velocity note by note and a diminuendo lowers it.
+  const velocities = body =>
+    context
+      .parseMidi(context.midiBytes(`${head}Q:1/4=120\n${body}|]`))
+      .notes.slice(0, 4)
+      .map(n => n.velocity);
+  const up = velocities(toggle('!p!C D E F|G', 0, 3, 'crescendo')),
+    down = velocities(toggle('!f!C D E F|G', 0, 3, 'diminuendo'));
+  assert.ok(
+    up.every((v, k) => !k || v > up[k - 1]),
+    `Velocities rise across a crescendo: ${up}`
+  );
+  assert.ok(
+    down.every((v, k) => !k || v < down[k - 1]),
+    `Velocities fall across a diminuendo: ${down}`
+  );
+  // Transposing keeps slurs, hairpins and trill lines.
+  const moved = context.transposeABC(`${head}"G"!<(!(C D E !<)!F)|!trill(!G2 !trill)!A2|]\n`, 2);
+  assert.equal(moved.trim().split('\n').at(-1), '"A"!<(!(D E F !<)!G)|!trill(!A2 !trill)!B2|]');
+  assert.ok(!ABCJS.parseOnly(moved)[0].warnings?.length);
+}
 // FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
 // Share links: the payload round-trips through deflate+base64url, and through plain base64url where
 // CompressionStream is missing; damaged links decode to null.
@@ -1741,7 +1838,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits) and MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), slurs, hairpins and trill lines (toggling, replacing, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits) and MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files).'
     )
   )
   .catch(e => {

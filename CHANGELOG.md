@@ -1,3 +1,13 @@
+# Slurs, hairpins and trill lines · 2026-10-06
+
+- Select notes and press **S** to slur them; **S** again takes the slur off. With one note selected the slur goes to the next note in the same voice, and **S** on that note again removes it.
+- The notation toolbar has a **Lines** group: **Slur**, **Cresc.**, **Dim.** and **Trill line**. Each puts its line over the selected notes, or from one note to the next, and lights up while the selection has it; pressing a lit one takes the line off. The status line says what changed, or why nothing did (a slur on a rest, no next note).
+- Slurs and trill lines run from the first to the last selected note and leave out rests at either end; a hairpin may start or end on a rest. A new line replaces the lines of its kind inside it and the one starting on its first note, so slurring a longer run joins two short slurs into one, and a crescendo replaces a diminuendo.
+- Lines go into the ABC as `(` … `)`, `!<(!` … `!<)!`, `!>(!` … `!>)!` and `!trill(!` … `!trill)!`. Spellings such as `!crescendo(!` come off too. abcjs starts a note's text after any mark that follows a `(`, and reads `.(` as a dotted slur, so hairpin and trill marks go before slur and tuplet openings and a slur opening goes before a staccato dot. A slur written just before a staccato dot is still found and taken off. Each change is one undo step that keeps the selection.
+- abcjs draws only the tr of a trill line, so FretFree draws the wavy line from the tr to the end of the last note, carrying on across system breaks; it shows in prints and SVG exports. Hairpins change the playback volume note by note, in exported MIDI too; trill lines print but the notes play as written. Slurs, hairpins and trill lines parse without warnings and survive transposition. `lineEdits`, `toggleSlur` and `toggleSpan` in score-tools.js do the editing.
+
+---
+
 # Chord symbols · 2026-10-06
 
 - With a note or rest selected, **K**, the notation toolbar's **Chord** button or **Chord symbol…** in the note menu opens a box just above it. **Enter** saves, **Tab** saves and moves to the next note (**Shift+Tab** the one before; **Next ▸** does the same on touch screens), **Esc** cancels, and an empty box removes the symbol. Clicking another note saves the box and selects that note.
