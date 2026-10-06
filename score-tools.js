@@ -3286,6 +3286,59 @@ function midiBytes(source, {chordsOff = false} = {}) {
         t[0] === '%' ? parseInt(t.slice(1), 16) : t.charCodeAt(0)
       );
 }
+// A WAV file: 16-bit PCM from one array of samples (-1 to 1) a channel, interleaved, with a LIST/INFO chunk before the
+// samples for the text in info: INAM title, IART artist, ICOP copyright and ICMT comment, each left out when empty.
+// The text is UTF-8 ending in a zero byte, and each chunk is padded to an even length, as RIFF requires.
+const WAV_INFO = {title: 'INAM', artist: 'IART', copyright: 'ICOP', comment: 'ICMT'};
+function wavBytes(channels, sampleRate, info = {}) {
+  const encoder = new TextEncoder(),
+    fields = Object.entries(WAV_INFO)
+      .filter(([key]) => info[key])
+      .map(([key, id]) => [id, encoder.encode(String(info[key]) + '\0')]),
+    list = fields.length ? 4 + fields.reduce((sum, [, text]) => sum + 8 + text.length + (text.length & 1), 0) : 0,
+    count = channels.length,
+    frames = Math.min(...channels.map(c => c.length)),
+    data = frames * count * 2,
+    bytes = new Uint8Array(12 + 24 + (list ? 8 + list : 0) + 8 + data),
+    view = new DataView(bytes.buffer);
+  let pos = 0;
+  const tag = text => {
+    for (const c of text) bytes[pos++] = c.charCodeAt(0);
+  };
+  const u32 = n => (view.setUint32(pos, n, true), (pos += 4)),
+    u16 = n => (view.setUint16(pos, n, true), (pos += 2));
+  tag('RIFF');
+  u32(bytes.length - 8);
+  tag('WAVE');
+  tag('fmt ');
+  u32(16);
+  u16(1);
+  u16(count);
+  u32(sampleRate);
+  u32(sampleRate * count * 2);
+  u16(count * 2);
+  u16(16);
+  if (list) {
+    tag('LIST');
+    u32(list);
+    tag('INFO');
+    for (const [id, text] of fields) {
+      tag(id);
+      u32(text.length);
+      bytes.set(text, pos);
+      pos += text.length + (text.length & 1);
+    }
+  }
+  tag('data');
+  u32(data);
+  for (let i = 0; i < frames; i++)
+    for (const channel of channels) {
+      const v = Math.max(-1, Math.min(1, channel[i] || 0));
+      view.setInt16(pos, Math.round(v < 0 ? v * 0x8000 : v * 0x7fff), true);
+      pos += 2;
+    }
+  return bytes;
+}
 // The melody track of decoded MIDI: abcjs puts guitar-chord accompaniment ("G" symbols) on a later channel, whose
 // bass notes stay in range under transposition, so pitch checks and difficulty estimates look at the lowest channel.
 function melodyNotes(notes) {

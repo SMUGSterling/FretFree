@@ -35,6 +35,9 @@ const {chromium} = require('playwright'),
       svg: creditedSVG($('notation'), $('abc').value, current),
       notes: parseMidi(midiBytes($('abc').value)).notes,
       musicxml: abcToMusicXML($('abc').value, {item: current}),
+      wav: Array.from(
+        wavBytes([new Float32Array(4), new Float32Array(4)], 44100, creditedWavInfo($('abc').value, current))
+      ),
       turnIn: JSON.parse(
         turnInFile({
           name: 'A student',
@@ -68,6 +71,19 @@ const {chromium} = require('playwright'),
     assert.ok(musicxml.wellFormed, 'MusicXML is well-formed');
     assert.ok(musicxml.rights.includes(license) && musicxml.credit === musicxml.expected, 'MusicXML credits');
     assert.ok(Buffer.from(exported.midi).toString('utf8').includes(license));
+    // The WAV's INFO chunk, ahead of the samples: the license in ICOP and the full credit in ICMT.
+    const wav = Buffer.from(exported.wav),
+      icop = wav.indexOf('ICOP'),
+      icmt = wav.indexOf('ICMT');
+    assert.ok(
+      icop > 0 && icmt > icop && icmt < wav.lastIndexOf('data'),
+      'WAV INFO has ICOP and ICMT before the samples'
+    );
+    assert.equal(wav.toString('utf8', icop + 8, icop + 8 + wav.readUInt32LE(icop + 4) - 1), license, 'WAV ICOP');
+    assert.ok(
+      wav.toString('utf8', icmt + 8).startsWith(await page.evaluate(() => exportCredit(current))),
+      'WAV ICMT carries the full credit'
+    );
     const check = await page.evaluate(
       ({abc, midi, notes}) => {
         const parsed = ABCJS.parseOnly(abc);
@@ -83,6 +99,7 @@ const {chromium} = require('playwright'),
       assert.ok(Buffer.from(exported.midi).toString().includes('GNU GENERAL PUBLIC LICENSE'));
       assert.ok(exported.musicxml.includes('GNU GENERAL PUBLIC LICENSE'));
       assert.ok(exported.turnIn.includes('GNU GENERAL PUBLIC LICENSE'));
+      assert.ok(Buffer.from(exported.wav).toString().includes('GNU GENERAL PUBLIC LICENSE'));
     }
     await page.evaluate(() => {
       window.print = () => {};
@@ -94,6 +111,16 @@ const {chromium} = require('playwright'),
       assert.ok((await page.locator('#print-appendix').textContent()).includes('GNU GENERAL PUBLIC LICENSE'));
     await page.emulateMedia({media: 'screen'});
   }
+  // A score of your own: the WAV carries only its title and composer.
+  assert.deepEqual(
+    await page.evaluate(() => {
+      dirty = false;
+      openScore({abc: 'X:1\nT:My tune\nC:A. Student\nM:4/4\nL:1/4\nK:C\nC D E F |]'});
+      return creditedWavInfo($('abc').value, current);
+    }),
+    {title: 'My tune', artist: 'A. Student'},
+    'Personal WAV info'
+  );
   await page.evaluate(() => show('library'));
   await page.selectOption('#license-filter', 'all');
   const length = await page.evaluate(() => catalog.length);
@@ -186,7 +213,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: every catalog score engraves; collection/exact-license filters; ABC, MIDI, SVG, MusicXML, turn-in file and print credits; GPL license/source embedding (MusicXML too); exported MIDI preserves playback; the highlight keeps time with the sound in cut time, 3/2, 6/4 and other meters, and through tempo and meter changes.'
+    'PASS: every catalog score engraves; collection/exact-license filters; ABC, MIDI, SVG, MusicXML, WAV, turn-in file and print credits (WAV INFO license and full credit; only title and composer for your own score); GPL license/source embedding (MusicXML and WAV too); exported MIDI preserves playback; the highlight keeps time with the sound in cut time, 3/2, 6/4 and other meters, and through tempo and meter changes.'
   );
 })().catch(e => {
   console.error(e);
