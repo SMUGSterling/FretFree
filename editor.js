@@ -74,15 +74,34 @@ let zoomPercent = 100;
 const validZoom = z => (ZOOM_LEVELS.includes(+z) ? +z : 100),
   validMeasuresPerLine = n => (MEASURES_PER_LINE.includes(+n) ? +n : 0),
   measuresPerLine = () => validMeasuresPerLine($('measures-per-line')?.value);
+// Text set across the page (title, subtitles, composer, rhythm, parts, tempo, words and notes under the music) keeps
+// its 100% size when zoomed in, so a long title or composer credit still fits the narrower staff width. Sizes are
+// the abcjs defaults in points; a font directive in the ABC itself still wins.
+const PAGE_FONTS = {
+  titlefont: [20],
+  subtitlefont: [16],
+  composerfont: [14, 'italic'],
+  infofont: [14, 'italic'],
+  partsfont: [15],
+  tempofont: [15, 'bold'],
+  historyfont: [16],
+  wordsfont: [16],
+  textfont: [16]
+};
+const pageFonts = scale =>
+  Object.fromEntries(
+    Object.entries(PAGE_FONTS).map(([name, [size, style = '']]) => [
+      name,
+      `"Times New Roman" ${+(size * scale).toFixed(2)} ${style}`.trim()
+    ])
+  );
 function layoutOptions(zoom = zoomPercent, perLine = measuresPerLine()) {
   const spacing = {minSpacing: 1.8, maxSpacing: 2.7};
+  zoom = validZoom(zoom);
   return {
-    staffwidth: Math.round(BASE_STAFF_WIDTH / (validZoom(zoom) / 100)),
-    ...(perLine
-      ? {wrap: {...spacing, preferredMeasuresPerLine: perLine}}
-      : validZoom(zoom) > 100
-        ? {wrap: spacing}
-        : {})
+    staffwidth: Math.round(BASE_STAFF_WIDTH / (zoom / 100)),
+    ...(perLine ? {wrap: {...spacing, preferredMeasuresPerLine: perLine}} : zoom > 100 ? {wrap: spacing} : {}),
+    ...(zoom > 100 ? {format: pageFonts(100 / zoom)} : {})
   };
 }
 // The end buttons stay focusable at the limits (aria-disabled), so a keyboard user pressing + again keeps focus.
@@ -96,14 +115,19 @@ function showZoom(z) {
     $('zoom-reset').setAttribute('aria-label', `Zoom ${zoomPercent}%. Reset to 100%`);
   }
 }
-// step -1 or +1 moves one zoom level; 0 goes back to 100%. The choice is remembered and the score redrawn.
+// step -1 or +1 moves one zoom level; 0 goes back to 100%. The choice is remembered and the score redrawn. The zoom
+// buttons keep their names, so the status line announces the new size, and says so when a limit is reached.
 function stepZoom(step) {
   const i = ZOOM_LEVELS.indexOf(zoomPercent),
-    next = step ? ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, i + step))] : 100;
-  if (next === zoomPercent) return;
-  showZoom(next);
-  storage.set(KEYS.zoom, zoomPercent);
-  render();
+    next = step ? ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, i + step))] : 100,
+    limit =
+      step && next === zoomPercent ? (step > 0 ? ' This is the largest size.' : ' This is the smallest size.') : '';
+  if (next !== zoomPercent) {
+    showZoom(next);
+    storage.set(KEYS.zoom, zoomPercent);
+    render();
+  }
+  $('selection-status').textContent = `Zoom ${zoomPercent}%.${limit}`;
 }
 function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
   if (renderedSource !== $('abc').value) {
@@ -210,10 +234,11 @@ function render() {
   }
   scheduleDraft();
 }
-// abcjs 6.5.2 loses the tablature when it re-parses a re-flowed score, so the re-parsed tune gets it back here.
+// abcjs 6.5.2 loses the tablature when it re-parses a re-flowed score, so the re-parsed tune gets it back here. The
+// tablature setup depends only on these options, so a bare tune is parsed for it instead of the whole score again.
 const GUITAR_TAB = [{instrument: 'guitar', label: 'Guitar'}];
-function keepTablature(tune, number, abc) {
-  if (!tune.tablatures) tune.tablatures = ABCJS.parseOnly(abc, {tablature: GUITAR_TAB})[0]?.tablatures;
+function keepTablature(tune) {
+  if (!tune.tablatures) tune.tablatures = ABCJS.parseOnly('X:1\nK:C\n', {tablature: GUITAR_TAB})[0]?.tablatures;
 }
 // abcjs options for the main score: zoom and line layout from the view controls. Guitar adds a tab staff; recorder
 // leaves room below for the fingering diagrams.

@@ -111,7 +111,24 @@ assert.equal(run(`moveNoteText('B,2 c/2 ^f-',1)`), 'C2 d/2 ^g-');
 const json = expr => JSON.parse(run(`JSON.stringify(${expr})`));
 assert.deepEqual(json('layoutOptions(100,0)'), {staffwidth: 740}, '100% on Auto keeps the source lines');
 assert.deepEqual(json('layoutOptions(70,0)'), {staffwidth: 1057});
-assert.deepEqual(json('layoutOptions(200,0)'), {staffwidth: 370, wrap: {minSpacing: 1.8, maxSpacing: 2.7}});
+{
+  // Zoomed in, text set across the page keeps its 100% size (half the abcjs default at 200%) and its style.
+  const {format, ...layout} = json('layoutOptions(200,0)');
+  assert.deepEqual(layout, {staffwidth: 370, wrap: {minSpacing: 1.8, maxSpacing: 2.7}});
+  assert.deepEqual(
+    [format.titlefont, format.composerfont, format.tempofont, format.wordsfont],
+    ['"Times New Roman" 10', '"Times New Roman" 7 italic', '"Times New Roman" 7.5 bold', '"Times New Roman" 8']
+  );
+  assert.equal(json('layoutOptions(140,0)').format.titlefont, '"Times New Roman" 14.29');
+  const tune = run(
+    `ABCJS.parseOnly('X:1\\nT:Title\\nC:Composer\\nQ:"Slow" 1/4=60\\nK:C\\nC|\\nW:Words', layoutOptions(200,0))[0]`
+  );
+  assert.deepEqual(tune.warnings, undefined, 'abcjs accepts the header fonts');
+  assert.deepEqual(
+    [tune.formatting.titlefont.size, tune.formatting.composerfont.style, tune.formatting.tempofont.weight],
+    [10, 'italic', 'bold']
+  );
+}
 assert.deepEqual(json('layoutOptions(100,4)'), {
   staffwidth: 740,
   wrap: {minSpacing: 1.8, maxSpacing: 2.7, preferredMeasuresPerLine: 4}
@@ -133,18 +150,24 @@ assert.equal(run('engraveOptions().scale'), undefined, 'Zoom never sets abcjs sc
   assert.equal(run('editHistory.length'), 1, 'A layout change is not an undo step');
   run("$('zoom-in').click()");
   assert.deepEqual(
-    json("[zoomPercent,$('zoom-reset').textContent,engraveOptions().staffwidth,localStorage.getItem('fretfree-zoom')]"),
-    [120, '120%', 617, '120'],
-    'Zoom in steps to 120% and is remembered'
+    json(
+      "[zoomPercent,$('zoom-reset').textContent,engraveOptions().staffwidth,localStorage.getItem('fretfree-zoom'),$('selection-status').textContent]"
+    ),
+    [120, '120%', 617, '120', 'Zoom 120%.'],
+    'Zoom in steps to 120%, is remembered and is announced'
   );
   run("for(let i=0;i<9;i++)$('zoom-in').click()");
   assert.deepEqual(
-    json("[zoomPercent,$('zoom-in').getAttribute('aria-disabled')]"),
-    [200, 'true'],
-    'Zoom stops at 200%'
+    json("[zoomPercent,$('zoom-in').getAttribute('aria-disabled'),$('selection-status').textContent]"),
+    [200, 'true', 'Zoom 200%. This is the largest size.'],
+    'Zoom stops at 200% and says so'
   );
   run("$('zoom-reset').click()");
-  assert.deepEqual(json("[zoomPercent,$('zoom-in').getAttribute('aria-disabled')]"), [100, 'false']);
+  assert.deepEqual(json("[zoomPercent,$('zoom-in').getAttribute('aria-disabled'),$('selection-status').textContent]"), [
+    100,
+    'false',
+    'Zoom 100%.'
+  ]);
   assert.ok(
     run('BACKUP_SETTING_KEYS()').includes('fretfree-zoom') &&
       run('BACKUP_SETTING_KEYS()').includes('fretfree-measures-per-line'),
