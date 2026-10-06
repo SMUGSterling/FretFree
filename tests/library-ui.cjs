@@ -29,6 +29,7 @@ const SCRIPTS = [
   'playback.js',
   'keyboard.js',
   'assignments.js',
+  'turn-in.js',
   'app.js'
 ];
 // A fresh page load: `seed` fills localStorage before the scripts run, as a previous visit would have left it.
@@ -1268,6 +1269,224 @@ assert.equal(
   assert.equal(w.document.activeElement.id, 'share-url', 'Without a clipboard the link is selected to copy by hand');
   run('dirty = false');
 
+  // Turning in and the Submissions inbox. The student turns in with their name (remembered), the link carries n, t, x
+  // and g at payload v 1, and opening it shows who turned it in, with the checklist. Thirty links pasted into the inbox
+  // list as thirty rows under their assignment and bad lines are reported; Previous and Next step through the class,
+  // feedback reaches the student in a return link, and the inbox is capped, backed up and restored.
+  const until = async test => {
+    for (let i = 0; i < 200 && !test(); i++) await new Promise(r => setTimeout(r, 20));
+  };
+  run(
+    'dirty = false; openScore({kind: "personal", instrument: "Flute", abc: "X:1\\nT:Steps\\nM:4/4\\nL:1/4\\nK:C\\nz4 | z4 |]"})'
+  );
+  assert.equal($('turn-in').hidden, true, 'No Turn in without an assignment');
+  $('open-assignment').click();
+  $('assignment-apply').click();
+  assert.equal($('turn-in').hidden, false, 'Turn in shows on an assignment');
+  const stepsId = run('current.prompt.id');
+  await run('shareLink()');
+  const handout = $('share-url').value.split('#')[1];
+  run('dirty = false');
+  await run(`openSharedLink(${JSON.stringify(handout)})`);
+  run(
+    "$('abc').value = $('abc').value.replace('z4 | z4', 'E D C D | E D D C'); changed(); clearTimeout(renderTimer); render()"
+  );
+  $('turn-in').click();
+  assert.deepEqual(
+    [$('turn-in-panel').hidden, $('turn-in').getAttribute('aria-expanded'), w.document.activeElement.id],
+    [false, 'true', 'student-name']
+  );
+  assert.equal($('turn-in-summary').textContent, 'Assignment: Steps. 3 of 3 goals met.');
+  $('student-name').value = '   ';
+  $('turn-in-form').requestSubmit();
+  assert.match($('turn-in-status').textContent, /Write your name/, 'A name is required');
+  assert.equal($('turn-in-result').hidden, true);
+  $('student-name').value = 'Ana <img src=x onerror=alert(1)>';
+  $('turn-in-form').requestSubmit();
+  await until(() => !$('turn-in-result').hidden);
+  assert.equal(
+    JSON.parse(w.localStorage.getItem('fretfree-student-name')),
+    'Ana <img src=x onerror=alert(1)>',
+    'The name is remembered'
+  );
+  await until(() => w.document.activeElement.id === 'turn-in-url');
+  assert.equal(w.document.activeElement.id, 'turn-in-url', 'Without a clipboard the link is selected to copy by hand');
+  assert.match($('toast').textContent, /Select the link and copy it/);
+  const turnInLink = $('turn-in-url').value.split('#')[1],
+    sent = await run(`decodeShare(${JSON.stringify(turnInLink.slice(2))})`);
+  assert.deepEqual(
+    [sent.v, sent.n, sent.x, sent.q.id, [...sent.g], Math.abs(sent.t - Date.now()) < 60000],
+    [1, 'Ana <img src=x onerror=alert(1)>', stepsId, stepsId, [1, 1, 1], true],
+    'The link carries the name, the time, the assignment and the goal results'
+  );
+  const file = JSON.parse(run('turnInFile(turnedIn)'));
+  assert.deepEqual(
+    [file.app, file.kind, file.link, file.goals, file.abc.includes('E D C D | E D D C')],
+    ['FretFree', 'turn-in', $('turn-in-url').value, '3 of 3 goals', true]
+  );
+  // An edit after turning in takes the link away, so older work is not handed in by mistake.
+  run("$('abc').value = $('abc').value.replace('D D C', 'D D E'); changed(); clearTimeout(renderTimer); render()");
+  assert.equal($('turn-in-result').hidden, true);
+  assert.equal($('turn-in-summary').textContent, 'Assignment: Steps. 2 of 3 goals met.');
+  $('turn-in-close').click();
+  $('student-name').value = '';
+  $('turn-in').click();
+  assert.equal($('student-name').value, 'Ana <img src=x onerror=alert(1)>', 'The remembered name fills in');
+  $('turn-in-close').click();
+  // The teacher opens the turned-in link: who and when, the checklist, and an offer to add it to Submissions.
+  run('dirty = false');
+  await run(`openSharedLink(${JSON.stringify(turnInLink)})`);
+  assert.equal($('submission-bar').hidden, false);
+  assert.match($('submission-text').textContent, /^Turned in by Ana <img src=x onerror=alert\(1\)> · .+ · Steps$/);
+  assert.equal($('submission-bar').querySelector('img'), null, 'The name is escaped');
+  assert.equal($('prompt-check').querySelectorAll('li.met').length, 3, 'The checklist shows the goals met');
+  assert.equal($('turn-in').hidden, true, 'Turned-in work is answered with feedback, not turned in again');
+  assert.match($('toast').textContent, /Opened the work Ana <img src=x onerror=alert\(1\)> turned in/);
+  assert.deepEqual([$('submission-add').hidden, $('submission-prev').hidden], [false, true]);
+  $('submission-add').click();
+  assert.equal(run('storedInbox().length'), 1);
+  assert.deepEqual(
+    [$('submission-add').hidden, $('submission-prev').hidden, $('submission-pos').textContent],
+    [true, false, '1 of 1']
+  );
+  // Thirty links, one per line, with a blank line, a line of text and a link without a name.
+  const links = await run(`(async () => {
+    const sent = ${JSON.stringify(sent)}, links = [];
+    links.push(location.href.split('#')[0] + '#s=' + await encodeShare(sent));
+    for (let i = 1; i < 30; i++)
+      links.push(location.href.split('#')[0] + '#s=' + await encodeShare({
+        ...sent, n: 'Student ' + String(i).padStart(2, '0'), t: sent.t + i,
+        a: i % 3 ? sent.a : sent.a.replace('E D C D', 'E D C D E').replace('D D C', 'D D E')
+      }));
+    const {n, ...nameless} = sent;
+    links.splice(10, 0, '', 'see you tomorrow', location.href.split('#')[0] + '#s=' + await encodeShare(nameless));
+    return links;
+  })()`);
+  run('show("saved")');
+  $('inbox-open').click();
+  assert.deepEqual([$('inbox-panel').hidden, w.document.activeElement.id], [false, 'inbox-heading']);
+  $('inbox-clear').click();
+  assert.equal(run('storedInbox().length'), 0, 'Clear all empties the inbox');
+  $('inbox-paste').value = links.join('\n');
+  $('inbox-add').click();
+  await until(() => /Added/.test($('inbox-status').textContent));
+  assert.equal(
+    $('inbox-status').textContent,
+    'Added 30 submissions. Not a turn-in link: line 12 and line 13.',
+    'Bad lines are reported by number and the rest are added'
+  );
+  assert.equal($('inbox-paste').value, '');
+  const groups = $('inbox-list').querySelectorAll('.inbox-group');
+  assert.equal(groups.length, 1, 'One assignment');
+  assert.equal(groups[0].querySelector('h3').textContent, 'Steps 30 turned in');
+  assert.equal(groups[0].querySelectorAll('li').length, 30, 'Thirty rows');
+  assert.equal($('inbox-list').querySelector('img'), null, 'Names are escaped');
+  assert.equal($('inbox-open').textContent, 'Submissions (30)');
+  const rowText = i => groups[0].querySelectorAll('li')[i].textContent;
+  assert.match(rowText(0), /^Ana <img src=x onerror=alert\(1\)> .+ 3 of 3 goals Bars ✓ OpenDelete$/);
+  assert.match(rowText(3), /^Student 03 .+ 1 of 3 goals 1 bar to fix/, 'Goals and the bar check are checked again');
+  $('inbox-paste').value = links.slice(0, 3).join('\n');
+  $('inbox-add').click();
+  await until(() => /already/.test($('inbox-status').textContent));
+  assert.equal($('inbox-status').textContent, 'Added 0 submissions. 3 were already here.');
+  $('inbox-sort').value = 'goals';
+  $('inbox-sort').dispatchEvent(new w.Event('change'));
+  assert.match(
+    [...$('inbox-list').querySelectorAll('li')].at(-1).textContent,
+    /^Student 27 .+ 1 of 3 goals/,
+    'Sorted by goals met'
+  );
+  $('inbox-sort').value = 'name';
+  $('inbox-sort').dispatchEvent(new w.Event('change'));
+  // Open the first, step with Next and Previous; feedback typed for one student stays with that student.
+  $('inbox-list').querySelector('[data-inbox-open]').click();
+  assert.equal($('studio').hidden, false);
+  assert.deepEqual(
+    [$('submission-pos').textContent, $('submission-prev').disabled, $('submission-next').disabled],
+    ['1 of 30', true, false]
+  );
+  assert.equal(w.document.activeElement.id, 'submission-text', 'Focus goes to who turned it in');
+  assert.equal(run('dirty'), false, 'The inbox keeps it, so it is not unsaved work');
+  $('feedback-text').value = 'Lovely steps. <b>End</b> on C.';
+  $('feedback-text').dispatchEvent(new w.Event('change'));
+  $('submission-next').click();
+  assert.deepEqual(
+    [$('submission-pos').textContent, run('current.submission.name'), $('feedback-text').value],
+    ['2 of 30', 'Student 01', '']
+  );
+  assert.match($('abc').value, /D D C \|\]/);
+  assert.equal(w.document.activeElement.id, 'submission-next');
+  $('submission-prev').click();
+  assert.equal($('feedback-text').value, 'Lovely steps. <b>End</b> on C.', 'Feedback is kept per student');
+  assert.equal(w.document.activeElement.id, 'submission-next', 'At the start, focus moves to Next');
+  for (let i = 0; i < 29; i++) $('submission-next').click();
+  assert.deepEqual([$('submission-pos').textContent, $('submission-next').disabled], ['30 of 30', true]);
+  $('submission-all').click();
+  assert.equal($('saved').hidden, false);
+  assert.equal(
+    w.document.activeElement.dataset.inboxOpen,
+    run('current.submission.id'),
+    'All submissions returns to the row'
+  );
+  // The return link carries the feedback (c) and the assignment, without a name or time.
+  $('inbox-list').querySelector('[data-inbox-open]').click();
+  $('feedback-link').click();
+  await until(() => !$('feedback-result').hidden);
+  assert.match($('toast').textContent, /copy it, then send it to Ana/);
+  const returned = await run(`decodeShare(${JSON.stringify($('feedback-url').value.split('#s=')[1])})`);
+  assert.deepEqual(
+    [returned.v, returned.c, returned.q.id, 'n' in returned, 't' in returned],
+    [1, 'Lovely steps. <b>End</b> on C.', stepsId, false, false]
+  );
+  run('dirty = false');
+  await run(`openSharedLink("s=${$('feedback-url').value.split('#s=')[1]}")`);
+  assert.equal($('feedback-note').hidden, false, 'The student sees the feedback');
+  assert.equal($('feedback-note-text').textContent, 'Lovely steps. <b>End</b> on C.');
+  assert.equal($('feedback-note').querySelector('b'), null, 'Feedback is escaped');
+  assert.deepEqual([$('submission-bar').hidden, $('turn-in').hidden], [true, false], 'Ready to revise and turn in');
+  assert.match($('toast').textContent, /feedback from your teacher/);
+  $('save').click();
+  const feedbackId = run('savedId');
+  run('dirty = false; newScore()');
+  assert.equal($('feedback-note').hidden, true);
+  run(`openScore(saved.find(x => x.id === ${JSON.stringify(feedbackId)}), ${JSON.stringify(feedbackId)})`);
+  assert.equal($('feedback-note-text').textContent, 'Lovely steps. <b>End</b> on C.', 'Saved copies keep it');
+  // Backups carry the inbox; restoring adds what this device lacks. Damaged entries are dropped when read.
+  const inboxBackup = JSON.parse(JSON.stringify(run('backupData()')));
+  assert.equal(inboxBackup.inbox.length, 30);
+  assert.equal(inboxBackup.settings['fretfree-student-name'], 'Ana <img src=x onerror=alert(1)>');
+  run('storeInbox(storedInbox().slice(0, 10))');
+  const restored = run(`applyBackup(${JSON.stringify(inboxBackup)})`);
+  assert.equal(restored.submissionsAdded, 20);
+  assert.match(run(`restoreSummary(${JSON.stringify(restored)})`), /20 submissions added/);
+  assert.equal(run('storedInbox().length'), 30);
+  const stored = JSON.parse(w.localStorage.getItem('fretfree-inbox'));
+  w.localStorage.setItem(
+    'fretfree-inbox',
+    JSON.stringify([
+      {...stored[0], name: ' '},
+      {...stored[1], prompt: {...stored[1].prompt, goals: [{type: 'nope'}]}},
+      {...stored[2], met: 9},
+      {...stored[3], abc: 'not abc'},
+      ...stored.slice(4)
+    ])
+  );
+  assert.equal(run('storedInbox().length'), 26, 'Damaged entries are dropped');
+  // The inbox holds 200; extra links are reported, not stored.
+  const capped = run(
+    'addToInbox(Array.from({length: 180}, (_, i) => ({...storedInbox()[0], id: "sub-cap" + i.toString(36)})))'
+  );
+  assert.deepEqual([capped.added, capped.full, run('storedInbox().length')], [174, 6, 200]);
+  run('show("saved")');
+  const firstDelete = $('inbox-list').querySelector('[data-inbox-delete]');
+  firstDelete.click();
+  assert.equal(run('storedInbox().length'), 199);
+  assert.equal(w.document.activeElement.dataset.inboxDelete !== undefined, true, 'Focus moves to the next row');
+  $('inbox-clear').click();
+  assert.equal(w.localStorage.getItem('fretfree-inbox'), null);
+  assert.equal($('inbox-list').textContent, 'No submissions yet.');
+  run('toggleInbox(false); dirty = false');
+
   // Unsaved-work recovery: an edit leaves this tab's draft in the local list; undoing to the opened text or saving
   // removes it.
   const drafts = () => JSON.parse(w.localStorage.getItem('fretfree-draft')) || [],
@@ -1743,7 +1962,7 @@ assert.equal(
     assert.match(page.$('import-file').accept, /\.musicxml,\.xml,\.mxl/);
   }
   console.log(
-    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors, zoom and the Chords switch), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, and opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files).'
+    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), turning in (name required and remembered, n/t/x/g links, the .json file, stale links after edits, Turned in by, escaping) and Submissions (30 pasted links in one group, bad lines reported, duplicates, sorting, Previous/Next with focus, feedback kept per student, return links with c, feedback on the student’s saved copy, backup and restore, damaged entries, the 200 cap, delete and clear), backup and restore (with classroom colors, zoom and the Chords switch), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, and opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files).'
   );
 })().catch(e => {
   console.error(e);

@@ -82,6 +82,7 @@ for (const f of [
   'playback.js',
   'keyboard.js',
   'assignments.js',
+  'turn-in.js',
   'app.js'
 ])
   run(fs.readFileSync(path.join(root, f), 'utf8'));

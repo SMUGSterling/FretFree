@@ -7,6 +7,7 @@ function show(view) {
   if (view === 'saved') {
     renderSaved();
     renderBackupStatus();
+    if (typeof renderInbox === 'function') renderInbox();
   }
   if (view !== 'studio') stop();
   // A preview stops when its view goes: card previews live in the library, History previews in My scores.
@@ -23,6 +24,7 @@ function openScore(item, id = null) {
   // The assignment builder and the share panel describe the score they were opened on, so they close with it.
   toggleAssignmentBuilder(false);
   closeShare();
+  if (typeof closeTurnIn === 'function') closeTurnIn();
   stop();
   stopPreview();
   current = item;

@@ -958,6 +958,76 @@ for (const prompt of context.writingPrompts) {
   assert.ok(!('onload' in cleaned), 'Unknown top-level fields are dropped');
   assert.equal(cleaned.text.length, 2000, '2,000 characters of instructions are allowed');
 }
+// Turning in: names are cleaned, a link's n/t/x/g must fit the assignment it carries, feedback is capped, goals are
+// checked in written pitch, and pasted text gives one code per line.
+{
+  const prompt = context.makeAssignment({
+    title: 'Steps',
+    text: '',
+    meter: '4/4',
+    unit: '1/4',
+    key: 'C',
+    tempo: 90,
+    bars: 2,
+    goals: [{type: 'bars'}, {type: 'end', degree: 0}, {type: 'steps'}]
+  });
+  assert.equal(context.cleanStudentName('  Ana \n\t López  '), 'Ana López', 'Control characters become spaces');
+  assert.equal(context.cleanStudentName('x'.repeat(81)), '', 'Names over 80 characters are refused');
+  assert.equal(context.cleanStudentName(42), '');
+  assert.equal(
+    context.cleanStudentName('<img src=x onerror=alert(1)>'),
+    '<img src=x onerror=alert(1)>',
+    'Kept as text'
+  );
+  const good = {v: 1, a: 'X:1\nK:C\nC|]', q: prompt, n: ' Sam ', t: 1790000000000, x: prompt.id, g: [1, 0, 1]};
+  assert.deepEqual({...context.readSubmission(good, prompt)}, {name: 'Sam', at: 1790000000000, assignment: prompt.id});
+  assert.ok(context.readSubmission({...good, g: undefined}, prompt), 'g is optional');
+  for (const [why, payload] of Object.entries({
+    'no name': {...good, n: '  '},
+    'name not text': {...good, n: ['Sam']},
+    'time as text': {...good, t: '1790000000000'},
+    'fractional time': {...good, t: 1.5},
+    'negative time': {...good, t: -1},
+    'another assignment': {...good, x: 'custom-other'},
+    'goal results of the wrong length': {...good, g: [1, 1]},
+    'goal results not 0 or 1': {...good, g: [1, 2, 0]}
+  }))
+    assert.equal(context.readSubmission(payload, prompt), null, `Refuses ${why}`);
+  assert.equal(context.readSubmission(good, null), null, 'No assignment, no submission');
+  assert.equal(context.readFeedback('  Good work.  '), 'Good work.');
+  assert.equal(context.readFeedback('x'.repeat(2001)), null);
+  assert.equal(context.readFeedback(' '), null);
+  assert.equal(context.readFeedback({text: 'x'}), null);
+  // Goals and bar checks: two full bars of steps ending on C; a short bar counts once.
+  const done = context.submissionChecks('X:1\nM:4/4\nL:1/4\nK:C\nE D C D | E D D C |]', prompt);
+  assert.deepEqual([done.met, done.total, done.bars], [3, 3, 0]);
+  const short = context.submissionChecks('X:1\nM:4/4\nL:1/4\nK:C\nE D C D | E D | G4 |]', prompt);
+  assert.deepEqual([short.met, short.total, short.bars], [0, 3, 1]);
+  // A B-flat clarinet writes a tone above concert pitch: concert B-flat ends on the written C the goal asks for.
+  const clarinet = context.submissionChecks('X:1\nM:4/4\nL:1/4\nK:Bb\nD C B, C | D C C B, |]', prompt, 2);
+  assert.deepEqual(
+    clarinet.goals.map(g => g.ok),
+    [true, true, true],
+    'Goals are checked in written pitch'
+  );
+  assert.equal(context.submissionChecks('X:1\nK:C\nCDE|]', null).total, 0, 'No prompt, no goals');
+  assert.deepEqual(
+    JSON.parse(
+      JSON.stringify(
+        context.turnInCodes(
+          'https://example.org/FretFree/#s=1AbC_-9xyz12\n\n  0QUJDREVGR0g  \nnot a link\nhttps://example.org/#s=2bad\n#s=1short'
+        )
+      )
+    ),
+    [
+      {line: 1, code: '1AbC_-9xyz12'},
+      {line: 3, code: '0QUJDREVGR0g'},
+      {line: 4, code: null},
+      {line: 5, code: null},
+      {line: 6, code: null}
+    ]
+  );
+}
 // MusicXML export. The notes of every voice must match the parse: count, sounding length in divisions, and pitch as
 // abcjs plays it (midiPitches, or for a tied-over note the pitch its tie started on), after the part's <transpose>.
 // A note no single note value fits is written as several, which together must last as long. abcjs's player loses an
@@ -1741,7 +1811,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits) and MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x/g checks, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits) and MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files).'
     )
   )
   .catch(e => {
