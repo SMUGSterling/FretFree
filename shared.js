@@ -13,7 +13,11 @@ const KEYS = {
   noteColors: 'fretfree-note-colors',
   draft: 'fretfree-draft',
   audition: 'fretfree-audition',
+  zoom: 'fretfree-zoom',
+  measuresPerLine: 'fretfree-measures-per-line',
   piano: 'fretfree-piano',
+  concertPitch: 'fretfree-concert-pitch',
+  versions: 'fretfree-versions',
   practice: id => 'fretfree-practice-' + id
 };
 // An embedded score (#e=…, usually in an iframe on a class website) is a read-only view. It neither reads nor writes

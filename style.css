@@ -926,6 +926,8 @@ input[type='range'] {
   box-shadow: 0 10px 28px #21372d2e;
   padding: 6px;
   min-width: 210px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   display: grid;
   gap: 2px;
 }
@@ -957,6 +959,15 @@ input[type='range'] {
   background: #e7ebdc;
   color: var(--green);
   border-color: #c9d4b3;
+}
+.note-menu .menu-marks {
+  grid-template-columns: repeat(5, 1fr);
+}
+.note-menu .menu-marks button {
+  min-height: 34px;
+  padding: 4px;
+  font-size: 15px;
+  text-align: center;
 }
 .note-menu hr {
   border: 0;
@@ -1338,23 +1349,9 @@ input[type='range'] {
     display: none !important;
   }
 }
-.bars-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.bars-label input {
-  width: 56px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--paper);
-  color: var(--ink);
-}
 /* On-screen piano: a scrolling strip of keys under the score, kept in view at the bottom of the window. */
-#piano-toggle[aria-pressed='true'] {
+#piano-toggle[aria-pressed='true'],
+#midi-toggle[aria-pressed='true'] {
   background: var(--green);
   color: white;
   border-color: var(--green);
@@ -1513,6 +1510,26 @@ input[type='range'] {
 .palette .danger {
   color: #9e4d28;
 }
+.palette .articulation button {
+  font-size: 19px;
+}
+.palette .dynamic,
+.note-menu .dynamic {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-weight: 700;
+}
+.palette .dynamic {
+  font-size: 16px;
+}
+.palette-more:not([hidden]) {
+  display: contents;
+}
+.palette [data-palette='more'].in-use,
+.palette [data-palette='chord'].in-use {
+  border-color: var(--green);
+  box-shadow: inset 0 -3px 0 var(--green);
+}
 @media (max-width: 720px) {
   .palette {
     gap: 6px;
@@ -1662,6 +1679,19 @@ input[type='range'] {
     display: none !important;
   }
 }
+/* Copy, cut, paste and duplicate for the selected notes; the same commands as Ctrl+C, X, V and D, for touch screens.
+   The buttons keep the full button size, as big a target as Undo and Play. */
+.selection-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+@media print {
+  .selection-tools {
+    display: none !important;
+  }
+}
 /* Classroom colors and letters in noteheads: a selected or playing note still shows its highlight color. Both print. */
 #notation .abcjs-note_selected .classroom-color,
 #notation .abcjs-playing .classroom-color {
@@ -1679,6 +1709,219 @@ input[type='range'] {
   #notation svg {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+}
+/* Zoom and measures per line sit just above the score; they change the engraving, not the source. */
+.score-view {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 18px;
+  margin: 14px 0 -8px;
+}
+.zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.zoom-label {
+  margin-right: 4px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--muted);
+}
+.zoom-controls button {
+  min-width: 40px;
+  min-height: 36px;
+  padding: 6px 10px;
+  font-variant-numeric: tabular-nums;
+}
+#zoom-out,
+#zoom-in {
+  font-size: 17px;
+  line-height: 1;
+}
+.zoom-controls #zoom-reset {
+  min-width: 62px;
+}
+.zoom-controls button[aria-disabled='true'] {
+  cursor: default;
+  opacity: 0.45;
+}
+@media print {
+  .score-view {
+    display: none !important;
+  }
+}
+/* Chord symbol box: over the score, just above the selected note. 16px text keeps phones from zooming in. */
+.notation-paper {
+  position: relative;
+}
+.chord-entry {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  width: max-content;
+  max-width: min(300px, calc(100% - 8px));
+  padding: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--green);
+  border-radius: 8px;
+  box-shadow: 0 8px 22px #21372d2e;
+}
+.chord-entry[hidden] {
+  display: none;
+}
+#chord-input {
+  width: 9em;
+  min-height: 38px;
+  padding: 4px 8px;
+  font:
+    600 16px Georgia,
+    'Times New Roman',
+    serif;
+}
+.chord-entry button {
+  min-height: 38px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.chord-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+@media print {
+  .chord-entry {
+    display: none !important;
+  }
+}
+/* New score panel: the setup fields in a grid that drops to one column on a phone; title, summary and the button
+   take a whole row. It is a screen-only panel like the prompt picker. */
+.new-score-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.new-score-form > label:first-child,
+.new-score-summary,
+.new-score-form .assignment-actions {
+  grid-column: 1 / -1;
+}
+.new-score-form select,
+.new-score-form input {
+  padding: 9px;
+}
+.new-score-summary {
+  margin: 0;
+  color: var(--muted);
+}
+/* Concert pitch view: the checkbox sits under the instrument it belongs to, shown only for transposing instruments. */
+.instrument-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.instrument-field .concert-pitch {
+  gap: 7px;
+  min-height: 32px;
+  cursor: pointer;
+}
+.instrument-field .concert-pitch input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+/* Version history on My scores: earlier saved copies of one score, with a drawn and playable preview. */
+.history-panel {
+  margin-top: 25px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--paper);
+  padding: 16px 20px;
+}
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.history-head h2 {
+  margin: 0;
+  font-family: Georgia, serif;
+  font-size: 23px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.history-head button {
+  padding: 8px 12px;
+}
+.history-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.history-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+}
+.history-list li.selected {
+  background: #edf1e4;
+}
+.history-list li > span:first-child {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.history-actions button {
+  padding: 8px 12px;
+  font-size: 11px;
+}
+.history-preview {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+}
+.history-preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.history-score {
+  margin-top: 8px;
+  min-width: 0;
+  overflow: hidden;
+  background: white;
+}
+.history-score .abcjs-playing,
+.history-score .abcjs-playing path {
+  fill: #d9480f;
+  color: #d9480f;
+}
+@media print {
+  .history-panel {
+    display: none !important;
   }
 }
 /* Share panel tabs: Link, Embed and QR code. */

@@ -9,7 +9,8 @@ function show(view) {
     renderBackupStatus();
   }
   if (view !== 'studio') stop();
-  if (view !== 'library') stopPreview();
+  // A preview stops when its view goes: card previews live in the library, History previews in My scores.
+  if (view !== (previewId === 'history' ? 'saved' : 'library')) stopPreview();
   // An embedded score keeps its #e= address, so reloading the frame shows the same score.
   if (!embedView) history.replaceState(null, '', '#' + view);
   window.scrollTo({top: 0, behavior: 'smooth'});
@@ -67,6 +68,85 @@ function newScore(bars) {
   $('selection-status').textContent =
     `Blank sheet of ${bars} bars. Click a bar and type A–G, or turn on Draw notes and click the staff; each bar fills from its rest. ＋ 4 bars adds more.`;
 }
+// The New score panel: a template with title, key, time signature, tempo, pickup and bars. templateSource
+// (score-tools.js) writes the ABC. Templates with fixed clefs bring their own non-transposing instrument; Melody,
+// Lead sheet and Duet keep the current one.
+for (const t of SCORE_TEMPLATES) $('new-template').add(new Option(t.name, t.id));
+fillKeySelect($('new-key'));
+for (const o of $('meter').options) if (o.value !== 'none') $('new-meter').add(new Option(o.text, o.value));
+function newScoreChoices() {
+  return {
+    template: $('new-template').value,
+    title: $('new-title').value.trim(),
+    key: $('new-key').value,
+    meter: $('new-meter').value,
+    tempo: Math.max(40, Math.min(200, Math.round(+$('new-tempo').value) || 100)),
+    bars: Math.max(1, Math.min(64, Math.round(+$('new-bars').value) || DEFAULT_BARS)),
+    pickup: +$('new-pickup').value || 0
+  };
+}
+// Pickups longer than the meter allows are greyed out (2/4 and 6/8 take one beat at most).
+function refreshNewScore() {
+  const meter = templateMeter($('new-meter').value);
+  for (const o of $('new-pickup').options) o.disabled = +o.value > meter.pickups;
+  if ($('new-pickup').selectedOptions[0]?.disabled) $('new-pickup').value = '0';
+  const c = newScoreChoices(),
+    t = SCORE_TEMPLATES.find(x => x.id === c.template) || SCORE_TEMPLATES[0],
+    beats = c.pickup === 1 ? '1-beat pickup' : `${c.pickup}-beat pickup`;
+  $('new-score-summary').textContent =
+    `${t.name}: ${t.words}. ${c.pickup ? `A ${beats}, then ` : ''}${c.bars} ${c.bars === 1 ? 'bar' : 'bars'} of ` +
+    `${c.meter} in ${keyLabel(c.key)} at ${c.tempo} BPM.`;
+}
+function toggleNewScore(open) {
+  $('new-score-panel').hidden = !open;
+  $('new-score-open').setAttribute('aria-expanded', open);
+  if (open) {
+    togglePrompts(false);
+    if (typeof toggleAssignmentBuilder === 'function') toggleAssignmentBuilder(false);
+    refreshNewScore();
+    $('new-score-panel').scrollIntoView({block: 'nearest', behavior: 'smooth'});
+    $('new-title').focus({preventScroll: true});
+  }
+}
+// Opens the new score with its first rest selected and the score focused, so letters write straight away.
+function createScore(choices = newScoreChoices()) {
+  const t = SCORE_TEMPLATES.find(x => x.id === choices.template) || SCORE_TEMPLATES[0],
+    abc = templateSource(choices);
+  if (!allowReplace()) return false;
+  dirty = false;
+  openScore({
+    title: abc.match(/^T:(.*)$/m)[1],
+    composer: '',
+    kind: 'personal',
+    abc,
+    instrument: t.instrument || currentInstrument()
+  });
+  toggleNewScore(false);
+  $('new-title').value = '';
+  const first = scoreNotes()[0];
+  if (first) selectEntry(first);
+  focusScore();
+  const staves = t.staves.length > 1 ? `, ${t.staves.length} staves` : '';
+  $('selection-status').textContent =
+    `New score from the ${t.name} template${staves}. The first rest is selected: type A–G to write over it, or click a rest on any staff. ＋ 4 bars adds bars to every staff.`;
+  return true;
+}
+$('new-score-open').onclick = () => toggleNewScore($('new-score-panel').hidden);
+$('close-new-score').onclick = () => {
+  toggleNewScore(false);
+  $('new-score-open').focus();
+};
+$('new-score-panel').addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  e.stopPropagation();
+  toggleNewScore(false);
+  $('new-score-open').focus();
+});
+$('new-score-form').addEventListener('input', refreshNewScore);
+$('new-score-form').onsubmit = e => {
+  e.preventDefault();
+  createScore();
+};
 for (const name of Object.keys(instruments)) $('instrument').add(new Option(name, name));
 fillKeySelect($('key'));
 fillKeySelect($('transpose-key'));
@@ -85,7 +165,16 @@ document.querySelectorAll('.brand').forEach(
     })
 );
 $('browse').onclick = () => $('library-top').scrollIntoView({behavior: 'smooth'});
-$('start-writing').onclick = $('new-score').onclick = $('saved-new').onclick = newScore;
+// The quick start stays one click: a blank 8-bar melody, whatever the New score panel is set to.
+$('start-writing').onclick = $('new-score').onclick = () => {
+  toggleNewScore(false);
+  newScore(DEFAULT_BARS);
+};
+// My scores' ＋ New score opens the same setup panel as the studio's.
+$('saved-new').onclick = () => {
+  show('studio');
+  toggleNewScore(true);
+};
 for (const id of [
   'search',
   'level-filter',
@@ -136,10 +225,15 @@ document.addEventListener('click', e => {
       renderSaved();
     } else toast('This browser could not save favorites.');
   }
-  if (b.dataset.delete && confirm('Delete this locally saved score?')) {
+  if (b.dataset.history) openHistory(b.dataset.history);
+  if (
+    b.dataset.delete &&
+    confirm(`Delete this locally saved score${versionsOf(b.dataset.delete).length ? ' and its history' : ''}?`)
+  ) {
     const next = saved.filter(x => x.id !== b.dataset.delete);
-    if (storage.set(KEYS.scores, next)) {
+    if (storeScores(next)) {
       saved = next;
+      removeVersions(b.dataset.delete);
       renderSaved();
       if (savedId === b.dataset.delete) savedId = null;
     } else toast('Deletion could not be saved.');
@@ -182,13 +276,23 @@ $('instrument').onchange = () => {
   instrumentShown = currentInstrument();
   changed();
 };
+// Concert pitch view is display only: the source, playback and the undo history stay as they are. An open note menu
+// points into the old drawing, so it closes first.
+$('concert-pitch').onchange = () => {
+  storage.set(KEYS.concertPitch, $('concert-pitch').checked);
+  closeNoteMenu();
+  clearTimeout(renderTimer);
+  render();
+};
 // Volume is live: the master bus follows the slider, so playback carries on.
 $('volume').oninput = updateVolume;
 $('help-toggle').onclick = () => {
   $('abc-help').hidden = !$('abc-help').hidden;
 };
 $('save').onclick = () => {
-  const id = savedId || globalThis.crypto?.randomUUID?.() || 'score-' + Date.now();
+  const id = savedId || globalThis.crypto?.randomUUID?.() || 'score-' + Date.now(),
+    previous = saved.find(x => x.id === id);
+  // Each save of a score gets its own time, which names the version it later becomes.
   const entry = {
     ...current,
     id,
@@ -196,11 +300,13 @@ $('save').onclick = () => {
     composer: field('C'),
     abc: $('abc').value,
     instrument: currentInstrument(),
-    updated: Date.now()
+    updated: Math.max(Date.now(), (previous?.updated || 0) + 1)
   };
   const next = saved.filter(x => x.id !== id).concat(entry);
-  if (storage.set(KEYS.scores, next)) {
+  if (storeScores(next)) {
     saved = next;
+    // The copy this save replaced goes into the score's History, if its music changed.
+    if (previous && previous.abc !== entry.abc) keepVersion(previous);
     savedId = id;
     dirty = false;
     markClean();
@@ -213,33 +319,65 @@ $('save').onclick = () => {
   }
 };
 $('import').onclick = () => $('import-file').click();
+// Opening a file: ABC as it is, or MusicXML (.musicxml, .xml, or compressed .mxl) converted to ABC on this device.
+const MUSICXML_FILE = /\.(musicxml|xml|mxl)$/i;
+function importReport(result) {
+  const size = `${result.parts} ${result.parts === 1 ? 'part' : 'parts'}, ${result.measures} ${
+    result.measures === 1 ? 'measure' : 'measures'
+  }`;
+  return (
+    `Imported from MusicXML (${size}). Save or export to keep a copy.` +
+    (result.skipped.length ? ' Left out: ' + listWords(result.skipped) + '.' : '')
+  );
+}
 $('import-file').onchange = async () => {
   const file = $('import-file').files[0];
   if (!file) return;
-  if (file.size > 1024 * 1024) {
-    toast('Please use an ABC file smaller than 1 MB.');
+  const musicXML = MUSICXML_FILE.test(file.name);
+  if (file.size > (musicXML ? 5 : 1) * 1024 * 1024) {
+    toast(musicXML ? 'Please use a MusicXML file smaller than 5 MB.' : 'Please use an ABC file smaller than 1 MB.');
+    $('import-file').value = '';
     return;
   }
   try {
-    const source = await file.text();
-    if (ABCJS.numberOfTunes(source) !== 1) throw new Error('Please import one ABC tune at a time.');
-    if (!/^K:/m.test(source) || !/^X:/m.test(source)) throw new Error('Expected an ABC score with X: and K: headers.');
+    let source,
+      metadata = {},
+      result = null;
+    if (musicXML) {
+      try {
+        result = await readMusicXMLFile(file);
+      } catch (e) {
+        // Messages written for people pass through; anything else means the file was not what it claimed.
+        throw /^(This|There)\b/.test(e.message) ? e : Error('This MusicXML file could not be read. It may be damaged.');
+      }
+      source = result.abc;
+      metadata = importedRights(result.metadata);
+    } else {
+      source = await file.text();
+      if (ABCJS.numberOfTunes(source) !== 1) throw new Error('Please import one ABC tune at a time.');
+      if (!/^K:/m.test(source) || !/^X:/m.test(source))
+        throw new Error('Expected an ABC score with X: and K: headers.');
+      const notice = source.match(/^% FretFree-Rights: (.*)$/m);
+      if (notice) {
+        try {
+          metadata = importedRights(JSON.parse(notice[1]));
+        } catch {}
+      }
+    }
     if (!allowReplace()) return;
     dirty = false;
-    const notice = source.match(/^% FretFree-Rights: (.*)$/m);
-    let metadata = {};
-    if (notice) {
-      try {
-        metadata = JSON.parse(notice[1]);
-        if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) metadata = {};
-      } catch {}
-    }
-    openScore({...metadata, kind: 'personal', abc: source});
+    openScore({
+      ...metadata,
+      kind: 'personal',
+      abc: source,
+      ...(result?.instrument && instruments[result.instrument] ? {instrument: result.instrument} : {})
+    });
     dirty = true;
     scheduleDraft();
-    $('save-status').textContent = 'Imported locally. Save or export to keep a copy.';
+    $('save-status').textContent = result ? importReport(result) : 'Imported locally. Save or export to keep a copy.';
   } catch (e) {
     toast(e.message);
+    $('save-status').textContent = e.message;
   } finally {
     $('import-file').value = '';
   }
@@ -254,13 +392,29 @@ for (const id of ['start-measure', 'end-measure'])
 function applyStoredSettings() {
   for (const id of ['loop', 'metronome', 'count-in', 'trainer'])
     $(id).checked = !!storage.get(KEYS.practice(id), false);
+  $('chords').checked = storage.get(KEYS.practice('chords'), true) !== false;
   $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
   $('note-names').value = storage.get(KEYS.noteNames, 'off');
   $('note-colors').value = storage.get(KEYS.noteColors, 'off');
   $('audition').checked = storage.get(KEYS.audition, true) !== false;
   if (typeof setPiano === 'function') setPiano(storage.get(KEYS.piano, false) === true, false);
+  applyStoredLayout();
   prepareTrainer();
 }
+// Zoom, measures per line and Concert pitch view are read before the first render, so the start-up score is drawn
+// once as the student left it.
+function applyStoredLayout() {
+  $('concert-pitch').checked = storage.get(KEYS.concertPitch, false) === true;
+  showZoom(storage.get(KEYS.zoom, 100));
+  $('measures-per-line').value = String(validMeasuresPerLine(storage.get(KEYS.measuresPerLine, 0)));
+}
+$('zoom-out').onclick = () => stepZoom(-1);
+$('zoom-in').onclick = () => stepZoom(1);
+$('zoom-reset').onclick = () => stepZoom(0);
+$('measures-per-line').onchange = () => {
+  storage.set(KEYS.measuresPerLine, measuresPerLine());
+  render();
+};
 for (const id of ['loop', 'metronome', 'count-in', 'trainer']) {
   $(id).checked = !!storage.get(KEYS.practice(id), false);
   $(id).addEventListener('change', () => {
@@ -268,12 +422,23 @@ for (const id of ['loop', 'metronome', 'count-in', 'trainer']) {
     if (id === 'trainer') prepareTrainer();
   });
 }
+// Chords plays the chord symbols as an accompaniment (on by default). Switching it while the score plays carries on
+// from the same place; MIDI export always keeps the chords.
+$('chords').checked = storage.get(KEYS.practice('chords'), true) !== false;
+$('chords').addEventListener('change', () => {
+  storage.set(KEYS.practice('chords'), $('chords').checked);
+  const position = playPosition();
+  if (position != null) {
+    stop();
+    play(position);
+  }
+});
 $('trainer-goal').addEventListener('change', () => {
   $('trainer-goal').value = trainerGoal();
   prepareTrainer();
 });
 $('speed').oninput = () => {
-  const position = playing ? playOrigin + Math.max(0, audio.currentTime - playClock) * playSpeed : null;
+  const position = playPosition();
   $('speed-value').textContent = $('speed').value + '%';
   if (position != null) {
     stop();
@@ -369,8 +534,10 @@ ABCJS.renderAbc('hero-notation', catalog[0].abc, {
   paddingtop: 25,
   paddingbottom: 30
 });
-// An embedded score opens on its own: no library cards, no blank sheet first, no draft offer and no storage.
+// An embedded score opens on its own: no library cards, no blank sheet first, no draft offer and no storage
+// (storage.get gives every default there, so the layout starts at 100% and written pitch).
 if (!embedView) renderCards();
+applyStoredLayout();
 // Unsaved work from an earlier visit is offered once the start-up score is open; a share link opens first.
 loadDrafts();
 if (!embedView) newScore();
