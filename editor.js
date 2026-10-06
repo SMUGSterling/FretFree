@@ -2886,15 +2886,23 @@ function updateNoteColors() {
 let trillsPending = null;
 function updateTrillLines() {
   const svg = $('notation').querySelector('svg'),
-    selectables = renderedTune?.engraver?.selectables || [];
+    selectables = renderedTune?.engraver?.selectables || [],
+    // An embedded score has nothing selectable, so its notes are found through the drawn tune's elements instead.
+    drawn = selectables.length
+      ? selectables.map(s => [s.absEl.abcelem?.startChar, s.svgEl])
+      : (renderedTune?.lines || [])
+          .flatMap(l => l.staff || [])
+          .flatMap(s => s.voices.flat())
+          .filter(e => e.abselem?.elemset?.[0])
+          .map(e => [e.startChar, e.abselem.elemset[0]]);
   trillsPending = null;
-  if (!svg || !selectables.length || !/[!+]trill\(/.test($('abc').value)) return;
+  if (!svg || !drawn.length || !/[!+]trill\(/.test($('abc').value)) return;
   svg.querySelectorAll('.trill-line').forEach(p => p.remove());
   if (!svg.getBoundingClientRect().width) {
     trillsPending = renderedTune;
     return;
   }
-  const byStart = new Map(selectables.map(s => [s.absEl.abcelem?.startChar, s.svgEl])),
+  const byStart = new Map(drawn),
     svgOf = entry => byStart.get(displayOf(entry)?.startChar),
     lineOf = el => el.getAttribute('class')?.match(/abcjs-l(\d+)/)?.[1] ?? '',
     box = el => {

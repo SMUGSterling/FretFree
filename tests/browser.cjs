@@ -649,6 +649,16 @@ const {chromium} = require('playwright'),
   assert.ok(wave.x >= tr.x + tr.width && wave.x + wave.width > last.x, 'The line runs from the tr to the last note');
   assert.ok(Math.abs(wave.y + wave.height / 2 - (tr.y + tr.height / 2)) < 3, 'Level with the tr');
   assert.equal(await page.locator('#warnings').textContent(), '');
+  // An embedded score has nothing selectable, and still gets the wavy line.
+  {
+    const code = await page.evaluate(() => encodeShare({v: 1, a: $('abc').value, i: 'Flute'})),
+      embed = await browser.newPage({viewport: {width: 800, height: 700}});
+    embed.on('pageerror', e => errors.push('trill embed: ' + e.message));
+    await embed.goto(`${process.env.FRETFREE_URL || 'http://localhost:8000'}/#e=${code}`);
+    await embed.waitForSelector('#notation .trill-line', {state: 'attached'});
+    assert.equal(await embed.evaluate(() => renderedTune.engraver.selectables.length), 0, 'Nothing is selectable');
+    await embed.close();
+  }
   // Chord symbols with real keys: K opens a box just above the note, Enter saves, Tab moves on; the symbols are
   // engraved and undo one at a time; the toolbar button works from the keyboard; clicking another note saves the box
   // and selects that note; Chords leaves the accompaniment out of playback.
