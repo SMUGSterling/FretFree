@@ -1,3 +1,13 @@
+# New score templates · 2026-10-06
+
+- **＋ New score** now opens a setup panel with Title, Template, Key, Time signature, Tempo, Pickup (none or 1–3 beats) and Bars (1–64). Templates: Melody, Lead sheet, Piano (braced right and left hand), Duet, Melody and bass, SATB choir and String quartet (viola in alto clef, cello in bass clef). Every staff starts as whole-bar rests that pass the bar check, with the pickup excused; the first rest is selected and the score has focus, so typing starts at once. The panel works from the keyboard (Enter creates, Escape closes) and fits a phone screen. **＋ New score** on My scores opens the same panel.
+- **Blank melody** (and *Write something new* on the library page) keeps the one-click start: eight empty bars of 4/4 in C major. The Bars box moved into the panel.
+- In a score with several staves, **＋ 4 bars** adds the bars to every staff in one undo step, letters typed with nothing selected go to the top staff, and typing on a rest picks the octave from that staff's clef and earlier notes (C on a blank left-hand staff is `C,`, not `C`). The caption under the title counts the staves (*Piano · 4 staves · Concert pitch.*) instead of naming one clef.
+- A lead sheet starts its chord line with the key's tonic chord over the first full bar (`"C"`, `"Am"`, `"Em"` in E dorian). A chord symbol on a rest now stays on that beat when a note is written over the rest.
+- Templates with several staves use the piano sound (the string quartet the violin) so nothing is transposed; per-part sounds are planned. `templateSource({template, title, key, meter, unit, tempo, bars, pickup})` in score-tools.js writes the ABC: one voice block per staff with `clef=`, `name=` and `snm=`, grouped by `%%score`, four bars to a line.
+
+---
+
 # Articulations, dynamics and ornaments · 2026-10-06
 
 - With a note selected, **;** **:** **>** **"** **^** toggle staccato, tenuto, accent, marcato and fermata. The notation toolbar gains an **Articulation** group with the same five and a **Dynamics** group (ppp to fff, and sfz); **More** opens staccatissimo, up bow, down bow, breath mark, trill, mordent, turn and arpeggio. The note menu has a Marks section with the five articulations and the dynamics.

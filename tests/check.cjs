@@ -548,6 +548,121 @@ for (const prompt of context.writingPrompts) {
     `Prompt ${prompt.id}: changing the meter must not satisfy the bars goal`
   );
 }
+// New score templates: every template, meter and pickup parses without warnings, has its staves (one voice each),
+// and is all whole-bar rests that pass the bar check, the pickup bar excused.
+{
+  const json = x => JSON.parse(JSON.stringify(x));
+  assert.deepEqual(
+    json(['4/4', '3/4', '2/4', '6/8', '2/2', 'C|', '12/8', '7/8', '5/4'].map(m => context.templateMeter(m).pickups)),
+    [3, 2, 1, 1, 1, 1, 3, 3, 3],
+    'Pickups are up to 3 beats and shorter than a bar'
+  );
+  assert.deepEqual(json(context.templateMeter('6/8')), {bar: 0.75, beat: 0.375, beats: 2, unit: '1/8', pickups: 1});
+  assert.deepEqual(json(context.templateMeter('C')), {bar: 1, beat: 0.25, beats: 4, unit: '1/4', pickups: 3});
+  assert.deepEqual(
+    ['C', 'Am', 'EDor', 'BLoc', 'FLyd', 'F#m', 'Bb', 'GMix'].map(k => context.tonicChord(k)),
+    ['C', 'Am', 'Em', 'Bdim', 'F', 'F#m', 'Bb', 'G']
+  );
+  const templates = vm.runInContext('SCORE_TEMPLATES', context);
+  assert.deepEqual(json(templates.map(t => t.id)), [
+    'melody',
+    'lead',
+    'piano',
+    'duet',
+    'melody-bass',
+    'satb',
+    'quartet'
+  ]);
+  let built = 0;
+  for (const t of templates)
+    for (const meter of ['4/4', '3/4', '2/4', '6/8', '2/2', 'C', 'C|', '3/8', '5/4', '7/8', '9/8', '12/8'])
+      for (const pickup of [0, 1, 2, 3])
+        for (const bars of [1, 5, 9]) {
+          const m = context.templateMeter(meter);
+          if (pickup > m.pickups) continue;
+          const source = context.templateSource({
+              template: t.id,
+              title: 'T',
+              key: 'Eb',
+              meter,
+              tempo: 90,
+              bars,
+              pickup
+            }),
+            label = `${t.id} ${meter} pickup ${pickup} bars ${bars}`,
+            tune = ABCJS.parseOnly(source)[0];
+          assert.ok(!tune.warnings?.length, `${label}: ${tune.warnings}`);
+          assert.ok(
+            tune.lines.every(l => l.staff.length === t.staves.length && l.staff.every(st => st.voices.length === 1)),
+            `${label}: one voice on each of ${t.staves.length} staves`
+          );
+          const events = context.scoreEvents(tune).filter(e => e.element.el_type === 'note');
+          assert.ok(events.length && events.every(e => e.element.rest), `${label}: rests only`);
+          assert.deepEqual(json(context.barProblems(tune)), [], `${label}: bar check`);
+          const measures = context.barLengths(tune);
+          for (let v = 0; v < t.staves.length; v++) {
+            const mine = measures.filter(x => x.voice === v + ':0');
+            assert.equal(mine.length, bars + (pickup ? 1 : 0), `${label}: bars in staff ${v + 1}`);
+            mine.forEach((x, i) =>
+              assert.ok(
+                Math.abs(x.length - (pickup && i === 0 ? pickup * m.beat : m.bar)) < 1e-9,
+                `${label}: staff ${v + 1} bar ${i + 1} length`
+              )
+            );
+          }
+          assert.equal(Buffer.from(context.midiBytes(source).slice(0, 4)).toString(), 'MThd', `${label}: MIDI`);
+          built++;
+        }
+  assert.ok(built > 500, 'Template combinations checked');
+  const piano = context.templateSource({template: 'piano', title: 'Study', key: 'G', meter: '3/4', bars: 6});
+  assert.equal(
+    piano,
+    'X:1\nT:Study\nC:\nM:3/4\nL:1/4\nQ:1/4=100\n%%score {RH LH}\nK:G\n' +
+      'V:RH clef=treble name="Piano" snm="Pno."\nz3 | z3 | z3 | z3 |\nz3 | z3 |]\n' +
+      'V:LH clef=bass\nz3 | z3 | z3 | z3 |\nz3 | z3 |]\n'
+  );
+  const staves = id =>
+    ABCJS.parseOnly(context.templateSource({template: id}))[0].lines[0].staff.map(st => [
+      st.clef.type,
+      st.title?.[0] || ''
+    ]);
+  assert.deepEqual(json(staves('satb')), [
+    ['treble', 'Soprano'],
+    ['treble', 'Alto'],
+    ['treble-8', 'Tenor'],
+    ['bass', 'Bass']
+  ]);
+  assert.deepEqual(json(staves('quartet')), [
+    ['treble', 'Violin I'],
+    ['treble', 'Violin II'],
+    ['alto', 'Viola'],
+    ['bass', 'Cello']
+  ]);
+  assert.deepEqual(json(staves('melody-bass')), [
+    ['treble', 'Melody'],
+    ['bass', 'Bass']
+  ]);
+  // The quick 8-bar melody and the Melody template write the same bars; a lead sheet puts the tonic chord on the
+  // first full bar, after the pickup.
+  assert.match(context.templateSource({}), /^K:C\nz4 \| z4 \| z4 \| z4 \|\nz4 \| z4 \| z4 \| z4 \|]\n$/m);
+  assert.ok(
+    context
+      .templateSource({template: 'lead', key: 'Dm', meter: '6/8', pickup: 1, bars: 2})
+      .endsWith('\nz3 | "Dm"z6 | z6 |]\n')
+  );
+  // Out-of-range choices are brought into range, and a title cannot add header lines.
+  const odd = context.templateSource({title: 'One\nK:G', bars: 100, pickup: 3, meter: '2/4', tempo: 999});
+  assert.match(odd, /^T:One K:G$/m);
+  assert.match(odd, /^Q:1\/4=200$/m);
+  assert.equal(ABCJS.parseOnly(odd)[0].lines.length, 16, '64 bars at most, four to a line');
+  assert.match(odd, /^z \| z2 \| /m, 'A 2/4 pickup is one beat');
+  assert.match(context.templateSource({title: '  '}), /^T:Untitled$/m);
+  assert.equal(
+    context.barLengths(ABCJS.parseOnly(context.templateSource({bars: -3}))[0]).length,
+    1,
+    'At least one bar'
+  );
+}
 // Teacher-written assignments: goals name notes spelled in the written key, every built-in prompt rebuilt as an
 // assignment survives validPrompt and still passes on its example, and anything malformed from a link is refused.
 {
@@ -1015,5 +1130,5 @@ for (const prompt of context.writingPrompts) {
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
 );

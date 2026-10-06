@@ -334,14 +334,19 @@ function restoreSelection(display) {
 }
 function updateCaption() {
   $('workspace-heading').textContent = field('T', 'Untitled melody');
-  const config = instruments[currentInstrument()];
+  const config = instruments[currentInstrument()],
+    staves = staffClefs[0]?.length || 1;
   const pitch =
     config.shift === 2 || config.shift === 9
       ? 'Written pitch shown; ABC source and MIDI are concert pitch.'
       : config.shift === -12
         ? 'Melody lowered one octave for bass range.'
-        : 'Concert pitch melody part.';
-  $('score-caption').textContent = `${currentInstrument()} · ${config.clef} clef · ${pitch}`;
+        : staves > 1
+          ? 'Concert pitch.'
+          : 'Concert pitch melody part.';
+  // A score with several staves (a template or V: voices) has their own clefs, so it counts them instead.
+  $('score-caption').textContent =
+    `${currentInstrument()} · ${staves > 1 ? `${staves} staves` : `${config.clef} clef`} · ${pitch}`;
 }
 // Links to the complete source edition behind a library practice part.
 function updateSourceEdition() {
@@ -996,6 +1001,7 @@ $('notation').addEventListener('mouseleave', () => showGhost(null));
 // Add blank bars (whole-bar rests in the meter in force there) before the closing barline, or at the end.
 function addBars(count = 4) {
   flushTyping();
+  if (addVoiceBars(count)) return;
   const value = $('abc').value,
     close = value.lastIndexOf('|]'),
     at = close >= 0 ? close : value.length,
@@ -1016,6 +1022,50 @@ function addBars(count = 4) {
   const first = at + text.indexOf(rest);
   applyNoteEdit(at, at, text, [first, first + rest.length]);
   $('selection-status').textContent = `Added ${count} blank bars at the end.`;
+}
+// With several voices, every voice gets the bars in one edit: before its closing |], or after its last note or bar
+// line, each sized by that voice's meter. Returns false for a one-voice score, which addBars handles as before.
+function addVoiceBars(count) {
+  const value = $('abc').value;
+  let tune;
+  try {
+    tune = ABCJS.parseOnly(value)[0];
+  } catch {
+    return false;
+  }
+  const last = new Map(),
+    meters = new Map();
+  for (const e of scoreEvents(tune)) last.set(voiceOf(e), e.element);
+  for (const m of barLengths(tune)) meters.set(m.voice, m.meter);
+  if (last.size < 2) return false;
+  const inserts = [...last].map(([voice, e]) => {
+    const closing = e.el_type === 'bar' && /^\s*\|\]\s*$/.test(value.slice(e.startChar, e.endChar)),
+      at = closing ? value.indexOf('|]', e.startChar) : e.endChar,
+      meter = meters.get(voice),
+      [num, den] = meterPartsAt(at),
+      rest = 'z' + lengthText((meter?.length || num / den) / unitLengthAt(at)),
+      bars = Array(count).fill(rest).join(' | ');
+    const text = closing
+      ? (/\|\s*$/.test(value.slice(0, at)) ? '' : '| ') + bars + ' '
+      : (e.el_type === 'bar' ? ' ' : ' | ') + bars + ' |]';
+    return {voice, at, text, rest};
+  });
+  inserts.sort((a, b) => a.at - b.at);
+  const start = inserts[0].at,
+    end = inserts.at(-1).at;
+  let text = '',
+    pos = start,
+    select = null;
+  for (const x of inserts) {
+    text += value.slice(pos, x.at);
+    const first = start + text.length + x.text.indexOf(x.rest);
+    if (!select || x.voice === '0:0') select = [first, first + x.rest.length];
+    text += x.text;
+    pos = x.at;
+  }
+  applyNoteEdit(start, end, text, select);
+  $('selection-status').textContent = `Added ${count} blank bars at the end of every staff.`;
+  return true;
 }
 $('add-bars').onclick = () => addBars(4);
 // Note properties menu. Lengths come from the parsed (effective) duration, so chords and broken rhythm read correctly.
@@ -1488,10 +1538,11 @@ function insertAt(at, token, select = true, hear = false, keep = false) {
   );
   return at + before.length;
 }
-// Where a new note goes with nothing selected: before the closing bar line, or at the end of the music.
+// Where a new note goes with nothing selected: before the closing bar line, or at the end of the music. In a score
+// with several voices that is the end of the first voice (the top staff).
 function tuneEndPosition() {
   const all = [...new Set(noteSources.values())]
-      .filter(Boolean)
+      .filter(e => e && voiceOf(e) === '0:0')
       .sort((a, b) => a.element.startChar - b.element.startChar),
     last = all.at(-1);
   if (!last) return $('abc').value.length;
@@ -1572,20 +1623,22 @@ function addLetterToChord(letter, sel) {
     ? `Added ${letter} to the chord. Shift+A–G adds more.`
     : `${letter} is already in the chord.`;
 }
-// Written-pitch note token for a letter, in the octave nearest the last note before a source position.
+// Written-pitch note token for a letter, in the octave nearest the last note before a source position in the same
+// voice, or else the middle of that voice's staff.
 function letterToken(letter, at) {
   if (letter === 'z') return 'z';
-  const steps = writtenSteps($('abc').value, at, instruments[currentInstrument()].shift),
-    prev = scoreNotes()
-      .filter(n => n.element.startChar < at && n.element.pitches?.length)
-      .pop();
-  const ref = prev ? prev.element.pitches[0].pitch + steps : 6 + (staffClefs[0]?.[0] || 0),
+  const notes = scoreNotes(),
+    here = notes.filter(n => n.element.startChar <= at).pop() || notes[0],
+    voice = here ? voiceOf(here) : '0:0',
+    steps = writtenSteps($('abc').value, at, instruments[currentInstrument()].shift),
+    prev = notes.filter(n => n.element.startChar < at && n.element.pitches?.length && voiceOf(n) === voice).pop();
+  const ref = prev ? prev.element.pitches[0].pitch + steps : 6 + (staffClefs[0]?.[+voice.split(':')[0]] || 0),
     letterIndex = 'CDEFGAB'.indexOf(letter);
   return pitchToken(letterIndex + 7 * Math.round((ref - letterIndex) / 7) - steps);
 }
 // Put a note (its pitch token, without a length) at the start of a rest, taking its length from the rest; the rest
 // keeps what is left, which stays selected so the next note continues. A filled rest passes the selection on.
-// Returns where the note starts.
+// Chord symbols and text written on the rest mark that beat, so the note takes them. Returns where the note starts.
 function fillRest(rest, core, wanted = inputLength ?? beatLength(), keep = false) {
   const v = $('abc').value,
     start = rest.element.startChar,
@@ -1594,8 +1647,9 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength(), keep = false
     unit = unitLengthAt(start);
   const restLength = rest.element.duration || 0,
     length = Math.min(wanted, restLength || Infinity),
-    left = restLength - length;
-  const token = core + lengthText(length / unit),
+    left = restLength - length,
+    chords = (noteParts(old.trim())?.pre.match(/"[^"]*"/g) || []).join('');
+  const token = chords + core + lengthText(length / unit),
     trail = old.match(/\s*$/)[0],
     lead = old.match(/^\s*/)[0] || (start > 0 && !/\s/.test(v[start - 1]) ? ' ' : '');
   if (left > 1e-6) {
@@ -2469,6 +2523,7 @@ function togglePrompts(open) {
   $('open-prompts').setAttribute('aria-expanded', open);
   if (open) {
     if (typeof toggleAssignmentBuilder === 'function') toggleAssignmentBuilder(false);
+    if (typeof toggleNewScore === 'function') toggleNewScore(false);
     renderPromptCards();
     $('prompt-picker').scrollIntoView({block: 'nearest', behavior: 'smooth'});
   }

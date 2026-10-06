@@ -891,6 +891,86 @@ const {chromium} = require('playwright'),
   await page.click('#draw-mode');
   await page.click('#add-bars');
   assert.equal(await page.evaluate(() => $('measure-count').textContent), 'of 12', 'Add 4 bars extends the sheet');
+  // New score panel by keyboard: a piano template opens with the score focused; a click on a left-hand rest and
+  // letters fill only that staff, and ＋ 4 bars grows both staves.
+  await page.evaluate(() => {
+    dirty = false;
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  await page.focus('#new-score-open');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'new-title', 'The panel opens on Title');
+  await page.keyboard.type('Two hands');
+  await page.keyboard.press('Tab');
+  await page.selectOption('#new-template', 'piano');
+  await page.selectOption('#new-meter', '3/4');
+  await page.focus('#new-bars');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('4');
+  await page.keyboard.press('Enter');
+  assert.deepEqual(
+    await page.evaluate(() => [
+      $('new-score-panel').hidden,
+      document.activeElement.id,
+      $('title').value,
+      $('notation').querySelectorAll('.abcjs-staff').length >= 2
+    ]),
+    [true, 'notation', 'Two hands', true],
+    'Enter creates the score and focuses it'
+  );
+  await page.keyboard.press('g');
+  assert.match(
+    await page.evaluate(() => $('abc').value),
+    /V:RH[^\n]*\nG z2 \| z3 \| z3 \| z3 \|]\nV:LH clef=bass\nz3 \| z3 \| z3 \| z3 \|]/,
+    'Letters write over the first right-hand rest'
+  );
+  await page.evaluate(() => $('notation').scrollIntoView({block: 'center', behavior: 'instant'}));
+  const rests = await page.$$eval('#notation .abcjs-rest', els =>
+    els.map(e => {
+      const r = e.getBoundingClientRect();
+      return [r.x + r.width / 2, r.y + r.height / 2];
+    })
+  );
+  const leftHand = rests.filter(([, y]) => y > rests[0][1] + 30);
+  await page.mouse.click(leftHand[1][0], leftHand[1][1]);
+  await page.keyboard.press('c');
+  await page.keyboard.press('e');
+  assert.equal(
+    await page.evaluate(() => $('abc').value.split('V:LH clef=bass\n')[1].trim()),
+    'z3 | C, E, z | z3 | z3 |]',
+    'Clicking a left-hand rest and typing fills only that staff, in the bass octave'
+  );
+  await page.click('#add-bars');
+  assert.deepEqual(
+    await page.evaluate(() =>
+      Object.values(
+        barLengths(ABCJS.parseOnly($('abc').value)[0]).reduce((n, m) => ({...n, [m.voice]: (n[m.voice] || 0) + 1}), {})
+      )
+    ),
+    [8, 8],
+    '＋ 4 bars adds four bars to both staves'
+  );
+  // At phone width the panel's fields fit without a sideways scroll; Escape closes it and returns focus.
+  await page.setViewportSize({width: 390, height: 844});
+  await page.evaluate(() => (dirty = false));
+  await page.click('#new-score-open');
+  assert.ok(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <= innerWidth + 1 &&
+        [...$('new-score-form').querySelectorAll('input, select, button')].every(el => {
+          const r = el.getBoundingClientRect();
+          return r.left >= 0 && r.right <= innerWidth;
+        })
+    ),
+    'The New score panel fits a phone screen'
+  );
+  await page.keyboard.press('Escape');
+  assert.deepEqual(await page.evaluate(() => [$('new-score-panel').hidden, document.activeElement.id]), [
+    true,
+    'new-score-open'
+  ]);
+  await page.setViewportSize({width: 1280, height: 900});
   // Backup and restore: Back up falls back to a download when no Save As dialog exists; Restore merges a file.
   await page.evaluate(() => {
     dirty = false;
@@ -1957,7 +2037,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
+    'PASS: zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

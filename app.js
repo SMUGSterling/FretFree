@@ -65,6 +65,84 @@ function newScore(bars) {
   $('selection-status').textContent =
     `Blank sheet of ${bars} bars. Click a bar and type A–G, or turn on Draw notes and click the staff; each bar fills from its rest. ＋ 4 bars adds more.`;
 }
+// The New score panel: a template with title, key, time signature, tempo, pickup and bars. templateSource
+// (score-tools.js) writes the ABC; a template with several staves brings its own non-transposing instrument.
+for (const t of SCORE_TEMPLATES) $('new-template').add(new Option(t.name, t.id));
+fillKeySelect($('new-key'));
+for (const o of $('meter').options) if (o.value !== 'none') $('new-meter').add(new Option(o.text, o.value));
+function newScoreChoices() {
+  return {
+    template: $('new-template').value,
+    title: $('new-title').value.trim(),
+    key: $('new-key').value,
+    meter: $('new-meter').value,
+    tempo: Math.max(40, Math.min(200, Math.round(+$('new-tempo').value) || 100)),
+    bars: Math.max(1, Math.min(64, Math.round(+$('new-bars').value) || DEFAULT_BARS)),
+    pickup: +$('new-pickup').value || 0
+  };
+}
+// Pickups longer than the meter allows are greyed out (2/4 and 6/8 take one beat at most).
+function refreshNewScore() {
+  const meter = templateMeter($('new-meter').value);
+  for (const o of $('new-pickup').options) o.disabled = +o.value > meter.pickups;
+  if ($('new-pickup').selectedOptions[0]?.disabled) $('new-pickup').value = '0';
+  const c = newScoreChoices(),
+    t = SCORE_TEMPLATES.find(x => x.id === c.template) || SCORE_TEMPLATES[0],
+    beats = c.pickup === 1 ? '1-beat pickup' : `${c.pickup}-beat pickup`;
+  $('new-score-summary').textContent =
+    `${t.name}: ${t.words}. ${c.pickup ? `A ${beats}, then ` : ''}${c.bars} ${c.bars === 1 ? 'bar' : 'bars'} of ` +
+    `${c.meter} in ${keyLabel(c.key)} at ${c.tempo} BPM.`;
+}
+function toggleNewScore(open) {
+  $('new-score-panel').hidden = !open;
+  $('new-score-open').setAttribute('aria-expanded', open);
+  if (open) {
+    togglePrompts(false);
+    if (typeof toggleAssignmentBuilder === 'function') toggleAssignmentBuilder(false);
+    refreshNewScore();
+    $('new-score-panel').scrollIntoView({block: 'nearest', behavior: 'smooth'});
+    $('new-title').focus({preventScroll: true});
+  }
+}
+// Opens the new score with its first rest selected and the score focused, so letters write straight away.
+function createScore(choices = newScoreChoices()) {
+  const t = SCORE_TEMPLATES.find(x => x.id === choices.template) || SCORE_TEMPLATES[0],
+    abc = templateSource(choices);
+  if (!allowReplace()) return false;
+  dirty = false;
+  openScore({
+    title: abc.match(/^T:(.*)$/m)[1],
+    composer: '',
+    kind: 'personal',
+    abc,
+    instrument: t.instrument || currentInstrument()
+  });
+  toggleNewScore(false);
+  $('new-title').value = '';
+  const first = scoreNotes()[0];
+  if (first) selectEntry(first);
+  focusScore();
+  const staves = t.staves.length > 1 ? `, ${t.staves.length} staves` : '';
+  $('selection-status').textContent =
+    `New score from the ${t.name} template${staves}. The first rest is selected: type A–G to write over it, or click a rest on any staff. ＋ 4 bars adds bars to every staff.`;
+  return true;
+}
+$('new-score-open').onclick = () => toggleNewScore($('new-score-panel').hidden);
+$('close-new-score').onclick = () => {
+  toggleNewScore(false);
+  $('new-score-open').focus();
+};
+$('new-score-panel').addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  e.stopPropagation();
+  toggleNewScore(false);
+  $('new-score-open').focus();
+});
+$('new-score-form').addEventListener('input', refreshNewScore);
+$('new-score-form').onsubmit = e => {
+  e.preventDefault();
+  createScore();
+};
 for (const name of Object.keys(instruments)) $('instrument').add(new Option(name, name));
 fillKeySelect($('key'));
 fillKeySelect($('transpose-key'));
@@ -83,7 +161,16 @@ document.querySelectorAll('.brand').forEach(
     })
 );
 $('browse').onclick = () => $('library-top').scrollIntoView({behavior: 'smooth'});
-$('start-writing').onclick = $('new-score').onclick = $('saved-new').onclick = newScore;
+// The quick start stays one click: a blank 8-bar melody, whatever the New score panel is set to.
+$('start-writing').onclick = $('new-score').onclick = () => {
+  toggleNewScore(false);
+  newScore(DEFAULT_BARS);
+};
+// My scores' ＋ New score opens the same setup panel as the studio's.
+$('saved-new').onclick = () => {
+  show('studio');
+  toggleNewScore(true);
+};
 for (const id of [
   'search',
   'level-filter',

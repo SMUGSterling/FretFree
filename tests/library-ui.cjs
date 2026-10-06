@@ -179,8 +179,12 @@ assert.ok(
   run('selectedRange && selectedRange[0] === $("abc").value.indexOf("z4")'),
   'The first bar is selected, ready for typing'
 );
+// The quick start ignores the New score panel's Bars box; the panel's Melody template with 3 bars is the same sheet.
+const submitNewScore = () => $('new-score-form').dispatchEvent(new w.Event('submit', {cancelable: true}));
 $('new-bars').value = '3';
 $('new-score').click();
+assert.equal(run('scoreNotes().length'), 8, 'Blank melody is always eight bars');
+submitNewScore();
 assert.equal($('abc').value.trim().split('\n').pop(), 'z4 | z4 | z4 |]', 'Bars box sets the sheet length');
 $('add-bars').click();
 assert.equal(
@@ -193,7 +197,7 @@ assert.equal(
 {
   const pressed = () =>
     [...w.document.querySelectorAll('#palette [aria-pressed="true"]')].map(b => b.dataset.palette).join(' ');
-  $('new-score').click();
+  submitNewScore();
   assert.equal(pressed(), 'len:1', 'The selected whole-bar rest shows Whole');
   w.document.querySelector('[data-palette="len:0.5"]').click();
   assert.equal($('abc').value.trim().split('\n').pop(), 'z4 | z4 | z4 |]', 'A length button leaves the rest alone');
@@ -225,6 +229,141 @@ assert.ok(run('selectedRange[0] === 7 && selectedRange[1] === 9'), 'Cancelled ne
 assert.equal($('selection-status').textContent, 'before', 'Cancelled new score keeps the status line');
 run('dirty = false');
 $('new-bars').value = '8';
+// New score panel: a template with title, key, meter, tempo, pickup and bars. SATB has four named staves.
+{
+  const choose = (id, value) => {
+    $(id).value = value;
+    $(id).dispatchEvent(new w.Event('input', {bubbles: true}));
+  };
+  $('new-score-open').click();
+  assert.equal($('new-score-panel').hidden, false);
+  assert.equal($('new-score-open').getAttribute('aria-expanded'), 'true');
+  assert.equal(w.document.activeElement, $('new-title'), 'The panel opens on its first field');
+  assert.deepEqual(
+    [...$('new-template').options].map(o => o.text),
+    ['Melody', 'Lead sheet', 'Piano', 'Duet', 'Melody and bass', 'SATB choir', 'String quartet']
+  );
+  assert.ok(![...$('new-meter').options].some(o => o.value === 'none'), 'No free time for a sheet of bars');
+  choose('new-meter', '2/4');
+  assert.deepEqual(
+    [...$('new-pickup').options].map(o => o.disabled),
+    [false, false, true, true],
+    'A 2/4 pickup is one beat at most'
+  );
+  choose('new-pickup', '1');
+  choose('new-meter', '6/8');
+  assert.equal($('new-pickup').value, '1', 'One dotted-quarter beat fits 6/8');
+  choose('new-meter', '3/4');
+  choose('new-pickup', '2');
+  choose('new-meter', '2/2');
+  assert.equal($('new-pickup').value, '0', 'A pickup too long for the new meter is dropped');
+  $('new-title').value = 'Evening <hymn>';
+  choose('new-template', 'satb');
+  choose('new-key', 'F');
+  choose('new-meter', '3/4');
+  choose('new-pickup', '1');
+  choose('new-tempo', '72');
+  choose('new-bars', '6');
+  assert.equal(
+    $('new-score-summary').textContent,
+    'SATB choir: soprano, alto, tenor and bass staves. A 1-beat pickup, then 6 bars of 3/4 in F major (1♭) at 72 BPM.'
+  );
+  // Opening the writing prompts closes the panel, and the panel closes them.
+  $('open-prompts').click();
+  assert.equal($('new-score-panel').hidden, true);
+  $('new-score-open').click();
+  assert.equal($('prompt-picker').hidden, true);
+  submitNewScore();
+  assert.equal($('new-score-panel').hidden, true, 'Creating closes the panel');
+  assert.equal($('new-score-open').getAttribute('aria-expanded'), 'false');
+  const tune = w.ABCJS.parseOnly($('abc').value)[0];
+  assert.ok(!tune.warnings?.length, 'The SATB score parses cleanly');
+  assert.deepEqual(
+    [...tune.lines[0].staff.map(st => st.title?.[0])],
+    ['Soprano', 'Alto', 'Tenor', 'Bass'],
+    'Four named staves'
+  );
+  assert.deepEqual([...tune.lines[0].staff.map(st => st.clef.type)], ['treble', 'treble', 'treble-8', 'bass']);
+  assert.equal($('title').value, 'Evening <hymn>');
+  assert.equal($('meter').value, '3/4');
+  assert.equal($('key').value, 'F');
+  assert.equal($('bpm').value, '72');
+  assert.equal($('instrument').value, 'Piano', 'A choir plays on the piano sound, at concert pitch');
+  assert.equal($('bar-check').textContent.includes('Every bar'), true, 'The pickup passes the bar check');
+  assert.ok(
+    run('selectedRange && $("abc").value.slice(...selectedRange).trim() === "z"'),
+    'The soprano pickup rest is selected'
+  );
+  assert.match($('selection-status').textContent, /SATB choir template, 4 staves/);
+  assert.equal($('score-caption').textContent, 'Piano · 4 staves · Concert pitch.');
+  assert.equal($('new-title').value, '', 'The next new score starts with a fresh title');
+  // ＋ 4 bars on a piano score adds four bars to both staves in one undo step; typing on a left-hand rest fills
+  // only that staff; with nothing selected, letters go to the top staff.
+  $('new-score-open').click();
+  choose('new-template', 'piano');
+  choose('new-key', 'C');
+  choose('new-meter', '4/4');
+  choose('new-pickup', '0');
+  choose('new-bars', '4');
+  submitNewScore();
+  assert.equal($('title').value, 'Untitled');
+  const staffBars = () =>
+    [...run('barLengths(ABCJS.parseOnly($("abc").value)[0])')].reduce(
+      (n, m) => ({...n, [m.voice]: (n[m.voice] || 0) + 1}),
+      {}
+    );
+  assert.deepEqual(staffBars(), {'0:0': 4, '1:0': 4});
+  const before = $('abc').value;
+  $('add-bars').click();
+  assert.deepEqual(staffBars(), {'0:0': 8, '1:0': 8}, 'Both staves grow');
+  assert.equal(run('barProblems(ABCJS.parseOnly($("abc").value)[0]).length'), 0);
+  assert.match($('selection-status').textContent, /every staff/);
+  $('undo').click();
+  assert.equal($('abc').value, before, 'One undo takes the bars off both staves');
+  const lh = run('scoreNotes().filter(n => voiceOf(n) === "1:0")[1]');
+  run(`selectEntry(scoreNotes().find(n => n.element.startChar === ${lh.element.startChar}))`);
+  run("scoreKey({key:'c'}); scoreKey({key:'e'})");
+  assert.equal(
+    $('abc').value.split('V:LH clef=bass\n')[1].trim(),
+    'z4 | C, E, z2 | z4 | z4 |]',
+    'Typing on a left-hand rest fills that staff, in the bass octave'
+  );
+  assert.ok($('abc').value.includes('V:RH clef=treble name="Piano" snm="Pno."\nz4 | z4 | z4 | z4 |]'));
+  run('selectedRange = null; selectionAnchor = null');
+  run("scoreKey({key:'g'})");
+  assert.ok(
+    $('abc').value.includes('V:RH clef=treble name="Piano" snm="Pno."\nz4 | z4 | z4 | z4 G |]'),
+    'With nothing selected a letter goes to the end of the top staff'
+  );
+  // A lead sheet starts its chord line with the tonic chord, which stays when a note is written over the rest.
+  run('dirty = false');
+  $('new-score-open').click();
+  choose('new-template', 'lead');
+  choose('new-key', 'Am');
+  choose('new-bars', '2');
+  submitNewScore();
+  assert.equal($('abc').value.trim().split('\n').pop(), '"Am"z4 | z4 |]');
+  run("scoreKey({key:'a'})");
+  assert.equal($('abc').value.trim().split('\n').pop(), '"Am"A z3 | z4 |]', 'The chord symbol stays on the beat');
+  // Escape closes the panel and returns focus to its button; a cancelled replace keeps the panel and the score.
+  $('new-score-open').click();
+  $('new-score-panel').dispatchEvent(new w.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+  assert.equal($('new-score-panel').hidden, true);
+  assert.equal(w.document.activeElement, $('new-score-open'));
+  $('new-score-open').click();
+  w.confirm = () => false;
+  submitNewScore();
+  w.confirm = () => true;
+  assert.equal($('new-score-panel').hidden, false, 'A cancelled replace leaves the panel open');
+  assert.ok($('abc').value.includes('"Am"A z3'), 'and the score as it was');
+  $('close-new-score').click();
+  assert.equal($('new-score-panel').hidden, true);
+  run('dirty = false');
+  $('new-score').click();
+  choose('new-template', 'melody');
+  choose('new-key', 'C');
+  choose('new-bars', '8');
+}
 
 // Backup and restore: the file holds everything on the device; restoring merges, newer copy wins, nothing deleted.
 {
@@ -812,7 +951,7 @@ assert.equal(
     assert.equal(page.run('current.kind'), 'shared', 'Discard leaves the open score alone');
   }
   console.log(
-    'PASS (jsdom): unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors and zoom), blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
+    'PASS (jsdom): unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors and zoom), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
   );
 })().catch(e => {
   console.error(e);
