@@ -77,6 +77,9 @@ function paletteBlocked(action, state) {
     return state.tuplet === +action.slice(7) ? '' : tupletPlan(+action.slice(7), state.sel).why || '';
   if (action.startsWith('grace')) return gracePlan(action, state.sel).why || '';
   if (state.multiRest && action === 'dot') return 'A multi-measure rest cannot be dotted.';
+  // Under Keep bars full, Delete leaves a rest as it is (Shift+Delete or Remove in the note menu takes it out).
+  if (state.isRest && action === 'delete' && !state.tuplet && keepBars())
+    return 'A rest keeps the bar full. Shift+Delete removes it.';
   if (state.isRest && !['dot', 'delete'].includes(action))
     return action === 'to-rest' ? 'This is already a rest.' : 'Rests have no accidental, tie or beam.';
   if (action.startsWith('beam:')) {
@@ -186,6 +189,7 @@ function pressPalette(b, keyboard = false) {
   }
   const state = paletteState(),
     blocked = paletteBlocked(action, state);
+  fitNote = null;
   // The chord box takes the keyboard; it hands it back to this button after a keyboard press, else to the score.
   if (action === 'chord' && !blocked) {
     openChordEntry(state.sel, keyboard ? b : null);
@@ -215,16 +219,19 @@ function pressPalette(b, keyboard = false) {
       $('selection-status').textContent = markRange(state.picked, action);
     else if (state.picked && rangePalette(action, state.picked)) {
       if (action !== 'delete')
-        $('selection-status').textContent =
-          $('abc').value === before ? 'No change.' : `Changed ${countWords(state.picked.filter(pitched).length)}.`;
+        $('selection-status').textContent = fitSaid(
+          $('abc').value === before ? 'No change.' : `Changed ${countWords(state.picked.filter(pitched).length)}.`
+        );
     } else {
       editNote(state.sel.entry, state.sel.display, action);
-      $('selection-status').textContent =
+      // Keep bars full adds to the message or replaces it (see fitNote).
+      $('selection-status').textContent = fitSaid(
         $('abc').value === before
           ? 'No change.'
           : toggled[action] ||
-            PALETTE_DONE[action] ||
-            (/^(deco|dyn):/.test(action) ? markDone(action, state.marks) : '');
+              PALETTE_DONE[action] ||
+              (/^(deco|dyn):/.test(action) ? markDone(action, state.marks) : '')
+      );
     }
   }
   paletteMessage = {text: $('selection-status').textContent, at: selectedRange?.[0] ?? null};

@@ -3748,13 +3748,79 @@ async function musicXMLImportFiles() {
   );
   assert.equal([0.4, 9.6, 65.4, 600].map(context.clockText).join(), '0:00,0:10,1:05,10:00');
 }
+// Keep bars full: fitLength shortens with rests on the beat, lengthens into the rests after the note (moving the notes
+// between), refuses when there is no room and leaves tuplets, dotted pairs and multi-measure rests alone.
+{
+  const fit = (body, measure, index, length, head = 'M:4/4\nL:1/4', slack = 0) => {
+    const abc = `X:1\n${head}\nK:C\n${body}`,
+      tune = ABCJS.parseOnly(abc)[0],
+      bar = context.barLengths(tune).find(m => m.measure === measure && m.voice === '0:0'),
+      r = context.fitLength(abc, bar, index, length, context.unitLengthIn(abc, bar.notes[0].element.startChar), slack);
+    if (r.why) return r.why + (r.why === 'room' ? ' ' + r.room : '');
+    const out = context.spliceAll(abc, r.edits),
+      after = ABCJS.parseOnly(out)[0];
+    assert.deepEqual(after.warnings || [], [], `${body}: no warnings`);
+    const problems = m => `${m.voice} ${m.measure}`;
+    assert.deepEqual(
+      context.barProblems(after).map(problems),
+      context.barProblems(tune).map(problems),
+      `${body}: the bar check is as it was`
+    );
+    return out.slice(abc.length - body.length);
+  };
+  assert.equal(fit('C2 z2 | z4 |]', 1, 0, 1 / 4), 'C z z2 | z4 |]', 'A half note made a quarter leaves C z');
+  assert.equal(fit('C4 | z4 |]', 1, 0, 1 / 16), 'C/4 z/4 z/2 z z2 | z4 |]', 'Rests fill to the beat, then to the half');
+  assert.equal(fit('C3 z | z4 |]', 1, 0, 1 / 2), 'C2 z2 | z4 |]', 'Merged with the rest after it');
+  assert.equal(fit('C2 z2 | z4 |]', 1, 0, 3 / 4), 'C3 z | z4 |]', 'A dot takes part of the rest');
+  assert.equal(fit('C2 z2 | z4 |]', 1, 0, 1), 'C4 | z4 |]', 'A whole note takes all of it');
+  assert.equal(fit('C D z2 | z4 |]', 1, 0, 1 / 2), 'C2 D z | z4 |]', 'The note between moves later');
+  assert.equal(fit('C2 z/2 z z/2 | z4 |]', 1, 0, 3 / 4), 'C3 z/2 z/2 | z4 |]', 'Nearest rests first');
+  assert.equal(fit('C/2D/2 z3 | z4 |]', 1, 0, 1 / 4), 'CD/2 z/2 z2 | z4 |]', 'What is left is written on the beat');
+  assert.equal(fit('C2 z2 | z4 |]', 1, 0, 5 / 4), 'room 0.5', 'No room past the bar line');
+  assert.equal(fit('C D E F | z4 |]', 1, 0, 1 / 2), 'room 0', 'No rests, no room');
+  assert.equal(fit('C D "G"z2 | z4 |]', 1, 0, 1 / 2), 'room 0', 'A rest with a chord symbol keeps its place');
+  assert.equal(fit('C2- C2 | z4 |]', 1, 0, 1 / 4), 'C z C2 | z4 |]', 'A rest between ends the tie');
+  assert.equal(
+    fit('[CE]2 z2\\\n| z4 |]', 1, 0, 1 / 4),
+    '[CE] z z2\\\n| z4 |]',
+    'A chord, and the line continuation stays'
+  );
+  assert.equal(fit('C2 z2\\\n| z4 |]', 1, 0, 1), 'C4 \\\n| z4 |]');
+  assert.equal(fit('z | C2 z2 |]', 2, 0, 1 / 4), 'z | C z z2 |]', 'After a pickup');
+  assert.equal(fit('C | D2 z2 |]', 1, 0, 1 / 2), 'room 0', 'A pickup stays a pickup');
+  assert.equal(fit('C D E F G | z4 |]', 1, 0, 1 / 8), 'C/2 D E F G | z4 |]', 'An overfull bar first loses its extra');
+  assert.equal(fit('C D E | z4 |]', 1, 0, 1 / 2, 'M:4/4\nL:1/4', 1 / 4), 'C2 D E | z4 |]', 'A short bar has slack');
+  assert.equal(fit('C6 | z6 |]', 1, 0, 1 / 8, 'M:6/8\nL:1/8'), 'C z z z3 | z6 |]', 'Dotted-quarter beats in 6/8');
+  assert.equal(fit('C3 z3 | z6 |]', 1, 0, 1 / 4, 'M:6/8\nL:1/8'), 'C2 z z3 | z6 |]');
+  assert.equal(fit('(3CDE z2 | z4 |]', 1, 0, 1 / 2), 'tuplet');
+  assert.equal(fit('C>D z2 | z4 |]', 1, 1, 1 / 4), 'broken');
+  assert.deepEqual(
+    [
+      [0, 3 / 4],
+      [1 / 4, 3 / 4],
+      [1 / 8, 7 / 8],
+      [0, 3 / 4, {den: 8, length: 3 / 4}],
+      [1 / 8, 5 / 8, {den: 8, length: 3 / 4}]
+    ].map(([from, length, meter = {den: 4, length: 1}]) => context.restValues(from, length, meter).join()),
+    ['0.5,0.25', '0.25,0.5', '0.125,0.25,0.5', '0.75', '0.125,0.125,0.375']
+  );
+  // A range: every bar it touches keeps its length; the rests go after the last changed note of each bar.
+  {
+    const abc = 'X:1\nM:3/4\nL:1/4\nK:C\nC D E | F G A |]',
+      tune = ABCJS.parseOnly(abc)[0],
+      [one] = context.barLengths(tune),
+      r = context.fitBar(abc, one, [1 / 8, 1 / 8, null], 1 / 4);
+    assert.equal(context.spliceAll(abc, r.edits).split('\n').pop(), 'C/2 D/2 z E | F G A |]');
+    assert.equal(r.added, 1 / 4);
+  }
+}
 musicXMLImportFiles()
   .then(offlineWorker)
   .then(() =>
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), road-map playback (marks from decorations and text, the order of play through D.C., D.S., Fine, coda signs and To Coda, repeats after a jump, a fermata over a double bar line ending a D.C., multi-measure rests counted in bars, fermata holds, notes and timing events in the order of play, library tunes that follow their road map), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, key and time changes at line starts, voices after &, typing keys, every note of the lieder with line-start changes), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files), recording takes (offsets, calibration from recorded clicks, lining a take up within 50 ms, refusing noise and silence, file names) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, keeping bars full (rests on the beat for a shorter note, a longer one taking the rests after it or refused, tuplets and dotted pairs left alone), screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), road-map playback (marks from decorations and text, the order of play through D.C., D.S., Fine, coda signs and To Coda, repeats after a jump, a fermata over a double bar line ending a D.C., multi-measure rests counted in bars, fermata holds, notes and timing events in the order of play, library tunes that follow their road map), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, key and time changes at line starts, voices after &, typing keys, every note of the lieder with line-start changes), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files), recording takes (offsets, calibration from recorded clicks, lining a take up within 50 ms, refusing noise and silence, file names) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {

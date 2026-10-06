@@ -12,34 +12,34 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-    <script src="theme.js?v=a1c0bdc05a60"></script>
-    <link rel="stylesheet" href="style.css?v=a1c0bdc05a60" />
-    <script defer src="vendor/abcjs-basic-min.js?v=a1c0bdc05a60"></script>
-    <script defer src="vendor/qrcode.js?v=a1c0bdc05a60"></script>
-    <script defer src="catalog.js?v=a1c0bdc05a60"></script>
-    <script defer src="catalog-expanded.js?v=a1c0bdc05a60"></script>
-    <script defer src="score-tools.js?v=a1c0bdc05a60"></script>
-    <script defer src="rights-tools.js?v=a1c0bdc05a60"></script>
-    <script defer src="musicxml.js?v=a1c0bdc05a60"></script>
-    <script defer src="catalog-licensed.js?v=a1c0bdc05a60"></script>
-    <script defer src="catalog-lieder.js?v=a1c0bdc05a60"></script>
-    <script defer src="catalog-quartets.js?v=a1c0bdc05a60"></script>
-    <script defer src="catalog-pgh.js?v=a1c0bdc05a60"></script>
-    <script defer src="catalog-skills.js?v=a1c0bdc05a60"></script>
-    <script defer src="prompts.js?v=a1c0bdc05a60"></script>
-    <script defer src="shared.js?v=a1c0bdc05a60"></script>
-    <script defer src="library.js?v=a1c0bdc05a60"></script>
-    <script defer src="backup.js?v=a1c0bdc05a60"></script>
-    <script defer src="editor.js?v=a1c0bdc05a60"></script>
-    <script defer src="measure-tools.js?v=a1c0bdc05a60"></script>
-    <script defer src="palette.js?v=a1c0bdc05a60"></script>
-    <script defer src="shortcuts.js?v=a1c0bdc05a60"></script>
-    <script defer src="playback.js?v=a1c0bdc05a60"></script>
-    <script defer src="keyboard.js?v=a1c0bdc05a60"></script>
-    <script defer src="assignments.js?v=a1c0bdc05a60"></script>
-    <script defer src="turn-in.js?v=a1c0bdc05a60"></script>
-    <script defer src="record.js?v=a1c0bdc05a60"></script>
-    <script defer src="app.js?v=a1c0bdc05a60"></script>
+    <script src="theme.js?v=69b31e176b11"></script>
+    <link rel="stylesheet" href="style.css?v=69b31e176b11" />
+    <script defer src="vendor/abcjs-basic-min.js?v=69b31e176b11"></script>
+    <script defer src="vendor/qrcode.js?v=69b31e176b11"></script>
+    <script defer src="catalog.js?v=69b31e176b11"></script>
+    <script defer src="catalog-expanded.js?v=69b31e176b11"></script>
+    <script defer src="score-tools.js?v=69b31e176b11"></script>
+    <script defer src="rights-tools.js?v=69b31e176b11"></script>
+    <script defer src="musicxml.js?v=69b31e176b11"></script>
+    <script defer src="catalog-licensed.js?v=69b31e176b11"></script>
+    <script defer src="catalog-lieder.js?v=69b31e176b11"></script>
+    <script defer src="catalog-quartets.js?v=69b31e176b11"></script>
+    <script defer src="catalog-pgh.js?v=69b31e176b11"></script>
+    <script defer src="catalog-skills.js?v=69b31e176b11"></script>
+    <script defer src="prompts.js?v=69b31e176b11"></script>
+    <script defer src="shared.js?v=69b31e176b11"></script>
+    <script defer src="library.js?v=69b31e176b11"></script>
+    <script defer src="backup.js?v=69b31e176b11"></script>
+    <script defer src="editor.js?v=69b31e176b11"></script>
+    <script defer src="measure-tools.js?v=69b31e176b11"></script>
+    <script defer src="palette.js?v=69b31e176b11"></script>
+    <script defer src="shortcuts.js?v=69b31e176b11"></script>
+    <script defer src="playback.js?v=69b31e176b11"></script>
+    <script defer src="keyboard.js?v=69b31e176b11"></script>
+    <script defer src="assignments.js?v=69b31e176b11"></script>
+    <script defer src="turn-in.js?v=69b31e176b11"></script>
+    <script defer src="record.js?v=69b31e176b11"></script>
+    <script defer src="app.js?v=69b31e176b11"></script>
   </head>
   <body>
     <header>
@@ -569,6 +569,10 @@
               ><button id="draw-mode" aria-pressed="false" title="Click the staff to add notes">✎ Draw notes</button
               ><label class="inline view-option" title="Play each note as you enter, select or move it"
                 ><input type="checkbox" id="audition" checked /> Hear notes</label
+              ><label
+                class="inline view-option"
+                title="Shorter notes leave rests, longer notes use the rests after them, and Delete leaves a rest"
+                ><input type="checkbox" id="keep-bars" /> Keep bars full</label
               >
             </div>
             <section id="record-panel" class="share-panel record-panel" aria-labelledby="record-heading" hidden>
@@ -617,7 +621,7 @@
               double-click it) · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> or Shift+click select more ·
               <kbd>Ctrl</kbd>+<kbd>A</kbd> all · <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd> <kbd>V</kbd> copy, cut, paste
               · <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>[</kbd> <kbd>]</kbd> halve, double lengths ·
-              <kbd>L</kbd> lyrics ·
+              <kbd>L</kbd> lyrics · <kbd>Shift</kbd>+<kbd>Delete</kbd> remove without leaving a rest ·
               <button
                 id="shortcuts-open"
                 class="shortcuts-open"
@@ -1376,7 +1380,9 @@
           in noteheads help beginners read, and both print. Theme in the header switches to a dark theme, or follows
           your device; the score stays black on white unless you tick Dark paper, and prints stay black on white. WAV
           makes an audio file of the score as playback sounds it, made on your device, to hand in or to practice along
-          with. Press L on a note to type lyrics under it, a syllable at a time, with more verses below.
+          with. Press L on a note to type lyrics under it, a syllable at a time, with more verses below. On new scores,
+          Keep bars full leaves a rest when a note gets shorter or is deleted, and lets a note grow only into the rests
+          after it, so every bar keeps its beats.
         </p>
         <h2>Privacy and school access</h2>
         <p>

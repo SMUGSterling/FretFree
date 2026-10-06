@@ -1347,6 +1347,18 @@ function tupletItemsHTML(entry) {
           : ''))
   );
 }
+// Delete in the note menu. Under Keep bars full, Delete changes a note to a rest and Remove takes it out.
+function deleteItemsHTML(isRest) {
+  const what = isRest ? 'rest' : 'note';
+  if (!keepBars())
+    return `<button role="menuitem" class="danger" aria-keyshortcuts="Delete" data-edit="delete">Delete ${what}</button>`;
+  return (
+    (isRest
+      ? ''
+      : '<button role="menuitem" aria-keyshortcuts="Delete" data-edit="delete">Delete note (leave a rest)</button>') +
+    `<button role="menuitem" class="danger" aria-keyshortcuts="Shift+Delete" data-edit="remove">Remove ${what}</button>`
+  );
+}
 function openNoteMenu(entry, display, x, y) {
   menuEntry = {entry, display, written: renderedWritten};
   const isRest = !entry.element.pitches?.length,
@@ -1382,7 +1394,7 @@ function openNoteMenu(entry, display, x, y) {
     `<button role="menuitem" data-edit="chord" aria-keyshortcuts="K" title="Chord symbol (K)">Chord symbol${chord ? ': ' + esc(chord) : ''}…</button>` +
     `<button role="menuitem" data-edit="lyric" aria-keyshortcuts="L" title="Lyrics (L)">Lyrics${lyric ? ': ' + esc(lyric) : ''}…</button>` +
     `<div class="menu-row"><button role="menuitem" data-edit="play-from">▶ Play from here</button><button role="menuitem" data-edit="range-from">🔁 Practice from here</button></div>` +
-    `<div class="menu-label">INSERT AFTER</div><div class="menu-row"><button role="menuitem" data-edit="rest-after">𝄽 Rest</button><button role="menuitem" data-edit="bar-after">| Bar line</button></div><hr><button role="menuitem" class="danger" data-edit="delete">Delete ${isRest ? 'rest' : 'note'}</button>`;
+    `<div class="menu-label">INSERT AFTER</div><div class="menu-row"><button role="menuitem" data-edit="rest-after">𝄽 Rest</button><button role="menuitem" data-edit="bar-after">| Bar line</button></div><hr>${deleteItemsHTML(isRest)}`;
   const menu = $('note-menu');
   menu.hidden = false;
   menu.style.left = Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8)) + 'px';
@@ -2204,6 +2216,7 @@ function editNote(entry, display, action) {
     start = entry.element.startChar,
     end = entry.element.endChar,
     old = v.slice(start, end);
+  fitNote = null;
   if (/^(deco|dyn):/.test(action)) {
     // deco toggles an articulation or ornament; dyn sets a dynamic, and the note's own dynamic (or none) removes it.
     const [kind, name] = action.split(':'),
@@ -2242,6 +2255,17 @@ function editNote(entry, display, action) {
     tupletSelected(+action.slice(7), {entry, display});
     return;
   }
+  // Under Keep bars full, Delete changes a note to a rest (clear) and leaves a rest as it is; remove (Shift+Delete)
+  // takes either out. Without it, both remove. In a tuplet both work as Delete always has (see tupletDelete).
+  if (action === 'remove') action = 'delete';
+  else if (action === 'delete' && keepBars() && !tupletGroup(entry)) {
+    if (!entry.element.pitches?.length) {
+      fitNote = {say: 'A rest keeps the bar full. Shift+Delete removes it.'};
+      $('selection-status').textContent = fitNote.say;
+      return;
+    }
+    action = 'clear';
+  }
   if (action === 'delete' && tupletGroup(entry)) {
     $('selection-status').textContent = tupletDelete({entry, display});
     return;
@@ -2273,22 +2297,39 @@ function editNote(entry, display, action) {
     return;
   }
   const newLength = action.startsWith('len:') ? +action.slice(4) : null;
-  if (!(newLength > 0) && !['dot', 'delete', 'to-rest'].includes(action)) return;
+  if (!(newLength > 0) && !['dot', 'delete', 'to-rest', 'clear'].includes(action)) return;
   if (action === 'to-rest' && !entry.element.pitches?.length) return;
   const unit = unitLength(),
     len = entry.element.duration || 0,
     dotted = DOTTABLE.some(x => Math.abs(len - x * 1.5) < 1e-9);
+  if (keepBars() && (newLength > 0 || action === 'dot')) {
+    const fit = fitLengths([entry], () => (action === 'dot' ? (dotted ? len / 1.5 : len * 1.5) : newLength));
+    if (fit) {
+      fitNote = fit;
+      if (!fit.extra) $('selection-status').textContent = fit.say;
+      else if (fit.say) $('selection-status').textContent += ' ' + fit.say;
+      return;
+    }
+  }
+  // A cleared note becomes a rest as Cut leaves one: chord symbols, slurs and tuplet marks stay, other marks go.
   const change = t =>
     action === 'delete'
       ? ''
       : action === 'to-rest'
         ? editNoteText(t, {rest: true})
-        : editNoteText(t, {length: (action === 'dot' ? (dotted ? len / 1.5 : len * 1.5) : newLength) / unit});
+        : action === 'clear'
+          ? restText(t)
+          : editNoteText(t, {length: (action === 'dot' ? (dotted ? len / 1.5 : len * 1.5) : newLength) / unit});
+  const cleared = () => {
+    if (action !== 'clear') return;
+    fitNote = {say: 'Changed to a rest, so the bar stays full. Shift+Delete removes a note without one.'};
+    $('selection-status').textContent = fitNote.say;
+  };
   // Nothing can be tied to a rest, so a note that becomes one also takes the tie off the note before it in its voice,
   // in the same edit (one undo step).
   const voice = e => e.key.replace(/:\d+$/, ''),
     tiedFrom =
-      action === 'to-rest' &&
+      (action === 'to-rest' || action === 'clear') &&
       scoreNotes()
         .filter(n => voice(n) === voice(entry) && n.element.startChar < start)
         .pop()?.element,
@@ -2317,6 +2358,7 @@ function editNote(entry, display, action) {
         prev ? [prev.element.startChar, prev.element.endChar] : null
       );
     else edit(start, end, change(old));
+    cleared();
     return;
   }
   // Spell the broken-rhythm pair out with explicit lengths so the neighbour keeps its duration.
@@ -2335,6 +2377,7 @@ function editNote(entry, display, action) {
   const spaced = second || !first ? text : text.replace(/\s*$/, ' ');
   if (action === 'delete') applyNoteEdit(a.element.startChar, c.element.endChar, spaced, null);
   else edit(a.element.startChar, c.element.endChar, spaced);
+  cleared();
 }
 $('note-menu').addEventListener('click', e => {
   const b = e.target.closest('[data-edit]'),
@@ -2628,17 +2671,19 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength(), keep = false
 // With a range selection, every note in it takes the length (rests keep theirs).
 function chooseLength(value, sel = selectedNote()) {
   inputLength = value;
+  fitNote = null;
   const name = (NOTE_VALUES[value] || 'that length').replace(/^an? /, ''),
     picked = selectedNotes();
   if (picked.length > 1) {
     const before = $('abc').value;
     setLengths(picked, n => (pitched(n) ? value : null));
-    $('selection-status').textContent = ($('abc').value === before ? 'Already ' : 'Changed to ') + name + 's.';
+    $('selection-status').textContent = fitSaid(($('abc').value === before ? 'Already ' : 'Changed to ') + name + 's.');
   } else if (sel && sel.entry.element.pitches?.length) {
     const before = $('abc').value;
     editNote(sel.entry, sel.display, 'len:' + value);
-    $('selection-status').textContent =
-      ($('abc').value === before ? 'Already ' : 'Changed to ') + (NOTE_VALUES[value] || 'that length') + '.';
+    $('selection-status').textContent = fitSaid(
+      ($('abc').value === before ? 'Already ' : 'Changed to ') + (NOTE_VALUES[value] || 'that length') + '.'
+    );
   } else {
     // Letters write over a selected rest, but go after a multi-measure rest (Z). A rest in a tuplet is filled at its
     // own length, so the new length is for notes after the tuplet.
@@ -2763,7 +2808,7 @@ function scoreKey(e) {
     return true;
   }
   if (key === 'Delete' || key === 'Backspace') {
-    editNote(sel.entry, sel.display, 'delete');
+    editNote(sel.entry, sel.display, e.shiftKey ? 'remove' : 'delete');
     return true;
   }
   if (MARK_KEYS[key]) {
@@ -3041,9 +3086,130 @@ function editNotes(entries, change, picked = entries, hear = null) {
   );
 }
 const pitched = n => !!n.element.pitches?.length;
+// Keep bars full (Noteflight's duration rules): a note that gets shorter leaves rests for the difference, one that
+// gets longer takes its time from the rests after it in its bar or is refused, and Delete leaves a rest (Shift+Delete
+// removes the note). It is on for scores written here (blank sheets, templates, writing prompts and assignments) and
+// off for library editions and imported or shared music; a saved score or a draft keeps the setting it had (fit).
+const keepBars = () => $('keep-bars')?.checked === true,
+  keepBarsFor = item => item?.fit ?? (!item?.rights && !!item?.prompt);
+// What the last length change or Delete said under Keep bars full: {say, extra}, where extra means say follows the
+// usual message ("Changed to a quarter note.") and otherwise replaces it (a refusal). Null when it had nothing to say.
+let fitNote = null;
+const fitSaid = base => (fitNote && !fitNote.extra ? fitNote.say : fitNote?.say ? base + ' ' + fitNote.say : base);
+function fitWhy(r, m, many) {
+  if (r.why === 'tuplet') return 'Notes in a tuplet keep their length while Keep bars full is on.';
+  if (r.why === 'broken')
+    return 'This note is half of a dotted pair (> or <). Turn off Keep bars full to change its length.';
+  if (r.why === 'multi') return 'A multi-measure rest lasts whole bars.';
+  const rest = r.room > 1e-9 ? `only ${beatWords(r.room, m.meter)} of rest` : 'no rest';
+  return (
+    `No room in measure ${m.measure}: there is ${rest} after ${many ? 'these notes' : 'this note'}. ` +
+    'Delete a later note to make room, or turn off Keep bars full.'
+  );
+}
+// Give notes new lengths (lengthOf, whole notes; null keeps a note's own) and keep their bars full, as one undo step
+// that keeps the selection. Returns {say, extra} for fitNote, or null in free time (M:none), where there is no bar to
+// keep and lengths change as usual.
+function fitLengths(picked, lengthOf) {
+  const v = $('abc').value,
+    tune = ABCJS.parseOnly(v)[0],
+    where = new Map(),
+    plans = new Map();
+  for (const m of barLengths(tune)) m.notes.forEach((n, i) => where.set(n.element.startChar, [m, i]));
+  // A bar left short may also give its missing time to a longer note.
+  const short = new Map(
+    barProblems(tune)
+      .filter(m => m.length < m.expected)
+      .map(m => [m.voice + '|' + m.measure, m.expected - m.length])
+  );
+  // In a range, rests keep their length and make room, as the rests after it do.
+  for (const n of picked) {
+    const length = picked.length > 1 && !pitched(n) ? null : lengthOf(n),
+      [m, i] = where.get(n.element.startChar) || [];
+    if (length == null || !m) continue;
+    if (m.meter === 'free') return null;
+    if (!plans.has(m))
+      plans.set(
+        m,
+        m.notes.map(() => null)
+      );
+    plans.get(m)[i] = length;
+  }
+  const edits = [];
+  let added = 0,
+    taken = 0,
+    rests = 0;
+  for (const [m, lengths] of plans) {
+    const r = fitBar(
+      v,
+      m,
+      lengths,
+      unitLengthIn(v, m.notes[0].element.startChar),
+      short.get(m.voice + '|' + m.measure)
+    );
+    if (r.why) return {say: fitWhy(r, m, picked.length > 1)};
+    edits.push(...r.edits);
+    added += r.added;
+    taken += r.taken;
+    rests += r.rests;
+  }
+  if (!edits.length) return {say: '', extra: true};
+  let next;
+  try {
+    next = spliceAll(v, edits);
+  } catch (e) {
+    return {say: e.message};
+  }
+  // Positions move by the edits before them; a rest written right after a note is not part of it.
+  const moved = p =>
+      p +
+      edits.reduce(
+        (sum, e) => sum + (e.end < p || (e.end === p && e.start < p) ? e.text.length - e.end + e.start : 0),
+        0
+      ),
+    head = n => {
+      const t = v.slice(n.element.startChar, n.element.endChar);
+      return [n.element.startChar + t.match(/^\s*/)[0].length, n.element.startChar + noteHead(t).length];
+    },
+    // A rest in the selection that a longer note took up whole is gone; the selection ends at the note before it.
+    gone = n => edits.some(e => !e.text && e.start <= head(n)[0] && e.end >= head(n)[1]),
+    last = [...picked].reverse().find(n => !gone(n)) || picked[0];
+  const start = Math.min(...edits.map(e => e.start)),
+    end = Math.max(...edits.map(e => e.end));
+  applyNoteEdit(
+    start,
+    end,
+    next.slice(start, end + next.length - v.length),
+    [moved(picked[0].element.startChar), moved(head(last)[1])],
+    null,
+    false,
+    picked.length > 1 ? selectionAnchor || 'first' : null
+  );
+  const many = picked.length > 1;
+  return {
+    say:
+      added > 1e-9
+        ? rests === 1
+          ? 'A rest fills the gap.'
+          : 'Rests fill the gap.'
+        : taken > 1e-9
+          ? `${many ? 'They' : 'It'} took time from the rests after ${many ? 'them' : 'it'}.`
+          : '',
+    extra: true
+  };
+}
 // Give notes new lengths (whole notes; null keeps a note's own). A note joined by > or < to a neighbour is spelled
 // out with explicit lengths, with its neighbour, so the neighbour keeps its duration.
 function setLengths(picked, lengthOf) {
+  fitNote = null;
+  if (keepBars()) {
+    const fit = fitLengths(picked, lengthOf);
+    if (fit) {
+      fitNote = fit;
+      if (!fit.extra) $('selection-status').textContent = fit.say;
+      return !!fit.extra;
+    }
+  }
   const touched = [...picked],
     paired = new Set();
   for (const n of picked)
@@ -3064,6 +3230,7 @@ function setLengths(picked, lengthOf) {
     picked,
     picked.find(pitched)
   );
+  return true;
 }
 // [ and ]: halve or double every length in the selection.
 function scaleLengths(picked, factor) {
@@ -3076,9 +3243,10 @@ function scaleLengths(picked, factor) {
     $('selection-status').textContent = 'That would make a note shorter than a 64th note.';
     return;
   }
-  setLengths(picked, n => (n.element.duration || 0) * factor);
-  $('selection-status').textContent =
-    `${factor > 1 ? 'Doubled' : 'Halved'} the length of ${countWords(picked.length)}.`;
+  if (!setLengths(picked, n => (n.element.duration || 0) * factor)) return;
+  $('selection-status').textContent = fitSaid(
+    `${factor > 1 ? 'Doubled' : 'Halved'} the length of ${countWords((keepBars() ? picked.filter(pitched) : picked).length)}.`
+  );
 }
 const countWords = n => (n === 1 ? '1 note' : `${n} notes`);
 const isDotted = n => DOTTABLE.some(x => Math.abs((n.element.duration || 0) - x * 1.5) < 1e-9);
@@ -3112,7 +3280,8 @@ function rangeKey(e, picked) {
     return true;
   }
   if (key === 'Delete' || key === 'Backspace') {
-    deleteRun(picked);
+    if (keepBars() && !e.shiftKey) clearRun(picked);
+    else deleteRun(picked);
     return true;
   }
   if (MARK_KEYS[key]) {
@@ -3126,6 +3295,17 @@ function rangeKey(e, picked) {
 const RANGE_PALETTE = {dot: '.', tie: '+', 'acc:^': '#', 'acc:_': '-', 'acc:=': '=', delete: 'Delete'};
 function rangePalette(action, picked = selectedNotes()) {
   return picked.length > 1 && !!RANGE_PALETTE[action] && rangeKey({key: RANGE_PALETTE[action]}, picked);
+}
+// Delete under Keep bars full: the notes of a run become rests of the same length, as Cut leaves them.
+function clearRun(picked) {
+  const notes = picked.filter(pitched);
+  if (!notes.length) {
+    $('selection-status').textContent = 'Rests keep the bars full. Shift+Delete removes them.';
+    return;
+  }
+  editNotes(picked, (n, text) => restText(text), picked);
+  $('selection-status').textContent =
+    `Changed ${countWords(notes.length)} to rests, so the bars stay full. Shift+Delete removes notes without them.`;
 }
 // Delete a run. Whole measures go with one of their bar lines, so no empty measure is left behind, and a line left
 // with nothing on it goes with its line break: a blank line ends the tune in ABC, which would drop every measure
@@ -3612,7 +3792,8 @@ function startPrompt(prompt) {
     kind: 'personal',
     abc,
     instrument: currentInstrument(),
-    prompt: prompt.id
+    prompt: prompt.id,
+    fit: true
   });
   togglePrompts(false);
   const first = scoreNotes()[0];
@@ -4248,6 +4429,7 @@ function draftData() {
     // Which recorded takes belong to the work (record.js).
     takes: typeof recordKey === 'function' ? recordKey() : undefined,
     kind: current?.kind,
+    fit: keepBars(),
     tab: draftTab,
     at: Date.now()
   };
@@ -4362,6 +4544,7 @@ function restoreDraft() {
       abc: draft.abc,
       instrument: instruments[draft.instrument] ? draft.instrument : undefined,
       prompt: draft.prompt,
+      ...(typeof draft.fit === 'boolean' ? {fit: draft.fit} : {}),
       ...(readFeedback(draft.feedback) ? {feedback: readFeedback(draft.feedback)} : {}),
       ...(submission ? {submission} : {})
     },

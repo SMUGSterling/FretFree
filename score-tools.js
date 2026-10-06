@@ -1138,6 +1138,137 @@ function barProblems(tune) {
   }
   return problems;
 }
+// Keep bars full (Noteflight's duration rules). The rests that fill a gap from a position in its bar (whole notes from
+// the downbeat): each is the longest plain value that starts on a multiple of itself and fits, so rests fall on the
+// beat as engravers write them (C z z2 in 4/4, not C z3). In 6/8, 9/8 and 12/8 the beat is a dotted quarter.
+function restValues(from, length, meter) {
+  const eighths = meter?.den === 8 ? Math.round(meter.length * 8) : 0,
+    values = eighths > 3 && eighths % 3 === 0 ? [3 / 4, 3 / 8] : [1, 1 / 2, 1 / 4],
+    out = [];
+  values.push(1 / 8, 1 / 16, 1 / 32, 1 / 64);
+  let at = from,
+    left = length;
+  while (left > 1e-9 && out.length < 16) {
+    const v = values.find(v => v <= left + 1e-9 && Math.abs(at / v - Math.round(at / v)) < 1e-6) ?? left;
+    out.push(v);
+    at += v;
+    left -= v;
+  }
+  return out;
+}
+// Change the lengths of notes in one bar (a measure of barLengths) and keep the bar's length. lengths holds a new
+// length (whole notes) for each note of bar.notes to change, null for the others. Shorter notes leave rests after the
+// last changed note for the difference, merged with the rests already there; longer ones take their time from plain
+// rests after it in the bar, nearest first, and the notes in between move later. slack is time the bar is missing (a
+// bar left short), which a longer note may take before it is refused. In an overfull bar, shorter notes first take
+// off the extra time. Returns {edits ({start, end, text}, for spliceAll), added, taken} or {why}: 'room' (with room,
+// the time there is), 'tuplet', 'broken' (a dotted pair written with > or <) or 'multi' (a multi-measure rest).
+// unit is the unit length (L:) the bar is written in. rests counts the rests written for a shorter note.
+function fitBar(source, bar, lengths, unit, slack = 0) {
+  const notes = bar.notes,
+    near = (a, b) => Math.abs(a - b) < 1e-9,
+    text = i => source.slice(notes[i].element.startChar, notes[i].element.endChar),
+    parts = i => noteParts(text(i)),
+    duration = i => notes[i].element.duration || 0,
+    inTuplet = i => !near(notes[i].at - (i ? notes[i - 1].at : 0), duration(i)),
+    // A rest that can give or take time: a plain z with nothing on it, outside a tuplet.
+    free = i => {
+      const p = parts(i);
+      return (
+        notes[i].element.rest?.type === 'rest' &&
+        !inTuplet(i) &&
+        !!p &&
+        p.core === 'z' &&
+        !p.pre.trim() &&
+        !noteHead(p.post).trim()
+      );
+    },
+    // A note's music without the spaces around it, and where it starts and ends in the source.
+    head = i => {
+      const t = text(i),
+        lead = t.match(/^\s*/)[0].length;
+      return {start: notes[i].element.startChar + lead, end: notes[i].element.startChar + noteHead(t).length};
+    };
+  const changed = notes.map((n, i) => i).filter(i => lengths[i] != null && !near(lengths[i], duration(i)));
+  if (!changed.length) return {edits: [], added: 0, taken: 0, rests: 0};
+  for (const i of changed) {
+    if (notes[i].element.rest?.type === 'multimeasure') return {why: 'multi'};
+    if (inTuplet(i) || !parts(i)) return {why: 'tuplet'};
+    if (/[<>]/.test(parts(i).post) || (i && /[<>]/.test(parts(i - 1)?.post || ''))) return {why: 'broken'};
+  }
+  const delta = changed.reduce((sum, i) => sum + lengths[i] - duration(i), 0),
+    last = changed.at(-1),
+    // Rests are placed from the downbeat; a pickup bar ends on one.
+    shift = bar.measure === 1 && bar.length < bar.expected ? bar.expected - bar.length : 0,
+    restText = values => values.map(v => 'z' + lengthText(v / unit)).join(' '),
+    edits = [];
+  let added = 0,
+    taken = 0,
+    rests = 0,
+    tail = '';
+  if (delta < 0) {
+    let gap = Math.max(0, -delta - Math.max(0, bar.length - bar.expected)),
+      k = last + 1;
+    for (; k < notes.length && free(k); k++) gap += duration(k);
+    added = gap;
+    if (gap > 1e-9) {
+      const values = restValues(notes[last].at + delta + shift, gap, bar.meter);
+      rests = values.length;
+      tail = ' ' + restText(values);
+    }
+    if (k > last + 1 || tail) {
+      const from = head(last).end,
+        to = k > last + 1 ? head(k - 1).end : from;
+      edits.push({start: from, end: to, text: tail});
+    }
+  } else {
+    let need = delta;
+    for (let k = last + 1; k < notes.length && need > 1e-9; k++) {
+      if (!free(k)) continue;
+      const take = Math.min(need, duration(k)),
+        left = duration(k) - take,
+        h = head(k);
+      need -= take;
+      taken += take;
+      if (left > 1e-9)
+        edits.push({
+          start: h.start,
+          end: h.end,
+          text: restText(restValues(notes[k].at - left + shift, left, bar.meter))
+        });
+      else {
+        let end = h.end;
+        while (/[ \t]/.test(source[end] || '')) end++;
+        edits.push({start: h.start, end, text: ''});
+      }
+    }
+    if (need > slack + 1e-9) {
+      const room = notes.reduce((sum, n, k) => sum + (k > last && free(k) ? duration(k) : 0), 0) + slack;
+      return {why: 'room', room};
+    }
+  }
+  for (const i of changed) {
+    const h = head(i),
+      // A note that a rest now follows cannot stay tied.
+      untie = i === last && !!tail && /^-/.test(parts(i).post);
+    edits.push({
+      start: h.start,
+      end: h.end,
+      text: editNoteText(source.slice(h.start, h.end), {length: lengths[i] / unit, tie: untie ? false : undefined})
+    });
+  }
+  return {edits: edits.sort((a, b) => a.start - b.start), added, taken, rests};
+}
+// One note's length, keeping its bar full: fitBar for the note at index in bar.
+function fitLength(source, bar, index, length, unit, slack = 0) {
+  return fitBar(
+    source,
+    bar,
+    bar.notes.map((n, i) => (i === index ? length : null)),
+    unit,
+    slack
+  );
+}
 // A first measure (of barLengths) shaped like a pickup: shorter than the meter and closed by a bar line.
 const shortStart = m => m.measure === 1 && m.meter !== 'free' && !!m.bar && m.length < m.expected - 1e-6;
 // The voices (barLengths' ids) that open with that shape and have more music after it.

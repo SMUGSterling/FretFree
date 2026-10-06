@@ -149,6 +149,14 @@ const SHORTCUTS = [
   {group: 'Measure', name: 'Key from here', keys: [], menu: 'key', words: 'signature change'},
   {group: 'Measure', name: 'Clef from here', keys: [], menu: 'clef', words: 'change'},
   {group: 'Edit', name: 'Delete', keys: ['Delete'], aria: 'Delete Backspace', palette: 'delete', words: 'remove'},
+  {
+    group: 'Edit',
+    name: 'Remove without leaving a rest',
+    keys: ['Shift+Delete'],
+    aria: 'Shift+Delete',
+    key: {key: 'Delete', shiftKey: true},
+    words: 'delete keep bars full'
+  },
   {group: 'Edit', name: 'Copy', keys: ['Ctrl+C'], aria: 'Control+C', key: {key: 'c', ctrlKey: true}},
   {
     group: 'Edit',
