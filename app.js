@@ -252,6 +252,7 @@ for (const id of ['start-measure', 'end-measure'])
 function applyStoredSettings() {
   for (const id of ['loop', 'metronome', 'count-in', 'trainer'])
     $(id).checked = !!storage.get(KEYS.practice(id), false);
+  $('chords').checked = storage.get(KEYS.practice('chords'), true) !== false;
   $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
   $('note-names').value = storage.get(KEYS.noteNames, 'off');
   $('note-colors').value = storage.get(KEYS.noteColors, 'off');
@@ -279,12 +280,23 @@ for (const id of ['loop', 'metronome', 'count-in', 'trainer']) {
     if (id === 'trainer') prepareTrainer();
   });
 }
+// Chords plays the chord symbols as an accompaniment (on by default). Switching it while the score plays carries on
+// from the same place; MIDI export always keeps the chords.
+$('chords').checked = storage.get(KEYS.practice('chords'), true) !== false;
+$('chords').addEventListener('change', () => {
+  storage.set(KEYS.practice('chords'), $('chords').checked);
+  const position = playPosition();
+  if (position != null) {
+    stop();
+    play(position);
+  }
+});
 $('trainer-goal').addEventListener('change', () => {
   $('trainer-goal').value = trainerGoal();
   prepareTrainer();
 });
 $('speed').oninput = () => {
-  const position = playing ? playOrigin + Math.max(0, audio.currentTime - playClock) * playSpeed : null;
+  const position = playPosition();
   $('speed-value').textContent = $('speed').value + '%';
   if (position != null) {
     stop();

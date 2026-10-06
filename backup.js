@@ -14,7 +14,7 @@ const BACKUP_FORMAT = 1,
     KEYS.zoom,
     KEYS.measuresPerLine,
     KEYS.piano,
-    ...['loop', 'metronome', 'count-in', 'trainer'].map(KEYS.practice)
+    ...['loop', 'metronome', 'count-in', 'trainer', 'chords'].map(KEYS.practice)
   ];
 function backupData() {
   const settings = {};

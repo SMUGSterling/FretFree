@@ -498,6 +498,77 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
       }
     assert.deepEqual(wrong, [], 'Every listed key moves every note by the interval, -12 to 12 semitones');
   }
+  // Chord symbols move by the interval's letters, not abcjs's spelling (it gives D# for Eb and A#/D for Bb/D).
+  assert.equal(
+    T('X:1\nL:1/4\nK:F\n"Eb"C "Db"C "Ab/C"C "C#dim"C|]', 2),
+    'X:1\nL:1/4\nK:G\n"F"D "Eb"D "Bb/D"D "D#dim"D|]',
+    'Chord symbols up a major 2nd'
+  );
+  assert.equal(
+    T('X:1\nL:1/4\nK:C\n"Eb"C "Db"C "Bb7"C "N.C."C|]', 9),
+    'X:1\nL:1/4\nK:A\n"C"A "Bb"A "G7"A "N.C."A|]',
+    'Up a major 6th; N.C. stays'
+  );
+  assert.equal(
+    T('X:1\nL:1/4\nK:A\n"Eb"C "(E7)"C|]', 9),
+    'X:1\nL:1/4\nK:F#\n"C"A "(C#7)"A|]',
+    'A key abcjs spells as Gb and FretFree respells as F# keeps its chords natural'
+  );
+  // Chord symbols: parseChordSymbol reads what abcjs can play; setChordSymbol replaces, adds or removes the first one.
+  {
+    const parse = t => JSON.stringify(context.parseChordSymbol(t));
+    for (const name of ['C', 'Cm', 'C7', 'Cmaj7', 'Cm7b5', 'Cdim', 'Caug', 'Csus4', 'C6', 'C9', 'C/E', 'F#m', 'Bb7'])
+      assert.ok(context.parseChordSymbol(name), name + ' is a chord symbol');
+    for (const name of ['Cm7(b5)', 'C7sus4', 'Cadd9', 'C6/9', 'C-7', 'Cø7', 'C°7', 'C+', 'C13#11', 'Ebmaj7/G', 'B♭7'])
+      assert.ok(context.parseChordSymbol(name), name + ' is a chord symbol');
+    for (const name of ['H7', 'hello', '', 'c7', 'Cx', 'C/H', 'G7/', 'Am7 D7'])
+      assert.equal(context.parseChordSymbol(name), null, JSON.stringify(name) + ' is not');
+    assert.equal(parse('F#m7b5'), '{"root":"F","accidental":"#","quality":"m7b5","bass":null}');
+    assert.equal(parse('Bbmaj7'), '{"root":"B","accidental":"b","quality":"maj7","bass":null}');
+    assert.equal(parse('G7/B'), '{"root":"G","accidental":"","quality":"7","bass":"B"}');
+    assert.equal(parse('D/F♯'), '{"root":"D","accidental":"","quality":"","bass":"F#"}');
+    assert.equal(parse('N.C.'), '{"root":null,"accidental":"","quality":"N.C.","bass":null}', 'N.C. is no chord');
+    const tidy = context.tidyChordSymbol;
+    assert.deepEqual(
+      ['  Bb7 ', 'bb7', 'g/b', 'nc', 'n.c.', 'say "hi"', '^G', 'hello'].map(t => tidy(t)),
+      ['Bb7', 'Bb7', 'G/B', 'N.C.', 'N.C.', 'say hi', 'G', 'hello'],
+      'Typed symbols are tidied'
+    );
+    const set = context.setChordSymbol;
+    assert.equal(set('C', 'Bb7'), '"Bb7"C', 'A new symbol goes in front');
+    assert.equal(set(' C2 ', 'G'), ' "G"C2 ', 'after any leading space');
+    assert.equal(set('"F"!f!(C', 'G7'), '"G7"!f!(C', 'An existing symbol is replaced');
+    assert.equal(set('"^intro""F"C', 'G'), '"^intro""G"C', 'A text annotation is left alone');
+    assert.equal(set('"^intro"C', 'G'), '"G""^intro"C', 'and is not taken for a chord symbol');
+    assert.equal(set('"F"!f!C-', null), '!f!C-', 'null removes it');
+    assert.equal(set('"F"C', ''), 'C', 'and so does an empty name');
+    assert.equal(set('"F""G"[CEG]2', 'Am'), '"Am""G"[CEG]2', 'Only the first one changes');
+    assert.equal(set('z2', 'N.C.'), '"N.C."z2', 'Rests take symbols');
+    assert.equal(set('x', 'D7'), '"D7"x', 'and so do invisible rests');
+    assert.equal(set('|', 'D7'), '|', 'A bar line does not');
+    assert.equal(set('C', 'say "hi"'), '"say hi"C', 'Quotes cannot end the symbol early');
+    assert.equal(context.chordSymbolOf('"_C""^x""G7"!f!.C'), 'G7');
+    assert.equal(context.chordSymbolOf('"^x"C'), null);
+    const tc = (name, ...a) => context.transposeChordSymbol(name, ...a);
+    assert.deepEqual(
+      ['C7', 'Bb7/D', 'F#m7b5', 'Db', 'N.C.', 'hello', '(A7)'].map(n => tc(n, 2)),
+      ['D7', 'C7/E', 'G#m7b5', 'Eb', 'N.C.', 'hello', '(B7)'],
+      'Up a major 2nd'
+    );
+    assert.equal(tc('C7', -2, -1), 'Bb7', 'Written C7 on a B-flat instrument is concert Bb7');
+    assert.equal(tc('Gmaj7', -9, -5), 'Bbmaj7', 'Written Gmaj7 on an E-flat instrument is concert Bbmaj7');
+    assert.equal(tc('Cb', -2, -1), 'A', 'A name that would need a double flat (Bbb) takes the next letter');
+    // Chords off leaves out the accompaniment channel; the melody is unchanged.
+    const lead = 'X:1\nM:4/4\nL:1/4\nK:C\n"C"C D E F | "G7"G A B c |]',
+      withChords = context.parseMidi(context.midiBytes(lead)).notes,
+      without = context.parseMidi(context.midiBytes(lead, {chordsOff: true})).notes;
+    assert.ok(withChords.length > 8 && new Set(withChords.map(n => n.ch)).size === 2, 'Chord symbols play');
+    assert.deepEqual(
+      without.map(n => [n.ch, n.note, n.start.toFixed(4)]),
+      context.melodyNotes(withChords).map(n => [n.ch, n.note, n.start.toFixed(4)]),
+      'chordsOff plays only the melody'
+    );
+  }
   const W = (abc, s) => context.writtenSteps(abc, abc.length - 3, s);
   assert.deepEqual(
     [W('X:1\nK:E\nC|]', 2), W('X:1\nK:F#\nC|]', 2), W('X:1\nK:C#\nC|]', 9), W('X:1\nK:C\nC|]', -12)],
@@ -1015,5 +1086,5 @@ for (const prompt of context.writingPrompts) {
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition, chords-off MIDI), public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
 );

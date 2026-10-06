@@ -246,7 +246,8 @@ $('new-bars').value = '8';
       'fretfree-practice-loop': true,
       'fretfree-note-names': 'letters',
       'fretfree-note-colors': 'classroom',
-      'fretfree-zoom': 140
+      'fretfree-zoom': 140,
+      'fretfree-practice-chords': false
     }
   };
   const before = run('saved.length');
@@ -261,6 +262,8 @@ $('new-bars').value = '8';
   assert.equal(run("storage.get('fretfree-zoom')"), 140, 'Zoom restored from a backup');
   assert.equal(run("storage.get('fretfree-note-colors')"), 'classroom', 'Classroom colors restored');
   assert.equal(run('backupData().settings')['fretfree-note-colors'], 'classroom', 'Classroom colors backed up');
+  assert.equal(run("applyStoredSettings();$('chords').checked"), false, 'The Chords switch restored from a backup');
+  assert.equal(run('backupData().settings')['fretfree-practice-chords'], false, 'and backed up');
   const newer = {
     app: 'FretFree',
     format: 1,
@@ -812,7 +815,7 @@ assert.equal(
     assert.equal(page.run('current.kind'), 'shared', 'Discard leaves the open score alone');
   }
   console.log(
-    'PASS (jsdom): unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors and zoom), blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
+    'PASS (jsdom): unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors, zoom and the Chords switch), blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
   );
 })().catch(e => {
   console.error(e);

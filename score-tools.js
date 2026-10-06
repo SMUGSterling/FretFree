@@ -228,6 +228,77 @@ function setDynamic(text, dyn) {
   if (!placed) items.push(`!${dyn}!`);
   return items.join('') + parts.rest;
 }
+// Chord symbols: a quoted string before a note that does not start with ^ _ < > @ (those place text annotations).
+// abcjs prints any such string above the staff and plays the ones it can read as an accompaniment. A chord symbol is
+// a root (A–G), an optional sharp or flat, a quality (m, 7, maj7, m7b5, dim, aug, sus4, 6, 9, add9…) and an optional
+// bass after a slash; N.C. means no chord.
+const CHORD_QUALITY =
+  /^(?:maj|ma|M|Δ|∆|min|mi|m|-|dim|°|o|ø|aug|\+)?(?:\d{1,2}(?:\/9)?)?(?:sus[24]?|add\d{1,2}|maj\d{1,2}|M\d{1,2}|[b#♭♯+-]\d{1,2}|\((?:[b#♭♯+-]?\d{1,2},?)+\))*$/;
+const CHORD_NAME = /^([A-G])([#b♯♭]?)(.*?)(?:\/([A-G])([#b♯♭]?))?$/;
+// {root, accidental, quality, bass} (accidentals as # or b), with root null for N.C.; null when abcjs will print the
+// text but not play it.
+function parseChordSymbol(text) {
+  const t = String(text ?? '').trim(),
+    plain = a => ({'♯': '#', '♭': 'b'})[a] || a;
+  if (/^N\.C\.$/i.test(t)) return {root: null, accidental: '', quality: 'N.C.', bass: null};
+  const m = t.match(CHORD_NAME);
+  if (!m || !CHORD_QUALITY.test(m[3])) return null;
+  return {root: m[1], accidental: plain(m[2]), quality: m[3], bass: m[4] ? m[4] + plain(m[5]) : null};
+}
+// A typed chord symbol tidied for the score: quotes and line breaks dropped, spaces trimmed, a lower-case root or
+// bass letter capitalized when that makes a chord (bb7 is Bb7), and nc or n.c. written N.C.
+function tidyChordSymbol(text) {
+  const t = String(text ?? '')
+    .replace(/["\r\n]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[\^_<>@]+\s*/, '');
+  if (/^n\.?c\.?$/i.test(t)) return 'N.C.';
+  if (parseChordSymbol(t)) return t;
+  const fixed = t
+    .replace(/^[a-g]/, c => c.toUpperCase())
+    .replace(/\/([a-g])([#b♯♭]?)$/, (_, c, a) => '/' + c.toUpperCase() + a);
+  return parseChordSymbol(fixed) ? fixed : t;
+}
+// A note's prefix (as markItems, but an invisible rest x can carry a chord symbol too), and its chord-symbol item.
+const CHORD_PRE = new RegExp(`^(?:${PRE_ITEM.source})*(?=[[A-Ga-g^_=zZx])`);
+const isChordItem = item => /^"(?![\^_<>@])/.test(item);
+// The chord symbol on a note, chord or rest, without its quotes, or null.
+function chordSymbolOf(text) {
+  const item = String(text).match(CHORD_PRE)?.[0].match(PRE_ITEM)?.find(isChordItem);
+  return item ? item.slice(1, -1) : null;
+}
+// Replace the note's first chord symbol, add one in front (after any leading space), or remove it with null or ''.
+// Text annotations ("^text") are left alone.
+function setChordSymbol(text, chord) {
+  text = String(text);
+  const pre = text.match(CHORD_PRE)?.[0];
+  if (pre == null) return text;
+  const name = tidyChordSymbol(chord),
+    items = pre.match(PRE_ITEM) || [],
+    i = items.findIndex(isChordItem);
+  if (i >= 0) items[i] = name ? `"${name}"` : '';
+  else if (name) {
+    let at = 0;
+    while (at < items.length && !items[at].trim()) at++;
+    items.splice(at, 0, `"${name}"`);
+  }
+  return items.join('') + text.slice(pre.length);
+}
+// Move a chord symbol's root and bass by semitones, spelled letters names away (C7 up a major 2nd, one letter, is D7;
+// Db up a major 2nd is Eb, not D#). A name that would need a double sharp or flat takes the next letter instead.
+// Text that does not start with a root (N.C., words) comes back unchanged.
+function transposeChordSymbol(name, semitones, letters = Math.round((semitones * 7) / 12)) {
+  return String(name).replace(/(^\(?|\/)([A-G])([#b♯♭]?)/g, (_, lead, letter, acc) => {
+    const from = 'CDEFGAB'.indexOf(letter),
+      pc = LETTER_SEMIS[from] + ({'#': 1, '♯': 1, b: -1, '♭': -1}[acc] || 0) + semitones;
+    for (const step of [0, 1, -1]) {
+      const to = posMod(from + letters + step, 7),
+        a = posMod(pc - LETTER_SEMIS[to] + 6, 12) - 6;
+      if (Math.abs(a) <= 1) return lead + 'CDEFGAB'[to] + (a > 0 ? '#' : a < 0 ? 'b' : '');
+    }
+  });
+}
 // Bar-length check. Measures are numbered as in scoreEvents (a bar line ends a measure only once it holds notes).
 const SECTION_END = /repeat|thin_thin|thin_thick|thick_thin|dbl/;
 // A time signature as {length (whole notes), den, label}; 'free' for M:none, null when absent.
@@ -763,19 +834,28 @@ function transposeABC(source, semitones, letters = Math.round((semitones * 7) / 
   if (after.length !== fields.length) throw new Error('Could not transpose the key signatures.');
   const regions = fields.map((f, i) => {
     const res = keyParts(after[i].value),
-      region = {start: after[i].start, end: after[i].end, keyed: !!(f.tonic || f.first), key: res.key, d: 0};
+      region = {
+        start: after[i].start,
+        end: after[i].end,
+        keyed: !!(f.tonic || f.first),
+        key: res.key,
+        d: 0,
+        chords: letters
+      };
     if (!region.keyed) return {...region, key: after[i].value};
     const rest = f.tonic ? f.rest : (f.rest.trim() ? ' ' : '') + f.rest.trim();
     if (!res.tonic || res.tonic === 'none') return {...region, key: res.key + rest};
-    const want = posMod('CDEFGAB'.indexOf((f.tonic || 'C')[0]) + letters, 7),
+    const from = 'CDEFGAB'.indexOf((f.tonic || 'C')[0]),
+      want = posMod(from + letters, 7),
       have = 'CDEFGAB'.indexOf(res.tonic[0]),
       d = posMod(want - have + 3, 7) - 3,
       pc = LETTER_SEMIS[have] + (res.tonic[1] === '#' ? 1 : res.tonic[1] === 'b' ? -1 : 0),
       acc = posMod(pc - LETTER_SEMIS[want] + 6, 12) - 6,
       tonic = 'CDEFGAB'[want] + (acc > 0 ? '#' : acc < 0 ? 'b' : ''),
       key = tonic + res.key.slice(res.tonic.length);
+    // Chord symbols move by the letters this key ends up moved: abcjs's, or the interval's once respelled.
     if (Math.abs(d) !== 1 || Math.abs(acc) > 1 || Math.abs(keyFifths(key)) > maxAccidentals)
-      return {...region, key: res.key + rest};
+      return {...region, key: res.key + rest, chords: have - from};
     return {...region, key: key + rest, plain: res.key + rest, d};
   });
   const edits = regions.map(r => ({start: r.start, end: r.end, text: r.key}));
@@ -787,6 +867,15 @@ function transposeABC(source, semitones, letters = Math.round((semitones * 7) / 
       const list = [];
       mapMusic(text, ({pitch}) => (list.push(pitch), ''));
       return list;
+    },
+    chordsOf = text => {
+      const list = [];
+      mapMusic(
+        text,
+        () => '',
+        name => (list.push(name), name)
+      );
+      return list;
     };
   const starts = regions.filter(r => r.keyed),
     was = notesOf(tune[0]),
@@ -796,8 +885,10 @@ function transposeABC(source, semitones, letters = Math.round((semitones * 7) / 
   for (const [n, e] of now.entries()) {
     const region = starts.filter(r => r.start < e.startChar).at(-1);
     if (!within && !octaves && !region?.d) continue;
-    const old = pitchesOf(stripped.slice(was[n].startChar, was[n].endChar));
+    const old = pitchesOf(stripped.slice(was[n].startChar, was[n].endChar)),
+      oldChords = chordsOf(stripped.slice(was[n].startChar, was[n].endChar));
     let j = 0,
+      k = 0,
       text = mapMusic(moved.slice(e.startChar, e.endChar), ({acc, pitch}) => {
         // A note moved a whole octave off the interval's letters is abcjs's octave slip; move it back.
         const slip = j < old.length ? Math.round((pitch - old[j] - steps) / 7) : 0;
@@ -805,6 +896,19 @@ function transposeABC(source, semitones, letters = Math.round((semitones * 7) / 
         return (acc == null ? '' : ACC_TEXT[acc]) + pitchToken(pitch + 7 * (octaves - slip));
       });
     if (region?.d) text = respellMusic(text, region.d);
+    // abcjs spells moved chord symbols without regard to the key (D# for Eb), so they are moved again here from the
+    // source's own, by the key's letters.
+    if (text != null && oldChords.length)
+      text = mapMusic(
+        text,
+        ({acc, pitch}) => (acc == null ? '' : ACC_TEXT[acc]) + pitchToken(pitch),
+        name => {
+          const chord = oldChords[k++];
+          return chord != null && /^\(?[A-G]/.test(chord)
+            ? transposeChordSymbol(chord, within, region?.chords ?? letters)
+            : name;
+        }
+      );
     // A pitch that would need a triple sharp or flat: keep abcjs's spelling everywhere.
     if (text == null) return transposeABC(source, semitones, letters, -1);
     if (text !== moved.slice(e.startChar, e.endChar)) edits.push({start: e.startChar, end: e.endChar, text});
@@ -1335,8 +1439,9 @@ function hashText(text) {
 // an accent (half as loud again). Its MIDI writer scales each note's gap by the tempo a second time, so above about
 // 95 bpm a staccato note-off comes before its note-on and the note rings on, and a tenuto or slurred note runs into
 // a repeat of its pitch, so one of the two is lost. Here staccato notes sound for 60% of their length (abcjs's
-// length at 60 bpm) and other notes for their full length.
-function midiBytes(source) {
+// length at 60 bpm) and other notes for their full length. With chordsOff, chord symbols are not played (the
+// Chords switch); exports leave it out, so files keep the accompaniment.
+function midiBytes(source, {chordsOff = false} = {}) {
   const tune = ABCJS.parseOnly(source)[0];
   for (const line of tune?.lines || [])
     for (const staff of line.staff || [])
@@ -1355,7 +1460,7 @@ function midiBytes(source) {
           }
       return sequence;
     };
-  const uri = tune && ABCJS.synth.getMidiFile(tune, {midiOutputType: 'encoded'});
+  const uri = tune && ABCJS.synth.getMidiFile(tune, {midiOutputType: 'encoded', ...(chordsOff ? {chordsOff} : {})});
   if (typeof uri !== 'string' || !uri.startsWith('data:'))
     throw new Error('MIDI could not be generated. Check your notation.');
   const [meta, body] = uri.split(',');

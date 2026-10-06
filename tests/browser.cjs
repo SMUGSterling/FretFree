@@ -584,6 +584,82 @@ const {chromium} = require('playwright'),
     'Dynamic from the note menu'
   );
   await page.locator('[data-palette="more"]').click();
+  // Chord symbols with real keys: K opens a box just above the note, Enter saves, Tab moves on; the symbols are
+  // engraved and undo one at a time; the toolbar button works from the keyboard; clicking another note saves the box
+  // and selects that note; Chords leaves the accompaniment out of playback.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:K\nM:4/4\nL:1/4\nK:C\nC D E F | G4 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  {
+    const head = i => page.locator('#notation .abcjs-notehead').nth(i),
+      chords = () =>
+        page.evaluate(() => [...document.querySelectorAll('#notation .abcjs-chord')].map(e => e.textContent));
+    await head(0).click({force: true});
+    await page.keyboard.press('k');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'chord-input', 'K opens the chord box');
+    const entry = await page.locator('#chord-entry').boundingBox(),
+      note = await head(0).boundingBox();
+    assert.ok(
+      entry.y + entry.height <= note.y && note.x >= entry.x && note.x <= entry.x + 40,
+      'The box sits just above the note'
+    );
+    await page.keyboard.type('Bb7');
+    await page.keyboard.press('Enter');
+    assert.equal(await kbody(), '"Bb7"C D E F | G4 |]', 'Enter writes the symbol');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'notation', 'and returns to the score');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('k');
+    await page.keyboard.type('Gm');
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('C7');
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('F');
+    await page.keyboard.press('Enter');
+    assert.equal(await kbody(), '"Bb7"C "Gm"D "C7"E F | "F"G4 |]', 'Tab moves from note to note');
+    assert.deepEqual(await chords(), ['B♭7', 'Gm', 'C7', 'F'], 'The symbols are engraved');
+    await page.keyboard.press('Control+z');
+    assert.equal(await kbody(), '"Bb7"C "Gm"D "C7"E F | G4 |]', 'Each symbol is one undo step');
+    await head(2).click({force: true});
+    await page.locator('[data-palette="chord"]').focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#chord-input').inputValue(), 'C7', 'The Chord button opens the box');
+    await page.keyboard.press('Escape');
+    assert.equal(
+      await page.evaluate(() => document.activeElement.dataset.palette),
+      'chord',
+      'Escape goes back to the button'
+    );
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.press('Enter');
+    assert.equal(await kbody(), '"Bb7"C "Gm"D E F | G4 |]', 'An empty box removes the symbol');
+    await head(0).click({force: true});
+    await page.keyboard.press('k');
+    await page.keyboard.type('F');
+    await head(3).click({force: true});
+    assert.equal(await kbody(), '"F"C "Gm"D E F | G4 |]', 'Clicking another note saves the box');
+    assert.deepEqual(
+      await page.evaluate(() => [$('abc').value.slice(...selectedRange), $('chord-entry').hidden]),
+      ['F ', true],
+      'and selects that note'
+    );
+    const scheduled = () =>
+      page.evaluate(async () => {
+        $('metronome').checked = $('count-in').checked = false;
+        await play();
+        const count = nodes.length;
+        stop();
+        return count;
+      });
+    const all = await scheduled();
+    await page.locator('#chords').click();
+    assert.equal(await scheduled(), 5, 'Without Chords only the five melody notes play');
+    assert.ok(all > 5, 'With Chords the accompaniment plays too');
+    await page.locator('#chords').click();
+  }
   // Writing prompts: blank bars of rests, typing writes over them, goals tick off live; keys follow written pitch.
   await page.evaluate(() => {
     dirty = false;
@@ -1933,6 +2009,18 @@ const {chromium} = require('playwright'),
     );
     await page.locator('[data-palette="len:0.125"]').click();
     assert.equal(await kbody(), 'G2 A B2 c2 |]', 'The palette works at phone width');
+    // The chord box fits a phone; Next moves on without a Tab key.
+    await page.locator('[data-palette="chord"]').click();
+    await page.keyboard.type('Am');
+    await page.locator('#chord-next').click();
+    await page.keyboard.type('D7');
+    const entry = await page.locator('#chord-entry').boundingBox();
+    assert.ok(entry.x >= 0 && entry.x + entry.width <= 390, 'The chord box fits a phone');
+    await page.locator('#chord-next').click();
+    assert.equal(await kbody(), 'G2 "Am"A "D7"B2 c2 |]', 'Next saves and moves on');
+    await page.keyboard.press('Escape');
+    const chordsBox = await page.locator('#chords').boundingBox();
+    assert.ok(chordsBox && chordsBox.x + chordsBox.width <= 390, 'The Chords switch fits a phone');
   }
   assert.ok(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
@@ -1957,7 +2045,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
+    'PASS: zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

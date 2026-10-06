@@ -1,3 +1,14 @@
+# Chord symbols · 2026-10-06
+
+- With a note or rest selected, **K**, the notation toolbar's **Chord** button or **Chord symbol…** in the note menu opens a box just above it. **Enter** saves, **Tab** saves and moves to the next note (**Shift+Tab** the one before; **Next ▸** does the same on touch screens), **Esc** cancels, and an empty box removes the symbol. Clicking another note saves the box and selects that note.
+- Symbols go into the ABC as `"G7"` in front of the note, replacing the note's first chord symbol and leaving text annotations (`"^Verse"`) alone. A lower-case root is capitalized and `nc` becomes `N.C.`. A name abcjs cannot play (anything but a root, sharp or flat, quality such as m7b5, maj7, dim, aug or sus4, and slash bass) is still written, and the box and the status line say it will print but not play. The Chord button is marked, and names the symbol, when the note has one. Each change is one undo step.
+- On a B♭ or E♭ instrument the box shows and takes written pitch, and the source keeps concert pitch: written `C7` on clarinet is stored as `Bb7`.
+- **Chords** (next to Count-in) plays the chord symbols as an accompaniment, on by default. Turning it off leaves the accompaniment out of playback, carrying on from the same place if the score is playing; MIDI export keeps it. The setting is remembered (`fretfree-practice-chords`) and backed up.
+- Transposing (the Transpose panel and the written-pitch display) moves chord symbols by the interval's letters. abcjs spelled them without regard to the key, so concert `Db` showed as `D#` on a B♭ clarinet instead of `Eb`, and `Ab/C` as `A#/D`.
+- `parseChordSymbol`, `tidyChordSymbol`, `chordSymbolOf`, `setChordSymbol` and `transposeChordSymbol` in score-tools.js read, tidy, find, set and move chord symbols; `midiBytes(source, {chordsOff})` leaves them out of the MIDI.
+
+---
+
 # Articulations, dynamics and ornaments · 2026-10-06
 
 - With a note selected, **;** **:** **>** **"** **^** toggle staccato, tenuto, accent, marcato and fermata. The notation toolbar gains an **Articulation** group with the same five and a **Dynamics** group (ppp to fff, and sfz); **More** opens staccatissimo, up bow, down bow, breath mark, trill, mordent, turn and arpeggio. The note menu has a Marks section with the five articulations and the dynamics.

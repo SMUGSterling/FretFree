@@ -1538,7 +1538,8 @@ input[type='range'] {
 .palette-more:not([hidden]) {
   display: contents;
 }
-.palette [data-palette='more'].in-use {
+.palette [data-palette='more'].in-use,
+.palette [data-palette='chord'].in-use {
   border-color: var(--green);
   box-shadow: inset 0 -3px 0 var(--green);
 }
@@ -1763,6 +1764,54 @@ input[type='range'] {
 }
 @media print {
   .score-view {
+    display: none !important;
+  }
+}
+/* Chord symbol box: over the score, just above the selected note. 16px text keeps phones from zooming in. */
+.notation-paper {
+  position: relative;
+}
+.chord-entry {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  width: max-content;
+  max-width: min(300px, calc(100% - 8px));
+  padding: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--green);
+  border-radius: 8px;
+  box-shadow: 0 8px 22px #21372d2e;
+}
+.chord-entry[hidden] {
+  display: none;
+}
+#chord-input {
+  width: 9em;
+  min-height: 38px;
+  padding: 4px 8px;
+  font:
+    600 16px Georgia,
+    'Times New Roman',
+    serif;
+}
+.chord-entry button {
+  min-height: 38px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.chord-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+@media print {
+  .chord-entry {
     display: none !important;
   }
 }

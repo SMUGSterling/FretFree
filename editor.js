@@ -1111,7 +1111,8 @@ function openNoteMenu(entry, display, x, y) {
       ? writtenNote(display).text
       : $('abc').value.slice(entry.element.startChar, entry.element.endChar);
   const acc = (noteParts(text)?.core.match(/^\[?(\^{1,2}|_{1,2}|=)/) || [])[1] || '',
-    len = entry.element.duration || 0;
+    len = entry.element.duration || 0,
+    chord = shownChord({entry, display});
   const durations = [
     [1, '𝅝 Whole'],
     [0.5, '𝅗𝅥 Half'],
@@ -1133,6 +1134,7 @@ function openNoteMenu(entry, display, x, y) {
       ? ''
       : `<button role="menuitemcheckbox" aria-checked="${/^-/.test(noteParts($('abc').value.slice(entry.element.startChar, entry.element.endChar))?.post || '')}" data-edit="tie">⁀ Tie to next note</button>`) +
     markItemsHTML(entry) +
+    `<button role="menuitem" data-edit="chord" aria-keyshortcuts="K" title="Chord symbol (K)">Chord symbol${chord ? ': ' + esc(chord) : ''}…</button>` +
     `<div class="menu-row"><button role="menuitem" data-edit="play-from">▶ Play from here</button><button role="menuitem" data-edit="range-from">🔁 Practice from here</button></div>` +
     `<div class="menu-label">INSERT AFTER</div><div class="menu-row"><button role="menuitem" data-edit="rest-after">𝄽 Rest</button><button role="menuitem" data-edit="bar-after">| Bar line</button></div><hr><button role="menuitem" class="danger" data-edit="delete">Delete ${isRest ? 'rest' : 'note'}</button>`;
   const menu = $('note-menu');
@@ -1282,9 +1284,154 @@ function markRange(picked, action) {
   editNotes(targets, (n, text) => (targets.includes(n) ? toggleDecoration(text, name) : text), picked);
   return `${MARK_WORDS[name]} ${all ? 'removed from' : 'added to'} ${countWords(targets.length)}.`;
 }
+// Chord symbols. K, the toolbar's Chord button or the note menu opens a box above the selected note. Enter saves,
+// Tab saves and moves on to the next note (Shift+Tab the one before), Escape cancels, and an empty box removes the
+// symbol. Symbols are typed and shown in written pitch and stored in concert pitch, like the notes.
+let chordEditing = null;
+// The chord symbol the student sees on a note: written pitch on a transposing instrument.
+function shownChord(sel) {
+  const v = $('abc').value,
+    {startChar, endChar} = sel.entry.element;
+  if (!transposing() || !sel.display) return chordSymbolOf(v.slice(startChar, endChar));
+  return chordSymbolOf(writtenNote(sel.display, (renderedSource === v && renderedWritten) || undefined).text);
+}
+// A typed (written) chord symbol in concert pitch, moved back by the letters the written key moved at that note.
+function concertChord(name, sel) {
+  const shift = transposing();
+  if (!shift || !parseChordSymbol(name)?.root) return name;
+  return transposeChordSymbol(name, -shift, -writtenSteps($('abc').value, sel.entry.element.startChar, shift));
+}
+// The box sits just above the note (below it near the top of the score), inside the score's scrolling paper.
+function placeChordEntry(display) {
+  const box = $('chord-entry'),
+    paper = box.parentElement,
+    note = renderedTune?.engraver?.selectables?.find(s => s.absEl.abcelem.startChar === display.startChar),
+    rect = note?.svgEl.getBoundingClientRect?.(),
+    outer = paper.getBoundingClientRect();
+  if (!rect) return;
+  const left = rect.left - outer.left - paper.clientLeft + paper.scrollLeft,
+    top = rect.top - outer.top - paper.clientTop + paper.scrollTop,
+    above = top - box.offsetHeight - 6;
+  box.style.left =
+    Math.max(paper.scrollLeft + 4, Math.min(left - 8, paper.scrollLeft + paper.clientWidth - box.offsetWidth - 4)) +
+    'px';
+  box.style.top = (above >= 4 ? above : top + rect.height + 6) + 'px';
+}
+function chordHint() {
+  const text = tidyChordSymbol($('chord-input').value);
+  $('chord-hint').textContent =
+    text && !parseChordSymbol(text)
+      ? 'Not a chord name: it will print but not play.'
+      : !text && chordEditing?.had
+        ? 'Empty removes the chord symbol.'
+        : 'Enter saves · Tab next note · Esc cancels';
+}
+// opener is the toolbar button to return to after a keyboard press there; otherwise the keyboard goes back to the score.
+function openChordEntry(sel, opener = null) {
+  if (!sel?.display) return;
+  // On a range selection the box opens on its first note, which becomes the selection.
+  if (selectionAnchor) {
+    selectEntry(sel.entry);
+    sel = selectedNote();
+  }
+  const had = shownChord(sel);
+  chordEditing = {start: sel.entry.element.startChar, source: $('abc').value, had, opener};
+  $('chord-input').value = had || '';
+  $('chord-entry').hidden = false;
+  chordHint();
+  placeChordEntry(sel.display);
+  $('chord-input').focus({preventScroll: true});
+  $('chord-input').select();
+  $('chord-entry').scrollIntoView?.({block: 'nearest'});
+}
+function closeChordEntry(editing, focusTo) {
+  chordEditing = null;
+  $('chord-entry').hidden = true;
+  const to = focusTo || editing?.opener;
+  if (to?.isConnected) to.focus({preventScroll: true});
+  else focusScore();
+}
+// Save the box's text as one undo step, then move on by move notes (1 next, -1 previous) and open the box there.
+// focusTo is where the keyboard goes when the box closes (by default the opener or the score). Returns the status line.
+function commitChord(move = 0, focusTo = null) {
+  const editing = chordEditing;
+  if (!editing) return '';
+  const typed = tidyChordSymbol($('chord-input').value);
+  chordEditing = null;
+  $('chord-entry').hidden = true;
+  const entry = $('abc').value === editing.source && scoreNotes().find(e => e.element.startChar === editing.start);
+  if (!entry) {
+    closeChordEntry(editing, focusTo);
+    toast('Score updated. Select the note again.');
+    return '';
+  }
+  const sel = {entry, display: displayOf(entry)},
+    {startChar: start, endChar: end} = entry.element,
+    old = $('abc').value.slice(start, end);
+  let message = '',
+    moved = 0;
+  if (typed !== (editing.had || '')) {
+    const text = setChordSymbol(old, typed ? concertChord(typed, sel) : null);
+    moved = text.length - old.length;
+    if (text !== old) applyNoteEdit(start, end, text);
+    message = !typed
+      ? 'Chord symbol removed.'
+      : parseChordSymbol(typed)
+        ? `Chord symbol ${typed}.`
+        : `Chord symbol “${typed}” added. It is not a chord name, so it prints but does not play.`;
+  }
+  const notes = scoreNotes(),
+    next = move ? notes[notes.findIndex(e => e.element.startChar === start) + move] : null;
+  if (next) {
+    selectEntry(next);
+    if (message) $('selection-status').textContent = message;
+    openChordEntry(selectedNote(), editing.opener);
+    return message;
+  }
+  const clicked =
+    editing.clicked != null &&
+    editing.clicked !== start &&
+    notes.find(e => e.element.startChar === editing.clicked + (editing.clicked > start ? moved : 0));
+  if (clicked) selectEntry(clicked);
+  if (move) message += (message ? ' ' : '') + (move > 0 ? 'That was the last note.' : 'That was the first note.');
+  if (message) $('selection-status').textContent = message;
+  refreshPalette();
+  closeChordEntry(editing, focusTo);
+  return message;
+}
+$('chord-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === 'Tab') {
+    e.preventDefault();
+    commitChord(e.key === 'Tab' ? (e.shiftKey ? -1 : 1) : 0);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeChordEntry(chordEditing);
+  }
+});
+$('chord-input').addEventListener('input', chordHint);
+// Leaving the box another way (a click or tap elsewhere) saves it, and the keyboard goes where the student went.
+// Switching to another window keeps the box open.
+$('chord-input').addEventListener('blur', e => {
+  if (!chordEditing || !document.hasFocus() || $('chord-entry').contains(e.relatedTarget)) return;
+  commitChord(0, e.relatedTarget || $('notation'));
+});
+// A click or tap on another note while the box is open saves the box, then selects that note (by its place in the
+// source, which the save may move along).
+$('notation').addEventListener(
+  'mousedown',
+  e => {
+    if (!chordEditing) return;
+    const hit = selectableAt(e)?.absEl.abcelem;
+    chordEditing.clicked = (hit?.el_type === 'note' && noteSources.get(hit.startChar)?.element.startChar) ?? null;
+  },
+  true
+);
+// Next is for touch screens without a Tab key; pressing it keeps the box focused.
+$('chord-next').addEventListener('mousedown', e => e.preventDefault());
+$('chord-next').addEventListener('click', () => commitChord(1));
 // One edit on one note, shared by the note menu, the keyboard and the palette. Actions: acc:<^|_|=|>, len:<whole>,
 // dot, tie, to-rest, beam:join, beam:break, deco:<mark>, dyn:<dynamic|>, delete, rest-after, bar-after, play-from,
-// range-from. Others do nothing.
+// range-from, chord (opens the chord symbol box). Others do nothing.
 function editNote(entry, display, action) {
   const area = $('abc'),
     v = area.value,
@@ -1306,6 +1453,10 @@ function editNote(entry, display, action) {
   }
   if (action === 'play-from') {
     playFromNote(display);
+    return;
+  }
+  if (action === 'chord') {
+    openChordEntry({entry, display});
     return;
   }
   if (action === 'range-from') {
@@ -1431,7 +1582,8 @@ window.addEventListener(
 // Keyboard note entry on the score (MuseScore-style): A–G add a note after the selection in the nearest octave,
 // Shift+A–G add a pitch to the selected chord, R or 0 a rest, 3–7 set the length (16th…whole), . dots, ↑↓ move by
 // step (Ctrl: octave), ←→ change the selection, # - = set sharp/flat/natural, + ties, | adds a bar line, Delete
-// removes the note, [ ] halve or double the length, ; : > " ^ toggle staccato, tenuto, accent, marcato and fermata.
+// removes the note, [ ] halve or double the length, ; : > " ^ toggle staccato, tenuto, accent, marcato and fermata,
+// K opens the chord symbol box.
 // Shift+←→ and Ctrl/Cmd+A, C, X, V, D work on a range selection (see below).
 const LENGTH_KEYS = {3: 1 / 16, 4: 1 / 8, 5: 1 / 4, 6: 1 / 2, 7: 1};
 function focusScore() {
@@ -1713,6 +1865,11 @@ function scoreKey(e) {
     if (typeof showPianoSelection === 'function') showPianoSelection();
     $('selection-status').textContent = 'Nothing selected. Letters add notes at the end.';
     refreshPalette();
+    return true;
+  }
+  if (key === 'k' || key === 'K') {
+    if (sel) openChordEntry(sel);
+    else $('selection-status').textContent = 'Select a note on the score first.';
     return true;
   }
   if (!sel) return false;
