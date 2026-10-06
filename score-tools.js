@@ -91,13 +91,19 @@ function moveNoteText(text, steps) {
   }
   return result;
 }
-// Notes sounding between from and until (score seconds), rebased to 0 and scaled to the playback speed.
+// Notes sounding between from and until (score seconds), rebased to 0 and scaled to the playback speed. Range edges
+// come from abcjs's note timings, in whole milliseconds, and the notes from the MIDI, in ticks at a tempo in whole
+// microseconds, so at most tempos (quarter = 180: a bar of 1.333 s against 1.333332 s) the note before a range ends
+// just after it starts and the next bar's first note starts just before it ends; in long scores the two drift apart
+// by a few milliseconds more. A note that overlaps the range by less than SLICE_EDGE stays out: scheduled, it
+// sounded as a click at full volume. parseMidi gives every note at least 25 ms, so no whole note is that short.
+const SLICE_EDGE = 0.01;
 function playbackSlice(data, from, percent, until = data.duration) {
   const speed = percent / 100;
   return {
     duration: Math.max(0, (until - from) / speed),
     notes: data.notes
-      .filter(n => n.start + n.duration > from && n.start < until - 1e-9)
+      .filter(n => n.start + n.duration > from + SLICE_EDGE && n.start < until - SLICE_EDGE)
       .map(n => ({
         ...n,
         start: Math.max(0, n.start - from) / speed,
@@ -1974,15 +1980,49 @@ function hashText(text) {
   return h;
 }
 
+// One tempo for both of abcjs's clocks. abcjs times the drawn notes (setTiming, noteTimings: the highlight, practice
+// ranges, metronome and count-in) in beats of the opening meter, a half note in 2/2 and a dotted quarter in 6/8, and
+// with no Q: at 180 beats a minute (120 in 6/8, 9/8 and 12/8). Its sound has its own default: 180 quarter notes a
+// minute outside x/8 meters, so a reel in C| sounded at half = 90 while the highlight ran at half = 180. A tempo with
+// no number (Q:"Slowly") played at 60 and was timed at 180, and a body tempo with no note length ([Q:120]) was heard
+// in quarters and timed in beats. This writes the tempo the sound uses into the parsed tune, where abcjs reads it for
+// both: no Q: (or no number) gives the sound's default, a body tempo with no number keeps the tempo before it, and one
+// with no length counts beats, as Q:120 does in the header. Nothing is drawn from it, since the tune is already
+// engraved (or never drawn), and the ABC is left alone.
+function settleTempo(tune) {
+  if (!tune?.metaText || typeof tune.getBeatLength !== 'function') return tune;
+  const beat = tune.getBeatLength(),
+    {num, den} = tune.getMeterFraction(),
+    tempo = tune.metaText.tempo;
+  if (!(tempo?.bpm > 0))
+    tune.metaText.tempo = {
+      ...tempo,
+      ...(+den === 8 ? {duration: [beat], bpm: +num !== 3 && num % 3 === 0 ? 120 : 180} : {duration: [1 / 4], bpm: 180})
+    };
+  else if (!tempo.duration?.length) tempo.duration = [beat];
+  let current = tune.metaText.tempo;
+  for (const line of tune.lines || [])
+    for (const staff of line.staff || [])
+      for (const e of (staff.voices || []).flat()) {
+        if (e.el_type !== 'tempo') continue;
+        if (!(e.bpm > 0)) Object.assign(e, {duration: current.duration, bpm: current.bpm});
+        else if (!e.duration?.length) e.duration = [beat];
+        current = e;
+      }
+  return tune;
+}
 // MIDI for playback and export. abcjs generates the file; parseMidi decodes its notes and tempo events.
-// Three abcjs slips are mended first. abcjs engraves sfz and marcato but plays them at the current volume, so they get
-// an accent (half as loud again). It plays any text in chord-symbol position that starts with A–G (Coda as a C chord,
-// D.C. as a D chord) and carries the last chord on through N.C.; here only what parseChordSymbol reads as a chord
-// plays, and N.C. stops the accompaniment until the next one. Its MIDI writer scales each note's gap by the tempo a
-// second time, so above about 95 bpm a staccato note-off comes before its note-on and the note rings on, and a tenuto
-// or slurred note runs into a repeat of its pitch, so one of the two is lost. Here staccato notes sound for 60% of
-// their length (abcjs's length at 60 bpm) and other notes for their full length. With chordsOff, chord symbols are not
-// played (the Chords switch); exports leave it out, so files keep the accompaniment.
+// Four abcjs slips are mended first. Its MIDI writer takes the tempo, counted in beats of the meter, as quarter notes
+// a minute (it corrects only x/8 meters), so 2/2, 3/2 and C| played at half speed: Q:1/2=60 sounded as quarter = 60.
+// Here the file's tempo is in quarter notes, and settleTempo gives the sound and the highlight the same tempo. abcjs
+// engraves sfz and marcato but plays them at the current volume, so they get an accent (half as loud again). It plays
+// any text in chord-symbol position that starts with A–G (Coda as a C chord, D.C. as a D chord) and carries the last
+// chord on through N.C.; here only what parseChordSymbol reads as a chord plays, and N.C. stops the accompaniment until
+// the next one. Its MIDI writer scales each note's gap by the tempo a second time, so above about 95 bpm a staccato
+// note-off comes before its note-on and the note rings on, and a tenuto or slurred note runs into a repeat of its
+// pitch, so one of the two is lost. Here staccato notes sound for 60% of their length (abcjs's length at 60 bpm) and
+// other notes for their full length. With chordsOff, chord symbols are not played (the Chords switch); exports leave
+// it out, so files keep the accompaniment.
 function midiBytes(source, {chordsOff = false} = {}) {
   const tune = ABCJS.parseOnly(source)[0];
   for (const line of tune?.lines || [])
@@ -1999,10 +2039,13 @@ function midiBytes(source, {chordsOff = false} = {}) {
             else c.position = 'above';
           }
       }
+  settleTempo(tune);
   const setUpAudio = tune?.setUpAudio;
   if (setUpAudio)
     tune.setUpAudio = function (options) {
       const sequence = setUpAudio.call(this, options);
+      // Beats a minute to quarters a minute. Body tempo changes stretch the notes by a ratio, so they follow.
+      sequence.tempo *= 4 * this.getBeatLength();
       for (const track of sequence.tracks)
         for (const e of track)
           if (e.cmd === 'note' && e.gap) {
@@ -2134,17 +2177,19 @@ function tempoParts(field) {
   const m = field.trim().match(/^((?:"[^"]*"\s*)*)([^"]*?)\s*((?:"[^"]*"\s*)*)$/);
   return m ? {pre: m[1].trim(), beat: m[2], post: m[3].trim()} : {pre: '', beat: field.trim(), post: ''};
 }
-// The beat abcjs plays a score at, as Q: writes it: the header tempo's, or abcjs's default for the meter when the
-// score has no Q:, only tempo text, or a bare number (Q:120, a beat of the meter).
+// The beat a score plays at, as Q: writes it: the header tempo's, or the one settleTempo gives a score with no Q:,
+// only tempo text, or a bare number (Q:120, which abcjs counts in the meter's note value, quarter notes in C and C|).
+// With no Q: that is 1/4=180 in 2/2 and C| and 3/8=120 in 6/8. abcjs's own default for 2/2, 1/2=180, plays twice as
+// fast now that a written tempo plays as written.
 function playedBeat(source) {
-  const tune = ABCJS.parseOnly(source)[0],
+  const tune = settleTempo(ABCJS.parseOnly(source)[0]),
     tempo = tune?.metaText?.tempo,
     fraction = length => {
       const d = [1, 2, 4, 8, 16, 32, 64].find(d => Math.abs(length * d - Math.round(length * d)) < 1e-9) || 4;
       return Math.round(length * d) + '/' + d;
     };
   if (tempo?.bpm > 0 && tempo.duration?.length) return tempo.duration.map(fraction).join(' ') + '=' + tempo.bpm;
-  return fraction(tune?.getBeatLength?.() || 0.25) + '=' + Math.round(tune?.getBpm?.() || 180);
+  return '1/4=180';
 }
 // Set the feel in the header's tempo line, with the directive just above K:. Swing prints "Swing", or adds ", swing"
 // to tempo text already there such as "Allegro", and writes out the beat abcjs plays: abcjs drops a bare number after
@@ -2243,8 +2288,10 @@ function swingPlayback(data, amount, bars) {
 
 // Share links: the whole score rides in the URL hash (#s=…), so no server ever holds student work.
 // Payload {v, a: abc, i: instrument, s: library source id, p: built-in prompt id,
-// q: teacher-written assignment, checked by validPrompt}. The first character says how the rest
-// is packed: '1' deflate-raw + base64url, '0' plain base64url (for browsers without CompressionStream).
+// q: teacher-written assignment, checked by validPrompt}. A turned-in assignment adds n: the student's name,
+// t: the time (ms), x: the assignment's id and g: each goal met (1) or not (0); a teacher's return link adds
+// c: feedback text. The first character says how the rest is packed: '1' deflate-raw + base64url, '0' plain
+// base64url (for browsers without CompressionStream).
 const base64url = {
   // Built in chunks: spreading a large score into String.fromCharCode overflows the call stack.
   encode: bytes => {
@@ -2274,4 +2321,58 @@ async function decodeShare(text) {
   } catch {
     return null;
   }
+}
+
+// Turning in and the teacher's inbox. Everything here comes from a link or a file, so it is checked field by field.
+// A name keeps printable characters and single spaces, up to 80 characters; anything else is no name.
+const STUDENT_NAME_MAX = 80,
+  FEEDBACK_MAX = 2000;
+function cleanStudentName(name) {
+  if (typeof name !== 'string') return '';
+  const clean = name
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return clean.length <= STUDENT_NAME_MAX ? clean : '';
+}
+// The turn-in parts of a link (n, t, x), read against the assignment the link carries: x must be its id. Returns
+// {name, at, assignment} or null. g is not read: the inbox works the goals out again from the music, so a link stays
+// readable after a built-in prompt's goals change.
+function readSubmission(payload, prompt) {
+  if (!payload || typeof payload !== 'object' || !prompt || typeof prompt.id !== 'string') return null;
+  const name = cleanStudentName(payload.n),
+    {t, x} = payload;
+  if (!name || !Number.isInteger(t) || t <= 0 || t > 8.64e15 || x !== prompt.id) return null;
+  return {name, at: t, assignment: x};
+}
+// A teacher's feedback (c): text up to 2,000 characters, or null.
+function readFeedback(c) {
+  return typeof c === 'string' && c.trim() && c.length <= FEEDBACK_MAX ? c.trim() : null;
+}
+// What the inbox shows for a submission: goals met (checked in written pitch, as the student's checklist is) and how
+// many bars do not match the time signature. shift is the instrument's written-pitch shift.
+function submissionChecks(abc, prompt, shift = 0) {
+  let written = abc;
+  if (shift)
+    try {
+      written = transposeABC(abc, shift);
+    } catch {
+      written = ABCJS.strTranspose(abc, ABCJS.parseOnly(abc), shift);
+    }
+  const goals = prompt ? checkPrompt(prompt, melodyBars(ABCJS.parseOnly(written)[0])) : [];
+  return {
+    goals,
+    met: goals.filter(g => g.ok).length,
+    total: goals.length,
+    bars: barProblems(ABCJS.parseOnly(abc)[0]).length
+  };
+}
+// The share codes in pasted text, one per line: a full link (…#s=CODE), or a bare code. Blank lines are skipped; a line
+// with no code gives code null, so it can be reported by its line number.
+function turnInCodes(text) {
+  return String(text)
+    .split(/\r?\n/)
+    .map((line, i) => ({line: i + 1, text: line.trim()}))
+    .filter(l => l.text)
+    .map(l => ({line: l.line, code: (l.text.match(/(?:^|[#&?]s=)([01][A-Za-z0-9_-]{8,})$/) || [])[1] || null}));
 }

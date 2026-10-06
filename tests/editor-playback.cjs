@@ -82,6 +82,7 @@ for (const f of [
   'playback.js',
   'keyboard.js',
   'assignments.js',
+  'turn-in.js',
   'app.js'
 ])
   run(fs.readFileSync(path.join(root, f), 'utf8'));
@@ -2074,6 +2075,125 @@ async function checkPlayback() {
   );
   run(`openScore({abc:${JSON.stringify('X:1\nM:6/8\nL:1/8\nK:C\nc3 d3|]')}})`);
   assert.equal(run('beatsPerBar()'), 2, '6/8 counts two dotted beats');
+  // Cut time: the practice range, metronome and count-in keep time with the notes as heard. abcjs wrote 2/2 MIDI at
+  // half speed, so a one-bar range ended halfway through the bar and the clicks ran twice as fast as the notes.
+  const cutTime = 'X:1\nM:2/2\nL:1/8\nQ:1/2=60\nK:C\nCDEF GABc | cBAG FEDC | C8 |]';
+  run(`openScore({abc:${JSON.stringify(cutTime)},instrument:'Flute'});$('speed').value=100;setRange(1,1)`);
+  const heard = run(`parseMidi(midiBytes(${JSON.stringify(cutTime)})).notes.map(n => n.start)`);
+  assert.deepEqual([heard[1], heard[8], heard[16]], [0.25, 2, 4], 'Half = 60: eighths 0.25 s apart, bars 2 s');
+  assert.deepEqual(
+    [run('measureStarts.get(2)'), run('measureStarts.get(3)')],
+    [heard[8], heard[16]],
+    'Measure starts fall on the notes heard'
+  );
+  assert.equal(run('rangeEnd(1,99)'), 2, 'A one-bar range in 2/2 lasts the whole bar');
+  oscillators.length = 0;
+  await run('play()');
+  assert.equal(oscillators.length, 8, 'The range plays every note of its bar');
+  assert.ok(Math.abs(oscillators[7].startAt - oscillators[0].startAt - 1.75) < 1e-9, 'At the written tempo');
+  run('stop()');
+  run("$('metronome').checked=true;$('count-in').checked=true");
+  oscillators.length = 0;
+  await run('play()');
+  {
+    const clicks = oscillators.filter(o => o.type === 'square'),
+      notes = oscillators.filter(o => o.type !== 'square');
+    assert.equal(clicks.length, 4, 'Two half-note beats of count-in, then two clicks in the bar');
+    assert.ok(Math.abs(clicks[1].startAt - clicks[0].startAt - 1) < 1e-9, 'Count-in at half = 60');
+    assert.ok(Math.abs(notes[0].startAt - clicks[2].startAt) < 1e-9, 'The first note lands on the downbeat click');
+    assert.ok(Math.abs(notes[4].startAt - clicks[3].startAt) < 1e-9, 'The fifth eighth lands on the second beat');
+  }
+  run('stop()');
+  run("$('metronome').checked=false;$('count-in').checked=false");
+  // C| with no Q: keeps the speed it always sounded at (quarter = 180, half = 90); the timing follows it.
+  const reel = 'X:1\nM:C|\nL:1/8\nK:D\ndAFA dAFA | dfed cdeA |]';
+  run(`openScore({abc:${JSON.stringify(reel)}})`);
+  const reelNotes = run(`parseMidi(midiBytes(${JSON.stringify(reel)})).notes.map(n => n.start)`);
+  assert.ok(Math.abs(reelNotes[1] - 1 / 6) < 1e-6, 'Eighths at quarter = 180');
+  assert.ok(Math.abs(run('measureStarts.get(2)') - reelNotes[8]) < 1e-3, 'The bar starts with its first note');
+  assert.equal(
+    run('clickTimes(0,99,8/3).map(c=>c.time.toFixed(2)+(c.down?"*":"")).join()'),
+    '0.00*,0.67,1.33*,2.00',
+    'Clicks on the half-note beats'
+  );
+  // A range, a loop and a start note play only their own notes. Bars are timed in whole milliseconds (1.333 s) and the
+  // MIDI at 333,333 microseconds a quarter, so the note before the range and the next bar's first note overlapped it
+  // by a third of a millisecond and sounded as clicks.
+  {
+    const reel4 = 'X:1\nM:C|\nL:1/8\nK:D\ndAFA dAFA | dfed cdeA | FAdA FAdA | d2f2 a4 |]',
+      bar2 = '74,78,76,74,73,74,76,69',
+      pitches = () =>
+        oscillators
+          .filter(o => o.type !== 'square')
+          .map(o => Math.round(69 + 12 * Math.log2(o.frequency.value / 440)))
+          .join();
+    run(`openScore({abc:${JSON.stringify(reel4)},instrument:'Flute'});$('speed').value=100;setRange(2,2)`);
+    assert.ok(Math.abs(run('measureStarts.get(2)') - 4 / 3) > 1e-4, 'Bar 2 is timed apart from its MIDI note');
+    oscillators.length = 0;
+    await run('play()');
+    assert.equal(pitches(), bar2, 'A one-bar range plays its own eight notes');
+    run('stop()');
+    run("$('loop').checked=true;$('speed').value=200");
+    oscillators.length = 0;
+    await run('play()');
+    await new Promise(resolve => setTimeout(resolve, 700));
+    assert.equal(pitches(), bar2 + ',' + bar2, 'and loops with no click at the seam');
+    run('stop()');
+    run("$('loop').checked=false;$('speed').value=100");
+    oscillators.length = 0;
+    await run(
+      "play(noteStartTime({startChar: [...noteSources].filter(([, e]) => e?.element.el_type === 'note')[5][0]}))"
+    );
+    assert.equal(pitches(), '69,66,69,' + bar2, 'Playing from the sixth note starts with it');
+    run('stop()');
+    assert.equal(
+      run(
+        'playbackSlice({duration:3,notes:[{start:0,duration:1.2+0.1+0.1,note:60,velocity:80},{start:1.4,duration:0.1,note:62,velocity:80}]},1.4,100).notes.map(n=>n.note).join()'
+      ),
+      '62',
+      'A note that ends at the range start, give or take a rounding error, stays out'
+    );
+  }
+  // Swing on a reel with no Q: writes out the tempo it plays at, quarter = 180 (abcjs's own default would be half =
+  // 180, twice as fast), so the reel keeps its speed and the swing grid's two clocks agree.
+  run(`openScore({abc:${JSON.stringify(reel)},instrument:'Flute'});setRange(1,2)`);
+  const straightReel = await starts();
+  feel(66);
+  assert.match(run("$('abc').value"), /\nQ:"Swing" 1\/4=180\n/, 'A reel without Q: swings at quarter = 180');
+  assert.equal(run("$('bpm').value"), '180', 'The Tempo slider shows that beat');
+  assert.ok(
+    Math.abs(
+      run(
+        "parseMidi(midiBytes($('abc').value)).quarter / (renderedTune.millisecondsPerMeasure() / 1000 / renderedTune.getBarLength() / 4)"
+      ) - 1
+    ) < 1e-5,
+    'The MIDI and the note timings have the same quarter note'
+  );
+  const swungReel = (await starts()).split(' ').map(t => +t.split('+')[0]);
+  assert.deepEqual(
+    [swungReel[1], swungReel[2], swungReel[15], +straightReel.split(' ')[15].split('+')[0]].map(t => +t.toFixed(3)),
+    [0.22, 0.333, 2.553, 2.5],
+    'Its off-beat eighths start at 2/3 of the quarter beat, and the bars keep their length'
+  );
+  feel(0);
+  // The Tempo slider reads and writes the tempo in the header's own beat, and a score with no Q: at the beat it plays
+  // at, so moving it by one changes the speed by one beat a minute. It used to write 1/4=, which halved the speed of
+  // Q:1/2=60 at the first move, and to read 100 for a score with no Q:.
+  for (const [abc, shown, moved] of [
+    ['X:1\nM:2/2\nL:1/8\nQ:1/2=60\nK:C\nCDEF GABc|]', 60, 'Q:1/2=61'],
+    ['X:1\nM:C|\nL:1/8\nK:D\ndAFA dAFA|]', 180, 'Q:1/4=181'],
+    ['X:1\nM:6/8\nL:1/8\nK:C\nCDE FGA|]', 120, 'Q:3/8=121'],
+    ['X:1\nM:2/2\nL:1/8\nQ:120\nK:C\nCDEF GABc|]', 120, 'Q:1/2=121'],
+    ['X:1\nM:4/4\nL:1/8\nQ:"Allegro" 1/4=132\nK:C\nCDEF GABc|]', 132, 'Q:"Allegro" 1/4=133']
+  ]) {
+    run(`openScore({abc:${JSON.stringify(abc)}})`);
+    assert.equal(run("$('bpm').value"), String(shown), `The Tempo slider reads ${shown} for ${abc.split('\n')[1]}`);
+    const quarter = () => run("parseMidi(midiBytes($('abc').value)).quarter"),
+      before = quarter();
+    run(`$('bpm').value='${shown + 1}';$('bpm').dispatchEvent(new Event('input'))`);
+    assert.equal(run("$('abc').value.match(/^Q:.*$/m)[0]"), moved, 'and moving it keeps the beat');
+    assert.ok(Math.abs(before / quarter() - (shown + 1) / shown) < 1e-5, `${moved} is one beat a minute faster`);
+  }
   // Transpose panel, key changes and the key and meter menus.
   const body = () => run("$('abc').value.trim().split('\\n').pop()"),
     keyLine = () => run("$('abc').value.match(/^K:.*$/m)[0]");
@@ -2470,7 +2590,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

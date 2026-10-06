@@ -89,9 +89,9 @@ function clickTimes(from, until, end = until) {
   return out;
 }
 // Swing grid for playback, in the decoded MIDI's seconds: each measure as played, with its quarter-note length from its
-// real start and end, so swing follows repeats and tempo changes. Only x/4 and x/2 meters swing. abcjs's note timings
-// are whole milliseconds, and its MIDI plays x/2 meters at half their tempo, so each measure start is scaled by the
-// two clocks' opening tempos, then moved onto the MIDI note that starts there, if one does.
+// real start and end, so swing follows repeats and tempo changes. Only x/4 and x/2 meters swing. The note timings and
+// the MIDI share one tempo (settleTempo), so scale is 1 to within MIDI's whole microseconds; abcjs's note timings are
+// whole milliseconds, so each measure start is then moved onto the MIDI note that starts there, if one does.
 function swingBars(midi) {
   if (![2, 4].includes(meterParts()[1])) return [];
   const bar = renderedTune?.getBarLength?.() || 1,
@@ -257,7 +257,7 @@ function schedulePass(p, from, percent, base, pass) {
   // A note that ends by from as written stays out, even if swing lengthened it past from: playing from a swung
   // off-beat starts with that note, not a blip of the one before it.
   const speed = percent / 100,
-    notes = p.full.notes.filter(n => !(n.straightEnd <= from + 0.002)),
+    notes = p.full.notes.filter(n => !(n.straightEnd <= from + SLICE_EDGE)),
     data = playbackSlice({...p.full, notes}, from, percent, p.until),
     looping = $('loop').checked || $('trainer').checked;
   scheduleNotes(data.notes, base);

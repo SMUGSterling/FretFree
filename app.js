@@ -7,6 +7,7 @@ function show(view) {
   if (view === 'saved') {
     renderSaved();
     renderBackupStatus();
+    if (typeof renderInbox === 'function') renderInbox();
   }
   if (view !== 'studio') stop();
   // A preview stops when its view goes: card previews live in the library, History previews in My scores.
@@ -23,6 +24,7 @@ function openScore(item, id = null) {
   // The assignment builder and the share panel describe the score they were opened on, so they close with it.
   toggleAssignmentBuilder(false);
   closeShare();
+  if (typeof closeTurnIn === 'function') closeTurnIn();
   stop();
   stopPreview();
   current = item;
@@ -264,7 +266,7 @@ for (const [id, header] of [
 ])
   $(id).addEventListener('input', () => {
     noteTyping(id);
-    setHeader(header, id === 'bpm' ? '1/4=' + $(id).value : $(id).value);
+    setHeader(header, id === 'bpm' ? sliderBeat().replace(/\d+$/, $(id).value) : $(id).value);
     $('bpm-value').textContent = $('bpm').value;
     if (id === 'meter') syncFeel();
     changed();
@@ -312,9 +314,11 @@ $('help-toggle').onclick = () => {
 $('save').onclick = () => {
   const id = savedId || globalThis.crypto?.randomUUID?.() || 'score-' + Date.now(),
     previous = saved.find(x => x.id === id);
+  // Turned-in work saved to My scores is a copy of one's own: "Turned in by" stays behind, and it can be turned in.
+  const {submission, ...item} = current || {};
   // Each save of a score gets its own time, which names the version it later becomes.
   const entry = {
-    ...current,
+    ...item,
     id,
     title: field('T', 'Untitled'),
     composer: field('C'),
@@ -330,6 +334,10 @@ $('save').onclick = () => {
     savedId = id;
     dirty = false;
     markClean();
+    if (submission) {
+      if (typeof saveFeedback === 'function') saveFeedback();
+      current = item;
+    }
     $('save-status').textContent = 'Saved on this device. Back up from My scores to keep it safe.';
     renderBackupStatus();
     toast('Score saved');
