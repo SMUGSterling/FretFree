@@ -9,7 +9,8 @@ function show(view) {
     renderBackupStatus();
   }
   if (view !== 'studio') stop();
-  if (view !== 'library') stopPreview();
+  // A preview stops when its view goes: card previews live in the library, History previews in My scores.
+  if (view !== (previewId === 'history' ? 'saved' : 'library')) stopPreview();
   history.replaceState(null, '', '#' + view);
   window.scrollTo({top: 0, behavior: 'smooth'});
 }

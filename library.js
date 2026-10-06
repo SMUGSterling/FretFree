@@ -287,16 +287,21 @@ function storeVersions(map) {
     budget = versionsSize(map) / 2;
   }
 }
-// Saves the score list. When storage is full, the oldest versions make room first.
-function storeScores(list) {
-  if (storage.set(KEYS.scores, list)) return true;
-  let map = storedVersions();
+// Stores `value` under `key`. When storage is full, the oldest versions make room first. If even dropping them all is
+// not enough, the versions are put back as they were (they fit, since the write did not land) and false is returned.
+function storeMakingRoom(key, value) {
+  if (storage.set(key, value)) return true;
+  const before = storage.get(KEYS.versions, null);
+  let map = cleanVersions(before);
   while (Object.keys(map).length) {
     map = storeVersions(trimVersions(map, versionsSize(map) / 2));
-    if (storage.set(KEYS.scores, list)) return true;
+    if (storage.set(key, value)) return true;
   }
+  if (before !== null) storage.set(KEYS.versions, before);
   return false;
 }
+// Saves the score list, making room as above.
+const storeScores = list => storeMakingRoom(KEYS.scores, list);
 // Called after a save replaced `entry`, the previous copy of a saved score. Never throws.
 function keepVersion(entry) {
   try {
@@ -373,11 +378,13 @@ function markHistoryPreview() {
     b.closest('li').classList.toggle('selected', on);
   }
 }
+// A version saved without an instrument (from an older score or backup) is drawn and played in the score's instrument.
+const versionInstrument = (v, entry) => [v.instrument, entry?.instrument].find(name => instruments[name]);
 // The version as drawn: the instrument's written pitch and clef, or concert pitch when Concert pitch is ticked.
-function versionSource(v) {
-  const config = instruments[v.instrument];
-  if (!config) return v.abc;
-  let source = v.abc,
+function versionSource(abc, instrument) {
+  const config = instruments[instrument];
+  if (!config) return abc;
+  let source = abc,
     shift = config.shift || 0;
   if (shift % 12 && $('concert-pitch')?.checked) shift = 0;
   if (shift)
@@ -389,7 +396,8 @@ function versionSource(v) {
   return source.replace(/^K:(.*)$/m, (_, key) => 'K:' + key.replace(/\s+clef=\S+/g, '') + ' clef=' + config.clef);
 }
 function previewVersion(at) {
-  const list = versionsOf(historyId),
+  const entry = saved.find(x => x.id === historyId),
+    list = versionsOf(historyId),
     i = list.findIndex(v => v.at === at);
   if (i < 0) return;
   if (previewId === 'history') stopPreview();
@@ -401,7 +409,7 @@ function previewVersion(at) {
   const width = $('history-score').clientWidth,
     zoom = width && width < 520 ? 200 : zoomPercent;
   try {
-    historyTune = ABCJS.renderAbc('history-score', versionSource(list[i]), {
+    historyTune = ABCJS.renderAbc('history-score', versionSource(list[i].abc, versionInstrument(list[i], entry)), {
       responsive: 'resize',
       ...layoutOptions(zoom),
       paddingtop: 10,
@@ -422,8 +430,7 @@ function playVersion() {
   const entry = saved.find(x => x.id === historyId),
     v = versionsOf(historyId).find(v => v.at === historyAt);
   if (!entry || !v) return;
-  const instrument = [v.instrument, entry.instrument].find(name => instruments[name]) || 'Piano';
-  playPreview('history', v.abc, instrument, historyTune, Infinity, historyPlayButton);
+  playPreview('history', v.abc, versionInstrument(v, entry) || 'Piano', historyTune, Infinity, historyPlayButton);
 }
 // Restoring changes nothing stored: the version opens as unsaved work on the same saved score.
 function restoreVersion(at) {
@@ -432,7 +439,7 @@ function restoreVersion(at) {
   if (!entry || !v || !allowReplace()) return;
   closeHistory(false);
   dirty = false;
-  openScore({...entry, abc: v.abc, instrument: instruments[v.instrument] ? v.instrument : entry.instrument}, entry.id);
+  openScore({...entry, abc: v.abc, instrument: versionInstrument(v, entry) || entry.instrument}, entry.id);
   dirty = true;
   cleanKey = '';
   updateRights();

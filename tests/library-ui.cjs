@@ -436,10 +436,19 @@ assert.equal(
   );
   assert.match(q('history-preview-title').textContent, /^Version 1, saved /);
   assert.equal(r("$('abc').value"), opened, 'Preview leaves the editor alone');
-  assert.equal(
-    r('versionSource({abc: "X:1\\nK:C\\nC4|]", instrument: "Clarinet in B♭"})'),
-    'X:1\nK:D clef=treble\nD4|]'
-  );
+  assert.equal(r('versionSource("X:1\\nK:C\\nC4|]", "Clarinet in B♭")'), 'X:1\nK:D clef=treble\nD4|]');
+  // A version saved without an instrument (from an older score or backup) is drawn and played in the score's
+  // instrument: here an alto sax part, so concert C is drawn as a written A.
+  const keptVersions = r('localStorage.getItem(KEYS.versions)'),
+    keptInstrument = r('saved[0].instrument');
+  r(`localStorage.setItem(KEYS.versions, JSON.stringify({[savedId]: [{at: 1, abc: 'X:1\\nK:C\\nC4|]'}]}));
+     saved[0].instrument = 'Alto sax in E♭';
+     previewVersion(1);`);
+  assert.equal(r('historyTune.lines[0].staff[0].key.root'), 'A', 'A version without an instrument takes the score’s');
+  assert.equal(r('versionInstrument({abc: "X:1", instrument: "Cello"}, saved[0])'), 'Cello');
+  r(`saved[0].instrument = ${JSON.stringify(keptInstrument)};
+     localStorage.setItem(KEYS.versions, ${JSON.stringify(keptVersions)});
+     previewVersion(${times[0]});`);
   // Escape closes the panel and returns focus to the card's History button.
   q('history-panel').dispatchEvent(new page.w.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
   assert.equal(q('history-panel').hidden, true, 'Escape closes the history');
@@ -531,6 +540,37 @@ assert.equal(
   assert.equal(r('saved[0].abc'), bars(40));
   assert.equal(versions().other, undefined, 'The oldest version made room');
   assert.equal(versions()[id].at(-1).abc, bars(29), 'Newer versions stay');
+  // Restoring a backup when storage is short: the oldest versions make room for the restored scores, as when saving,
+  // and a restore that fails anyway puts them back with everything else.
+  const fromBackup = JSON.stringify({
+      app: 'FretFree',
+      format: 1,
+      scores: [{id: 'from-backup', title: 'From a backup', abc: bars(30), updated: 5}]
+    }),
+    stored = key => r(`localStorage.getItem(KEYS.${key})`),
+    before = {scores: stored('scores'), versions: stored('versions')};
+  r(`const restoreQuota = __used() + 200;
+     window.__quotaSet = (key, value) => {
+       const items = {...localStorage, [key]: JSON.stringify(value)};
+       return Object.values(items).join('').length > restoreQuota ? false : __realSet(key, value);
+     };
+     storage.set = (key, value) => (key === KEYS.played ? false : __quotaSet(key, value));`);
+  assert.throws(() => r(`applyBackup(${fromBackup})`), /Nothing was changed/);
+  assert.deepEqual(
+    {scores: stored('scores'), versions: stored('versions')},
+    before,
+    'A failed restore puts back the versions that made room'
+  );
+  assert.equal(r('saved.length'), 1);
+  r('storage.set = __quotaSet');
+  r(`applyBackup(${fromBackup})`);
+  assert.deepEqual(
+    json('saved.map(x => x.id)'),
+    [id, 'from-backup'],
+    'The oldest versions make room for a restored score'
+  );
+  assert.ok(versions()[id].length < 20 && versions()[id].at(-1).abc === bars(29), 'The newest versions stay');
+  r(`localStorage.setItem(KEYS.scores, ${JSON.stringify(before.scores)}); saved = storedList(KEYS.scores);`);
   // A version that does not fit is dropped, and the save still counts.
   r('storage.set = (key, value) => (key === KEYS.versions ? false : __realSet(key, value))');
   edit(bars(41));
@@ -538,14 +578,25 @@ assert.equal(
   assert.equal(r('saved[0].abc'), bars(41), 'Saving never fails because of versions');
   assert.equal(r('localStorage.getItem(KEYS.versions)'), null, 'Versions that cannot be stored are let go');
   r('storage.set = __realSet');
-  // Deleting a score deletes its versions.
+  // A save that fails even once every version has made room puts the versions back: dropping them gained nothing.
   edit(bars(42));
   q('save').click();
+  r(`storage.set(KEYS.versions, {...storedVersions(), other: [{at: 5, abc: 'X:1'}]})`);
+  const allVersions = r('localStorage.getItem(KEYS.versions)');
+  r('storage.set = (key, value) => (key === KEYS.scores ? false : __realSet(key, value))');
+  edit(bars(43));
+  q('save').click();
+  r('storage.set = __realSet');
+  assert.match(q('save-status').textContent, /^This browser could not save/);
+  assert.equal(r('saved[0].abc'), bars(42), 'The failed save changes nothing saved');
+  assert.equal(r('localStorage.getItem(KEYS.versions)'), allVersions, 'A failed save keeps every version');
+  // Deleting a score deletes its versions and no others.
   r("show('saved')");
   assert.equal(versions()[id].length, 1);
   q('saved-cards').querySelector(`[data-delete="${id}"]`).click();
   assert.equal(r('saved.length'), 0);
   assert.equal(versions()[id], undefined, 'Deleting a score deletes its versions');
+  assert.equal(versions().other.length, 1, 'Other scores keep theirs');
 }
 // Share by link without CompressionStream (jsdom): the plain-encoded link opens as a shared copy with the edition's credits.
 (async () => {

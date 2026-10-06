@@ -160,8 +160,7 @@ function applyBackup(data) {
     const list = [...(myVersions[id] || []), ...(versions[id] || [])];
     if (list.length) union[id] = list;
   }
-  const nextVersions = trimVersions(cleanVersions(union)),
-    versionsAdded = Math.max(0, versionCount(nextVersions) - versionCount(myVersions));
+  const nextVersions = trimVersions(cleanVersions(union));
   const nextSaved = [...byId.values()],
     nextFavorites = [...new Set([...favorites, ...(Array.isArray(data.favorites) ? data.favorites : [])])].filter(
       x => typeof x === 'string'
@@ -171,12 +170,15 @@ function applyBackup(data) {
     ),
     settings = data.settings && typeof data.settings === 'object' ? data.settings : {},
     settingKeys = BACKUP_SETTING_KEYS().filter(key => key in settings);
-  // Every write must land before memory changes; on any failure put the previous values back and report.
+  // Every write must land before memory changes; on any failure put the previous values back and report. When storage
+  // is short the oldest stored versions make room, as when saving, so they are put back too (last, once the rest has
+  // shrunk back).
   const previous = [
     [KEYS.scores, saved],
     [KEYS.favorites, favorites],
     [KEYS.played, [...played]],
-    ...settingKeys.map(key => [key, storage.get(key, null)])
+    ...settingKeys.map(key => [key, storage.get(key, null)]),
+    [KEYS.versions, storage.get(KEYS.versions, null)]
   ];
   const writes = [
     [KEYS.scores, nextSaved],
@@ -184,12 +186,13 @@ function applyBackup(data) {
     [KEYS.played, nextPlayed],
     ...settingKeys.map(key => [key, settings[key]])
   ];
-  if (!writes.every(([key, value]) => storage.set(key, value))) {
+  if (!writes.every(([key, value]) => storeMakingRoom(key, value))) {
     for (const [key, value] of previous) if (value !== null) storage.set(key, value);
     throw new Error('This browser could not store the restored data (storage may be full). Nothing was changed.');
   }
   // Versions go last and never stop a restore: when they do not fit, the oldest give way.
-  storeVersions(nextVersions);
+  const versionsKept = storeVersions(nextVersions),
+    versionsAdded = Math.max(0, versionCount(versionsKept) - versionCount(myVersions));
   const favoritesAdded = nextFavorites.length - favorites.length;
   saved = nextSaved;
   favorites = nextFavorites;
