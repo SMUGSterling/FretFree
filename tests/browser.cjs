@@ -1647,6 +1647,8 @@ const {chromium} = require('playwright'),
       await open();
       await tab.click('#draw-mode');
       const [gx, gy, lineY] = await tab.evaluate(() => {
+        // The controls above the score push its staff low in a 900 px window; a mouse move needs it in view.
+        renderedTune.engraver.selectables[1].svgEl.scrollIntoView({block: 'center', behavior: 'instant'});
         const svg = $('notation').querySelector('svg'),
           st = renderedTune.engraver.staffgroups[0].staffs[0],
           [a, b] = renderedTune.engraver.selectables.slice(1, 3).map(s => {
