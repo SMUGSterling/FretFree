@@ -8,28 +8,28 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=48a9ed12572b" />
-    <script defer src="vendor/abcjs-basic-min.js?v=48a9ed12572b"></script>
-    <script defer src="catalog.js?v=48a9ed12572b"></script>
-    <script defer src="catalog-expanded.js?v=48a9ed12572b"></script>
-    <script defer src="score-tools.js?v=48a9ed12572b"></script>
-    <script defer src="rights-tools.js?v=48a9ed12572b"></script>
-    <script defer src="musicxml.js?v=48a9ed12572b"></script>
-    <script defer src="catalog-licensed.js?v=48a9ed12572b"></script>
-    <script defer src="catalog-lieder.js?v=48a9ed12572b"></script>
-    <script defer src="catalog-quartets.js?v=48a9ed12572b"></script>
-    <script defer src="catalog-pgh.js?v=48a9ed12572b"></script>
-    <script defer src="catalog-skills.js?v=48a9ed12572b"></script>
-    <script defer src="prompts.js?v=48a9ed12572b"></script>
-    <script defer src="shared.js?v=48a9ed12572b"></script>
-    <script defer src="library.js?v=48a9ed12572b"></script>
-    <script defer src="backup.js?v=48a9ed12572b"></script>
-    <script defer src="editor.js?v=48a9ed12572b"></script>
-    <script defer src="palette.js?v=48a9ed12572b"></script>
-    <script defer src="playback.js?v=48a9ed12572b"></script>
-    <script defer src="keyboard.js?v=48a9ed12572b"></script>
-    <script defer src="assignments.js?v=48a9ed12572b"></script>
-    <script defer src="app.js?v=48a9ed12572b"></script>
+    <link rel="stylesheet" href="style.css?v=aae0457c8ff3" />
+    <script defer src="vendor/abcjs-basic-min.js?v=aae0457c8ff3"></script>
+    <script defer src="catalog.js?v=aae0457c8ff3"></script>
+    <script defer src="catalog-expanded.js?v=aae0457c8ff3"></script>
+    <script defer src="score-tools.js?v=aae0457c8ff3"></script>
+    <script defer src="rights-tools.js?v=aae0457c8ff3"></script>
+    <script defer src="musicxml.js?v=aae0457c8ff3"></script>
+    <script defer src="catalog-licensed.js?v=aae0457c8ff3"></script>
+    <script defer src="catalog-lieder.js?v=aae0457c8ff3"></script>
+    <script defer src="catalog-quartets.js?v=aae0457c8ff3"></script>
+    <script defer src="catalog-pgh.js?v=aae0457c8ff3"></script>
+    <script defer src="catalog-skills.js?v=aae0457c8ff3"></script>
+    <script defer src="prompts.js?v=aae0457c8ff3"></script>
+    <script defer src="shared.js?v=aae0457c8ff3"></script>
+    <script defer src="library.js?v=aae0457c8ff3"></script>
+    <script defer src="backup.js?v=aae0457c8ff3"></script>
+    <script defer src="editor.js?v=aae0457c8ff3"></script>
+    <script defer src="palette.js?v=aae0457c8ff3"></script>
+    <script defer src="playback.js?v=aae0457c8ff3"></script>
+    <script defer src="keyboard.js?v=aae0457c8ff3"></script>
+    <script defer src="assignments.js?v=aae0457c8ff3"></script>
+    <script defer src="app.js?v=aae0457c8ff3"></script>
   </head>
   <body>
     <header>
@@ -247,8 +247,13 @@
             <label>Title<input id="title" maxlength="120" /></label
             ><label>Composer<input id="composer" maxlength="120" /></label>
             <div class="pair">
-              <label>Instrument<select id="instrument"></select></label
-              ><label
+              <div class="instrument-field">
+                <label>Instrument<select id="instrument"></select></label
+                ><label class="inline concert-pitch" id="concert-pitch-option" hidden
+                  ><input type="checkbox" id="concert-pitch" aria-describedby="score-caption" /> Concert pitch</label
+                >
+              </div>
+              <label
                 >Time signature<select id="meter">
                   <option>4/4</option>
                   <option>3/4</option>
@@ -673,8 +678,9 @@
           Dorico). Select a passage to copy, cut, paste or repeat it, or to move or lengthen every note in it at once.
           Zoom in for larger notation, or choose how many measures go on each line. Use Print / PDF to produce a paper
           score, in large print if you zoom in first. Transpose a score or a few measures by any interval or to a new
-          key. Choose a B♭ or E♭ instrument for written-pitch transposition with concert-pitch playback. Classroom
-          colors and letters in noteheads help beginners read, and both print.
+          key. Choose a B♭ or E♭ instrument for written-pitch transposition with concert-pitch playback, and tick
+          Concert pitch to see the notes as they sound. Classroom colors and letters in noteheads help beginners read,
+          and both print.
         </p>
         <h2>Privacy and school access</h2>
         <p>

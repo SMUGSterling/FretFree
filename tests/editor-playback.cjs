@@ -1342,13 +1342,72 @@ async function checkPlayback() {
   assert.equal(body(), '[FA] G ^A B |]', 'Shift+C adds the written C above written A-flat: concert A#');
   run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C#\nC D E F |]')},instrument:'Alto sax in E♭'})`);
   assert.equal(run("letterToken('A', $('abc').value.length - 2)"), 'B', 'Typed A on alto sax is concert B#');
+  // Concert pitch view: a transposing instrument can show the source's sounding pitches and key. It is display only
+  // (the ABC, playback and undo stay put), remembered and backed up, and entry follows whichever pitch is shown.
+  {
+    const concertOn = on => run(`$('concert-pitch').checked=${on};$('concert-pitch').onchange()`),
+      fScore = 'X:1\nM:4/4\nL:1/4\nK:F\nF G A B |]';
+    run(`dirty=false;openScore({abc:${JSON.stringify(fScore)},instrument:'Flute'})`);
+    assert.equal(run("$('concert-pitch-option').hidden"), true, 'Flute has no Concert pitch option');
+    run(`dirty=false;openScore({abc:${JSON.stringify(fScore)},instrument:'Cello'})`);
+    assert.equal(run("$('concert-pitch-option').hidden"), true, 'nor does Cello (an octave is not a transposition)');
+    run(`dirty=false;openScore({abc:${JSON.stringify(fScore)},instrument:'Clarinet in B♭'})`);
+    assert.equal(run("$('concert-pitch-option').hidden"), false, 'Clarinet in B♭ offers it');
+    assert.equal(run('renderedWritten.match(/^K:(\\S+)/m)[1]'), 'G', 'Off: the written part, in G');
+    const at = run('historyIndex'),
+      midi = () => run("JSON.stringify(parseMidi(midiBytes($('abc').value)).notes.map(n=>n.note))");
+    const sounding = midi();
+    concertOn(true);
+    assert.equal(w.localStorage.getItem('fretfree-concert-pitch'), 'true', 'Concert pitch is remembered');
+    assert.ok(run('BACKUP_SETTING_KEYS()').includes('fretfree-concert-pitch'), 'and backed up');
+    assert.equal(run("$('abc').value"), fScore, 'The ABC never changes');
+    assert.equal(run('historyIndex') + ' ' + run('dirty'), at + ' false', 'Changing the view is not an edit');
+    assert.equal(midi(), sounding, 'Playback is unchanged');
+    assert.equal(run('renderedWritten.match(/^K:(.*)$/m)[1]'), 'F clef=treble', 'On: the source key, in F');
+    assert.deepEqual(
+      run("JSON.stringify(noteLabels(ABCJS.parseOnly(renderedWritten)[0],'letters').map(l=>l.written[0]))"),
+      JSON.stringify([65, 67, 69, 70]),
+      'and the source pitches'
+    );
+    assert.match(run("$('score-caption').textContent"), /Concert pitch shown/);
+    // Letters, accidentals and piano keys enter what is shown: concert pitch here, written pitch with the view off.
+    assert.equal(run("letterToken('A', $('abc').value.length - 2)"), 'A', 'Typed A is concert A');
+    assert.equal(run("(e => accidentalEdit(e, displayOf(e), '='))(scoreNotes()[3])"), '=B ', 'Natural on B-flat is B');
+    run('selectEntry(scoreNotes()[3]);pianoPress(72)');
+    assert.equal(body(), 'F G A B c |]', 'The C5 key enters concert C');
+    run('stepHistory(-1)');
+    concertOn(false);
+    assert.equal(run("letterToken('A', $('abc').value.length - 2)"), 'G', 'With the view off, typed A is written');
+    run('selectEntry(scoreNotes()[3]);pianoPress(72)');
+    assert.equal(body(), 'F G A B B |]', 'and the written C5 key enters concert B-flat');
+    // The view follows the setting across instruments and restored settings.
+    concertOn(true);
+    run("$('instrument').value='Flute';$('instrument').onchange();clearTimeout(renderTimer);render()");
+    assert.equal(run("$('concert-pitch-option').hidden + ' ' + concertView()"), 'true false', 'Flute hides it');
+    run("$('instrument').value='Alto sax in E♭';$('instrument').onchange();clearTimeout(renderTimer);render()");
+    assert.equal(run('renderedWritten.match(/^K:(\\S+)/m)[1]'), 'F', 'Alto sax keeps the view on');
+    w.localStorage.setItem('fretfree-concert-pitch', 'false');
+    run('applyStoredSettings();render()');
+    assert.equal(run("$('concert-pitch').checked"), false, 'A restored setting is applied');
+    assert.equal(run('renderedWritten.match(/^K:(\\S+)/m)[1]'), 'D', 'Alto sax written in D');
+    // Writing-prompt goals stay in written pitch: a clarinet asked for G major writes concert F, in either view.
+    run(
+      `dirty=false;openScore({instrument:'Clarinet in B♭',abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:F\nF G A G | F G A B | c B A G | A G F2 |]')},prompt:makeAssignment({title:'Steps',text:'',meter:'4/4',unit:'1/4',key:'G',tempo:90,bars:4,goals:[{type:'bars'},{type:'steps'},{type:'end',degree:0},{type:'inKey',scale:'major'}]})})`
+    );
+    const goals = () => run("$('prompt-check').querySelector('.small').textContent");
+    assert.equal(goals(), '4 of 4 goals', 'Written view meets every goal');
+    concertOn(true);
+    assert.equal(goals(), '4 of 4 goals', 'Concert view judges the written part too');
+    assert.equal(run('assignmentBasis().key'), 'G', 'An assignment from concert view keeps the written key');
+    concertOn(false);
+  }
   await checkAudio();
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-scores-v1')), [legacy]);
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-favorites-v1')), ['ode', 'mutopia-263']);
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals and piano keys in the pitch shown, prompt goals and assignments in written pitch), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

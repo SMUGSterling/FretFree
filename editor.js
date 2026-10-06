@@ -54,14 +54,24 @@ function setHeader(name, value) {
     );
   $('abc').value = lines.join('\n');
 }
-function writtenABC() {
+// The instrument's shift: its part is written this many semitones above the concert source (2 for a B-flat clarinet,
+// 9 for an E-flat alto sax). Cello and trombone show the source an octave lower, a range change, not a transposition.
+const instrumentShift = () => instruments[currentInstrument()]?.shift || 0,
+  transposesInstrument = () => instrumentShift() % 12 !== 0;
+// Concert pitch view, display only: a transposing instrument's score shows the source's sounding pitches and key.
+// Everything that reads or enters what is shown goes through displayShift(); playback and the ABC never change.
+const concertView = () => transposesInstrument() && $('concert-pitch')?.checked === true,
+  displayShift = () => (concertView() ? 0 : instrumentShift());
+// The score as drawn: the source at the display shift (the instrument's written pitch unless Concert pitch is on),
+// with the instrument's clef and the display-only labels. Pass the instrument's shift to get the written part.
+function writtenABC(shift = displayShift()) {
   let source = $('abc').value;
   const config = instruments[currentInstrument()];
-  if (config.shift)
+  if (shift)
     try {
-      source = transposeABC(source, config.shift);
+      source = transposeABC(source, shift);
     } catch {
-      source = ABCJS.strTranspose(source, ABCJS.parseOnly(source), config.shift);
+      source = ABCJS.strTranspose(source, ABCJS.parseOnly(source), shift);
     }
   source = source.replace(/^K:(.*)$/m, (_, key) => 'K:' + key.replace(/\s+clef=\S+/g, '') + ' clef=' + config.clef);
   if (fingeringShown() === 'recorder') source = source.replace(/^(X:.*)$/m, '$1\n%%staffsep 190');
@@ -335,13 +345,15 @@ function restoreSelection(display) {
 function updateCaption() {
   $('workspace-heading').textContent = field('T', 'Untitled melody');
   const config = instruments[currentInstrument()];
-  const pitch =
-    config.shift === 2 || config.shift === 9
+  const pitch = concertView()
+    ? 'Concert pitch shown, as it sounds; turn off Concert pitch for the written part.'
+    : transposesInstrument()
       ? 'Written pitch shown; ABC source and MIDI are concert pitch.'
       : config.shift === -12
         ? 'Melody lowered one octave for bass range.'
         : 'Concert pitch melody part.';
   $('score-caption').textContent = `${currentInstrument()} · ${config.clef} clef · ${pitch}`;
+  if ($('concert-pitch-option')) $('concert-pitch-option').hidden = !transposesInstrument();
 }
 // Links to the complete source edition behind a library practice part.
 function updateSourceEdition() {
@@ -899,9 +911,9 @@ function drawNote(t) {
     toast('Score updated. Click again to add the note.');
     return;
   }
-  // The staff shows written pitch; the source takes the concert note, as many letters away as the key at that point.
-  const concert = at =>
-    pitchToken(t.written - writtenSteps($('abc').value, at, instruments[currentInstrument()].shift));
+  // The staff shows written pitch (or concert pitch in Concert pitch view); the source takes the concert note, as many
+  // letters away as the key at that point.
+  const concert = at => pitchToken(t.written - writtenSteps($('abc').value, at, displayShift()));
   // Neighbours on the clicked staff, in reading order; the new note goes before the first one to the right of the click.
   const staffs = staffList(),
     items = [];
@@ -1024,8 +1036,9 @@ function closeNoteMenu() {
   $('note-menu').hidden = true;
   menuEntry = null;
 }
+// The transposition the score is drawn at: 0 for concert-pitch instruments and in Concert pitch view.
 const transposing = () => {
-  const shift = instruments[currentInstrument()].shift;
+  const shift = displayShift();
   return shift % 12 !== 0 ? shift : 0;
 };
 // Accidentals are what the player sees, so read and edit them in written pitch, then transpose back to the concert source.
@@ -1417,7 +1430,7 @@ function addToChord(sel, core) {
 // them), as the key signature spells it.
 function addLetterToChord(letter, sel) {
   const target = chordTarget(sel),
-    steps = writtenSteps($('abc').value, target.entry.element.startChar, instruments[currentInstrument()].shift),
+    steps = writtenSteps($('abc').value, target.entry.element.startChar, displayShift()),
     top = Math.max(...target.entry.element.pitches.map(p => p.pitch)) + steps,
     index = 'CDEFGAB'.indexOf(letter),
     pitch = index + 7 * (Math.floor((top - index) / 7) + 1);
@@ -1425,10 +1438,11 @@ function addLetterToChord(letter, sel) {
     ? `Added ${letter} to the chord. Shift+A–G adds more.`
     : `${letter} is already in the chord.`;
 }
-// Written-pitch note token for a letter, in the octave nearest the last note before a source position.
+// Note token for a letter as the staff shows it (written pitch, or concert in Concert pitch view), in the octave
+// nearest the last note before a source position.
 function letterToken(letter, at) {
   if (letter === 'z') return 'z';
-  const steps = writtenSteps($('abc').value, at, instruments[currentInstrument()].shift),
+  const steps = writtenSteps($('abc').value, at, displayShift()),
     prev = scoreNotes()
       .filter(n => n.element.startChar < at && n.element.pitches?.length)
       .pop();
@@ -2351,6 +2365,9 @@ function updatePromptCheck(shown) {
     box.innerHTML = '';
     return;
   }
+  // Goals are written pitch (a B-flat clarinet asked for G major writes in G), so Concert pitch view checks a written
+  // copy of the score.
+  if (concertView()) shown = ABCJS.parseOnly(writtenABC(instrumentShift()))[0];
   // A teacher's assignment may have instructions and no goals; then there is no checklist.
   const goals = checkPrompt(prompt, melodyBars(shown)),
     done = goals.length > 0 && goals.every(g => g.ok);

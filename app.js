@@ -180,6 +180,12 @@ $('instrument').onchange = () => {
   instrumentShown = currentInstrument();
   changed();
 };
+// Concert pitch view is display only: the source, playback and the undo history stay as they are.
+$('concert-pitch').onchange = () => {
+  storage.set(KEYS.concertPitch, $('concert-pitch').checked);
+  clearTimeout(renderTimer);
+  render();
+};
 // Volume is live: the master bus follows the slider, so playback carries on.
 $('volume').oninput = updateVolume;
 $('help-toggle').onclick = () => {
@@ -260,8 +266,10 @@ function applyStoredSettings() {
   applyStoredLayout();
   prepareTrainer();
 }
-// Zoom and measures per line are read before the first render, so the start-up score is drawn once at its size.
+// Zoom, measures per line and Concert pitch view are read before the first render, so the start-up score is drawn
+// once as the student left it.
 function applyStoredLayout() {
+  $('concert-pitch').checked = storage.get(KEYS.concertPitch, false) === true;
   showZoom(storage.get(KEYS.zoom, 100));
   $('measures-per-line').value = String(validMeasuresPerLine(storage.get(KEYS.measuresPerLine, 0)));
 }

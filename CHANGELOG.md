@@ -1,3 +1,12 @@
+# Concert pitch view · 2026-10-06
+
+- **Concert pitch** (a checkbox under Instrument) appears for Clarinet in B♭, Trumpet in B♭ and Alto sax in E♭. Ticked, the score shows the key and pitches of the ABC source, as the instrument sounds; unticked, it shows the written part as before. The caption under the score says which one is shown.
+- Typed letters, drawn notes, accidentals in the note menu and palette, Shift+letter chord notes and piano keys all enter the pitch shown, so on a B♭ clarinet the C key writes concert C in Concert pitch view and concert B♭ in the written view.
+- Playback, the ABC source and the undo history do not change when the view changes. Writing-prompt goals and new assignments still use written pitch, so a clarinet asked for G major is judged in G major in either view.
+- Display only, remembered in the browser (`fretfree-concert-pitch`) and included in backups. Prints and SVG exports show the score as it is on screen.
+
+---
+
 # Zoom and measures per line · 2026-10-06
 
 - **Zoom** (− / 100% / +) above the score sets the notation size from 70% to 200%. Zoom narrows the width abcjs lays the score out in and the drawing is stretched back to the panel width, so notes grow without changing the engraving scale; clicking, dragging (10 px per staff step) and drawing stay accurate at every size. Above 100% on Auto, lines re-flow so they fit. Titles, composer, tempo and other text around the music keep their 100% size, so a long title still fits. Each step is announced in the status line (*Zoom 140%.*), including at the smallest and largest sizes.
