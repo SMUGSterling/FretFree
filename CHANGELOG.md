@@ -8,6 +8,27 @@
 
 ---
 
+# MusicXML export · 2026-10-06
+
+- **Studio → MusicXML** downloads the score as MusicXML 4.0 for MuseScore, Noteflight, Finale, Sibelius or Dorico, at concert pitch. The converter (`musicxml.js`) walks the abcjs parse: each staff is a part, and staves braced with `%%score {RH | LH}` share one part. It writes key (with mode), time and clef changes, pickups, notes, rests, chords, ties, tuplets, grace notes, multi-bar rests, chord symbols as harmony, lyrics (syllables and extenders), dynamics, hairpins, articulations, ornaments, fingerings, slurs, segno/coda/D.C. text, repeats with numbered endings, and tempo marks.
+- A length no single note has, such as the `z5` left when an eighth note goes into an empty 6/8 bar, is written as tied notes or as rests one after another, so every note has a type. A `Z` rest is drawn as one multi-bar rest only when every staff of its part rests. A text-only tempo such as `Q:"Andante"` shows only its words. A part the ABC transposes for playback (`transpose=`, `%%MIDI transpose`) keeps its written notes and gets a `<transpose>`, so it sounds as it does in FretFree. A tie carries an accidental over the bar line only to the same pitch in the next note; ABC ties between two different pitches are left out.
+- Credits travel as in every other export: the license and credit text in `<rights>` and as a page-1 credit, the rights metadata as JSON in a `fretfree-rights` field, and for GPL editions the full GPL text and the editable ABC.
+- `tests/check.cjs` exports the FretFree scores and a 200-score library sample and checks that every voice's notes, pitches and lengths match the parse, tied-over notes and transposed parts included. Fixtures check each notation feature's element, including split lengths, ties over the bar line, slurs, multi-bar rests, text tempos and transposition. Run by hand over all 6,150 library scores, the same check matched everywhere except nine notes where abcjs's own player carries an accidental or key change back over a repeat, and one O’Neill tune whose `L: a/8` line abcjs cannot read (its export says so). The exports of the fixtures and 103 library scores were also validated against the MusicXML 4.0 schema.
+- Checked by hand in MuseScore 3.2.3, the version Ubuntu packages: the fixtures, a half-finished 6/8 jig, a two-hand piano score and a transposed clarinet part open and engrave with their notes, ties, rests, multi-bar rests, chord symbols, lyrics, endings, tempo text and transposition, and the same 103 library scores open without import errors. MuseScore 4 could not be installed in the build environment, so opening the files there still needs a check.
+
+---
+
+# Notation palette · 2026-10-06
+
+- A **notation toolbar** above the score: Length (whole to 16th), Dot, Tie, Rest, Accidental (♯ ♭ ♮ None), Beam (Join, Break) and Delete. It lights up to show the selected note's length, dot, tie, accidental and beam, and gives every edit a touch target, so Chromebook and iPad users no longer need the right-click menu or the keyboard.
+- Each button makes the same ABC edit as the matching key or note-menu item, as one undo step. **Rest** is new: it turns a note or chord into a rest of the same length, keeps decorations, slurs and tuplet marks, and takes the tie off the note before it. **Join** removes the space before the next note so they share a beam; **Break** puts it back. Only eighth notes and shorter can be beamed, and a beam cannot end on a rest.
+- A button that does not fit the selection, such as Dot on a multi-measure rest or Join on a quarter note, is marked unavailable, and pressing it says why in the status line. Once the selection moves on, that message gives way. A press that changes nothing says so, and an edit that leaves the ABC text as it was (from the toolbar, a key or the note menu) no longer marks the score as unsaved.
+- With nothing selected, or a rest selected, a length button sets the length of the next notes, like keys 3–7, and the status line says so. On a blank sheet, pick a length and type letters to write over the rest.
+- The toolbar is one Tab stop with arrow keys inside it, its buttons are at least 40 px, it wraps on phones and it is left out of prints.
+- `editNote` ignores actions it does not know instead of writing `NaN` into the score.
+
+---
+
 # Transpose and key changes · 2026-10-06
 
 - **Transpose…** in Score settings moves the notes, key signatures and chord symbols by an interval up or down, or to a chosen key the nearer way round, as one undo step. Spelling follows the interval (an augmented 4th up from C is F♯ major, a diminished 5th is G♭). **Selection only** transposes the selected note's measure, or the practice range, and keeps the key signature.

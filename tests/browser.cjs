@@ -12,6 +12,12 @@ const {chromium} = require('playwright'),
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('dialog', dialog => dialog.accept());
+  // Scrolling closes the note menu, so scroll a note into view and let the scroll settle before right-clicking it.
+  const rightClick = async note => {
+    await note.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(80);
+    await note.click({button: 'right', force: true});
+  };
   await page.addInitScript(() => {
     if (!localStorage.getItem('commonnote-scores-v1')) {
       localStorage.setItem(
@@ -134,7 +140,7 @@ const {chromium} = require('playwright'),
     ['Dotted', /C D \^B3 E/],
     ['Delete note', /C D E F/]
   ]) {
-    await page.locator('#notation .abcjs-notehead').nth(2).click({button: 'right', force: true});
+    await rightClick(page.locator('#notation .abcjs-notehead').nth(2));
     await page.locator('#note-menu button', {hasText: label}).click();
     assert.match(await page.evaluate(() => $('abc').value), expected, 'Note menu: ' + label);
   }
@@ -174,14 +180,14 @@ const {chromium} = require('playwright'),
   );
   assert.equal(await page.locator('#notation .range-shade').count(), 1, 'Practice range is shaded');
   // "Practice from here" in the note menu moves the start and keeps the end unless it would fall before the start.
-  await page.locator('#notation .abcjs-notehead').nth(1).click({button: 'right', force: true});
+  await rightClick(page.locator('#notation .abcjs-notehead').nth(1));
   await page.locator('#note-menu button', {hasText: 'Practice from here'}).click();
   assert.deepEqual(
     await page.evaluate(() => [$('start-measure').value, $('end-measure').value]),
     ['1', '3'],
     'Practice from here moves the start and keeps a later end'
   );
-  await page.locator('#notation .abcjs-notehead').nth(12).click({button: 'right', force: true});
+  await rightClick(page.locator('#notation .abcjs-notehead').nth(12));
   await page.locator('#note-menu button', {hasText: 'Practice from here'}).click();
   assert.deepEqual(
     await page.evaluate(() => [$('start-measure').value, $('end-measure').value]),
@@ -301,7 +307,7 @@ const {chromium} = require('playwright'),
   });
   assert.ok(await page.locator('#undo').isDisabled(), 'Nothing to undo after opening');
   await page.click('[data-bar-fix="rest"]');
-  await page.locator('#notation .abcjs-notehead').nth(0).click({button: 'right', force: true});
+  await rightClick(page.locator('#notation .abcjs-notehead').nth(0));
   await page.locator('#note-menu button', {hasText: 'Sharp'}).click();
   await page.fill('#title', 'Renamed');
   await page.evaluate(() => {
@@ -326,7 +332,7 @@ const {chromium} = require('playwright'),
   await page.keyboard.press('Control+Shift+z');
   assert.equal(await body(), 'C D E F | G A B z | c4 |]', 'Redo');
   await page.click('#undo');
-  await page.locator('#notation .abcjs-notehead').nth(1).click({button: 'right', force: true});
+  await rightClick(page.locator('#notation .abcjs-notehead').nth(1));
   await page.locator('#note-menu button', {hasText: 'Flat'}).click();
   assert.ok(await page.locator('#redo').isDisabled(), 'A new edit clears redo');
   // Undo review fixes: note buttons, instrument, typing bursts, menu, saved clean state.
@@ -362,7 +368,7 @@ const {chromium} = require('playwright'),
     await page.waitForTimeout(500);
   }
   assert.equal(await page.evaluate(() => historyIndex), 1, 'Typing bursts in one field merge');
-  await page.locator('#notation .abcjs-notehead').nth(0).click({button: 'right', force: true});
+  await rightClick(page.locator('#notation .abcjs-notehead').nth(0));
   await page.evaluate(() => document.activeElement.blur());
   await page.keyboard.press('Control+z');
   assert.ok(await page.locator('#note-menu').isHidden(), 'Undo closes the note menu');
@@ -387,6 +393,8 @@ const {chromium} = require('playwright'),
     dirty = false;
     openScore({abc: 'X:1\nT:K\nM:4/4\nL:1/8\nK:G\nG2 A2 B2 c2 | d8 |]', instrument: 'Flute'});
     window.scrollTo({top: 0, behavior: 'instant'});
+    // The "Saved" toast from the step above can sit over the score near the bottom of the window.
+    $('toast').style.display = 'none';
   });
   const kbody = () => page.evaluate(() => $('abc').value.trim().split('\n').pop());
   await page.locator('#notation .abcjs-notehead').nth(3).click({force: true});
@@ -413,9 +421,9 @@ const {chromium} = require('playwright'),
   await page.locator('#notation .abcjs-notehead').nth(3).click({force: true});
   await page.keyboard.press('a');
   assert.equal(await kbody(), 'C D E F G | G4 |]', 'Letters name the written pitch for transposing instruments');
-  await page.locator('#notation .abcjs-notehead').nth(1).click({button: 'right', force: true});
+  await rightClick(page.locator('#notation .abcjs-notehead').nth(1));
   await page.locator('#note-menu button', {hasText: 'Tie to next'}).click();
-  await page.locator('#notation .abcjs-notehead').nth(1).click({button: 'right', force: true});
+  await rightClick(page.locator('#notation .abcjs-notehead').nth(1));
   await page.locator('#note-menu button', {hasText: 'Rest'}).click();
   assert.equal(await kbody(), 'C D- z E F G | G4 |]', 'Menu ties and inserts a rest');
   // Notes that open a slur or tuplet take menu and key edits and keep the ( or (3.
@@ -423,12 +431,58 @@ const {chromium} = require('playwright'),
     dirty = false;
     openScore({abc: 'X:1\nT:K\nM:4/4\nL:1/8\nK:C\n(C D E F) (3GAB c2 |]', instrument: 'Flute'});
   });
-  await page.locator('#notation .abcjs-notehead').nth(0).click({button: 'right', force: true});
+  await rightClick(page.locator('#notation .abcjs-notehead').nth(0));
   await page.locator('#note-menu button', {hasText: 'Quarter'}).click();
   await page.locator('#notation .abcjs-notehead').nth(4).click({force: true});
   await page.keyboard.press('#');
   await page.keyboard.press('.');
   assert.equal(await kbody(), '(C2 D E F) (3^G3/2AB c2 |]', 'Slur- and tuplet-start notes are editable');
+  // Notation palette: a click on a note lights up its state; pointer presses return the keyboard to the score, and
+  // the toolbar works from the keyboard with one tab stop and arrow keys.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:K\nM:4/4\nL:1/8\nK:C\n^G3- G E F G A | B8 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  const pressedNow = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('#palette [aria-pressed="true"]')].map(b => b.dataset.palette).join(' ')
+    );
+  await page.locator('#notation .abcjs-notehead').nth(0).click({force: true});
+  assert.equal(await pressedNow(), 'len:0.25 dot tie acc:^', 'Palette shows a dotted quarter G sharp tied');
+  await page.locator('[data-palette="len:0.5"]').click();
+  assert.equal(await kbody(), '^G4- G E F G A | B8 |]', 'Palette Half sets a plain half note');
+  assert.equal(
+    await page.evaluate(() => document.activeElement.id),
+    'notation',
+    'A pointer press returns to the score'
+  );
+  await page.keyboard.press('.');
+  assert.equal(await kbody(), '^G6- G E F G A | B8 |]', 'Keys still work after a palette press');
+  assert.equal(await pressedNow(), 'len:0.5 dot tie acc:^');
+  await page.locator('#notation .abcjs-notehead').nth(2).click({force: true});
+  await page.locator('[data-palette="beam:join"]').focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await kbody(), '^G6- G EF G A | B8 |]', 'Enter on Join beams the note to the next one');
+  assert.equal(
+    await page.evaluate(() => document.activeElement.dataset.palette),
+    'beam:join',
+    'A keyboard press stays on the toolbar'
+  );
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Space');
+  assert.equal(await kbody(), '^G6- G E F G A | B8 |]', 'Arrow to Break, Space breaks the beam');
+  assert.deepEqual(
+    await page.evaluate(() =>
+      [...document.querySelectorAll('#palette [data-palette]')]
+        .filter(b => b.tabIndex === 0)
+        .map(b => b.dataset.palette)
+    ),
+    ['beam:break'],
+    'The toolbar is one tab stop'
+  );
+  await page.keyboard.press('Control+z');
+  assert.equal(await kbody(), '^G6- G EF G A | B8 |]', 'A palette edit is one undo step');
   // Writing prompts: blank bars of rests, typing writes over them, goals tick off live; keys follow written pitch.
   await page.evaluate(() => {
     dirty = false;
@@ -553,7 +607,7 @@ const {chromium} = require('playwright'),
       [abc, instrument]
     );
   const menuEdit = async (n, label) => {
-    await page.locator('#notation .abcjs-notehead').nth(n).click({button: 'right', force: true});
+    await rightClick(page.locator('#notation .abcjs-notehead').nth(n));
     await page.locator('#note-menu button', {hasText: label}).click();
     return page.evaluate(() => $('abc').value);
   };
@@ -1042,6 +1096,8 @@ const {chromium} = require('playwright'),
     dirty = false;
     openScore({abc: 'X:1\nT:Hear\nM:4/4\nL:1/4\nQ:1/4=60\nK:C\nC D E F | z4 |]', instrument: 'Flute'});
     window.scrollTo({top: 0, behavior: 'instant'});
+    // An earlier step's toast can still cover the bottom of the screen, where the score's first notes sit.
+    $('toast').style.display = 'none';
     $('metronome').checked = true;
     $('volume').value = '0.3';
     window.__routes = [];
@@ -1448,14 +1504,58 @@ const {chromium} = require('playwright'),
     await context.close();
   }
   await page.setViewportSize({width: 390, height: 844});
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:K\nM:4/4\nL:1/8\nK:C\nG2 A2 B2 c2 |]', instrument: 'Flute'});
+    $('toast').style.display = 'none';
+  });
+  {
+    const boxes = await page.evaluate(() =>
+      [...document.querySelectorAll('#palette [data-palette]')].map(b => {
+        const r = b.getBoundingClientRect();
+        return [r.left, r.right, r.width, r.height];
+      })
+    );
+    assert.ok(
+      boxes.every(([l, r, wd, h]) => l >= 0 && r <= 390 && wd >= 40 && h >= 40),
+      'Palette buttons fit a phone and are at least 40px'
+    );
+    const note = page.locator('#notation .abcjs-notehead').nth(1);
+    await note.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(100);
+    await note.click({force: true});
+    assert.equal(
+      await page.evaluate(() => $('abc').value.slice(...selectedRange)),
+      'A2 ',
+      'A tap selects at phone width'
+    );
+    await page.locator('[data-palette="len:0.125"]').click();
+    assert.equal(await kbody(), 'G2 A B2 c2 |]', 'The palette works at phone width');
+  }
   assert.ok(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
     'Mobile page fits viewport'
   );
+  // MusicXML export at phone width, from the keyboard: the button is on screen and Enter downloads the file.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore(catalog.find(x => x.id === 'ode'));
+    window.__downloads = [];
+    download = (data, name, type) => __downloads.push({data, name, type});
+  });
+  const exportButton = page.locator('#export-musicxml');
+  await exportButton.scrollIntoViewIfNeeded();
+  const box = await exportButton.boundingBox();
+  assert.ok(box && box.x >= 0 && box.x + box.width <= 390, 'MusicXML button fits a phone screen');
+  await exportButton.focus();
+  await page.keyboard.press('Enter');
+  const mxl = await page.evaluate(() => __downloads[0]);
+  assert.match(mxl.name, /^Ode-to-Joy\.musicxml$/);
+  assert.match(mxl.data, /<work-title>Ode to Joy<\/work-title>[\s\S]*<rights>[^<]*CC0-1\.0/);
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, and no browser errors.'
+    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);
