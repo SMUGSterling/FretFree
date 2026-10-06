@@ -406,11 +406,13 @@ assert.equal(
       $('embed-code').value,
       `<iframe src="http://localhost:8000/#e=${code}" width="100%" height="420" title="Score: Tom &amp; &quot;Jerry&quot; &lt;reel&gt;" loading="lazy"></iframe>`
     );
+    // A value the snippet cannot use is replaced, and its field is marked invalid.
     for (const [width, height, expected, invalid] of [
-      ['640', '300', 'width="640" height="300"', 'false'],
-      [' 80% ', '50', 'width="80%" height="200"', 'false'],
-      ['150%', '99999', 'width="100%" height="2000"', 'true'],
-      ['wide', '', 'width="100%" height="420"', 'true']
+      ['640', '300', 'width="640" height="300"', 'false false'],
+      ['640px', '2000', 'width="640" height="2000"', 'false false'],
+      [' 80% ', '50', 'width="80%" height="200"', 'false true'],
+      ['150%', '99999', 'width="100%" height="2000"', 'true true'],
+      ['wide', '', 'width="100%" height="420"', 'true true']
     ]) {
       $('embed-width').value = width;
       $('embed-height').value = height;
@@ -419,10 +421,20 @@ assert.equal(
         $('embed-code').value.includes(expected),
         `Size ${width} × ${height}: ${$('embed-code').value.slice(-90)}`
       );
-      assert.equal($('embed-width').getAttribute('aria-invalid'), invalid);
+      assert.equal(
+        `${$('embed-width').getAttribute('aria-invalid')} ${$('embed-height').getAttribute('aria-invalid')}`,
+        invalid,
+        `Size ${width} × ${height} marks the fields it replaces`
+      );
     }
     $('embed-width').value = '100%';
     $('embed-height').value = '420';
+    // The snippet keeps the title of the score that was shared, even if the title is edited afterwards.
+    const sharedABC = $('abc').value;
+    $('abc').value = sharedABC.replace(/^T:.*$/m, 'T:Renamed later');
+    $('embed-height').dispatchEvent(new w.Event('input'));
+    assert.match($('embed-code').value, /title="Score: Tom &amp; &quot;Jerry&quot; &lt;reel&gt;"/);
+    $('abc').value = sharedABC;
     const key = (id, k) => $(id).dispatchEvent(new w.KeyboardEvent('keydown', {key: k, bubbles: true}));
     key('share-tab-embed', 'ArrowRight');
     assert.equal(w.document.activeElement.id, 'share-tab-qr', 'ArrowRight moves to the QR code tab');
@@ -455,7 +467,36 @@ assert.equal(
       dark.cells.split(' ').sort().join(' '),
       'Every dark module is drawn, and nothing else'
     );
-    assert.match($('qr-note').textContent, /Scan it/);
+    assert.match($('qr-note').textContent, /^Scan it/);
+    assert.equal(/dense code/.test($('qr-note').textContent), url.length > run('QR_DENSE_BYTES'));
+    // The code is drawn at 3px per module, at least 280px: a typical tune's code at 280px, a dense one larger.
+    assert.equal(svg.getAttribute('width'), String(Math.max(280, 3 * (dark.count + 8))));
+    assert.equal(svg.getAttribute('height'), svg.getAttribute('width'));
+    const modules = n =>
+      run(`(() => { const q = qrcode(0, 'M'); q.addData('x'.repeat(${n})); q.make(); return q.getModuleCount(); })()`);
+    assert.deepEqual(
+      [modules('QR_DENSE_BYTES'), modules('QR_DENSE_BYTES + 1')],
+      [117, 121],
+      'QR_DENSE_BYTES is the most a version 25 code holds'
+    );
+    for (const [length, size, dense] of [
+      [run('QR_DENSE_BYTES'), (117 + 8) * 3, false],
+      [run('QR_MAX_BYTES'), (177 + 8) * 3, true]
+    ]) {
+      const long = 'http://localhost:8000/#s=' + 'x'.repeat(length - 25);
+      run(`updateShareQR(${JSON.stringify(long)})`);
+      assert.equal(
+        $('share-qr').querySelector('svg').getAttribute('width'),
+        String(size),
+        `A ${length}-character link's code is ${size}px`
+      );
+      assert.equal(/dense code/.test($('qr-note').textContent), dense, $('qr-note').textContent);
+    }
+    assert.match(
+      $('qr-note').textContent,
+      /This long link makes a dense code: if a camera can’t read it, share the link/
+    );
+    run(`updateShareQR(${JSON.stringify(url)})`);
     $('abc').value = $('abc').value.replace(/^K:.*$/m, line => line + '\n% ' + 'a'.repeat(2400));
     run('changed(); clearTimeout(renderTimer); render()');
     await run('shareLink()');
@@ -465,6 +506,37 @@ assert.equal(
     assert.ok(run('qrSVG("x".repeat(QR_MAX_BYTES), "")'), 'The longest link that fits is drawn');
     $('share-close').click();
     run('dirty = false');
+    // Opening another score closes the panel, so its link, embed code and QR code never describe a different score.
+    run('openScore(catalog[0])');
+    await run('shareLink()');
+    assert.equal($('share-panel').hidden, false);
+    run('openScore(catalog[5])');
+    assert.deepEqual(
+      [$('share-panel').hidden, run('shareCode'), $('share-url').value, $('embed-code').value, $('share-qr').innerHTML],
+      [true, '', '', '', ''],
+      'Opening another score closes and clears the share panel'
+    );
+    $('embed-width').value = '600';
+    $('embed-width').dispatchEvent(new w.Event('input'));
+    assert.equal($('embed-code').value, '', 'A closed panel makes no embed code');
+    await run('shareLink()');
+    const second = await run(`decodeShare(${JSON.stringify($('share-url').value.split('#s=')[1])})`);
+    assert.equal(second.a, run('catalog[5].abc'), 'Sharing again carries the open score');
+    assert.ok(
+      $('embed-code').value.includes(`#e=${$('share-url').value.split('#s=')[1]}" width="600"`) &&
+        $('embed-code').value.includes(`title="${run('esc("Score: " + field("T"))')}"`),
+      'The embed code and its title come from the same score'
+    );
+    $('embed-width').value = '100%';
+    // A link still being made when another score opens is dropped rather than shown for the new score.
+    const pending = run('shareLink()');
+    run('openScore(catalog[0])');
+    await pending;
+    assert.deepEqual(
+      [$('share-panel').hidden, run('shareCode')],
+      [true, ''],
+      'A share overtaken by another score is dropped'
+    );
 
     // The embed route (#e=): the score alone, read-only, with its credits and NC label, a link that opens an editable
     // copy, and no storage read or written. A damaged embed says so.
@@ -526,6 +598,35 @@ assert.equal(
     page.$('speed').value = 80;
     page.$('speed').oninput();
     assert.equal(snapshot(), stored, 'The embed writes nothing to storage');
+    // A transposing instrument's part is drawn in written pitch, so the embed names the part and how it sounds.
+    const clarinetCode = await run(`encodeShare({v: 1, a: catalog[0].abc, i: 'Clarinet in B♭', s: catalog[0].id})`),
+      clarinet = boot(() => {}, 'http://localhost:8000/#e=' + clarinetCode);
+    for (let i = 0; i < 100 && clarinet.run('current?.kind') !== 'shared'; i++)
+      await new Promise(r => setTimeout(r, 20));
+    assert.deepEqual(
+      [
+        clarinet.$('embed-part').hidden,
+        clarinet.$('embed-part').textContent,
+        clarinet.$('notation').getAttribute('aria-label'),
+        clarinet.run('writtenABC()').match(/^K:(\S+)/m)[1]
+      ],
+      [
+        false,
+        'Clarinet in B♭ part, in written pitch: it sounds a major 2nd lower.',
+        'Score: Ode to Joy. Clarinet in B♭ part, in written pitch: it sounds a major 2nd lower. Read-only; press Play to hear it.',
+        'D'
+      ],
+      'The embed names a transposing part'
+    );
+    assert.equal(
+      clarinet.run(`embedPart('Alto sax in E♭')`),
+      'Alto sax in E♭ part, in written pitch: it sounds a major 6th lower.'
+    );
+    assert.deepEqual(
+      ['Flute', 'Cello', 'Piano', 'Guitar'].map(name => clarinet.run(`embedPart(${JSON.stringify(name)})`)),
+      ['', '', '', ''],
+      'Parts that sound as written are not labeled'
+    );
     const damaged = boot(() => {}, 'http://localhost:8000/#e=1garbage');
     for (let i = 0; i < 100 && !damaged.w.document.body.classList.contains('embed-unreadable'); i++)
       await new Promise(r => setTimeout(r, 20));

@@ -8,29 +8,29 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=22f194dc9f6b" />
-    <script defer src="vendor/abcjs-basic-min.js?v=22f194dc9f6b"></script>
-    <script defer src="vendor/qrcode.js?v=22f194dc9f6b"></script>
-    <script defer src="catalog.js?v=22f194dc9f6b"></script>
-    <script defer src="catalog-expanded.js?v=22f194dc9f6b"></script>
-    <script defer src="score-tools.js?v=22f194dc9f6b"></script>
-    <script defer src="rights-tools.js?v=22f194dc9f6b"></script>
-    <script defer src="musicxml.js?v=22f194dc9f6b"></script>
-    <script defer src="catalog-licensed.js?v=22f194dc9f6b"></script>
-    <script defer src="catalog-lieder.js?v=22f194dc9f6b"></script>
-    <script defer src="catalog-quartets.js?v=22f194dc9f6b"></script>
-    <script defer src="catalog-pgh.js?v=22f194dc9f6b"></script>
-    <script defer src="catalog-skills.js?v=22f194dc9f6b"></script>
-    <script defer src="prompts.js?v=22f194dc9f6b"></script>
-    <script defer src="shared.js?v=22f194dc9f6b"></script>
-    <script defer src="library.js?v=22f194dc9f6b"></script>
-    <script defer src="backup.js?v=22f194dc9f6b"></script>
-    <script defer src="editor.js?v=22f194dc9f6b"></script>
-    <script defer src="palette.js?v=22f194dc9f6b"></script>
-    <script defer src="playback.js?v=22f194dc9f6b"></script>
-    <script defer src="keyboard.js?v=22f194dc9f6b"></script>
-    <script defer src="assignments.js?v=22f194dc9f6b"></script>
-    <script defer src="app.js?v=22f194dc9f6b"></script>
+    <link rel="stylesheet" href="style.css?v=39e3a8b0e0a1" />
+    <script defer src="vendor/abcjs-basic-min.js?v=39e3a8b0e0a1"></script>
+    <script defer src="vendor/qrcode.js?v=39e3a8b0e0a1"></script>
+    <script defer src="catalog.js?v=39e3a8b0e0a1"></script>
+    <script defer src="catalog-expanded.js?v=39e3a8b0e0a1"></script>
+    <script defer src="score-tools.js?v=39e3a8b0e0a1"></script>
+    <script defer src="rights-tools.js?v=39e3a8b0e0a1"></script>
+    <script defer src="musicxml.js?v=39e3a8b0e0a1"></script>
+    <script defer src="catalog-licensed.js?v=39e3a8b0e0a1"></script>
+    <script defer src="catalog-lieder.js?v=39e3a8b0e0a1"></script>
+    <script defer src="catalog-quartets.js?v=39e3a8b0e0a1"></script>
+    <script defer src="catalog-pgh.js?v=39e3a8b0e0a1"></script>
+    <script defer src="catalog-skills.js?v=39e3a8b0e0a1"></script>
+    <script defer src="prompts.js?v=39e3a8b0e0a1"></script>
+    <script defer src="shared.js?v=39e3a8b0e0a1"></script>
+    <script defer src="library.js?v=39e3a8b0e0a1"></script>
+    <script defer src="backup.js?v=39e3a8b0e0a1"></script>
+    <script defer src="editor.js?v=39e3a8b0e0a1"></script>
+    <script defer src="palette.js?v=39e3a8b0e0a1"></script>
+    <script defer src="playback.js?v=39e3a8b0e0a1"></script>
+    <script defer src="keyboard.js?v=39e3a8b0e0a1"></script>
+    <script defer src="assignments.js?v=39e3a8b0e0a1"></script>
+    <script defer src="app.js?v=39e3a8b0e0a1"></script>
   </head>
   <body>
     <header>
@@ -376,7 +376,10 @@
           </aside>
           <div class="music-panel">
             <div id="embed-bar" class="embed-bar" hidden>
-              <h1 id="embed-title">Score</h1>
+              <div>
+                <h1 id="embed-title">Score</h1>
+                <p id="embed-part" class="small" hidden></p>
+              </div>
               <a id="embed-open" class="button-link" target="_blank" rel="noopener">Open in FretFree ↗</a>
             </div>
             <div class="transport">
@@ -623,7 +626,9 @@
                       aria-describedby="embed-size-note"
                   /></label>
                 </div>
-                <p id="embed-size-note" class="small">Width in pixels or a percentage; height in pixels.</p>
+                <p id="embed-size-note" class="small">
+                  Width in pixels or a percentage up to 100%; height from 200 to 2,000 pixels.
+                </p>
                 <label for="embed-code">Embed code</label>
                 <div class="share-row">
                   <textarea id="embed-code" readonly spellcheck="false" rows="4"></textarea

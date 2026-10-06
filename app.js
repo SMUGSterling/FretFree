@@ -19,8 +19,9 @@ function allowReplace() {
 }
 function openScore(item, id = null) {
   if (!allowReplace()) return;
-  // The assignment builder describes the score it was opened on, so it closes with it.
+  // The assignment builder and the share panel describe the score they were opened on, so they close with it.
   toggleAssignmentBuilder(false);
+  closeShare();
   stop();
   stopPreview();
   current = item;

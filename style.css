@@ -1729,9 +1729,10 @@ input[type='range'] {
 .embed-size input[aria-invalid='true'] {
   border-color: #9e4d28;
 }
+/* qrSVG sizes the code by its module count; a narrow panel scales it down. */
 .share-qr svg {
   display: block;
-  width: min(280px, 100%);
+  max-width: 100%;
   height: auto;
   border: 1px solid var(--border);
 }
@@ -1796,6 +1797,9 @@ body.embed #notation .abcjs-bar {
   letter-spacing: 0;
   line-height: 1.2;
   overflow-wrap: anywhere;
+}
+.embed-bar p {
+  margin: 3px 0 0;
 }
 .embed-bar .button-link {
   padding: 7px 10px;

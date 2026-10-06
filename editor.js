@@ -1955,8 +1955,10 @@ document.addEventListener('keydown', e => {
 // Scores from a library edition carry the edition's id, so the rights notice travels with them. The share panel also
 // gives the same payload as embed code (#e=, a read-only view for an iframe) and as a QR code of the link.
 const SHARE_WARN_LENGTH = 8000;
-// The longest link a QR code holds (version 40 at error correction level M, byte mode).
-const QR_MAX_BYTES = 2331;
+// The longest link a QR code holds (version 40 at error correction level M, byte mode), and the longest that fits
+// version 25 (117 modules); longer links make codes dense enough that a camera may need them shown full screen.
+const QR_MAX_BYTES = 2331,
+  QR_DENSE_BYTES = 997;
 function shareSourceId() {
   if (!current) return undefined;
   const source = catalog.find(
@@ -1965,16 +1967,26 @@ function shareSourceId() {
   return source?.id;
 }
 const shareBase = () => `${location.origin}${location.pathname}`;
-let shareCode = '';
+// The payload and title the panel's link, embed code and QR code were made from, so later edits or another score
+// cannot mix into them; closeShare() clears them when a different score opens. shareRun counts shares and closes, so
+// a link still being compressed when the panel closes or another share starts is dropped.
+let shareCode = '',
+  shareTitle = '',
+  shareRun = 0;
 async function shareLink() {
-  const payload = {v: 1, a: $('abc').value, i: currentInstrument()};
+  const attempt = ++shareRun,
+    payload = {v: 1, a: $('abc').value, i: currentInstrument()};
   const source = shareSourceId();
   if (source) payload.s = source;
   // A built-in prompt travels by id (p); a teacher's assignment travels whole (q). Older apps ignore q.
   const prompt = activePrompt();
   if (prompt?.level === 'Custom') payload.q = prompt;
   else if (prompt) payload.p = prompt.id;
-  shareCode = await encodeShare(payload);
+  const title = field('T', 'Untitled'),
+    code = await encodeShare(payload);
+  if (attempt !== shareRun) return;
+  shareCode = code;
+  shareTitle = title;
   const url = `${shareBase()}#s=${shareCode}`;
   const panel = $('share-panel');
   if (panel.hidden) showShareTab('link');
@@ -2063,30 +2075,50 @@ async function openEmbed(hash) {
   }
   // An assignment's goals and checklist belong to the student's own copy, so the embed shows only the score.
   openScore(sharedItem(payload));
+  const part = embedPart(currentInstrument());
   $('embed-title').textContent = current.title;
+  $('embed-part').textContent = part;
+  $('embed-part').hidden = !part;
   document.title = current.title + ' · FretFree';
-  $('notation').setAttribute('aria-label', `Score: ${current.title}. Read-only; press Play to hear it.`);
+  $('notation').setAttribute(
+    'aria-label',
+    `Score: ${current.title}.${part ? ' ' + part : ''} Read-only; press Play to hear it.`
+  );
   $('embed-open').href = `${location.href.split('#')[0]}#s=${code}`;
   return true;
 }
-// The iframe snippet for a score page. Width is pixels or a percentage up to 100% (else 100%); height is 200 to 2,000
-// pixels (else 420).
-const embedWidthOK = width => /^[1-9]\d{0,3}%?$/.test(width) && !(width.endsWith('%') && parseInt(width) > 100);
+// A transposing instrument's part is drawn in written pitch while playback sounds at concert pitch, so the embed, which
+// hides the instrument menu, names the part and how it sounds. Empty for parts that sound as written.
+function embedPart(name) {
+  const interval = TRANSPOSE_INTERVALS.find(i => i.semitones === instruments[name]?.shift);
+  return interval ? `${name} part, in written pitch: it sounds a ${interval.name} lower.` : '';
+}
+// The iframe snippet for a score page. Width is pixels (with or without "px") or a percentage up to 100% (else 100%);
+// height is 200 to 2,000 pixels (else clamped to that range, or 420 when empty). A field whose value is replaced is
+// marked aria-invalid.
+const embedWidthOK = width => /^[1-9]\d{0,3}(px|%)?$/i.test(width) && !(width.endsWith('%') && parseInt(width) > 100);
+const embedHeightOK = height => /^\d+$/.test(height) && height >= 200 && height <= 2000;
 function embedSnippet(code, title, width = '100%', height = 420) {
   width = String(width).trim();
-  if (!embedWidthOK(width)) width = '100%';
+  width = embedWidthOK(width) ? width.replace(/px$/i, '') : '100%';
   height = Math.max(200, Math.min(2000, Math.round(+height) || 420));
   return `<iframe src="${esc(`${shareBase()}#e=${code}`)}" width="${width}" height="${height}" title="${esc('Score: ' + title)}" loading="lazy"></iframe>`;
 }
 function updateEmbedCode() {
   if (!shareCode) return;
-  const width = $('embed-width').value.trim();
+  const width = $('embed-width').value.trim(),
+    height = $('embed-height').value.trim();
   $('embed-width').setAttribute('aria-invalid', !embedWidthOK(width));
-  $('embed-code').value = embedSnippet(shareCode, field('T', 'Untitled'), width, $('embed-height').value);
+  $('embed-height').setAttribute('aria-invalid', !embedHeightOK(height));
+  $('embed-code').value = embedSnippet(shareCode, shareTitle, width, height);
   $('embed-preview').href = `${shareBase()}#e=${shareCode}`;
 }
 // A QR code as SVG, drawn here from the vendored encoder (vendor/qrcode.js): dark modules on white with the standard
-// four-module quiet zone, each row's runs as one path. Null when the encoder is missing or the text is too long.
+// four-module quiet zone, each row's runs as one path. It is drawn at QR_MODULE_PX per module (at least QR_MIN_PX), so
+// a camera can still read a long link's dense code from a laptop screen. Null when the encoder is missing or the text
+// is too long.
+const QR_MODULE_PX = 3,
+  QR_MIN_PX = 280;
 function qrSVG(text, label) {
   if (typeof qrcode !== 'function') return null;
   let code;
@@ -2098,7 +2130,8 @@ function qrSVG(text, label) {
     return null;
   }
   const count = code.getModuleCount(),
-    side = count + 8;
+    side = count + 8,
+    size = Math.max(QR_MIN_PX, side * QR_MODULE_PX);
   let d = '';
   for (let y = 0; y < count; y++)
     for (let x = 0; x < count; x++) {
@@ -2108,16 +2141,21 @@ function qrSVG(text, label) {
       d += `M${x + 4} ${y + 4}h${run}v1h-${run}z`;
       x += run - 1;
     }
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${side} ${side}" shape-rendering="crispEdges" role="img" aria-label="${esc(label)}"><rect width="${side}" height="${side}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${side} ${side}" shape-rendering="crispEdges" role="img" aria-label="${esc(label)}"><rect width="${side}" height="${side}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
 }
 function updateShareQR(url) {
   const bytes = new TextEncoder().encode(url).length,
-    svg = bytes <= QR_MAX_BYTES ? qrSVG(url, `QR code of the link to ${field('T', 'this score')}`) : null;
+    svg = bytes <= QR_MAX_BYTES ? qrSVG(url, `QR code of the link to ${shareTitle}`) : null;
   $('share-qr').innerHTML = svg || '';
   $('share-qr').hidden = !svg;
   $('qr-large').hidden = !svg || !document.fullscreenEnabled;
   $('qr-note').textContent = svg
-    ? 'Scan it with a phone or tablet camera to open a copy of this score.'
+    ? 'Scan it with a phone or tablet camera to open a copy of this score.' +
+      (bytes <= QR_DENSE_BYTES
+        ? ''
+        : document.fullscreenEnabled
+          ? ' This long link makes a dense code: show it full screen, or share the link if a camera can’t read it.'
+          : ' This long link makes a dense code: if a camera can’t read it, share the link instead.')
     : typeof qrcode !== 'function'
       ? 'QR codes could not be drawn in this browser. Share the link instead.'
       : `This link is too long for a QR code: ${bytes.toLocaleString()} characters, and a QR code holds about 2,300. Share the link or the embed code instead, or share a few measures at a time.`;
@@ -2160,7 +2198,15 @@ $('qr-large').onclick = () =>
   $('share-qr')
     .requestFullscreen?.()
     .catch(() => {});
-$('share-close').onclick = () => ($('share-panel').hidden = true);
+// The panel describes the score it was made for, so it closes when another score opens (openScore).
+function closeShare() {
+  shareRun++;
+  $('share-panel').hidden = true;
+  shareCode = shareTitle = '';
+  $('share-url').value = $('embed-code').value = '';
+  $('share-qr').innerHTML = '';
+}
+$('share-close').onclick = closeShare;
 
 // Unsaved-work recovery. While the score has unsaved changes, a copy goes to the local draft list two seconds later
 // (at once when the tab is hidden), so a discarded tab or a closed window does not lose the work. Each tab keeps one

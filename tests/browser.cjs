@@ -944,6 +944,8 @@ const {chromium} = require('playwright'),
       file,
       `<!doctype html><meta charset="utf-8"><title>Class page</title><h1>Our class</h1>${snippet}`
     );
+    // The studio's own pending draft is written now, so the storage comparison below sees only the embed.
+    await page.evaluate(() => flushDraft());
     for (const width of [1280, 390]) {
       const host = await browser.newPage({viewport: {width, height: 900}});
       host.on('pageerror', e => errors.push('embed: ' + e.message));
@@ -952,7 +954,8 @@ const {chromium} = require('playwright'),
       await frame.waitForFunction(
         () => typeof current !== 'undefined' && current?.kind === 'shared' && document.querySelector('#notation svg')
       );
-      const keys = await frame.evaluate(() => Object.keys(localStorage).sort().join());
+      // Every stored value, not only the key names, so an overwrite of an existing key is caught too.
+      const stored = await frame.evaluate(() => JSON.stringify(Object.entries(localStorage).sort()));
       assert.deepEqual(
         await frame.evaluate(() => [
           document.body.classList.contains('embed'),
@@ -979,12 +982,33 @@ const {chromium} = require('playwright'),
       await frame.click('#stop');
       assert.equal(await frame.evaluate(() => $('abc').value), abc, 'Clicking the embedded score changes nothing');
       assert.equal(
-        await frame.evaluate(() => Object.keys(localStorage).sort().join()),
-        keys,
+        await frame.evaluate(() => JSON.stringify(Object.entries(localStorage).sort())),
+        stored,
         'Playing an embedded score writes no storage'
       );
       await host.close();
     }
+    // A dense code (the longest link that fits) is drawn square at 3px per module, scaled down only to fit the panel,
+    // and its note suggests full screen.
+    const dense = await page.evaluate(() => {
+      const base = location.origin + location.pathname + '#s=';
+      updateShareQR(base + 'x'.repeat(QR_MAX_BYTES - base.length));
+      const svg = $('share-qr').querySelector('svg'),
+        box = svg.getBoundingClientRect();
+      return {
+        side: +svg.getAttribute('viewBox').split(' ')[2],
+        width: box.width,
+        height: box.height,
+        room: $('share-qr').getBoundingClientRect().width,
+        note: $('qr-note').textContent
+      };
+    });
+    assert.equal(dense.side, 185, 'The longest link makes a version 40 code');
+    assert.ok(
+      Math.abs(dense.width - Math.min(3 * dense.side, dense.room)) <= 2 && Math.abs(dense.height - dense.width) < 1,
+      'A dense code is drawn at 3px per module: ' + JSON.stringify(dense)
+    );
+    assert.match(dense.note, /dense code/);
     // A link longer than a QR code holds gets an explanation instead (a comment of random letters does not compress).
     await page.evaluate(() => {
       const letters = Array.from(
@@ -1758,7 +1782,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes and the long-link note, share panel tabs by keyboard, unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
+    'PASS: embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);
