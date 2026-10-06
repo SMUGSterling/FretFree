@@ -89,6 +89,8 @@ function writtenABC(shift = displayShift()) {
     }
   source = source.replace(/^K:(.*)$/m, (_, key) => 'K:' + key.replace(/\s+clef=\S+/g, '') + ' clef=' + config.clef);
   if (fingeringShown() === 'recorder') source = source.replace(/^(X:.*)$/m, '$1\n%%staffsep 190');
+  // abcjs draws no trill lines, so the score shows tr on the first note and updateTrillLines draws the wavy line.
+  source = source.replace(/!trill\(!/g, '!trill!');
   return labelSource(source, noteNamesMode());
 }
 // Note names under the score: off, letters or movable-do solfège; display only, never written to the ABC source.
@@ -287,6 +289,7 @@ function render() {
     updateFingering(source);
     updateNoteColors();
     indexDisplay(display);
+    updateTrillLines();
     updateMeasures();
     updateBarCheck(original);
     updatePromptCheck(display);
@@ -1179,7 +1182,14 @@ function accidentalEdit(entry, display, acc, batch = null) {
     steps = batch ? batch.steps(entry.element.startChar) : writtenSteps($('abc').value, entry.element.startChar, shift),
     mini = `X:1\nL:1/8\nK:${key}\n${editNoteText(text, {accidental: acc})}\n`,
     done = batch?.notes.get(steps + mini);
-  if (done !== undefined) return done ?? old;
+  // Only the new pitch goes into the source note: the rest of the written text can differ from the source for display
+  // (a trill line's start is drawn as a plain trill), and that must not be written back.
+  const pitch = note => {
+    const m = old.match(NOTE_PARTS),
+      core = note?.match(NOTE_PARTS)?.[2];
+    return m && core ? m[1] + core + m[3] + m[4] : (note ?? old);
+  };
+  if (done !== undefined) return pitch(done);
   // Back to concert pitch by the letters the written key moved, so a plain note means what the source's key says
   // (a plain C in written Ab major is A# in concert F# major, not the Bb that abcjs's own Gb major would give).
   let note = null;
@@ -1188,7 +1198,7 @@ function accidentalEdit(entry, display, acc, batch = null) {
     note = lines[lines.findIndex(l => l.startsWith('K:')) + 1] ?? null;
   } catch {}
   batch?.notes.set(steps + mini, note);
-  return note ?? old;
+  return pitch(note);
 }
 // A note joined to its neighbour by > or < (broken rhythm), as [first, second] source entries.
 function brokenPair(entry) {
@@ -1401,6 +1411,86 @@ function markRange(picked, action) {
     targets = (all ? able : able.filter(t => !t.marks.marks.includes(name))).map(t => t.entry);
   editNotes(targets, (n, text) => (targets.includes(n) ? toggleDecoration(text, name) : text), picked);
   return `${MARK_WORDS[name]} ${all ? 'removed from' : 'added to'} ${countWords(targets.length)}.`;
+}
+// Slurs, hairpins and trill lines (lineEdits in score-tools.js). S or the toolbar's Lines group puts one over the
+// selected notes, from the first note to the last (rests at either end are left out of slurs and trill lines; a
+// hairpin may start or end on a rest), or from one selected note to the next. The same press on the same notes takes
+// it off. Each is one undo step that keeps the selection.
+const LINE_WORDS = {slur: 'Slur', crescendo: 'Crescendo', diminuendo: 'Diminuendo', trill: 'Trill line'};
+// Each voice's notes in order, worked out once per render: the toolbar asks about all four kinds of line on every
+// selection change.
+let voicesMemo = null;
+function notesByVoice() {
+  if (voicesMemo?.sources !== noteSources) {
+    const voices = new Map();
+    for (const n of scoreNotes()) voices.get(voiceOf(n))?.push(n) ?? voices.set(voiceOf(n), [n]);
+    voicesMemo = {sources: noteSources, voices};
+  }
+  return voicesMemo.voices;
+}
+// The notes a line of a kind would join for the selection ({first, last, count}; last is null to take off the line
+// that starts on a single selected note), or {why} when it cannot go on.
+function lineEnds(kind, picked = selectedNotes()) {
+  const hairpin = kind === 'crescendo' || kind === 'diminuendo',
+    fits = n => (hairpin ? !!marksOf(n) : pitched(n)),
+    word = LINE_WORDS[kind].toLowerCase();
+  if (!picked.length) return {why: 'Select a note on the score first.'};
+  if (picked.length > 1) {
+    const ends = picked.filter(fits);
+    if (ends.length < 2) return {why: `A ${word} needs two ${hairpin ? 'notes or rests' : 'notes'}.`};
+    return {first: ends[0], last: ends.at(-1), count: picked.indexOf(ends.at(-1)) - picked.indexOf(ends[0]) + 1};
+  }
+  const [first] = picked;
+  if (!fits(first))
+    return {why: hairpin ? 'Invisible rests take no marks.' : `A ${word} starts on a note, not a rest.`};
+  if (lineAt($('abc').value, first.element, null, kind)) return {first, last: null};
+  const voice = notesByVoice().get(voiceOf(first)) || [],
+    i = voice.indexOf(first),
+    j = voice.findIndex((n, k) => k > i && fits(n));
+  if (j < 0) return {why: `There is no next note to end the ${word} on.`};
+  return {first, last: voice[j], count: j - i + 1};
+}
+// Whether the selection has a line of a kind over it (for one note, starting on it), and why the toolbar's button
+// cannot add one.
+function lineState(kind, picked) {
+  const ends = lineEnds(kind, picked);
+  return {why: ends.why || '', on: !ends.why && !!lineAt($('abc').value, ends.first.element, ends.last?.element, kind)};
+}
+function toggleLineSelected(kind, picked = selectedNotes()) {
+  const status = $('selection-status'),
+    ends = lineEnds(kind, picked),
+    v = $('abc').value,
+    change = !ends.why && lineEdits(v, ends.first.element, ends.last?.element ?? null, kind);
+  if (!change) {
+    status.textContent = ends.why || 'No change.';
+    return;
+  }
+  // The selection keeps its notes: positions move with the edits before them, and a slur's ) belongs to the note it
+  // closes.
+  const moved = (at, end) =>
+      at +
+      change.edits.reduce(
+        (sum, e) =>
+          e.at < at || (end && e.at === at && e.insert === ')')
+            ? sum + e.insert.length - Math.min(e.remove, at - e.at)
+            : sum,
+        0
+      ),
+    text = applyLineEdits(v, change.edits),
+    from = Math.min(...change.edits.map(e => e.at)),
+    to = Math.max(...change.edits.map(e => e.at + e.remove));
+  applyNoteEdit(
+    from,
+    to,
+    text.slice(from, to + text.length - v.length),
+    [moved(picked[0].element.startChar), moved(picked.at(-1).element.endChar, true)],
+    null,
+    false,
+    picked.length > 1 ? selectionAnchor || 'first' : null
+  );
+  status.textContent = change.on
+    ? `${LINE_WORDS[kind]} added over ${countWords(ends.count)}.`
+    : `${LINE_WORDS[kind]} removed.`;
 }
 // Chord symbols. K, the toolbar's Chord button or the note menu opens a box above the selected note. Enter saves,
 // Tab saves and moves on to the next note (Shift+Tab the one before), Escape cancels, and an empty box removes the
@@ -2051,6 +2141,10 @@ function scoreKey(e) {
     // Respelling works on one note or chord, as the palette's Respell does.
     if (many) $('selection-status').textContent = 'Z respells one note or chord. Select a single note for this.';
     else respellSelected(sel);
+    return true;
+  }
+  if (key === 's' || key === 'S') {
+    toggleLineSelected('slur', picked);
     return true;
   }
   if (!sel) return false;
@@ -2785,6 +2879,93 @@ function updateNoteColors() {
     });
   }
 }
+// Trill lines (!trill(! … !trill)!): abcjs draws only the tr (see writtenABC), so a wavy line goes from it to the end
+// of the line's last note, carrying on across system breaks. It is part of the score, so prints and SVG exports keep it.
+// A score drawn while the studio is hidden (openScore draws it before showing it) cannot be measured, so its lines
+// wait until the studio shows.
+let trillsPending = null;
+function updateTrillLines() {
+  const svg = $('notation').querySelector('svg'),
+    selectables = renderedTune?.engraver?.selectables || [],
+    // An embedded score has nothing selectable, so its notes are found through the drawn tune's elements instead.
+    drawn = selectables.length
+      ? selectables.map(s => [s.absEl.abcelem?.startChar, s.svgEl])
+      : (renderedTune?.lines || [])
+          .flatMap(l => l.staff || [])
+          .flatMap(s => s.voices.flat())
+          .filter(e => e.abselem?.elemset?.[0])
+          .map(e => [e.startChar, e.abselem.elemset[0]]);
+  trillsPending = null;
+  if (!svg || !drawn.length || !/[!+]trill\(/.test($('abc').value)) return;
+  svg.querySelectorAll('.trill-line').forEach(p => p.remove());
+  if (!svg.getBoundingClientRect().width) {
+    trillsPending = renderedTune;
+    return;
+  }
+  const byStart = new Map(drawn),
+    svgOf = entry => byStart.get(displayOf(entry)?.startChar),
+    lineOf = el => el.getAttribute('class')?.match(/abcjs-l(\d+)/)?.[1] ?? '',
+    box = el => {
+      try {
+        return el?.getBBox?.() || null;
+      } catch {
+        return null;
+      }
+    },
+    // The top lines of a system's staves, top to bottom.
+    tops = line =>
+      [...svg.querySelectorAll(`.abcjs-staff.abcjs-l${line} .abcjs-top-line`)]
+        .map(l => box(l)?.y ?? 0)
+        .sort((a, b) => a - b);
+  const draw = run => {
+    const els = run.map(svgOf).filter(Boolean),
+      tr = box(els[0]?.querySelector('[data-name="scripts.trill"]'));
+    if (!tr) return;
+    const lines = new Map();
+    for (const el of els) lines.get(lineOf(el))?.push(el) ?? lines.set(lineOf(el), [el]);
+    // On a later system the line keeps its height above the same staff.
+    const first = lineOf(els[0]),
+      y0 = tr.y + tr.height / 2,
+      head = box(els[0].querySelector('.abcjs-notehead')),
+      staff = Math.max(0, tops(first).filter(y => y <= (head?.y ?? y0)).length - 1),
+      above = y0 - (tops(first)[staff] ?? 0);
+    for (const [line, group] of lines) {
+      const heads = group.map(el => box(el.querySelector('.abcjs-notehead') || el)).filter(Boolean);
+      if (!heads.length) continue;
+      const x0 = line === first ? tr.x + tr.width + 1 : Math.min(...heads.map(b => b.x)) - 2,
+        x1 = Math.max(...heads.map(b => b.x + b.width)),
+        y = line === first ? y0 : (tops(line)[staff] ?? 0) + above;
+      if (x1 - x0 < 3) continue;
+      let d = `M ${x0.toFixed(1)} ${y.toFixed(1)}`;
+      for (let x = x0; x + 3 <= x1; x += 3) d += ' q 0.75 -2 1.5 0 q 0.75 2 1.5 0';
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('class', 'trill-line');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', 'currentColor');
+      path.setAttribute('stroke-width', '1.1');
+      path.setAttribute('aria-hidden', 'true');
+      svg.appendChild(path);
+    }
+  };
+  // Each voice's trill lines, from the note that opens one to the note that closes it (or just its first note).
+  for (const notes of notesByVoice().values()) {
+    let start = null;
+    notes.forEach((n, i) => {
+      const deco = n.element.decoration || [];
+      if (start != null && deco.includes('trill)')) {
+        draw(notes.slice(start, i + 1));
+        start = null;
+      }
+      if (deco.includes('trill(')) start = i;
+    });
+    if (start != null) draw(notes.slice(start, start + 1));
+  }
+}
+if (typeof MutationObserver === 'function')
+  new MutationObserver(() => {
+    if (trillsPending && trillsPending === renderedTune && !$('studio').hidden) updateTrillLines();
+  }).observe($('studio'), {attributes: true, attributeFilter: ['hidden']});
 // Writing prompts: a short assignment with a blank score (one whole-bar rest per bar) and goals that tick off live.
 function promptById(id) {
   return (typeof writingPrompts === 'undefined' ? [] : writingPrompts).find(p => p.id === id);
