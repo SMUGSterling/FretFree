@@ -6,6 +6,68 @@
 
 ---
 
+# Select, copy, paste and duplicate · 2026-10-06
+
+- **Shift+←→** and **Shift+click** select a run of notes in one voice; **Ctrl/Cmd+A** selects the whole voice. Shift+click still sets the practice range, as before.
+- **Ctrl/Cmd+C** copies the selection, **Ctrl/Cmd+X** copies it and leaves rests of the same length, **Ctrl/Cmd+V** pastes after the selection or over a selected rest that is long enough, and **Ctrl/Cmd+D** repeats the selection right after itself and selects the copy. Whole measures copy with their bar line (the last measure too when no bar line closes the music). Pasted notes keep their length and pitch, in another score too: lengths are respelled for its unit length, and a note gets an accidental where the key or an accidental earlier in the measure needs one, including a note whose sharp or flat came from earlier in the measure it was copied from. Key, meter and unit-length changes inside a selection are not copied. The clip stays in memory, and is offered to the system clipboard as ABC where the browser allows.
+- ↑↓ (Ctrl: octave), sharp/flat/natural, dot, tie, length keys and Delete act on every selected note, as do the notation toolbar's Length, Dot, Tie, ♯ ♭ ♮ and Delete buttons, and the new **[** and **]** keys halve or double every length (a single note too). Letters and piano keys add notes after the last selected note. Notes after an edit in the same measure keep their pitch, with an accidental where they now need one (a pasted, cut or deleted sharp no longer changes them). Deleting whole measures takes one bar line with them, and a line left empty goes too, as a blank line would end the tune.
+- **◂ Select, Select ▸, Copy, Cut, Paste and Duplicate** buttons under the keyboard help do the same on touch screens. Every edit is one undo step; pasting does not re-bar, and the bar check reports any overflow.
+- **Selection only** in the Transpose panel now covers every measure of a range selection.
+- Messages at the bottom of the window no longer block clicks on the notes beneath them.
+
+---
+
+# Classroom colors and letters in noteheads · 2026-10-06
+
+- **Colors: Classroom** (next to Note names) colors each notehead by its letter, in the Boomwhacker and handbell order: C red, D orange, E yellow with a dark outline, F green, G light blue, A dark blue, B purple. Sharps and flats keep their letter's color, in every octave and inside chords. Stems, rests and accidentals stay black.
+- **Letters in noteheads** (a new Note names choice) writes the letter inside each head, in black or white for contrast, and in ink on half and whole notes. Grace notes are colored but too small for a letter.
+- Both follow written pitch for transposing instruments, appear in prints and SVG exports, are remembered and backed up (`fretfree-note-colors`; the letters reuse `fretfree-note-names`), and never change the ABC source. A selected or playing note still shows its highlight color.
+- Fixes: a note under the "Score saved" message can be clicked, and the note menu no longer closes at once when the page shifts a few pixels as the status line above the score rewraps.
+
+---
+
+# On-screen piano keys · 2026-10-06
+
+- **Piano keys** (under the note buttons) shows a piano strip, C2 to C7, under the score. It stays at the bottom of the window and scrolls to the selected note or to the instrument's range. Tap a key to write the note over the selected rest or after the selected note; tapping in turn enters a melody at the current length, and each tap sounds with Hear notes. On a touch screen the note goes in when the finger lifts, so a swipe that starts on a key scrolls the strip or the page without entering anything. Keys are written pitch: on Clarinet in B♭ the D key writes concert `C`.
+- **Chords:** Shift+tap, or hold one key while tapping others on a touch screen, to add the pitch to the selected note or the note just entered (`C2` becomes `[CE]2`). <kbd>Shift</kbd>+<kbd>A</kbd>–<kbd>G</kbd> on the score does the same with the letter just above the chord's top note.
+- **Spelling** follows the key in force: in-key notes need no accidental (the black key between A and B is `B` in F major, F♯ is `F` in G major), others take sharps in sharp keys and C (`^C`) and flats in flat keys, and a natural is written where an earlier accidental in the bar would change the note. An accidental from the piano does not change notes after it in the bar: they get their own accidental (`z C` with C♯ tapped over the rest becomes `^C =C`).
+- The selected note's keys are lit, and keys light as playback sounds them. From the keyboard, ←→ move between keys, Enter adds the note, Shift+Enter adds it to the chord, and the score's other shortcuts still work. The setting is remembered and backed up (`fretfree-piano`), and the strip is hidden in print.
+- `midiToken(midi, key)`, `addChordPitch(text, pitch)` and `keepLaterPitches(...)` in score-tools.js spell a MIDI note for a key signature, add a pitch to a note or chord, and write out the accidentals later notes in the bar need after an edit; `insertNote` now goes through `insertCore(pitch, selection)`, which later input methods (MIDI keyboards, fretboard) can share.
+
+---
+
+# MusicXML export · 2026-10-06
+
+- **Studio → MusicXML** downloads the score as MusicXML 4.0 for MuseScore, Noteflight, Finale, Sibelius or Dorico, at concert pitch. The converter (`musicxml.js`) walks the abcjs parse: each staff is a part, and staves braced with `%%score {RH | LH}` share one part. It writes key (with mode), time and clef changes, pickups, notes, rests, chords, ties, tuplets, grace notes, multi-bar rests, chord symbols as harmony, lyrics (syllables and extenders), dynamics, hairpins, articulations, ornaments, fingerings, slurs, segno/coda/D.C. text, repeats with numbered endings, and tempo marks.
+- A length no single note has, such as the `z5` left when an eighth note goes into an empty 6/8 bar, is written as tied notes or as rests one after another, so every note has a type. A `Z` rest is drawn as one multi-bar rest only when every staff of its part rests. A text-only tempo such as `Q:"Andante"` shows only its words. A part the ABC transposes for playback (`transpose=`, `%%MIDI transpose`) keeps its written notes and gets a `<transpose>`, so it sounds as it does in FretFree. A tie carries an accidental over the bar line only to the same pitch in the next note; ABC ties between two different pitches are left out.
+- Credits travel as in every other export: the license and credit text in `<rights>` and as a page-1 credit, the rights metadata as JSON in a `fretfree-rights` field, and for GPL editions the full GPL text and the editable ABC.
+- `tests/check.cjs` exports the FretFree scores and a 200-score library sample and checks that every voice's notes, pitches and lengths match the parse, tied-over notes and transposed parts included. Fixtures check each notation feature's element, including split lengths, ties over the bar line, slurs, multi-bar rests, text tempos and transposition. Run by hand over all 6,150 library scores, the same check matched everywhere except nine notes where abcjs's own player carries an accidental or key change back over a repeat, and one O’Neill tune whose `L: a/8` line abcjs cannot read (its export says so). The exports of the fixtures and 103 library scores were also validated against the MusicXML 4.0 schema.
+- Checked by hand in MuseScore 3.2.3, the version Ubuntu packages: the fixtures, a half-finished 6/8 jig, a two-hand piano score and a transposed clarinet part open and engrave with their notes, ties, rests, multi-bar rests, chord symbols, lyrics, endings, tempo text and transposition, and the same 103 library scores open without import errors. MuseScore 4 could not be installed in the build environment, so opening the files there still needs a check.
+
+---
+
+# Notation palette · 2026-10-06
+
+- A **notation toolbar** above the score: Length (whole to 16th), Dot, Tie, Rest, Accidental (♯ ♭ ♮ None), Beam (Join, Break) and Delete. It lights up to show the selected note's length, dot, tie, accidental and beam, and gives every edit a touch target, so Chromebook and iPad users no longer need the right-click menu or the keyboard.
+- Each button makes the same ABC edit as the matching key or note-menu item, as one undo step. **Rest** is new: it turns a note or chord into a rest of the same length, keeps decorations, slurs and tuplet marks, and takes the tie off the note before it. **Join** removes the space before the next note so they share a beam; **Break** puts it back. Only eighth notes and shorter can be beamed, and a beam cannot end on a rest.
+- A button that does not fit the selection, such as Dot on a multi-measure rest or Join on a quarter note, is marked unavailable, and pressing it says why in the status line. Once the selection moves on, that message gives way. A press that changes nothing says so, and an edit that leaves the ABC text as it was (from the toolbar, a key or the note menu) no longer marks the score as unsaved.
+- With nothing selected, or a rest selected, a length button sets the length of the next notes, like keys 3–7, and the status line says so. On a blank sheet, pick a length and type letters to write over the rest.
+- The toolbar is one Tab stop with arrow keys inside it, its buttons are at least 40 px, it wraps on phones and it is left out of prints.
+- `editNote` ignores actions it does not know instead of writing `NaN` into the score.
+
+---
+
+# Transpose and key changes · 2026-10-06
+
+- **Transpose…** in Score settings moves the notes, key signatures and chord symbols by an interval up or down, or to a chosen key the nearer way round, as one undo step. Spelling follows the interval (an augmented 4th up from C is F♯ major, a diminished 5th is G♭). **Selection only** transposes the selected note's measure, or the practice range, and keeps the key signature.
+- The **Key** menu lists all 30 major and minor keys and the Dorian, Phrygian, Lydian, Mixolydian and Locrian modes, with their signatures. Picking a key asks **Transpose notes** or **Keep notes**; either way `clef=` and other modifiers on the K: line are kept (before, the key menu dropped them and never moved the notes).
+- The **Time signature** menu adds 2/2, 3/8, 5/4, 6/4, 7/8, 9/8, 12/8, C, C| and none.
+- Written pitch for B♭ and E♭ instruments now keeps `clef=` on the key line instead of garbling the key, and spells keys by the instrument's interval: concert E shows F♯ major on a B♭ clarinet, not G♭. Where a key has to fall back to another spelling (concert F♯ major is written in A♭ major on a B♭ clarinet), typed letters, drawn notes and accidentals from the note menu follow the written key, so typing A shows an A.
+- Transposing moves every note by the chosen interval in every listed key, including the cases where abcjs's own transposition slips an octave (F♯ major up an octave, B♭ major down a major 7th). On a cello or trombone, C♭ major and A♭ minor no longer show an octave too high. A tune with no K: line is read in C major and gains a K: line when transposed.
+- Ctrl/Cmd+Z and redo now also work while a menu, slider or checkbox has focus, such as the Key menu right after a key change. Text fields other than the ABC box keep their own undo.
+
+---
+
 # Unsaved-work recovery · 2026-10-06
 
 - While a score has unsaved changes, FretFree keeps a draft copy in the browser, two seconds after each edit and straight away when the tab is hidden. If the tab is closed or a Chromebook discards it, the next visit offers **Unsaved work from 3:42 PM: Title. Restore / Discard**.

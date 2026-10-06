@@ -12,6 +12,7 @@ const SCRIPTS = [
   'catalog-expanded.js',
   'score-tools.js',
   'rights-tools.js',
+  'musicxml.js',
   'catalog-licensed.js',
   'catalog-lieder.js',
   'catalog-quartets.js',
@@ -22,7 +23,9 @@ const SCRIPTS = [
   'library.js',
   'backup.js',
   'editor.js',
+  'palette.js',
   'playback.js',
+  'keyboard.js',
   'assignments.js',
   'app.js'
 ];
@@ -185,6 +188,24 @@ assert.equal(
   'z4 | z4 | z4 | z4 | z4 | z4 | z4 |]',
   'Add 4 bars appends rests before the final barline'
 );
+// Notation palette on a blank sheet: it shows the selected rest's length; a length button keeps the rest and sets
+// the length that typing writes over it.
+{
+  const pressed = () =>
+    [...w.document.querySelectorAll('#palette [aria-pressed="true"]')].map(b => b.dataset.palette).join(' ');
+  $('new-score').click();
+  assert.equal(pressed(), 'len:1', 'The selected whole-bar rest shows Whole');
+  w.document.querySelector('[data-palette="len:0.5"]').click();
+  assert.equal($('abc').value.trim().split('\n').pop(), 'z4 | z4 | z4 |]', 'A length button leaves the rest alone');
+  run("scoreKey({key:'c'})");
+  assert.equal(
+    $('abc').value.trim().split('\n').pop(),
+    'c2 z2 | z4 | z4 |]',
+    'Typing writes a half note over the rest'
+  );
+  assert.equal(pressed(), 'len:0.5', 'The rest that is left is selected and shows its length');
+  run('inputLength = null');
+}
 // Appended bars take the meter and unit length in force at the end, and an open last measure is closed first.
 run(`$('abc').value = 'X:1\\nT:t\\nM:4/4\\nL:1/8\\nK:C\\nC2 D2 [M:3/4] [L:1/16] E4 F4 G4\\n'; syncFields(); render();`);
 $('add-bars').click();
@@ -221,7 +242,12 @@ $('new-bars').value = '8';
     ],
     favorites: ['elise', 'elise'],
     played: ['ode'],
-    settings: {'fretfree-practice-loop': true, 'fretfree-note-names': 'letters', 'fretfree-zoom': 140}
+    settings: {
+      'fretfree-practice-loop': true,
+      'fretfree-note-names': 'letters',
+      'fretfree-note-colors': 'classroom',
+      'fretfree-zoom': 140
+    }
   };
   const before = run('saved.length');
   const summary = run(`applyBackup(${JSON.stringify(incoming)})`);
@@ -233,6 +259,8 @@ $('new-bars').value = '8';
   assert.ok(run("favorites.includes('elise')") && run("played.has('ode')"), 'Favorites and played marks merged');
   assert.equal(run("storage.get('fretfree-note-names')"), 'letters', 'Settings restored');
   assert.equal(run("storage.get('fretfree-zoom')"), 140, 'Zoom restored from a backup');
+  assert.equal(run("storage.get('fretfree-note-colors')"), 'classroom', 'Classroom colors restored');
+  assert.equal(run('backupData().settings')['fretfree-note-colors'], 'classroom', 'Classroom colors backed up');
   const newer = {
     app: 'FretFree',
     format: 1,
@@ -303,6 +331,38 @@ assert.equal(
   2,
   'Saved scores persist under the legacy key'
 );
+// MusicXML export from the export bar: a .musicxml download that keeps the edition's credits and the GPL text. A
+// concert-pitch instrument names a one-part score; a transposing one does not, since the file is at concert pitch.
+{
+  const realDownload = run('download');
+  w.__downloads = [];
+  run('download = (data, name, type) => __downloads.push({data, name, type})');
+  run("openScore(catalog.find(x => scoreLicense(x).startsWith('GPL-')))");
+  $('instrument').value = 'Violin';
+  $('export-musicxml').click();
+  const [file] = w.__downloads;
+  assert.match(file.name, /\.musicxml$/);
+  assert.equal(file.type, 'application/vnd.recordare.musicxml+xml');
+  const doc = new w.DOMParser().parseFromString(file.data, 'application/xml');
+  assert.equal(doc.querySelector('parsererror'), null);
+  assert.equal(doc.querySelector('part-name').textContent, 'Violin');
+  assert.ok(doc.querySelector('rights').textContent.includes('GPL-2.0-or-later'));
+  assert.ok(file.data.includes('GNU GENERAL PUBLIC LICENSE'));
+  assert.equal(doc.querySelector('work-title').textContent, run("field('T')"));
+  $('instrument').value = 'Clarinet in B♭';
+  $('export-musicxml').click();
+  assert.equal(
+    new w.DOMParser().parseFromString(w.__downloads[1].data, 'application/xml').querySelector('part-name').textContent,
+    'Music'
+  );
+  run("$('abc').value = 'X:1\\nT:Empty\\nK:C\\n'");
+  $('export-musicxml').click();
+  assert.equal(w.__downloads.length, 2, 'Nothing to export: no file');
+  assert.match($('toast').textContent, /no music to export/);
+  w.__realDownload = realDownload;
+  run('download = __realDownload');
+  $('new-score').click();
+}
 // Share by link without CompressionStream (jsdom): the plain-encoded link opens as a shared copy with the edition's credits.
 (async () => {
   const link = await run(
@@ -752,7 +812,7 @@ assert.equal(
     assert.equal(page.run('current.kind'), 'shared', 'Discard leaves the open score alone');
   }
   console.log(
-    'PASS (jsdom): unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with zoom), blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
+    'PASS (jsdom): unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors and zoom), blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
   );
 })().catch(e => {
   console.error(e);

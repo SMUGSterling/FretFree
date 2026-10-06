@@ -26,6 +26,7 @@ function openScore(item, id = null) {
   savedId = id;
   dirty = false;
   selectedRange = null;
+  toggleTranspose(false);
   $('selection-status').textContent =
     'Click a note to select its ABC text; Shift+click another to practice from the first to the second. Drag up/down to change pitch; chords move together.';
   $('start-measure').value = 1;
@@ -65,6 +66,11 @@ function newScore(bars) {
     `Blank sheet of ${bars} bars. Click a bar and type A–G, or turn on Draw notes and click the staff; each bar fills from its rest. ＋ 4 bars adds more.`;
 }
 for (const name of Object.keys(instruments)) $('instrument').add(new Option(name, name));
+fillKeySelect($('key'));
+fillKeySelect($('transpose-key'));
+for (const i of TRANSPOSE_INTERVALS)
+  $('transpose-interval').add(new Option(i.name[0].toUpperCase() + i.name.slice(1), i.id));
+$('transpose-interval').value = 'M2';
 for (const note of 'CDEFGAB') {
   $('note-buttons').insertAdjacentHTML('beforeend', `<button data-token="${note}">${note}</button>`);
 }
@@ -147,7 +153,6 @@ for (const [id, header] of [
   ['title', 'T'],
   ['composer', 'C'],
   ['meter', 'M'],
-  ['key', 'K'],
   ['bpm', 'Q']
 ])
   $(id).addEventListener('input', () => {
@@ -155,7 +160,9 @@ for (const [id, header] of [
     setHeader(header, id === 'bpm' ? '1/4=' + $(id).value : $(id).value);
     $('bpm-value').textContent = $('bpm').value;
     changed();
-  }); // On a prompt score the assignment is in written pitch, so a new instrument transposes the concert source to keep
+  });
+$('key').addEventListener('input', () => chooseKey($('key').value));
+// On a prompt score the assignment is in written pitch, so a new instrument transposes the concert source to keep
 // every written note, and the written key, exactly where the student put them.
 $('instrument').onchange = () => {
   const before = instruments[instrumentShown]?.shift || 0,
@@ -163,7 +170,11 @@ $('instrument').onchange = () => {
     source = $('abc').value;
   if (activePrompt() && before !== after) {
     flushTyping();
-    $('abc').value = ABCJS.strTranspose(source, ABCJS.parseOnly(source), before - after);
+    try {
+      $('abc').value = transposeABC(source, before - after);
+    } catch {
+      $('abc').value = ABCJS.strTranspose(source, ABCJS.parseOnly(source), before - after);
+    }
     selectedRange = null;
   }
   instrumentShown = currentInstrument();
@@ -243,7 +254,9 @@ function applyStoredSettings() {
     $(id).checked = !!storage.get(KEYS.practice(id), false);
   $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
   $('note-names').value = storage.get(KEYS.noteNames, 'off');
+  $('note-colors').value = storage.get(KEYS.noteColors, 'off');
   $('audition').checked = storage.get(KEYS.audition, true) !== false;
+  if (typeof setPiano === 'function') setPiano(storage.get(KEYS.piano, false) === true, false);
   applyStoredLayout();
   prepareTrainer();
 }
@@ -303,6 +316,20 @@ $('export-abc').onclick = () => download(creditedABC($('abc').value, current), s
 $('export-midi').onclick = () => {
   try {
     download(creditedMidi(midiBytes($('abc').value), $('abc').value, current), safeName() + '.mid', 'audio/midi');
+  } catch (e) {
+    toast(e.message);
+  }
+};
+// MusicXML is written at concert pitch from the ABC; a transposing instrument's name would mislead, so only a
+// concert-pitch instrument names the part.
+$('export-musicxml').onclick = () => {
+  try {
+    const instrument = currentInstrument();
+    download(
+      abcToMusicXML($('abc').value, {item: current, instrument: instruments[instrument]?.shift ? '' : instrument}),
+      safeName() + '.musicxml',
+      'application/vnd.recordare.musicxml+xml'
+    );
   } catch (e) {
     toast(e.message);
   }
@@ -376,9 +403,14 @@ $('fingering').onchange = () => {
 $('audition').checked = storage.get(KEYS.audition, true) !== false;
 $('audition').onchange = () => storage.set(KEYS.audition, $('audition').checked);
 $('note-names').value = storage.get(KEYS.noteNames, 'off');
-if (noteNamesMode() !== 'off') render();
+$('note-colors').value = storage.get(KEYS.noteColors, 'off');
+if (noteNamesMode() !== 'off' || lettersInHeads() || noteColorsShown()) render();
 $('note-names').onchange = () => {
   storage.set(KEYS.noteNames, $('note-names').value);
+  render();
+};
+$('note-colors').onchange = () => {
+  storage.set(KEYS.noteColors, $('note-colors').value);
   render();
 };
 // A remembered speed trainer needs the same below-goal start as a freshly ticked one.
