@@ -1,3 +1,13 @@
+# Install as an app and work offline · 2026-10-06
+
+- After one visit FretFree opens and works without internet: the library, saved scores, a score opened before, the editor and playback. A PDF or MIDI file from the library works offline once it has been opened; one never opened does not.
+- New `sw.js` service worker (scope `./`). The page is network-first with the last copy as the offline fallback, so a new deploy shows within one reload. `?v=`-stamped scripts and styles are cache-first: the small ones are cached at install and the large catalogs at runtime, with the page handing over the files it loaded before the worker took charge, so the first visit is enough. Files under `scores/` are cached only when opened. Assets the current page no longer loads, and older FretFree caches for the same folder, are dropped; other projects' caches on a shared github.io origin are left alone. It never fetches from another site.
+- New `manifest.webmanifest` (relative URLs, standalone display, theme colors) with local icons in `icons/` (192 and 512 px, maskable, Apple touch icon and an SVG favicon), drawn from the SVGs by `node scripts/make-icons.cjs`. Chrome's installability check passes.
+- **Install app** appears in the header when the browser offers installing (Chrome and Edge) and works from the keyboard. A **Working offline** notice in the header, announced to screen readers, shows while the device is offline, with a toast when the connection drops. The About page explains offline use and installing on iPads and iPhones, and says whether this browser has an offline copy.
+- Registration runs only on https and localhost, after the page has loaded; without service workers the site works online as before.
+
+---
+
 # Version history for saved scores · 2026-10-06
 
 - Saving a saved score with changed music keeps the copy it replaces as an earlier version, with the time that copy was saved and its instrument. Each save gets its own time, so two quick saves never share one.

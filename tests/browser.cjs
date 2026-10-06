@@ -2444,10 +2444,163 @@ const {chromium} = require('playwright'),
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
     'An imported score fits a phone screen'
   );
+  // Offline use and installing, against a server of the test's own that is stopped to go offline: after one visit the
+  // library, an opened score and its PDF, the editor and playback all work, and the PDF never opened does not. Bringing
+  // the server back with a new deploy shows it after one reload and drops the old assets. No request leaves the site,
+  // and Chrome's installability check passes (it needs a profile, so this uses a persistent context).
+  {
+    const http = require('node:http'),
+      fs = require('node:fs'),
+      os = require('node:os'),
+      path = require('node:path');
+    const root = path.join(__dirname, '..'),
+      TYPES = {
+        html: 'text/html',
+        js: 'text/javascript',
+        css: 'text/css',
+        json: 'application/json',
+        svg: 'image/svg+xml'
+      };
+    Object.assign(TYPES, {webmanifest: 'application/manifest+json', png: 'image/png', pdf: 'application/pdf'});
+    let deploy = null;
+    const server = http.createServer((req, res) => {
+      const name = decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/$/, '/index.html');
+      const file = path.join(root, path.normalize(name));
+      if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+        res.writeHead(404).end();
+        return;
+      }
+      let body = fs.readFileSync(file);
+      if (name === '/index.html' && deploy) body = deploy(body.toString());
+      res.writeHead(200, {'Content-Type': TYPES[path.extname(file).slice(1)] || 'application/octet-stream'});
+      res.end(body);
+    });
+    const listen = port => new Promise(resolve => server.listen(port, '127.0.0.1', resolve));
+    const halt = () => new Promise(resolve => (server.close(resolve), server.closeAllConnections()));
+    await listen(0);
+    const port = server.address().port,
+      origin = `http://127.0.0.1:${port}/`,
+      profile = fs.mkdtempSync(path.join(os.tmpdir(), 'fretfree-pwa-'));
+    const context = await chromium.launchPersistentContext(profile, {
+      headless: true,
+      viewport: {width: 1280, height: 900},
+      ...(process.env.CHROMIUM_PATH
+        ? {executablePath: process.env.CHROMIUM_PATH, args: ['--no-sandbox', '--disable-dev-shm-usage']}
+        : {})
+    });
+    const requests = [];
+    context.on('request', r => requests.push(r.url()));
+    const tab = context.pages()[0] || (await context.newPage());
+    tab.on('pageerror', e => errors.push(e.message));
+    tab.on('dialog', dialog => dialog.accept());
+    await tab.goto(origin);
+    await tab.waitForFunction(() => /has an offline copy/.test($('offline-ready').textContent), null, {timeout: 60000});
+    const cdp = await context.newCDPSession(tab);
+    assert.deepEqual((await cdp.send('Page.getInstallabilityErrors')).installabilityErrors, [], 'Installable');
+    const item = await tab.evaluate(() => catalog.find(x => x.pdf).id),
+      pdf = await tab.evaluate(id => catalog.find(x => x.id === id).pdf, item),
+      unopened = await tab.evaluate(id => catalog.find(x => x.pdf && x.id !== id).pdf, item);
+    await tab.locator('#search').fill(await tab.evaluate(id => catalog.find(x => x.id === id).title, item));
+    await tab.locator(`#cards [data-open="${item}"]`).click();
+    const pdfTab = await context.newPage();
+    await pdfTab.goto(origin + pdf).catch(() => {}); // headless Chromium may abort on the PDF viewer
+    await pdfTab.close();
+    await tab.waitForFunction(
+      url =>
+        caches.keys().then(async names => {
+          for (const name of names) if (await (await caches.open(name)).match(url)) return true;
+          return false;
+        }),
+      origin + pdf
+    );
+    // Offline: the server is gone, and the browser says so.
+    await halt();
+    await context.setOffline(true);
+    await tab.reload();
+    assert.equal(await tab.locator('#cards .card').count(), 24, 'The library opens offline');
+    assert.equal(await tab.locator('#offline-status').textContent(), '● Working offline');
+    await tab.evaluate(id => openScore(catalog.find(x => x.id === id)), item);
+    assert.ok((await tab.locator('#notation .abcjs-notehead').count()) > 0, 'An opened score opens offline');
+    await tab.locator('#notation .abcjs-notehead').first().click({force: true});
+    const before = await tab.inputValue('#abc');
+    await tab.keyboard.press('ArrowUp');
+    assert.notEqual(await tab.inputValue('#abc'), before, 'The editor works offline');
+    await tab.click('#play');
+    await tab.waitForFunction(() => playPosition() > 0.05, null, {timeout: 10000});
+    await tab.click('#stop');
+    assert.deepEqual(
+      await tab.evaluate(
+        urls =>
+          Promise.all(
+            urls.map(u =>
+              fetch(u).then(
+                r => r.status,
+                () => 'failed'
+              )
+            )
+          ),
+        [pdf, unopened]
+      ),
+      [200, 'failed'],
+      'An opened PDF works offline; one never opened does not'
+    );
+    // A new deploy (new stamps and a changed page) is picked up within one reload, and the old assets are dropped.
+    const old = await tab.evaluate(() => document.querySelector('script[src]').src);
+    deploy = html => html.replace(/\?v=\w+/g, '?v=newdeploy').replace('<title>', '<title>New deploy · ');
+    await listen(port);
+    await context.setOffline(false);
+    await tab.evaluate(() => (dirty = false));
+    await tab.reload();
+    assert.match(await tab.title(), /^New deploy · /, 'A new deploy shows after one reload');
+    assert.ok(await tab.evaluate(() => [...document.scripts].every(s => !s.src || s.src.endsWith('?v=newdeploy'))));
+    await tab.waitForFunction(
+      url =>
+        caches.keys().then(async names => {
+          for (const name of names) if (await (await caches.open(name)).match(url)) return false;
+          return true;
+        }),
+      old
+    );
+    // At phone width, with the offline notice showing, Install app fits beside the logo and works from the keyboard.
+    // Headless Chromium never offers installing, so the browser's offer is stood in for.
+    await tab.setViewportSize({width: 390, height: 844});
+    await context.setOffline(true);
+    await tab.waitForFunction(() => $('offline-status').textContent === '● Working offline');
+    assert.match(await tab.locator('#toast').textContent(), /^You are offline\./);
+    await tab.evaluate(() => {
+      const offer = new Event('beforeinstallprompt', {cancelable: true});
+      offer.prompt = () => (window.__prompted = true);
+      offer.userChoice = Promise.resolve({outcome: 'accepted'});
+      window.dispatchEvent(offer);
+      window.scrollTo(0, 0);
+    });
+    const install = tab.locator('#install-app'),
+      installBox = await install.boundingBox(),
+      navBox = await tab.locator('header nav').boundingBox();
+    assert.ok(installBox && installBox.x >= 0 && installBox.x + installBox.width <= 390, 'Install app fits a phone');
+    assert.ok(installBox.y + installBox.height <= navBox.y, 'Install app sits above the nav');
+    assert.ok(await tab.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+    await install.focus();
+    await tab.keyboard.press('Enter');
+    await tab.waitForFunction(() => $('install-app').hidden);
+    assert.ok(
+      await tab.evaluate(() => window.__prompted && document.activeElement === document.querySelector('.nav.active'))
+    );
+    await context.setOffline(false);
+    await tab.waitForFunction(() => $('offline-status').textContent === '');
+    assert.deepEqual(
+      requests.filter(url => !url.startsWith(origin)),
+      [],
+      'No request leaves the site'
+    );
+    await context.close();
+    await halt();
+    fs.rmSync(profile, {recursive: true, force: true});
+  }
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
+    'PASS: version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, offline use (library, an opened score and its PDF, editing and playback with the server gone; a new deploy after one reload; old assets dropped; installability; Install app by keyboard at phone width; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

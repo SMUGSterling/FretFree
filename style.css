@@ -1923,3 +1923,34 @@ input[type='range'] {
     display: none !important;
   }
 }
+/* Offline notice and Install app in the header. On a phone they share the first row with the logo, above the nav. */
+.header-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 14px;
+}
+.offline-status:empty {
+  display: none;
+}
+.offline-status {
+  font-size: 11px;
+  font-weight: 650;
+  color: #8a4a1f;
+  background: #f6e9dc;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+.install-app {
+  font-size: 12px;
+  padding: 7px 12px;
+}
+@media (max-width: 720px) {
+  .header-status {
+    order: 1;
+  }
+  header nav {
+    order: 2;
+  }
+}

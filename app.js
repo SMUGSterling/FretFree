@@ -517,6 +517,65 @@ window.addEventListener('storage', e => {
 window.addEventListener('pageshow', keepDraft);
 $('draft-restore').onclick = restoreDraft;
 $('draft-discard').onclick = discardDraft;
+// Offline use. sw.js keeps the app and the library in this browser after one visit. Browsers allow a service worker
+// only on https or localhost; elsewhere, or without the API, the site works online as before.
+const offlineCapable = () =>
+  !!navigator.serviceWorker &&
+  (location.protocol === 'https:' || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname));
+function showOnline() {
+  $('offline-status').textContent = navigator.onLine === false ? '● Working offline' : '';
+}
+window.addEventListener('online', showOnline);
+window.addEventListener('offline', () => {
+  showOnline();
+  toast('You are offline. FretFree keeps working; a PDF opens only if you opened it before.');
+});
+showOnline();
+$('offline-ready').textContent = offlineCapable()
+  ? 'Keeping a copy in this browser for offline use…'
+  : 'This browser cannot keep an offline copy of this page, so it needs the internet to open.';
+// Scripts and styles loaded before the worker took charge are handed to it, so the first visit is enough.
+function keepForOffline(registration) {
+  const urls = [...document.querySelectorAll('script[src], link[rel="stylesheet"][href]')].map(el => el.src || el.href);
+  registration.active?.postMessage({type: 'keep', urls});
+}
+if (offlineCapable()) {
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data?.type === 'kept' && e.data.kept >= e.data.total)
+      $('offline-ready').textContent = 'This browser has an offline copy of FretFree.';
+  });
+  const register = () =>
+    navigator.serviceWorker
+      .register('sw.js')
+      .then(() => navigator.serviceWorker.ready)
+      .then(keepForOffline)
+      .catch(() => ($('offline-ready').textContent = 'This browser could not keep an offline copy.'));
+  if (document.readyState === 'complete') register();
+  else window.addEventListener('load', register, {once: true});
+}
+// Install app appears when the browser offers installing (Chrome and Edge); each offer can be used once.
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  installPrompt = e;
+  $('install-app').hidden = false;
+});
+$('install-app').onclick = async () => {
+  const prompt = installPrompt;
+  if (!prompt) return;
+  installPrompt = null;
+  try {
+    await prompt.prompt();
+    await prompt.userChoice;
+  } catch {}
+  $('install-app').hidden = true;
+  document.querySelector('.nav.active')?.focus();
+};
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  $('install-app').hidden = true;
+  toast('FretFree is installed. Open it from your apps, with or without internet.');
+});
 const initialView = location.hash.slice(1);
 for (const name of [...new Set(catalog.map(scoreCollection))].sort())
   $('collection-filter').add(new Option(name, name));
