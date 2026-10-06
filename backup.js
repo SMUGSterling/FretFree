@@ -11,6 +11,8 @@ const BACKUP_FORMAT = 1,
     KEYS.noteNames,
     KEYS.noteColors,
     KEYS.audition,
+    KEYS.zoom,
+    KEYS.measuresPerLine,
     KEYS.piano,
     ...['loop', 'metronome', 'count-in', 'trainer'].map(KEYS.practice)
   ];

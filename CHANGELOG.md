@@ -9,6 +9,14 @@
 
 ---
 
+# Zoom and measures per line · 2026-10-06
+
+- **Zoom** (− / 100% / +) above the score sets the notation size from 70% to 200%. Zoom narrows the width abcjs lays the score out in and the drawing is stretched back to the panel width, so notes grow without changing the engraving scale; clicking, dragging (10 px per staff step) and drawing stay accurate at every size. Above 100% on Auto, lines re-flow so they fit. Titles, composer, tempo and other text around the music keep their 100% size, so a long title still fits. Each step is announced in the status line (*Zoom 140%.*), including at the smallest and largest sizes.
+- **Measures per line** (Auto, 2, 3, 4 or 6) lays the score out with that many bars on each line where they fit. Auto keeps the line breaks written in the ABC at 100% and below. Re-flowing lays the score out twice, so very long scores redraw more slowly.
+- Print / PDF and SVG exports use the same layout, so a zoomed score prints in large print. The SVG is as wide as the score, with the credit wrapped to fit. Both settings are display only, remembered in the browser (`fretfree-zoom`, `fretfree-measures-per-line`) and included in backups.
+
+---
+
 # Select, copy, paste and duplicate · 2026-10-06
 
 - **Shift+←→** and **Shift+click** select a run of notes in one voice; **Ctrl/Cmd+A** selects the whole voice. Shift+click still sets the practice range, as before.

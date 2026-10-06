@@ -1723,3 +1723,46 @@ input[type='range'] {
     print-color-adjust: exact;
   }
 }
+/* Zoom and measures per line sit just above the score; they change the engraving, not the source. */
+.score-view {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 18px;
+  margin: 14px 0 -8px;
+}
+.zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.zoom-label {
+  margin-right: 4px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--muted);
+}
+.zoom-controls button {
+  min-width: 40px;
+  min-height: 36px;
+  padding: 6px 10px;
+  font-variant-numeric: tabular-nums;
+}
+#zoom-out,
+#zoom-in {
+  font-size: 17px;
+  line-height: 1;
+}
+.zoom-controls #zoom-reset {
+  min-width: 62px;
+}
+.zoom-controls button[aria-disabled='true'] {
+  cursor: default;
+  opacity: 0.45;
+}
+@media print {
+  .score-view {
+    display: none !important;
+  }
+}

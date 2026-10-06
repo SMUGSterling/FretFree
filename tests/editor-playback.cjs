@@ -123,6 +123,91 @@ for (const instrument of ['Clarinet in B♭', 'Cello']) {
 }
 assert.equal(run(`moveNoteText('"Am"!accent!{a}[=CEG]2-',1)`), '"Am"!accent!{a}[=DFA]2-');
 assert.equal(run(`moveNoteText('B,2 c/2 ^f-',1)`), 'C2 d/2 ^g-');
+// Zoom and measures per line: zoom narrows the staff width (never abcjs scale); a chosen count re-flows the lines.
+const json = expr => JSON.parse(run(`JSON.stringify(${expr})`));
+assert.deepEqual(json('layoutOptions(100,0)'), {staffwidth: 740}, '100% on Auto keeps the source lines');
+assert.deepEqual(json('layoutOptions(70,0)'), {staffwidth: 1057});
+{
+  // Zoomed in, text set across the page keeps its 100% size (half the abcjs default at 200%) and its style.
+  const {format, ...layout} = json('layoutOptions(200,0)');
+  assert.deepEqual(layout, {staffwidth: 370, wrap: {minSpacing: 1.8, maxSpacing: 2.7}});
+  assert.deepEqual(
+    [format.titlefont, format.composerfont, format.tempofont, format.wordsfont],
+    ['"Times New Roman" 10', '"Times New Roman" 7 italic', '"Times New Roman" 7.5 bold', '"Times New Roman" 8']
+  );
+  assert.equal(json('layoutOptions(140,0)').format.titlefont, '"Times New Roman" 14.29');
+  const tune = run(
+    `ABCJS.parseOnly('X:1\\nT:Title\\nC:Composer\\nQ:"Slow" 1/4=60\\nK:C\\nC|\\nW:Words', layoutOptions(200,0))[0]`
+  );
+  assert.deepEqual(tune.warnings, undefined, 'abcjs accepts the header fonts');
+  assert.deepEqual(
+    [tune.formatting.titlefont.size, tune.formatting.composerfont.style, tune.formatting.tempofont.weight],
+    [10, 'italic', 'bold']
+  );
+}
+assert.deepEqual(json('layoutOptions(100,4)'), {
+  staffwidth: 740,
+  wrap: {minSpacing: 1.8, maxSpacing: 2.7, preferredMeasuresPerLine: 4}
+});
+assert.deepEqual(
+  json("[validZoom(150),validZoom('120'),validMeasuresPerLine(5),validMeasuresPerLine('6')]"),
+  [100, 120, 0, 6]
+);
+assert.equal(run('engraveOptions().scale'), undefined, 'Zoom never sets abcjs scale');
+{
+  const eight =
+    'X:1\nT:Eight bars\nM:4/4\nL:1/4\nK:C\nC D E F | G A B c | c B A G | F E D C | C E G c | c G E C | D F A c | c4 |]';
+  run(`openScore({abc:${JSON.stringify(eight)},instrument:'Flute'})`);
+  const systems = () => run('renderedTune.engraver.staffgroups.length');
+  assert.equal(systems(), 1, 'Auto at 100% keeps the one source line');
+  run("$('measures-per-line').value='2';$('measures-per-line').dispatchEvent(new Event('change'))");
+  assert.equal(systems(), 4, '2 per line gives four systems');
+  assert.equal(w.localStorage.getItem('fretfree-measures-per-line'), '2', 'Measures per line is remembered');
+  assert.equal(run('editHistory.length'), 1, 'A layout change is not an undo step');
+  run("$('zoom-in').click()");
+  assert.deepEqual(
+    json(
+      "[zoomPercent,$('zoom-reset').textContent,engraveOptions().staffwidth,localStorage.getItem('fretfree-zoom'),$('selection-status').textContent]"
+    ),
+    [120, '120%', 617, '120', 'Zoom 120%.'],
+    'Zoom in steps to 120%, is remembered and is announced'
+  );
+  run("for(let i=0;i<9;i++)$('zoom-in').click()");
+  assert.deepEqual(
+    json("[zoomPercent,$('zoom-in').getAttribute('aria-disabled'),$('selection-status').textContent]"),
+    [200, 'true', 'Zoom 200%. This is the largest size.'],
+    'Zoom stops at 200% and says so'
+  );
+  run("$('zoom-reset').click()");
+  assert.deepEqual(json("[zoomPercent,$('zoom-in').getAttribute('aria-disabled'),$('selection-status').textContent]"), [
+    100,
+    'false',
+    'Zoom 100%.'
+  ]);
+  assert.ok(
+    run('BACKUP_SETTING_KEYS()').includes('fretfree-zoom') &&
+      run('BACKUP_SETTING_KEYS()').includes('fretfree-measures-per-line'),
+    'Zoom and measures per line are in backups'
+  );
+  // Restored values are checked: an unknown zoom or count falls back to 100% and Auto.
+  w.localStorage.setItem('fretfree-zoom', '170');
+  w.localStorage.setItem('fretfree-measures-per-line', '4');
+  run('applyStoredSettings();render()');
+  assert.deepEqual(
+    json("[zoomPercent,$('measures-per-line').value]"),
+    [170, '4'],
+    'Restored settings apply the layout'
+  );
+  run('showZoom(100);render()');
+  assert.equal(systems(), 2, '4 per line engraves eight bars as two systems');
+  w.localStorage.setItem('fretfree-zoom', '"huge"');
+  w.localStorage.setItem('fretfree-measures-per-line', '5');
+  run('applyStoredSettings()');
+  assert.deepEqual(json("[zoomPercent,$('measures-per-line').value]"), [100, '0']);
+  w.localStorage.removeItem('fretfree-zoom');
+  w.localStorage.removeItem('fretfree-measures-per-line');
+  run('render()');
+}
 // Bar check: pickups, section-closing bars that complete a pickup, free meter, multi-bar rests, tuplets and meter changes are fine.
 // Note names: written letters and movable-do solfège, raised/lowered against the key signature.
 const labels = (abc, mode) =>
@@ -1463,7 +1548,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

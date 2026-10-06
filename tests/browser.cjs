@@ -389,6 +389,8 @@ const {chromium} = require('playwright'),
     saved = saved.filter(x => x.id !== savedId);
     localStorage.setItem('commonnote-scores-v1', JSON.stringify(saved));
     dirty = false;
+    // The "Score saved" toast sits over the lower edge of the window, where the forced clicks below may land.
+    $('toast').style.display = 'none';
   });
   // Keyboard note entry: letters in the nearest octave at the input length, arrows, accidentals, tie, delete; menu inserts.
   await page.evaluate(() => {
@@ -1627,6 +1629,181 @@ const {chromium} = require('playwright'),
   await page.evaluate(() => {
     dirty = false;
   });
+  // Zoom and measures per line. Zoom only narrows the staff width, so at 70% and 200% a native click still selects the
+  // note, a 40 px drag still moves it four staff steps, and the draw ghost and click land on the line under the
+  // pointer. 200% about doubles the noteheads and still fits a phone; 4 per line engraves eight bars as two systems
+  // of four; both settings survive a reload. Each zoom step is announced. Titles and credits stay inside the narrower
+  // layout and the SVG export, and a re-flowed guitar score keeps its tab.
+  {
+    const tab = await browser.newPage({viewport: {width: 1280, height: 900}});
+    tab.on('pageerror', e => errors.push(e.message));
+    tab.on('dialog', dialog => dialog.accept());
+    await tab.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    const eight =
+      'X:1\nT:Zoom test\nM:4/4\nL:1/4\nK:C\nC D E F | G A B c | c B A G | F E D C | C E G c | c G E C | D F A c | c4 |]';
+    const open = (instrument = 'Flute') =>
+      tab.evaluate(
+        ([eight, instrument]) => {
+          openScore({abc: eight, instrument});
+          dirty = false;
+          window.scrollTo({top: 0, behavior: 'instant'});
+        },
+        [eight, instrument]
+      );
+    const head = () => tab.locator('#notation .abcjs-notehead').first();
+    const zoomTo = async (button, presses) => {
+      await tab.focus(button);
+      for (let i = 0; i < presses; i++) await tab.keyboard.press('Enter');
+    };
+    await open();
+    const width100 = (await head().boundingBox()).width;
+    for (const [zoom, button, presses] of [
+      [70, '#zoom-out', 2],
+      [200, '#zoom-in', 4]
+    ]) {
+      await tab.click('#zoom-reset');
+      await zoomTo(button, presses);
+      assert.equal(await tab.locator('#zoom-reset').textContent(), zoom + '%');
+      assert.equal(await tab.evaluate(() => document.activeElement.id), button.slice(1), 'Zoom keeps keyboard focus');
+      assert.equal(await tab.textContent('#selection-status'), `Zoom ${zoom}%.`, 'The new size is announced');
+      await tab.keyboard.press('Enter');
+      assert.deepEqual(
+        [await tab.textContent('#zoom-reset'), await tab.textContent('#selection-status')],
+        [zoom + '%', `Zoom ${zoom}%. This is the ${zoom === 200 ? 'largest' : 'smallest'} size.`],
+        'Pressing past the last size says so'
+      );
+      await open();
+      const ratio = (await head().boundingBox()).width / width100;
+      if (zoom === 200) assert.ok(ratio > 1.7 && ratio < 2.3, 'Noteheads about twice as large at 200%: ' + ratio);
+      else assert.ok(ratio > 0.6 && ratio < 0.8, 'Noteheads smaller at 70%: ' + ratio);
+      await head().scrollIntoViewIfNeeded();
+      let box = await head().boundingBox();
+      await tab.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      assert.equal(
+        await tab.evaluate(() => $('abc').value.slice($('abc').selectionStart, $('abc').selectionEnd).trim()),
+        'C',
+        'A click selects the note at ' + zoom + '%'
+      );
+      box = await head().boundingBox();
+      const x = box.x + box.width / 2,
+        y = box.y + box.height / 2;
+      await tab.mouse.move(x, y);
+      await tab.mouse.down();
+      for (let i = 1; i <= 20; i++) await tab.mouse.move(x + (i % 2 ? 3 : -3), y + (40 * i) / 20);
+      await tab.mouse.up();
+      assert.match(
+        await tab.evaluate(() => $('abc').value),
+        /\nF, D E F \|/,
+        '40 px down lowers four staff steps at ' + zoom + '%'
+      );
+      await open();
+      await tab.click('#draw-mode');
+      const [gx, gy, lineY] = await tab.evaluate(() => {
+        // The controls above the score push its staff low in a 900 px window; a mouse move needs it in view.
+        renderedTune.engraver.selectables[1].svgEl.scrollIntoView({block: 'center', behavior: 'instant'});
+        const svg = $('notation').querySelector('svg'),
+          st = renderedTune.engraver.staffgroups[0].staffs[0],
+          [a, b] = renderedTune.engraver.selectables.slice(1, 3).map(s => {
+            const r = s.svgEl.getBBox();
+            return r.x + r.width / 2;
+          });
+        const p = new DOMPoint((a + b) / 2, st.absoluteY - (6 * 93) / 24).matrixTransform(svg.getScreenCTM());
+        return [p.x, p.y, st.absoluteY - (6 * 93) / 24];
+      });
+      await tab.mouse.move(gx, gy);
+      assert.ok(
+        Math.abs(
+          (await tab.evaluate(() => +document.querySelector('#notation .draw-ghost').getAttribute('cy'))) - lineY
+        ) < 0.01,
+        'The draw ghost sits on the middle line at ' + zoom + '%'
+      );
+      await tab.mouse.click(gx, gy);
+      assert.match(
+        await tab.evaluate(() => $('abc').value),
+        /\nC D B E F \|/,
+        'Draw adds B at the clicked line at ' + zoom + '%'
+      );
+      await tab.click('#draw-mode');
+    }
+    // Still at 200%: a library hymn whose long title and composer credit fit at 100% keeps them inside the score, and
+    // its SVG export is as wide as the score, with the credit wrapped inside it.
+    const hymn = await tab.evaluate(() => {
+      dirty = false;
+      openScore(catalog.find(x => x.id === 'openhymnal-o-for-a-thousand-tongues-azmon'));
+      const svg = $('notation').querySelector('svg'),
+        width = svg.viewBox.baseVal.width,
+        inside = (els, right) =>
+          els.length > 0 && els.every(el => el.getBBox().x >= 0 && el.getBBox().x + el.getBBox().width <= right),
+        holder = document.createElement('div');
+      holder.innerHTML = creditedSVG($('notation'), $('abc').value, current);
+      document.body.appendChild(holder);
+      const exported = holder.querySelector('svg'),
+        lines = [...exported.children].filter(el => el.tagName === 'text'),
+        result = {
+          header: inside([...svg.querySelectorAll('.abcjs-title, .abcjs-composer')], width),
+          exportWidth: Math.round(exported.viewBox.baseVal.width - width),
+          credit: inside(lines, exported.viewBox.baseVal.width),
+          licence: lines
+            .map(el => el.textContent)
+            .join('')
+            .includes(scoreLicense(current))
+        };
+      holder.remove();
+      return result;
+    });
+    assert.deepEqual(
+      hymn,
+      {header: true, exportWidth: 0, credit: true, licence: true},
+      'At 200% the title and composer fit, and the SVG export is as wide as the score with its credit inside'
+    );
+    // Guitar re-flowed at 200% (Auto) and at 4 per line keeps a tab staff on every line and a number under every note.
+    const guitarTab = async label => {
+      await open('Guitar');
+      assert.deepEqual(
+        await tab.evaluate(() => {
+          const groups = renderedTune.engraver.staffgroups;
+          return [
+            groups.length > 1,
+            groups.every(g => g.staffs.some(s => s.isTabStaff)),
+            $('notation').querySelectorAll('.abcjs-tab-number').length,
+            $('warnings').textContent
+          ];
+        }),
+        [true, true, 29, ''],
+        'Guitar tab survives re-flow at ' + label
+      );
+    };
+    await guitarTab('200%');
+    await open();
+    const systems = () =>
+      tab.evaluate(() =>
+        renderedTune.lines.filter(l => l.staff).map(l => l.staff[0].voices[0].filter(e => e.el_type === 'bar').length)
+      );
+    await tab.click('#zoom-reset');
+    assert.equal((await systems()).length, 1, 'Auto at 100% keeps the one source line');
+    await tab.selectOption('#measures-per-line', '4');
+    assert.deepEqual(await systems(), [4, 4], '4 per line engraves eight bars as two systems of four');
+    await guitarTab('4 per line');
+    await zoomTo('#zoom-in', 4);
+    await tab.reload();
+    await tab.evaluate(() => show('studio'));
+    assert.deepEqual(
+      await tab.evaluate(() => [
+        $('zoom-reset').textContent,
+        $('measures-per-line').value,
+        engraveOptions().staffwidth
+      ]),
+      ['200%', '4', 370],
+      'Zoom and measures per line survive a reload'
+    );
+    await tab.setViewportSize({width: 390, height: 844});
+    await open();
+    assert.ok(
+      await tab.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+      'No sideways scroll at 200% on a phone'
+    );
+    await tab.close();
+  }
   // Unsaved-work recovery: an edit made with the keyboard survives a reload; Restore (keyboard) brings it back with
   // its instrument and credits, Save clears it, and on a phone the banner fits and Discard removes the draft.
   {
@@ -1780,7 +1957,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
+    'PASS: zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

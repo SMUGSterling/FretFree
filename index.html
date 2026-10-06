@@ -8,28 +8,28 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=47da2d7b1e6f" />
-    <script defer src="vendor/abcjs-basic-min.js?v=47da2d7b1e6f"></script>
-    <script defer src="catalog.js?v=47da2d7b1e6f"></script>
-    <script defer src="catalog-expanded.js?v=47da2d7b1e6f"></script>
-    <script defer src="score-tools.js?v=47da2d7b1e6f"></script>
-    <script defer src="rights-tools.js?v=47da2d7b1e6f"></script>
-    <script defer src="musicxml.js?v=47da2d7b1e6f"></script>
-    <script defer src="catalog-licensed.js?v=47da2d7b1e6f"></script>
-    <script defer src="catalog-lieder.js?v=47da2d7b1e6f"></script>
-    <script defer src="catalog-quartets.js?v=47da2d7b1e6f"></script>
-    <script defer src="catalog-pgh.js?v=47da2d7b1e6f"></script>
-    <script defer src="catalog-skills.js?v=47da2d7b1e6f"></script>
-    <script defer src="prompts.js?v=47da2d7b1e6f"></script>
-    <script defer src="shared.js?v=47da2d7b1e6f"></script>
-    <script defer src="library.js?v=47da2d7b1e6f"></script>
-    <script defer src="backup.js?v=47da2d7b1e6f"></script>
-    <script defer src="editor.js?v=47da2d7b1e6f"></script>
-    <script defer src="palette.js?v=47da2d7b1e6f"></script>
-    <script defer src="playback.js?v=47da2d7b1e6f"></script>
-    <script defer src="keyboard.js?v=47da2d7b1e6f"></script>
-    <script defer src="assignments.js?v=47da2d7b1e6f"></script>
-    <script defer src="app.js?v=47da2d7b1e6f"></script>
+    <link rel="stylesheet" href="style.css?v=1a29309cf3c0" />
+    <script defer src="vendor/abcjs-basic-min.js?v=1a29309cf3c0"></script>
+    <script defer src="catalog.js?v=1a29309cf3c0"></script>
+    <script defer src="catalog-expanded.js?v=1a29309cf3c0"></script>
+    <script defer src="score-tools.js?v=1a29309cf3c0"></script>
+    <script defer src="rights-tools.js?v=1a29309cf3c0"></script>
+    <script defer src="musicxml.js?v=1a29309cf3c0"></script>
+    <script defer src="catalog-licensed.js?v=1a29309cf3c0"></script>
+    <script defer src="catalog-lieder.js?v=1a29309cf3c0"></script>
+    <script defer src="catalog-quartets.js?v=1a29309cf3c0"></script>
+    <script defer src="catalog-pgh.js?v=1a29309cf3c0"></script>
+    <script defer src="catalog-skills.js?v=1a29309cf3c0"></script>
+    <script defer src="prompts.js?v=1a29309cf3c0"></script>
+    <script defer src="shared.js?v=1a29309cf3c0"></script>
+    <script defer src="library.js?v=1a29309cf3c0"></script>
+    <script defer src="backup.js?v=1a29309cf3c0"></script>
+    <script defer src="editor.js?v=1a29309cf3c0"></script>
+    <script defer src="palette.js?v=1a29309cf3c0"></script>
+    <script defer src="playback.js?v=1a29309cf3c0"></script>
+    <script defer src="keyboard.js?v=1a29309cf3c0"></script>
+    <script defer src="assignments.js?v=1a29309cf3c0"></script>
+    <script defer src="app.js?v=1a29309cf3c0"></script>
   </head>
   <body>
     <header>
@@ -628,6 +628,23 @@
                 </button>
               </div>
             </div>
+            <div class="score-view" role="group" aria-label="Score view">
+              <span class="zoom-controls" role="group" aria-label="Zoom"
+                ><span class="zoom-label" aria-hidden="true">Zoom</span
+                ><button id="zoom-out" aria-label="Zoom out" title="Zoom out">−</button
+                ><button id="zoom-reset" aria-label="Zoom 100%. Reset to 100%" title="Reset to 100%">100%</button
+                ><button id="zoom-in" aria-label="Zoom in" title="Zoom in">+</button></span
+              ><label class="inline view-option"
+                >Measures per line
+                <select id="measures-per-line">
+                  <option value="0">Auto</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="6">6</option>
+                </select></label
+              >
+            </div>
             <div class="notation-paper">
               <div
                 id="notation"
@@ -738,10 +755,11 @@
           music and chords, with articulations, dynamics and ornaments; dynamics, accents and staccato change the
           playback. Hear each note as you enter it, play the score with built-in synthesized tones, change tempo, loop
           playback, and export ABC, MIDI, SVG, or MusicXML (for MuseScore, Noteflight, Finale, Sibelius or Dorico).
-          Select a passage to copy, cut, paste or repeat it, or to move or lengthen every note in it at once. Use Print
-          / PDF to produce a paper score. Transpose a score or a few measures by any interval or to a new key. Choose a
-          B♭ or E♭ instrument for written-pitch transposition with concert-pitch playback. Classroom colors and letters
-          in noteheads help beginners read, and both print.
+          Select a passage to copy, cut, paste or repeat it, or to move or lengthen every note in it at once. Zoom in
+          for larger notation, or choose how many measures go on each line. Use Print / PDF to produce a paper score, in
+          large print if you zoom in first. Transpose a score or a few measures by any interval or to a new key. Choose
+          a B♭ or E♭ instrument for written-pitch transposition with concert-pitch playback. Classroom colors and
+          letters in noteheads help beginners read, and both print.
         </p>
         <h2>Privacy and school access</h2>
         <p>
