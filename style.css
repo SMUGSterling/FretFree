@@ -1509,7 +1509,8 @@ input[type='range'] {
   gap: 8px;
   margin-top: 6px;
 }
-.share-row input {
+.share-row input,
+.share-row textarea {
   flex: 1;
   min-width: 0;
   font-family: ui-monospace, Menlo, Consolas, monospace;
@@ -2166,4 +2167,141 @@ input[type='range'] {
   .history-panel {
     display: none !important;
   }
+}
+/* Share panel tabs: Link, Embed and QR code. */
+.share-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.share-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.share-tabs button {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.share-tabs button[aria-selected='true'] {
+  background: var(--green);
+  border-color: var(--green);
+  color: var(--on-green);
+}
+.share-row textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+.embed-size {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+.embed-size label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.embed-size input {
+  width: 8rem;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--ink);
+}
+.embed-size input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+/* qrSVG sizes the code by its module count; a narrow panel scales it down. */
+.share-qr svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+}
+/* A QR code scans best dark on light, so full screen stays white in the dark theme too. */
+.share-qr:fullscreen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+}
+.share-qr:fullscreen svg {
+  width: min(92vw, 92vh);
+  border: 0;
+}
+#qr-large {
+  margin-top: 8px;
+}
+/* The embedded view (#e=…, inside an iframe): the score, Play, Stop, volume, speed and the credits; nothing else. */
+body.embed > header,
+body.embed > footer,
+body.embed #draft-banner,
+body.embed #studio > :not(.workspace),
+body.embed .workspace > :not(.music-panel),
+body.embed .music-panel > :not(.embed-bar, .transport, .practice-controls, .notation-paper, #rights),
+body.embed .transport > :not(#play, #stop, .volume, #play-status),
+body.embed .practice-controls > :not(.speed-control, #speed-reset),
+body.embed-unreadable .music-panel > :not(.embed-bar) {
+  display: none !important;
+}
+body.embed main {
+  padding: 10px 12px;
+}
+body.embed .workspace {
+  display: block;
+}
+body.embed .notation-paper {
+  min-height: 0;
+  margin: 10px 0;
+  padding: 12px 8px;
+}
+body.embed .practice-controls {
+  padding: 8px 0 0;
+}
+body.embed .rights-box {
+  margin-top: 10px;
+  padding: 12px;
+}
+body.embed #notation .abcjs-note,
+body.embed #notation .abcjs-bar {
+  cursor: default;
+}
+.embed-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.embed-bar h1 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: 0;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.embed-bar p {
+  margin: 3px 0 0;
+}
+.embed-bar .button-link {
+  padding: 7px 10px;
+}
+body.embed .transport {
+  padding: 8px 10px;
+}
+body.embed .transport button {
+  padding: 8px 14px;
+}
+body.embed .practice-controls .speed-control {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+body.embed #speed-reset {
+  padding: 7px 12px;
 }

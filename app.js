@@ -11,7 +11,8 @@ function show(view) {
   if (view !== 'studio') stop();
   // A preview stops when its view goes: card previews live in the library, History previews in My scores.
   if (view !== (previewId === 'history' ? 'saved' : 'library')) stopPreview();
-  history.replaceState(null, '', '#' + view);
+  // An embedded score keeps its #e= address, so reloading the frame shows the same score.
+  if (!embedView) history.replaceState(null, '', '#' + view);
   window.scrollTo({top: 0, behavior: 'smooth'});
 }
 function allowReplace() {
@@ -19,8 +20,9 @@ function allowReplace() {
 }
 function openScore(item, id = null) {
   if (!allowReplace()) return;
-  // The assignment builder describes the score it was opened on, so it closes with it.
+  // The assignment builder and the share panel describe the score they were opened on, so they close with it.
   toggleAssignmentBuilder(false);
+  closeShare();
   stop();
   stopPreview();
   current = item;
@@ -552,12 +554,15 @@ ABCJS.renderAbc('hero-notation', catalog[0].abc, {
   paddingtop: 25,
   paddingbottom: 30
 });
-renderCards();
+// An embedded score opens on its own: no library cards, no blank sheet first, no draft offer and no storage
+// (storage.get gives every default there, so the layout starts at 100% and written pitch).
+if (!embedView) renderCards();
 applyStoredLayout();
 // Unsaved work from an earlier visit is offered once the start-up score is open; a share link opens first.
 loadDrafts();
-newScore();
-if (initialView.startsWith('s=')) {
+if (!embedView) newScore();
+if (embedView) openEmbed(initialView);
+else if (initialView.startsWith('s=')) {
   show('studio');
   openSharedLink(initialView).then(ok => {
     if (!ok) show('library');

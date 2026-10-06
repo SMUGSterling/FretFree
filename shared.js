@@ -22,9 +22,14 @@ const KEYS = {
   versions: 'fretfree-versions',
   practice: id => 'fretfree-practice-' + id
 };
+// An embedded score (#e=…, usually in an iframe on a class website) is a read-only view. It neither reads nor writes
+// this browser's FretFree storage: the host page's visitors see no one's saved work, and a visit leaves nothing behind.
+const embedView = /^#e=/.test(location.hash);
+if (embedView) document.body.classList.add('embed');
 let storageOK = true;
 const storage = {
   get(key, fallback) {
+    if (embedView) return fallback;
     try {
       return JSON.parse(localStorage.getItem(key)) ?? fallback;
     } catch {
@@ -32,6 +37,7 @@ const storage = {
     }
   },
   set(key, value) {
+    if (embedView) return false;
     try {
       localStorage.setItem(key, JSON.stringify(value));
       return true;
@@ -41,6 +47,7 @@ const storage = {
     }
   },
   remove(key) {
+    if (embedView) return;
     try {
       localStorage.removeItem(key);
     } catch {}
