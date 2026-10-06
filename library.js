@@ -88,7 +88,7 @@ function renderSaved() {
       ? saved
           .map(
             x =>
-              `<article class="card"><div class="card-body"><span class="tag">SAVED ON THIS DEVICE</span><h3>${esc(x.title)}</h3><p>${esc(x.composer || 'Your composition')}<br>${new Date(x.updated).toLocaleDateString()}</p><div class="card-bottom"><button data-saved="${esc(x.id)}">Open score ↗</button><button data-delete="${esc(x.id)}">Delete</button></div></div></article>`
+              `<article class="card"><div class="card-body"><span class="tag">SAVED ON THIS DEVICE${x.prompt && typeof x.prompt === 'object' ? ' · ASSIGNMENT' : ''}</span><h3>${esc(x.title)}</h3><p>${esc(x.composer || 'Your composition')}<br>${new Date(x.updated).toLocaleDateString()}</p><div class="card-bottom"><button data-saved="${esc(x.id)}">Open score ↗</button><button data-delete="${esc(x.id)}">Delete</button></div></div></article>`
           )
           .join('') +
         fav

@@ -94,7 +94,7 @@ function pianoFollow(at, on) {
   }
 }
 // The key signature in force at a source position in one voice ('staff:voice'): the line's key, then inline K: changes.
-function keyAt(tune, at, voice) {
+function pianoKeyAt(tune, at, voice) {
   let key = null;
   for (const line of tune?.lines || [])
     for (const [s, staff] of (line.staff || []).entries())
@@ -110,7 +110,7 @@ function keyAt(tune, at, voice) {
 // could change a plain letter, so check the pitch the source would give and write the accidental out if it differs.
 function pianoCore(concert, at, voice, chord = null) {
   const source = $('abc').value,
-    key = keyAt(ABCJS.parseOnly(source)[0], at, voice),
+    key = pianoKeyAt(ABCJS.parseOnly(source)[0], at, voice),
     core = midiToken(concert, key),
     test = chord
       ? source.slice(0, at) + addChordPitch(chord, core) + source.slice(at + chord.length)
@@ -121,7 +121,9 @@ function pianoCore(concert, at, voice, chord = null) {
 }
 // Name of a key as the written key signature in force at a drawn note spells it (flat names in flat keys).
 function pianoName(midi, note, voice) {
-  const flat = (keyAt(pianoDisplay, note?.startChar ?? Infinity, voice)?.accidentals || []).some(a => a.acc === 'flat');
+  const flat = (pianoKeyAt(pianoDisplay, note?.startChar ?? Infinity, voice)?.accidentals || []).some(
+    a => a.acc === 'flat'
+  );
   return (flat ? PIANO_FLATS : PIANO_SHARPS)[midi % 12] + (Math.floor(midi / 12) - 1);
 }
 // A key press: written MIDI to concert (written − the instrument's transposition), then enter the note over the
