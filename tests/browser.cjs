@@ -430,10 +430,12 @@ const {chromium} = require('playwright'),
   await rightClick(page.locator('#notation .abcjs-notehead').nth(1));
   await page.locator('#note-menu button', {hasText: 'Rest'}).click();
   assert.equal(await kbody(), 'C D- z E F G | G4 |]', 'Menu ties and inserts a rest');
-  // Notes that open a slur or tuplet take menu and key edits and keep the ( or (3.
+  // Notes that open a slur or tuplet take menu and key edits and keep the ( or (3. Opening a score scrolls smoothly
+  // to the top, and a scroll closes the note menu, so the scroll ends at once.
   await page.evaluate(() => {
     dirty = false;
     openScore({abc: 'X:1\nT:K\nM:4/4\nL:1/8\nK:C\n(C D E F) (3GAB c2 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
   });
   await rightClick(page.locator('#notation .abcjs-notehead').nth(0));
   await page.locator('#note-menu button', {hasText: 'Quarter'}).click();
@@ -641,6 +643,162 @@ const {chromium} = require('playwright'),
   assert.equal(await page.locator('#measure-key-choice').isHidden(), true);
   assert.equal(await page.locator('#measure-key').inputValue(), 'D', 'Escape cancels the key change');
   await page.locator('[data-palette="measure"]').click();
+  // Slurs and hairpins with real clicks and keys: Shift+click selects four notes, S slurs them and S again takes the
+  // slur off; Cresc. draws a hairpin and hands the keyboard back to the score; one note and S slur to the next note;
+  // the Lines buttons work from the keyboard; each is one undo step.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:S\nM:4/4\nL:1/4\nK:C\nC D E F | G4 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  await page.locator('#notation .abcjs-notehead').nth(0).click({force: true});
+  await page
+    .locator('#notation .abcjs-notehead')
+    .nth(3)
+    .click({force: true, modifiers: ['Shift']});
+  await page.keyboard.press('s');
+  assert.equal(await kbody(), '(C D E F) | G4 |]', 'S slurs the selected notes');
+  assert.equal(await page.locator('#notation .abcjs-slur').count(), 1, 'The slur is engraved');
+  assert.equal(await page.locator('#selection-status').textContent(), 'Slur added over 4 notes.');
+  assert.equal(await page.locator('[data-palette="line:slur"]').getAttribute('aria-pressed'), 'true');
+  await page.keyboard.press('s');
+  assert.equal(await kbody(), 'C D E F | G4 |]', 'S again takes it off');
+  await page.keyboard.press('Control+z');
+  assert.equal(await kbody(), '(C D E F) | G4 |]', 'One undo step');
+  await page.locator('#notation .abcjs-notehead').nth(0).click({force: true});
+  await page
+    .locator('#notation .abcjs-notehead')
+    .nth(3)
+    .click({force: true, modifiers: ['Shift']});
+  await page.locator('[data-palette="line:crescendo"]').click();
+  assert.equal(await kbody(), '!<(!(C D E !<)!F) | G4 |]', 'Cresc. adds a hairpin');
+  assert.equal(await page.locator('#notation .abcjs-dynamics').count(), 1, 'The hairpin is engraved');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'notation', 'The press returns to the score');
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('Control+z');
+  assert.equal(await kbody(), 'C D E F | G4 |]');
+  await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+  await page.keyboard.press('S');
+  assert.equal(await kbody(), 'C (D E) F | G4 |]', 'One note slurs to the next');
+  // Keyboard only: arrow keys reach the Lines buttons in the toolbar, and Enter presses one.
+  await page.locator('[data-palette="line:slur"]').focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.palette), 'line:diminuendo');
+  await page.keyboard.press('Enter');
+  assert.equal(await kbody(), 'C !>(!(D !>)!E) F | G4 |]', 'Dim. from the keyboard');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.palette), 'line:diminuendo');
+  // abcjs draws only the tr of a trill line, so FretFree draws the wavy line from it to the last note.
+  await page.locator('#notation .abcjs-notehead').nth(3).click({force: true});
+  await page.locator('[data-palette="line:trill"]').click();
+  assert.equal(await kbody(), 'C !>(!(D !>)!E) !trill(!F | !trill)!G4 |]', 'Trill line to the next note');
+  const [tr, wave, last] = await page.evaluate(() =>
+    [
+      document.querySelector('#notation [data-name="scripts.trill"]'),
+      document.querySelector('#notation .trill-line'),
+      document.querySelectorAll('#notation .abcjs-notehead')[4]
+    ].map(e => {
+      const {x, y, width, height} = e?.getBBox() || {};
+      return e && {x, y, width, height};
+    })
+  );
+  assert.ok(tr && wave, 'The tr and the wavy line are drawn');
+  assert.ok(wave.x >= tr.x + tr.width && wave.x + wave.width > last.x, 'The line runs from the tr to the last note');
+  assert.ok(Math.abs(wave.y + wave.height / 2 - (tr.y + tr.height / 2)) < 3, 'Level with the tr');
+  assert.equal(await page.locator('#warnings').textContent(), '');
+  // An embedded score has nothing selectable, and still gets the wavy line.
+  {
+    const code = await page.evaluate(() => encodeShare({v: 1, a: $('abc').value, i: 'Flute'})),
+      embed = await browser.newPage({viewport: {width: 800, height: 700}});
+    embed.on('pageerror', e => errors.push('trill embed: ' + e.message));
+    await embed.goto(`${process.env.FRETFREE_URL || 'http://localhost:8000'}/#e=${code}`);
+    await embed.waitForSelector('#notation .trill-line', {state: 'attached'});
+    assert.equal(await embed.evaluate(() => renderedTune.engraver.selectables.length), 0, 'Nothing is selectable');
+    await embed.close();
+  }
+  // Chord symbols with real keys: K opens a box just above the note, Enter saves, Tab moves on; the symbols are
+  // engraved and undo one at a time; the toolbar button works from the keyboard; clicking another note saves the box
+  // and selects that note; Chords leaves the accompaniment out of playback.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:K\nM:4/4\nL:1/4\nK:C\nC D E F | G4 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  {
+    const head = i => page.locator('#notation .abcjs-notehead').nth(i),
+      chords = () =>
+        page.evaluate(() => [...document.querySelectorAll('#notation .abcjs-chord')].map(e => e.textContent));
+    await head(0).click({force: true});
+    await page.keyboard.press('k');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'chord-input', 'K opens the chord box');
+    const entry = await page.locator('#chord-entry').boundingBox(),
+      note = await head(0).boundingBox();
+    assert.ok(
+      entry.y + entry.height <= note.y && note.x >= entry.x && note.x <= entry.x + 40,
+      'The box sits just above the note'
+    );
+    await page.keyboard.type('Bb7');
+    await page.keyboard.press('Enter');
+    assert.equal(await kbody(), '"Bb7"C D E F | G4 |]', 'Enter writes the symbol');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'notation', 'and returns to the score');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('k');
+    await page.keyboard.type('Gm');
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('C7');
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('F');
+    await page.keyboard.press('Enter');
+    assert.equal(await kbody(), '"Bb7"C "Gm"D "C7"E F | "F"G4 |]', 'Tab moves from note to note');
+    assert.deepEqual(await chords(), ['B♭7', 'Gm', 'C7', 'F'], 'The symbols are engraved');
+    await page.keyboard.press('Control+z');
+    assert.equal(await kbody(), '"Bb7"C "Gm"D "C7"E F | G4 |]', 'Each symbol is one undo step');
+    await head(2).click({force: true});
+    await page.locator('[data-palette="chord"]').focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#chord-input').inputValue(), 'C7', 'The Chord button opens the box');
+    await page.keyboard.press('Escape');
+    assert.equal(
+      await page.evaluate(() => document.activeElement.dataset.palette),
+      'chord',
+      'Escape goes back to the button'
+    );
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.press('Enter');
+    assert.equal(await kbody(), '"Bb7"C "Gm"D E F | G4 |]', 'An empty box removes the symbol');
+    await head(0).click({force: true});
+    await page.keyboard.press('k');
+    await page.keyboard.type('F');
+    await head(3).click({force: true});
+    assert.equal(await kbody(), '"F"C "Gm"D E F | G4 |]', 'Clicking another note saves the box');
+    assert.deepEqual(
+      await page.evaluate(() => [$('abc').value.slice(...selectedRange), $('chord-entry').hidden]),
+      ['F ', true],
+      'and selects that note'
+    );
+    await page.keyboard.press('k');
+    await page.keyboard.type('rit. 80%');
+    await page.keyboard.press('Enter');
+    assert.equal(await kbody(), '"F"C "Gm"D E "rit. 80"F | G4 |]', 'A % is dropped: abcjs would read a comment');
+    assert.equal(await page.locator('#notation .abcjs-notehead').count(), 5, 'so every note is still engraved');
+    await page.keyboard.press('Control+z');
+    assert.equal(await kbody(), '"F"C "Gm"D E F | G4 |]');
+    const scheduled = () =>
+      page.evaluate(async () => {
+        $('metronome').checked = $('count-in').checked = false;
+        await play();
+        const count = nodes.length;
+        stop();
+        return count;
+      });
+    const all = await scheduled();
+    await page.locator('#chords').click();
+    assert.equal(await scheduled(), 5, 'Without Chords only the five melody notes play');
+    assert.ok(all > 5, 'With Chords the accompaniment plays too');
+    await page.locator('#chords').click();
+  }
   // Writing prompts: blank bars of rests, typing writes over them, goals tick off live; keys follow written pitch.
   await page.evaluate(() => {
     dirty = false;
@@ -1187,6 +1345,114 @@ const {chromium} = require('playwright'),
   await broken.waitForFunction(() => !$('library').hidden);
   assert.match(await broken.evaluate(() => $('toast').textContent), /did not contain a readable score/);
   await broken.close();
+  // Embed code and QR code: the share panel's tabs work by keyboard; the copied snippet, pasted into a local HTML file,
+  // shows the score read-only with Play and the edition's credits, and writes nothing to storage; long links get a note.
+  {
+    await page.focus('#share-tab-link');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'share-tab-embed', 'Arrow keys move along tabs');
+    assert.ok(await page.isVisible('#embed-code'), 'The Embed tab shows the code');
+    await page.fill('#embed-height', '480');
+    const snippet = await page.inputValue('#embed-code'),
+      code = shareUrl.split('#s=')[1];
+    assert.ok(
+      snippet.includes(`#e=${code}" width="100%" height="480" title="Score: Für Elise (shared)`) &&
+        snippet.endsWith('loading="lazy"></iframe>'),
+      'The embed code carries the same score as the link: ' + snippet.slice(-90)
+    );
+    await page.focus('#share-tab-embed');
+    await page.keyboard.press('End');
+    assert.ok(await page.isVisible('#share-qr svg'), 'A typical tune gets a QR code');
+    const fs = require('node:fs'),
+      os = require('node:os'),
+      path = require('node:path'),
+      file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fretfree-embed-')), 'class.html');
+    fs.writeFileSync(
+      file,
+      `<!doctype html><meta charset="utf-8"><title>Class page</title><h1>Our class</h1>${snippet}`
+    );
+    // The studio's own pending draft is written now, so the storage comparison below sees only the embed.
+    await page.evaluate(() => flushDraft());
+    for (const width of [1280, 390]) {
+      const host = await browser.newPage({viewport: {width, height: 900}});
+      host.on('pageerror', e => errors.push('embed: ' + e.message));
+      await host.goto('file://' + file);
+      const frame = await (await host.waitForSelector('iframe')).contentFrame();
+      await frame.waitForFunction(
+        () => typeof current !== 'undefined' && current?.kind === 'shared' && document.querySelector('#notation svg')
+      );
+      // Every stored value, not only the key names, so an overwrite of an existing key is caught too.
+      const stored = await frame.evaluate(() => JSON.stringify(Object.entries(localStorage).sort()));
+      assert.deepEqual(
+        await frame.evaluate(() => [
+          document.body.classList.contains('embed'),
+          $('embed-title').textContent,
+          $('rights').textContent.includes('CC0'),
+          location.hash.startsWith('#e='),
+          $('embed-open').href.endsWith(location.hash.replace('#e=', '#s='))
+        ]),
+        [true, 'Für Elise (shared) · opening melody', true, true, true],
+        'The embed shows the score with its credits and an Open in FretFree link'
+      );
+      for (const hidden of ['header', 'nav', '.editor-panel', '#palette', '.export-bar', '#loop', '#start-measure'])
+        assert.equal(await frame.isVisible(hidden), false, `The embed hides ${hidden}`);
+      for (const shown of ['#play', '#stop', '#speed', '#rights', '#embed-open'])
+        assert.ok(await frame.isVisible(shown), `The embed shows ${shown}`);
+      assert.ok(
+        await frame.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
+        `No sideways scroll in the embed at ${width}px`
+      );
+      const abc = await frame.evaluate(() => $('abc').value);
+      await frame.locator('#notation .abcjs-notehead').first().click({force: true});
+      await frame.click('#play');
+      await frame.waitForFunction(() => playing);
+      await frame.click('#stop');
+      assert.equal(await frame.evaluate(() => $('abc').value), abc, 'Clicking the embedded score changes nothing');
+      assert.equal(
+        await frame.evaluate(() => JSON.stringify(Object.entries(localStorage).sort())),
+        stored,
+        'Playing an embedded score writes no storage'
+      );
+      await host.close();
+    }
+    // A dense code (the longest link that fits) is drawn square at 3px per module, scaled down only to fit the panel,
+    // and its note suggests full screen.
+    const dense = await page.evaluate(() => {
+      const base = location.origin + location.pathname + '#s=';
+      updateShareQR(base + 'x'.repeat(QR_MAX_BYTES - base.length));
+      const svg = $('share-qr').querySelector('svg'),
+        box = svg.getBoundingClientRect();
+      return {
+        side: +svg.getAttribute('viewBox').split(' ')[2],
+        width: box.width,
+        height: box.height,
+        room: $('share-qr').getBoundingClientRect().width,
+        note: $('qr-note').textContent
+      };
+    });
+    assert.equal(dense.side, 185, 'The longest link makes a version 40 code');
+    assert.ok(
+      Math.abs(dense.width - Math.min(3 * dense.side, dense.room)) <= 2 && Math.abs(dense.height - dense.width) < 1,
+      'A dense code is drawn at 3px per module: ' + JSON.stringify(dense)
+    );
+    assert.match(dense.note, /dense code/);
+    // A link longer than a QR code holds gets an explanation instead (a comment of random letters does not compress).
+    await page.evaluate(() => {
+      const letters = Array.from(
+        crypto.getRandomValues(new Uint8Array(3000)),
+        b => 'abcdefghijklmnopqrstuvwxyz'[b % 26]
+      );
+      $('abc').value = $('abc').value.replace(/^K:.*$/m, line => `${line}\n% ${letters.join('')}`);
+      changed();
+    });
+    await page.click('#share-link');
+    await page.waitForFunction(() => $('qr-note').textContent.includes('too long'));
+    assert.equal(await page.isVisible('#share-qr svg'), false, 'No QR code for a very long link');
+    await page.evaluate(() => {
+      dirty = false;
+      $('share-panel').hidden = true;
+    });
+  }
   // Teacher-written assignment: build it with the keyboard on a 4-bar sheet, share it, open the link as a student,
   // write to meet every goal, and check that the instructions print above the score while the checklist does not.
   await page.evaluate(() => {
@@ -2134,6 +2400,96 @@ const {chromium} = require('playwright'),
     );
     await tab.close();
   }
+  // Version history: three saves edited with the keyboard leave two earlier versions. History opens from the keyboard,
+  // Preview draws a version and Play sounds and lights it; Restore opens it unsaved, and saving it keeps the copy it
+  // replaced. On a phone the panel fits the screen.
+  {
+    const tab = await browser.newPage({viewport: {width: 1280, height: 900}});
+    tab.on('pageerror', e => errors.push(e.message));
+    tab.on('dialog', dialog => dialog.accept());
+    await tab.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    await tab.locator('#cards [data-open="ode"]').click();
+    const copies = [];
+    for (const n of [0, 1, 2]) {
+      await tab.locator('#notation .abcjs-notehead').nth(n).click({force: true});
+      await tab.keyboard.press('ArrowUp');
+      await tab.click('#save');
+      copies.push(await tab.evaluate(() => $('abc').value));
+    }
+    assert.deepEqual(
+      await tab.evaluate(() => storedVersions()[savedId].map(v => v.abc)),
+      copies.slice(0, 2),
+      'Three saved copies leave two earlier versions'
+    );
+    await tab.click('.nav[data-view="saved"]');
+    const history = tab.locator('#saved-cards [data-history]');
+    assert.equal(await history.textContent(), 'History (2)');
+    await history.focus();
+    await tab.keyboard.press('Enter');
+    await tab.waitForSelector('#history-panel:not([hidden])');
+    assert.equal(await tab.evaluate(() => document.activeElement.id), 'history-heading', 'Focus moves to the panel');
+    const rows = await tab.locator('#history-list li').allTextContents();
+    assert.equal(rows.length, 2);
+    assert.match(rows[0], /^Version 2 · saved \d{1,2}:\d\d/, 'Newest first, with the time it was saved');
+    await tab.locator('#history-list [data-version-preview]').last().click();
+    await tab.waitForSelector('#history-score svg');
+    await tab.locator('#history-play').focus();
+    await tab.keyboard.press('Enter');
+    await tab.waitForFunction(() => document.querySelectorAll('#history-score .abcjs-playing').length > 0);
+    assert.deepEqual(
+      await tab.evaluate(() => [
+        previewId,
+        previewNodes.length === parseMidi(midiBytes(storedVersions()[savedId][0].abc)).notes.length,
+        $('history-play').textContent
+      ]),
+      ['history', true, '■ Stop'],
+      'Play sounds every note of the version and lights it up'
+    );
+    // Leaving My scores silences the version, as leaving the library silences a card's Listen.
+    await tab.click('.nav[data-view="library"]');
+    assert.deepEqual(
+      await tab.evaluate(() => [previewId, previewNodes.length, previewTimers.length, $('history-play').textContent]),
+      [null, 0, 0, '▶ Play'],
+      'Leaving My scores stops the version'
+    );
+    await tab.click('.nav[data-view="saved"]');
+    await tab.locator('#history-play').focus();
+    await tab.keyboard.press('Enter');
+    await tab.waitForFunction(() => previewId === 'history' && previewNodes.length > 0);
+    await tab.keyboard.press('Enter');
+    assert.deepEqual(
+      await tab.evaluate(() => [previewId, previewNodes.length, $('history-play').textContent]),
+      [null, 0, '▶ Play'],
+      'Play again stops'
+    );
+    await tab.click('#history-restore');
+    assert.deepEqual(
+      await tab.evaluate(() => [$('studio').hidden, $('abc').value, dirty, saved[0].abc]),
+      [false, copies[0], true, copies[2]],
+      'Restore opens version 1 as unsaved work and changes nothing saved'
+    );
+    await tab.locator('#save').focus();
+    await tab.keyboard.press('Enter');
+    assert.deepEqual(
+      await tab.evaluate(() => storedVersions()[savedId].map(v => v.abc)),
+      copies,
+      'Saving the restored version keeps the copy it replaced'
+    );
+    await tab.setViewportSize({width: 390, height: 844});
+    await tab.click('.nav[data-view="saved"]');
+    await tab.locator('#saved-cards [data-history]').click();
+    await tab.locator('#history-list [data-version-preview]').first().click();
+    await tab.waitForSelector('#history-score svg');
+    const restore = await tab.locator('#history-list [data-version-restore]').first().boundingBox();
+    assert.ok(restore.x >= 0 && restore.x + restore.width <= 390, 'Restore fits a phone screen');
+    assert.ok(
+      await tab.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+      'The history panel fits a phone screen'
+    );
+    await tab.keyboard.press('Escape');
+    assert.equal(await tab.evaluate(() => $('history-panel').hidden), true, 'Escape closes the history');
+    await tab.close();
+  }
   // Unsaved-work recovery: an edit made with the keyboard survives a reload; Restore (keyboard) brings it back with
   // its instrument and credits, Save clears it, and on a phone the banner fits and Discard removes the draft.
   {
@@ -2234,6 +2590,163 @@ const {chromium} = require('playwright'),
     );
     await context.close();
   }
+  // Dark theme: the page follows a dark device or the header choice, and the score stays black on white unless Dark
+  // paper is ticked. Prints and SVG exports come out the same in every theme.
+  {
+    const tab = await browser.newPage({viewport: {width: 1280, height: 900}, colorScheme: 'dark'});
+    tab.on('pageerror', e => errors.push(e.message));
+    tab.on('dialog', dialog => dialog.accept());
+    await tab.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    const rgb = s => s.match(/\d+/g).slice(0, 3).map(Number),
+      lum = c => {
+        const [r, g, b] = rgb(c).map(v => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      },
+      contrast = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+    const colors = () =>
+      tab.evaluate(() => {
+        const css = el => getComputedStyle(el),
+          head = document.querySelector('#notation .abcjs-note_selected'),
+          hole = document.querySelector('#notation .recorder-fingering circle[fill="white"]');
+        return {
+          body: css(document.body).backgroundColor,
+          text: css(document.body).color,
+          muted: css(document.querySelector('.keyboard-help')).color,
+          panel: css(document.querySelector('.editor-panel')).backgroundColor,
+          paper: css(document.querySelector('.notation-paper')).backgroundColor,
+          ink: css($('notation')).color,
+          hero: css(document.querySelector('.hero-score')).backgroundColor,
+          selected: head && css(head).fill,
+          hole: hole && css(hole).fill
+        };
+      });
+    const exportSVG = () =>
+      tab.evaluate(() => {
+        window.__downloads = [];
+        download = data => __downloads.push(data);
+        $('export-svg').click();
+        return __downloads[0];
+      });
+    await tab.evaluate(() => {
+      openScore({...catalog.find(x => x.id === 'ode'), instrument: 'Recorder'});
+      $('note-names').value = 'letters';
+      $('note-names').onchange();
+      window.scrollTo({top: 0, behavior: 'instant'});
+    });
+    const head = tab.locator('#notation .abcjs-notehead').nth(1);
+    await head.scrollIntoViewIfNeeded();
+    const box = await head.boundingBox();
+    await tab.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    let c = await colors();
+    assert.equal(await tab.evaluate(() => $('theme').value), 'auto');
+    assert.equal(c.body, 'rgb(18, 24, 22)', 'A dark device gives a dark page');
+    assert.ok(contrast(c.text, c.body) >= 4.5 && contrast(c.muted, c.body) >= 4.5, 'Body text contrast in the dark');
+    assert.ok(contrast(c.text, c.panel) >= 4.5 && contrast(c.muted, c.panel) >= 4.5, 'Panel text contrast');
+    assert.deepEqual(
+      [c.paper, c.ink, c.hero, c.selected, c.hole],
+      ['rgb(255, 255, 255)', 'rgb(17, 17, 17)', 'rgb(255, 254, 249)', 'rgb(49, 119, 97)', 'rgb(255, 255, 255)'],
+      'The notation stays black on white in the dark theme'
+    );
+    const lightSVG = await exportSVG();
+    assert.ok(lightSVG.includes('<svg') && lightSVG.includes('color:black;background:white'));
+    // From the keyboard: Dark in the header, then Dark paper beside the zoom.
+    assert.equal(await tab.locator('#dark-paper-option').isVisible(), true, 'Dark paper is offered on a dark device');
+    await tab.focus('#theme');
+    await tab.keyboard.press('ArrowDown');
+    await tab.keyboard.press('ArrowDown');
+    assert.equal(await tab.evaluate(() => document.documentElement.dataset.theme), 'dark');
+    await tab.focus('#dark-paper');
+    await tab.keyboard.press('Space');
+    c = await colors();
+    assert.equal(await tab.evaluate(() => document.documentElement.dataset.paper), 'dark');
+    assert.ok(contrast(c.ink, c.paper) >= 7, 'Dark paper: light ink on dark paper');
+    assert.equal(c.hole, c.paper, 'Open recorder holes take the paper color');
+    assert.equal(c.selected, 'rgb(116, 212, 166)', 'The selected note is drawn in the dark-paper highlight');
+    assert.ok(contrast(c.selected, c.paper) >= 4.5, 'and stands out from the paper');
+    assert.ok(contrast(c.hero, c.body) < 1.5, 'The library sheet goes dark too');
+    assert.equal(await exportSVG(), lightSVG, 'SVG export is the same on dark paper');
+    await tab.emulateMedia({media: 'print'});
+    assert.deepEqual(
+      await tab.evaluate(() => [
+        getComputedStyle(document.body).backgroundColor,
+        getComputedStyle(document.querySelector('.notation-paper')).backgroundColor,
+        getComputedStyle($('notation')).color
+      ]),
+      ['rgb(255, 255, 255)', 'rgb(255, 255, 255)', 'rgb(17, 17, 17)'],
+      'Print stays black on white'
+    );
+    await tab.emulateMedia({media: 'screen'});
+    // Remembered after a reload; Light (by pointer) overrides the dark device and hides Dark paper.
+    await tab.reload();
+    assert.deepEqual(
+      await tab.evaluate(() => [$('theme').value, document.documentElement.dataset.paper, $('dark-paper').checked]),
+      ['dark', 'dark', true],
+      'The theme and Dark paper persist'
+    );
+    await tab.setViewportSize({width: 390, height: 844});
+    const select = await tab.locator('#theme').boundingBox();
+    assert.ok(select.x >= 0 && select.x + select.width <= 390, 'The theme choice fits a phone');
+    await tab.selectOption('#theme', 'light');
+    c = await colors();
+    assert.equal(c.body, 'rgb(245, 244, 237)', 'Light overrides a dark device');
+    assert.equal(c.paper, 'rgb(255, 255, 255)', 'Dark paper only applies in the dark theme');
+    assert.equal(await tab.locator('#dark-paper-option').isVisible(), false);
+    assert.ok(await tab.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'No sideways scroll');
+    await tab.close();
+  }
+  // The stored theme is on <html> before the first paint. Here the catalogs are held back, so the deferred scripts
+  // have not run, and a light device still shows the stored Dark. Tablet widths keep the nav labels on one line next to
+  // the theme choice, and Dark paper is easy to tap on a phone.
+  {
+    const context = await browser.newContext({viewport: {width: 768, height: 900}, colorScheme: 'light'});
+    await context.addInitScript(() => {
+      localStorage.setItem('fretfree-theme', '"dark"');
+      localStorage.setItem('fretfree-dark-paper', 'true');
+    });
+    let release;
+    const held = new Promise(resolve => (release = resolve));
+    await context.route(/catalog-licensed\.js/, async route => {
+      await held;
+      await route.continue();
+    });
+    const tab = await context.newPage();
+    tab.on('pageerror', e => errors.push(e.message));
+    const loaded = tab.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    await tab.waitForFunction(
+      () =>
+        document.readyState === 'interactive' && getComputedStyle(document.body).backgroundColor !== 'rgba(0, 0, 0, 0)'
+    );
+    assert.deepEqual(
+      await tab.evaluate(() => [
+        typeof applyTheme,
+        document.documentElement.dataset.theme,
+        document.documentElement.dataset.paper,
+        getComputedStyle(document.body).backgroundColor
+      ]),
+      ['undefined', 'dark', 'dark', 'rgb(18, 24, 22)'],
+      'The stored theme paints before the deferred scripts run'
+    );
+    release();
+    await loaded;
+    assert.deepEqual(await tab.evaluate(() => [$('theme').value, $('dark-paper').checked]), ['dark', true]);
+    for (const width of [721, 744, 768, 820, 821, 1024]) {
+      await tab.setViewportSize({width, height: 900});
+      const header = await tab.evaluate(() => ({
+        nav: [...document.querySelectorAll('.nav')].map(b => b.getBoundingClientRect().height),
+        theme: $('theme').getBoundingClientRect().right,
+        scroll: document.documentElement.scrollWidth
+      }));
+      assert.ok(
+        header.nav.every(h => h < 45),
+        `Nav labels stay on one line at ${width}px`
+      );
+      assert.ok(header.theme <= width && header.scroll <= width + 1, `The header fits at ${width}px`);
+    }
+    await tab.setViewportSize({width: 390, height: 844});
+    await tab.evaluate(() => document.querySelector('.nav[data-view="studio"]').click());
+    assert.ok((await tab.locator('#dark-paper-option').boundingBox()).height >= 32, 'Dark paper is easy to tap');
+    await context.close();
+  }
   await page.setViewportSize({width: 390, height: 844});
   await page.evaluate(() => {
     dirty = false;
@@ -2271,6 +2784,18 @@ const {chromium} = require('playwright'),
     );
     await page.locator('[data-palette="len:0.125"]').click();
     assert.equal(await kbody(), 'G2 A B2 c2 |]', 'The palette works at phone width');
+    // The chord box fits a phone; Next moves on without a Tab key.
+    await page.locator('[data-palette="chord"]').click();
+    await page.keyboard.type('Am');
+    await page.locator('#chord-next').click();
+    await page.keyboard.type('D7');
+    const entry = await page.locator('#chord-entry').boundingBox();
+    assert.ok(entry.x >= 0 && entry.x + entry.width <= 390, 'The chord box fits a phone');
+    await page.locator('#chord-next').click();
+    assert.equal(await kbody(), 'G2 "Am"A "D7"B2 c2 |]', 'Next saves and moves on');
+    await page.keyboard.press('Escape');
+    const chordsBox = await page.locator('#chords').boundingBox();
+    assert.ok(chordsBox && chordsBox.x + chordsBox.width <= 390, 'The Chords switch fits a phone');
   }
   assert.ok(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
@@ -2327,7 +2852,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
+    'PASS: dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

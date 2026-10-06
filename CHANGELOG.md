@@ -11,6 +11,66 @@
 
 ---
 
+# Slurs, hairpins and trill lines · 2026-10-06
+
+- Select notes and press **S** to slur them; **S** again takes the slur off. With one note selected the slur goes to the next note in the same voice, and **S** on that note again removes it.
+- The notation toolbar has a **Lines** group: **Slur**, **Cresc.**, **Dim.** and **Trill line**. Each puts its line over the selected notes, or from one note to the next, and lights up while the selection has it; pressing a lit one takes the line off. The status line says what changed, or why nothing did (a slur on a rest, no next note).
+- Slurs and trill lines run from the first to the last selected note and leave out rests at either end; a hairpin may start or end on a rest. A new line replaces the lines of its kind that it covers or crosses, so slurring a longer run joins two short slurs into one, and a crescendo replaces a diminuendo. A slur around it stays, as a phrase mark, and so do lines that only meet it at its first or last note.
+- Slurs are read the way abcjs draws them: a note's `)` ends a slur from an earlier note, so `(C D (E) F)` is a slur from C to E and one from E to F, and **S** on either takes off just that one; slurs on chords and rests pair apart from slurs on single notes, as in abcjs, and where that would join a new slur to the slur around it, the slur around it comes off. A line also carries on into the voice's next block in scores that write their voices in turns (`V:1`, `V:2`, `V:1` …).
+- Lines go into the ABC as `(` … `)`, `!<(!` … `!<)!`, `!>(!` … `!>)!` and `!trill(!` … `!trill)!`. Spellings such as `!crescendo(!` come off too. abcjs starts a note's text after any mark that follows a `(`, and reads `.(` as a dotted slur, so hairpin and trill marks go before slur and tuplet openings and a slur opening goes before a staccato dot. A slur written just before a staccato dot is still found and taken off. Each change is one undo step that keeps the selection.
+- abcjs draws only the tr of a trill line, so FretFree draws the wavy line from the tr to the end of the last note, carrying on across system breaks; it shows in embedded scores, prints and SVG exports. Hairpins change the playback volume note by note, in exported MIDI too; trill lines print but the notes play as written. Slurs, hairpins and trill lines parse without warnings and survive transposition. `lineEdits`, `toggleSlur` and `toggleSpan` in score-tools.js do the editing.
+
+---
+
+# Swing feel · 2026-10-06
+
+- **Feel** in Score settings plays a score straight or with a swing feel: Light swing (60), Swing (66) or Hard swing (75). The off-beat eighth of each quarter beat starts late, at that percent of the beat, and the on-beat eighth before it lasts longer, so at Swing and 120 BPM the second of two eighths starts at 2/3 of the beat instead of halfway.
+- Only beats made of eighths swing: a beat with sixteenths, triplets or other off-beat notes plays as written, each voice on its own. A pickup eighth swings as an off-beat, also when it is played again at a repeat or leads into a new section. Each measure swings at its own tempo, through tempo changes and repeats, at any tempo and in 2/2 and C|. Meters that are not x/4 or x/2 play straight, and the menu says so.
+- The feel is written into the ABC header, where it prints and travels with saved scores and share links: `Q:"Swing" 1/4=120` (the tempo text abcjs prints above the staff) and `%%MIDI swing 66` (the abc2midi directive). Tempo text already there stays: "Allegro" becomes "Allegro, swing", and Straight turns it back. Choosing a feel keeps the tempo: a score with no `Q:`, a bare number such as `Q:120` or tempo text alone gets the beat it plays at written out (1/4=180 for a score with no `Q:`), because abcjs ignores a bare number after tempo text. Tempo text alone that abcjs does not know, which played at 60 but highlighted at 180, then plays at 180. A tempo change in the tune body stays where it is. Straight removes the directive and the swing text and keeps the beat. The Tempo slider and `setHeader('Q')` keep the tempo text before and after the beat. Each change is one undo step.
+- Playing from a swung off-beat note starts with that note. Straight scores play exactly as before. The note highlight, metronome, count-in and MIDI export keep the straight beat. The pure `swingAmount()`, `setSwing()`, `tempoParts()`, `swingNotes()` and `swingPlayback()` are in score-tools.js, and `parseMidi()` also reports the opening tempo.
+
+---
+
+# Embed code and QR code for share links · 2026-10-06
+
+- The share panel has **Link**, **Embed** and **QR code** tabs (arrow keys, Home and End move between them). All three describe the score that was shared, and the panel closes when another score opens.
+- **Embed** gives a copyable `<iframe>` for a class website, Google Sites, Canvas or a blog, with width (pixels, with or without `px`, or a percentage) and height (200 to 2,000 pixels) fields; a value that cannot be used is marked and replaced. Its `#e=` link carries the share link's own payload (still `v: 1`). It opens a read-only view: the score, Play, Stop, volume and speed, the credit line with any non-commercial label, and **Open in FretFree ↗** for an editable copy. A part for a transposing instrument is named under the title, with how it sounds (for example "Clarinet in B♭ part, in written pitch: it sounds a major 2nd lower."). Nothing on the embedded score can be selected or dragged, an assignment's goals are left to the student's copy, and the view reads and writes no storage, so no saved scores, played marks or drafts, and its theme follows the device. The frame keeps its address, so a reload shows the same score; a damaged embed link says so.
+- **QR code** draws the share link as an SVG QR code for students to scan from the projector, with **Show full screen** where the browser supports it. The code is drawn at 3 pixels per module (at least 280 pixels, up to the panel's width), so a long link's dense code stays readable, and links over 997 characters also suggest full screen or the link. Links over 2,331 characters, the most a QR code holds, get an explanation instead.
+- QR codes are encoded on the page by qrcode-generator 2.0.4 (Kazuhiko Arase, MIT), vendored as `vendor/qrcode.js` with its licence in `vendor/QRCODE-LICENSE.md` and credited on the About page.
+
+---
+
+# Dark theme · 2026-10-06
+
+- **Theme** in the header: Auto, Light or Dark. Auto follows the device's light or dark setting, and changes when the device does. Below 820px wide (tablets in portrait, phones) it sits beside the logo and the page buttons take a row of their own. Every view goes dark: library, Compose, My scores and About, with body text at a contrast of at least 4.5:1, dark form controls and scroll bars, and a dimmer piano strip.
+- The score stays black on white in the dark theme, and so do the music-stand sheet, the card previews in the library and the version History preview. **Dark paper** (beside Zoom, shown only in the dark theme) turns them light-on-dark, with lighter selection, drag and playback highlights, open recorder holes in the paper color, and letters in noteheads that stay readable.
+- Prints and SVG exports are black on white in every theme and with Dark paper; the score's SVG is not redrawn when the theme changes.
+- Both choices are remembered in the browser (`fretfree-theme`, `fretfree-dark-paper`) and included in backups. A small script, `theme.js`, loads before the stylesheet and applies them before the page first paints, so a page that loads slowly does not show in the other theme first. If the browser cannot save them (storage full or blocked), they still apply until the page is reloaded or closed.
+- The page colors are now tokens on `:root` in style.css, redefined for the dark theme. In the light theme a few panel tints that were almost the same now share one token and shift by at most 3 of 255 per channel; the rest are unchanged.
+
+---
+
+# Version history for saved scores · 2026-10-06
+
+- Saving a saved score with changed music keeps the copy it replaces as an earlier version, with the time that copy was saved and its instrument. Each save gets its own time, so two quick saves never share one.
+- **History (n)** on a My scores card opens a panel listing the versions newest first. **Preview** draws a version read-only, in the instrument's written pitch (or concert pitch with Concert pitch on) with the editor's zoom and measures per line (200% on a phone), and **▶ Play** plays it with its notes lit, through the same player as the library's Listen; leaving My scores stops it. **Restore** opens the version in Compose as unsaved work on the same score; nothing stored changes until Save, and saving keeps the replaced copy in the list. The panel works from the keyboard (focus moves to it, Escape closes it and returns to the card) and fits a phone screen.
+- Versions are stored apart from the scores (`fretfree-versions`): up to 20 per score and about 1.5 MB in all, oldest dropped first. When storage is full the oldest versions make room for the save, and a version that cannot be stored is let go, so saving never fails because of history; if the save fails anyway, the versions are put back as they were. Deleting a score deletes its versions.
+- Backups carry a top-level `versions` key (format stays 1; older apps ignore it). Restoring unions versions by save time without duplicates, leaves out versions of scores the device does not keep, and turns a copy replaced by a newer one from the backup into a version. When storage is short, the oldest versions make room for the restored scores and settings rather than stop the restore; a restore that fails anyway puts them back with everything else, so it still changes nothing.
+
+---
+
+# Chord symbols · 2026-10-06
+
+- With a note or rest selected, **K**, the notation toolbar's **Chord** button or **Chord symbol…** in the note menu opens a box just above it. **Enter** saves, **Tab** saves and moves to the next note (**Shift+Tab** the one before; **Next ▸** does the same on touch screens), **Esc** cancels, and an empty box removes the symbol. Clicking another note saves the box and selects that note.
+- Symbols go into the ABC as `"G7"` in front of the note, replacing the note's first chord symbol and leaving text annotations (`"^Verse"`) alone. A lower-case root is capitalized, `nc` becomes `N.C.`, and a `%` or backslash is dropped (abcjs would read the rest of the line as a comment, or the closing quote as part of the text). Text that is not a chord name (a root, sharp or flat, a quality such as m7b5, maj7, dim, aug, sus4, alt or m(maj7), and slash bass, optionally in parentheses) is still written, and the box and the status line say it prints but does not play. The Chord button is marked, and names the symbol, when the note has one. Each change is one undo step.
+- On a B♭ or E♭ instrument the box shows and takes written pitch, and the source keeps concert pitch: written `C7` on clarinet is stored as `Bb7`. With Concert pitch on, the box shows and takes concert pitch, as the score does.
+- Only chord names play. abcjs played any text starting with A–G as a chord (`Coda` as C, `D.C.` as D, `Fine` as F) and carried the last chord on through `N.C.`; now such text is silent, and `N.C.` stops the accompaniment until the next symbol.
+- **Chords** (next to Count-in) plays the chord symbols as an accompaniment, on by default. Turning it off leaves the accompaniment out of playback, carrying on from the same place if the score is playing; MIDI export keeps it. The setting is remembered (`fretfree-practice-chords`) and backed up.
+- Transposing (the Transpose panel and the written-pitch display) moves chord symbols by the interval's letters. abcjs spelled them without regard to the key, so concert `Db` showed as `D#` on a B♭ clarinet instead of `Eb`, and `Ab/C` as `A#/D`. It also moved any text starting with A–G (`Coda` became `Doda`, `D.C.` became `E.C.`); text that is not a chord name now stays as written, before notes and bar lines alike.
+- `parseChordSymbol`, `tidyChordSymbol`, `chordSymbolOf`, `setChordSymbol` and `transposeChordSymbol` in score-tools.js read, tidy, find, set and move chord symbols; `midiBytes(source, {chordsOff})` leaves them out of the MIDI.
+
+---
+
 # New score templates · 2026-10-06
 
 - **＋ New score** now opens a setup panel with Title, Template, Key, Time signature, Tempo, Pickup (none or 1–3 beats) and Bars (1–64). Templates: Melody, Lead sheet, Piano (braced right and left hand), Duet (two staves for the current instrument), Melody and bass, SATB choir and String quartet (viola in alto clef, cello in bass clef). Every staff starts as whole-bar rests that pass the bar check, with the pickup excused; the first rest is selected and the score has focus, so typing starts at once. The panel works from the keyboard (Enter creates, Escape closes) and fits a phone screen. **＋ New score** on My scores opens the same panel.

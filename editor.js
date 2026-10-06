@@ -31,9 +31,18 @@ function syncFields() {
   assignSelect('meter', field('M', '4/4'));
   assignSelect('key', canonicalKey(field('K', 'C')), keyLabel(field('K', 'C')));
   hideKeyChoice();
-  const m = field('Q', '100').match(/(\d+)\s*$/);
+  const m = tempoParts(field('Q', '100')).beat.match(/(\d+)\s*$/);
   $('bpm').value = m ? Math.max(40, Math.min(200, +m[1])) : 100;
   $('bpm-value').textContent = $('bpm').value;
+  syncFeel();
+}
+// Feel menu: Straight or a swing amount read from the score; an amount typed into the ABC gets its own entry.
+function syncFeel() {
+  if (!$('feel')) return;
+  const amount = swingAmount($('abc').value),
+    [, d] = meterParts();
+  assignSelect('feel', String(amount), `Swing (${amount})`);
+  $('feel-note').hidden = !(amount && d !== 2 && d !== 4);
 }
 function setHeader(name, value) {
   if (name === 'K') $('abc').value = withKey($('abc').value);
@@ -42,6 +51,11 @@ function setHeader(name, value) {
   let text = name + ':' + String(value).replace(/[\r\n]/g, ' ');
   // A new key keeps the clef and other modifiers written after the old one.
   if (name === 'K' && i >= 0) text += keyParts(lines[i].slice(2)).rest.replace(/^(?=\S)/, ' ');
+  // A new tempo keeps the tempo text printed before and after it, such as "Swing".
+  if (name === 'Q' && i >= 0 && !text.includes('"')) {
+    const {pre, post} = tempoParts(lines[i].slice(2));
+    text = 'Q:' + [pre, text.slice(2), post].filter(Boolean).join(' ');
+  }
   if (i >= 0) lines[i] = text;
   else
     lines.splice(
@@ -75,6 +89,8 @@ function writtenABC(shift = displayShift()) {
     }
   source = source.replace(/^K:(.*)$/m, (_, key) => 'K:' + key.replace(/\s+clef=\S+/g, '') + ' clef=' + config.clef);
   if (fingeringShown() === 'recorder') source = source.replace(/^(X:.*)$/m, '$1\n%%staffsep 190');
+  // abcjs draws no trill lines, so the score shows tr on the first note and updateTrillLines draws the wavy line.
+  source = source.replace(/!trill\(!/g, '!trill!');
   return labelSource(source, noteNamesMode());
 }
 // Note names under the score: off, letters or movable-do solfège; display only, never written to the ABC source.
@@ -273,6 +289,7 @@ function render() {
     updateFingering(source);
     updateNoteColors();
     indexDisplay(display);
+    updateTrillLines();
     updateMeasures();
     updateBarCheck(original);
     updatePromptCheck(display);
@@ -304,11 +321,16 @@ function engraveOptions() {
     responsive: 'resize',
     ...layoutOptions(),
     add_classes: true,
-    dragging: true,
-    selectTypes: ['note', 'bar'],
-    selectionColor: '#317761',
-    dragColor: '#ba663d',
-    clickListener: scoreClick,
+    // An embedded score is read-only: nothing on it can be selected or dragged.
+    ...(embedView
+      ? {selectTypes: false}
+      : {
+          dragging: true,
+          selectTypes: ['note', 'bar'],
+          selectionColor: '#317761',
+          dragColor: '#ba663d',
+          clickListener: scoreClick
+        }),
     ...(fingering === 'guitar' ? {tablature: GUITAR_TAB, paddingbottom: 40, afterParsing: keepTablature} : {}),
     ...(fingering === 'recorder' ? {paddingbottom: 120} : {})
   };
@@ -377,6 +399,9 @@ function updateRights() {
   if (r) {
     $('rights').innerHTML =
       `<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${nonCommercial(current) ? `<em>${esc(nonCommercialNote(current))}</em><br>` : ''}${current.attribution ? `Credit: ${esc(current.attribution)}<br>` : ''}${current.licenseURL ? `<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>` : ''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty ? 'Your edits stay private. Export or save a copy to preserve them.' : 'Use, print, practice, and adapt this teaching version.'}</span>`;
+  } else if (current?.kind === 'shared' && embedView) {
+    $('rights').innerHTML =
+      '<strong>Shared from FretFree</strong>The music is inside this page’s link; nothing was uploaded. Open it in FretFree to practice, edit or save a copy.';
   } else if (current?.kind === 'shared') {
     $('rights').innerHTML =
       '<strong>Shared score</strong>Opened from a link. The music arrived inside the link itself; nothing was uploaded or stored elsewhere. Save it to My scores to keep a copy on this device.';
@@ -1157,7 +1182,14 @@ function accidentalEdit(entry, display, acc, batch = null) {
     steps = batch ? batch.steps(entry.element.startChar) : writtenSteps($('abc').value, entry.element.startChar, shift),
     mini = `X:1\nL:1/8\nK:${key}\n${editNoteText(text, {accidental: acc})}\n`,
     done = batch?.notes.get(steps + mini);
-  if (done !== undefined) return done ?? old;
+  // Only the new pitch goes into the source note: the rest of the written text can differ from the source for display
+  // (a trill line's start is drawn as a plain trill), and that must not be written back.
+  const pitch = note => {
+    const m = old.match(NOTE_PARTS),
+      core = note?.match(NOTE_PARTS)?.[2];
+    return m && core ? m[1] + core + m[3] + m[4] : (note ?? old);
+  };
+  if (done !== undefined) return pitch(done);
   // Back to concert pitch by the letters the written key moved, so a plain note means what the source's key says
   // (a plain C in written Ab major is A# in concert F# major, not the Bb that abcjs's own Gb major would give).
   let note = null;
@@ -1166,7 +1198,7 @@ function accidentalEdit(entry, display, acc, batch = null) {
     note = lines[lines.findIndex(l => l.startsWith('K:')) + 1] ?? null;
   } catch {}
   batch?.notes.set(steps + mini, note);
-  return note ?? old;
+  return pitch(note);
 }
 // A note joined to its neighbour by > or < (broken rhythm), as [first, second] source entries.
 function brokenPair(entry) {
@@ -1207,7 +1239,8 @@ function openNoteMenu(entry, display, x, y) {
       ? writtenNote(display).text
       : $('abc').value.slice(entry.element.startChar, entry.element.endChar);
   const acc = (noteParts(text)?.core.match(/^\[?(\^{1,2}|_{1,2}|=)/) || [])[1] || '',
-    len = entry.element.duration || 0;
+    len = entry.element.duration || 0,
+    chord = shownChord({entry, display});
   const durations = [
     [1, '𝅝 Whole'],
     [0.5, '𝅗𝅥 Half'],
@@ -1229,6 +1262,7 @@ function openNoteMenu(entry, display, x, y) {
       ? ''
       : `<button role="menuitemcheckbox" aria-checked="${/^-/.test(noteParts($('abc').value.slice(entry.element.startChar, entry.element.endChar))?.post || '')}" data-edit="tie">⁀ Tie to next note</button>`) +
     markItemsHTML(entry) +
+    `<button role="menuitem" data-edit="chord" aria-keyshortcuts="K" title="Chord symbol (K)">Chord symbol${chord ? ': ' + esc(chord) : ''}…</button>` +
     `<div class="menu-row"><button role="menuitem" data-edit="play-from">▶ Play from here</button><button role="menuitem" data-edit="range-from">🔁 Practice from here</button></div>` +
     `<div class="menu-label">INSERT AFTER</div><div class="menu-row"><button role="menuitem" data-edit="rest-after">𝄽 Rest</button><button role="menuitem" data-edit="bar-after">| Bar line</button></div><hr><button role="menuitem" class="danger" data-edit="delete">Delete ${isRest ? 'rest' : 'note'}</button>`;
   const menu = $('note-menu');
@@ -1378,9 +1412,236 @@ function markRange(picked, action) {
   editNotes(targets, (n, text) => (targets.includes(n) ? toggleDecoration(text, name) : text), picked);
   return `${MARK_WORDS[name]} ${all ? 'removed from' : 'added to'} ${countWords(targets.length)}.`;
 }
+// Slurs, hairpins and trill lines (lineEdits in score-tools.js). S or the toolbar's Lines group puts one over the
+// selected notes, from the first note to the last (rests at either end are left out of slurs and trill lines; a
+// hairpin may start or end on a rest), or from one selected note to the next. The same press on the same notes takes
+// it off. Each is one undo step that keeps the selection.
+const LINE_WORDS = {slur: 'Slur', crescendo: 'Crescendo', diminuendo: 'Diminuendo', trill: 'Trill line'};
+// Each voice's notes in order, worked out once per render: the toolbar asks about all four kinds of line on every
+// selection change.
+let voicesMemo = null;
+function notesByVoice() {
+  if (voicesMemo?.sources !== noteSources) {
+    const voices = new Map();
+    for (const n of scoreNotes()) voices.get(voiceOf(n))?.push(n) ?? voices.set(voiceOf(n), [n]);
+    voicesMemo = {sources: noteSources, voices};
+  }
+  return voicesMemo.voices;
+}
+// The notes a line of a kind would join for the selection ({first, last, count}; last is null to take off the line
+// that starts on a single selected note), or {why} when it cannot go on.
+function lineEnds(kind, picked = selectedNotes()) {
+  const hairpin = kind === 'crescendo' || kind === 'diminuendo',
+    fits = n => (hairpin ? !!marksOf(n) : pitched(n)),
+    word = LINE_WORDS[kind].toLowerCase();
+  if (!picked.length) return {why: 'Select a note on the score first.'};
+  if (picked.length > 1) {
+    const ends = picked.filter(fits);
+    if (ends.length < 2) return {why: `A ${word} needs two ${hairpin ? 'notes or rests' : 'notes'}.`};
+    return {first: ends[0], last: ends.at(-1), count: picked.indexOf(ends.at(-1)) - picked.indexOf(ends[0]) + 1};
+  }
+  const [first] = picked;
+  if (!fits(first))
+    return {why: hairpin ? 'Invisible rests take no marks.' : `A ${word} starts on a note, not a rest.`};
+  if (lineAt($('abc').value, first.element, null, kind)) return {first, last: null};
+  const voice = notesByVoice().get(voiceOf(first)) || [],
+    i = voice.indexOf(first),
+    j = voice.findIndex((n, k) => k > i && fits(n));
+  if (j < 0) return {why: `There is no next note to end the ${word} on.`};
+  return {first, last: voice[j], count: j - i + 1};
+}
+// Whether the selection has a line of a kind over it (for one note, starting on it), and why the toolbar's button
+// cannot add one.
+function lineState(kind, picked) {
+  const ends = lineEnds(kind, picked);
+  return {why: ends.why || '', on: !ends.why && !!lineAt($('abc').value, ends.first.element, ends.last?.element, kind)};
+}
+function toggleLineSelected(kind, picked = selectedNotes()) {
+  const status = $('selection-status'),
+    ends = lineEnds(kind, picked),
+    v = $('abc').value,
+    change = !ends.why && lineEdits(v, ends.first.element, ends.last?.element ?? null, kind);
+  if (!change) {
+    status.textContent = ends.why || 'No change.';
+    return;
+  }
+  // The selection keeps its notes: positions move with the edits before them, and a slur's ) belongs to the note it
+  // closes.
+  const moved = (at, end) =>
+      at +
+      change.edits.reduce(
+        (sum, e) =>
+          e.at < at || (end && e.at === at && e.insert === ')')
+            ? sum + e.insert.length - Math.min(e.remove, at - e.at)
+            : sum,
+        0
+      ),
+    text = applyLineEdits(v, change.edits),
+    from = Math.min(...change.edits.map(e => e.at)),
+    to = Math.max(...change.edits.map(e => e.at + e.remove));
+  applyNoteEdit(
+    from,
+    to,
+    text.slice(from, to + text.length - v.length),
+    [moved(picked[0].element.startChar), moved(picked.at(-1).element.endChar, true)],
+    null,
+    false,
+    picked.length > 1 ? selectionAnchor || 'first' : null
+  );
+  status.textContent = change.on
+    ? `${LINE_WORDS[kind]} added over ${countWords(ends.count)}.`
+    : `${LINE_WORDS[kind]} removed.`;
+}
+// Chord symbols. K, the toolbar's Chord button or the note menu opens a box above the selected note. Enter saves,
+// Tab saves and moves on to the next note (Shift+Tab the one before), Escape cancels, and an empty box removes the
+// symbol. Symbols are typed and shown in written pitch and stored in concert pitch, like the notes.
+let chordEditing = null;
+// The chord symbol the student sees on a note: written pitch on a transposing instrument.
+function shownChord(sel) {
+  const v = $('abc').value,
+    {startChar, endChar} = sel.entry.element;
+  if (!transposing() || !sel.display) return chordSymbolOf(v.slice(startChar, endChar));
+  return chordSymbolOf(writtenNote(sel.display, (renderedSource === v && renderedWritten) || undefined).text);
+}
+// A typed (written) chord symbol in concert pitch, moved back by the letters the written key moved at that note. Other
+// text stays as typed, as the written display leaves it (both go through transposeChordSymbol).
+function concertChord(name, sel) {
+  const shift = transposing();
+  return shift
+    ? transposeChordSymbol(name, -shift, -writtenSteps($('abc').value, sel.entry.element.startChar, shift))
+    : name;
+}
+// The box sits just above the note (below it near the top of the score), inside the score's scrolling paper.
+function placeChordEntry(display) {
+  const box = $('chord-entry'),
+    paper = box.parentElement,
+    note = renderedTune?.engraver?.selectables?.find(s => s.absEl.abcelem.startChar === display.startChar),
+    rect = note?.svgEl.getBoundingClientRect?.(),
+    outer = paper.getBoundingClientRect();
+  if (!rect) return;
+  const left = rect.left - outer.left - paper.clientLeft + paper.scrollLeft,
+    top = rect.top - outer.top - paper.clientTop + paper.scrollTop,
+    above = top - box.offsetHeight - 6;
+  box.style.left =
+    Math.max(paper.scrollLeft + 4, Math.min(left - 8, paper.scrollLeft + paper.clientWidth - box.offsetWidth - 4)) +
+    'px';
+  box.style.top = (above >= 4 ? above : top + rect.height + 6) + 'px';
+}
+function chordHint() {
+  const text = tidyChordSymbol($('chord-input').value);
+  $('chord-hint').textContent =
+    text && !parseChordSymbol(text)
+      ? 'Not a chord name: it will print but not play.'
+      : !text && chordEditing?.had
+        ? 'Empty removes the chord symbol.'
+        : 'Enter saves · Tab next note · Esc cancels';
+}
+// opener is the toolbar button to return to after a keyboard press there; otherwise the keyboard goes back to the score.
+function openChordEntry(sel, opener = null) {
+  if (!sel?.display) return;
+  // On a range selection the box opens on its first note, which becomes the selection.
+  if (selectionAnchor) {
+    selectEntry(sel.entry);
+    sel = selectedNote();
+  }
+  const had = shownChord(sel);
+  chordEditing = {start: sel.entry.element.startChar, source: $('abc').value, had, opener};
+  $('chord-input').value = had || '';
+  $('chord-entry').hidden = false;
+  chordHint();
+  placeChordEntry(sel.display);
+  $('chord-input').focus({preventScroll: true});
+  $('chord-input').select();
+  $('chord-entry').scrollIntoView?.({block: 'nearest'});
+}
+function closeChordEntry(editing, focusTo) {
+  chordEditing = null;
+  $('chord-entry').hidden = true;
+  const to = focusTo || editing?.opener;
+  if (to?.isConnected) to.focus({preventScroll: true});
+  else focusScore();
+}
+// Save the box's text as one undo step, then move on by move notes (1 next, -1 previous) and open the box there.
+// focusTo is where the keyboard goes when the box closes (by default the opener or the score). Returns the status line.
+function commitChord(move = 0, focusTo = null) {
+  const editing = chordEditing;
+  if (!editing) return '';
+  const typed = tidyChordSymbol($('chord-input').value);
+  chordEditing = null;
+  $('chord-entry').hidden = true;
+  const entry = $('abc').value === editing.source && scoreNotes().find(e => e.element.startChar === editing.start);
+  if (!entry) {
+    closeChordEntry(editing, focusTo);
+    toast('Score updated. Select the note again.');
+    return '';
+  }
+  const sel = {entry, display: displayOf(entry)},
+    {startChar: start, endChar: end} = entry.element,
+    old = $('abc').value.slice(start, end);
+  let message = '',
+    moved = 0;
+  if (typed !== (editing.had || '')) {
+    const text = setChordSymbol(old, typed ? concertChord(typed, sel) : null);
+    moved = text.length - old.length;
+    if (text !== old) applyNoteEdit(start, end, text);
+    message = !typed
+      ? 'Chord symbol removed.'
+      : parseChordSymbol(typed)
+        ? `Chord symbol ${typed}.`
+        : `Chord symbol “${typed}” added. It is not a chord name, so it prints but does not play.`;
+  }
+  const notes = scoreNotes(),
+    next = move ? notes[notes.findIndex(e => e.element.startChar === start) + move] : null;
+  if (next) {
+    selectEntry(next);
+    if (message) $('selection-status').textContent = message;
+    openChordEntry(selectedNote(), editing.opener);
+    return message;
+  }
+  const clicked =
+    editing.clicked != null &&
+    editing.clicked !== start &&
+    notes.find(e => e.element.startChar === editing.clicked + (editing.clicked > start ? moved : 0));
+  if (clicked) selectEntry(clicked);
+  if (move) message += (message ? ' ' : '') + (move > 0 ? 'That was the last note.' : 'That was the first note.');
+  if (message) $('selection-status').textContent = message;
+  refreshPalette();
+  closeChordEntry(editing, focusTo);
+  return message;
+}
+$('chord-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === 'Tab') {
+    e.preventDefault();
+    commitChord(e.key === 'Tab' ? (e.shiftKey ? -1 : 1) : 0);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeChordEntry(chordEditing);
+  }
+});
+$('chord-input').addEventListener('input', chordHint);
+// Leaving the box another way (a click or tap elsewhere) saves it, and the keyboard goes where the student went.
+// Switching to another window keeps the box open.
+$('chord-input').addEventListener('blur', e => {
+  if (!chordEditing || !document.hasFocus() || $('chord-entry').contains(e.relatedTarget)) return;
+  commitChord(0, e.relatedTarget || $('notation'));
+});
+// A click or tap on another note while the box is open saves the box, then selects that note (by its place in the
+// source, which the save may move along).
+$('notation').addEventListener(
+  'mousedown',
+  e => {
+    if (!chordEditing) return;
+    const hit = selectableAt(e)?.absEl.abcelem;
+    chordEditing.clicked = (hit?.el_type === 'note' && noteSources.get(hit.startChar)?.element.startChar) ?? null;
+  },
+  true
+);
+// Next is for touch screens without a Tab key; pressing it keeps the box focused.
+$('chord-next').addEventListener('mousedown', e => e.preventDefault());
+$('chord-next').addEventListener('click', () => commitChord(1));
 // One edit on one note, shared by the note menu, the keyboard and the palette. Actions: acc:<^|_|=|>, len:<whole>,
 // dot, tie, to-rest, beam:join, beam:break, deco:<mark>, dyn:<dynamic|>, delete, rest-after, bar-after, play-from,
-// range-from, respell. Others do nothing.
+// range-from, respell, chord (opens the chord symbol box). Others do nothing.
 function editNote(entry, display, action) {
   const area = $('abc'),
     v = area.value,
@@ -1402,6 +1663,10 @@ function editNote(entry, display, action) {
   }
   if (action === 'play-from') {
     playFromNote(display);
+    return;
+  }
+  if (action === 'chord') {
+    openChordEntry({entry, display});
     return;
   }
   if (action === 'range-from') {
@@ -1533,7 +1798,8 @@ window.addEventListener(
 // Keyboard note entry on the score (MuseScore-style): A–G add a note after the selection in the nearest octave,
 // Shift+A–G add a pitch to the selected chord, R or 0 a rest, 3–7 set the length (16th…whole), . dots, ↑↓ move by
 // step (Ctrl: octave), ←→ change the selection, # - = set sharp/flat/natural, + ties, | adds a bar line, Delete
-// removes the note, [ ] halve or double the length, ; : > " ^ toggle staccato, tenuto, accent, marcato and fermata.
+// removes the note, [ ] halve or double the length, ; : > " ^ toggle staccato, tenuto, accent, marcato and fermata,
+// K opens the chord symbol box.
 // Shift+←→ and Ctrl/Cmd+A, C, X, V, D work on a range selection (see below).
 const LENGTH_KEYS = {3: 1 / 16, 4: 1 / 8, 5: 1 / 4, 6: 1 / 2, 7: 1};
 function focusScore() {
@@ -1866,10 +2132,19 @@ function scoreKey(e) {
     refreshPalette();
     return true;
   }
+  if (key === 'k' || key === 'K') {
+    if (sel) openChordEntry(sel);
+    else $('selection-status').textContent = 'Select a note on the score first.';
+    return true;
+  }
   if (key === 'z' || key === 'Z') {
     // Respelling works on one note or chord, as the palette's Respell does.
     if (many) $('selection-status').textContent = 'Z respells one note or chord. Select a single note for this.';
     else respellSelected(sel);
+    return true;
+  }
+  if (key === 's' || key === 'S') {
+    toggleLineSelected('slur', picked);
     return true;
   }
   if (!sel) return false;
@@ -2589,7 +2864,7 @@ function updateNoteColors() {
       const cx = box.x + box.width / 2,
         cy = box.y + box.height / 2,
         text = document.createElementNS(ns, 'text');
-      text.setAttribute('class', hollow ? 'notehead-letter hollow' : 'notehead-letter');
+      text.setAttribute('class', 'notehead-letter' + (hollow ? ' hollow' : color ? '' : ' on-ink'));
       text.setAttribute('x', cx);
       text.setAttribute('y', cy);
       text.setAttribute('text-anchor', 'middle');
@@ -2604,6 +2879,93 @@ function updateNoteColors() {
     });
   }
 }
+// Trill lines (!trill(! … !trill)!): abcjs draws only the tr (see writtenABC), so a wavy line goes from it to the end
+// of the line's last note, carrying on across system breaks. It is part of the score, so prints and SVG exports keep it.
+// A score drawn while the studio is hidden (openScore draws it before showing it) cannot be measured, so its lines
+// wait until the studio shows.
+let trillsPending = null;
+function updateTrillLines() {
+  const svg = $('notation').querySelector('svg'),
+    selectables = renderedTune?.engraver?.selectables || [],
+    // An embedded score has nothing selectable, so its notes are found through the drawn tune's elements instead.
+    drawn = selectables.length
+      ? selectables.map(s => [s.absEl.abcelem?.startChar, s.svgEl])
+      : (renderedTune?.lines || [])
+          .flatMap(l => l.staff || [])
+          .flatMap(s => s.voices.flat())
+          .filter(e => e.abselem?.elemset?.[0])
+          .map(e => [e.startChar, e.abselem.elemset[0]]);
+  trillsPending = null;
+  if (!svg || !drawn.length || !/[!+]trill\(/.test($('abc').value)) return;
+  svg.querySelectorAll('.trill-line').forEach(p => p.remove());
+  if (!svg.getBoundingClientRect().width) {
+    trillsPending = renderedTune;
+    return;
+  }
+  const byStart = new Map(drawn),
+    svgOf = entry => byStart.get(displayOf(entry)?.startChar),
+    lineOf = el => el.getAttribute('class')?.match(/abcjs-l(\d+)/)?.[1] ?? '',
+    box = el => {
+      try {
+        return el?.getBBox?.() || null;
+      } catch {
+        return null;
+      }
+    },
+    // The top lines of a system's staves, top to bottom.
+    tops = line =>
+      [...svg.querySelectorAll(`.abcjs-staff.abcjs-l${line} .abcjs-top-line`)]
+        .map(l => box(l)?.y ?? 0)
+        .sort((a, b) => a - b);
+  const draw = run => {
+    const els = run.map(svgOf).filter(Boolean),
+      tr = box(els[0]?.querySelector('[data-name="scripts.trill"]'));
+    if (!tr) return;
+    const lines = new Map();
+    for (const el of els) lines.get(lineOf(el))?.push(el) ?? lines.set(lineOf(el), [el]);
+    // On a later system the line keeps its height above the same staff.
+    const first = lineOf(els[0]),
+      y0 = tr.y + tr.height / 2,
+      head = box(els[0].querySelector('.abcjs-notehead')),
+      staff = Math.max(0, tops(first).filter(y => y <= (head?.y ?? y0)).length - 1),
+      above = y0 - (tops(first)[staff] ?? 0);
+    for (const [line, group] of lines) {
+      const heads = group.map(el => box(el.querySelector('.abcjs-notehead') || el)).filter(Boolean);
+      if (!heads.length) continue;
+      const x0 = line === first ? tr.x + tr.width + 1 : Math.min(...heads.map(b => b.x)) - 2,
+        x1 = Math.max(...heads.map(b => b.x + b.width)),
+        y = line === first ? y0 : (tops(line)[staff] ?? 0) + above;
+      if (x1 - x0 < 3) continue;
+      let d = `M ${x0.toFixed(1)} ${y.toFixed(1)}`;
+      for (let x = x0; x + 3 <= x1; x += 3) d += ' q 0.75 -2 1.5 0 q 0.75 2 1.5 0';
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('class', 'trill-line');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', 'currentColor');
+      path.setAttribute('stroke-width', '1.1');
+      path.setAttribute('aria-hidden', 'true');
+      svg.appendChild(path);
+    }
+  };
+  // Each voice's trill lines, from the note that opens one to the note that closes it (or just its first note).
+  for (const notes of notesByVoice().values()) {
+    let start = null;
+    notes.forEach((n, i) => {
+      const deco = n.element.decoration || [];
+      if (start != null && deco.includes('trill)')) {
+        draw(notes.slice(start, i + 1));
+        start = null;
+      }
+      if (deco.includes('trill(')) start = i;
+    });
+    if (start != null) draw(notes.slice(start, start + 1));
+  }
+}
+if (typeof MutationObserver === 'function')
+  new MutationObserver(() => {
+    if (trillsPending && trillsPending === renderedTune && !$('studio').hidden) updateTrillLines();
+  }).observe($('studio'), {attributes: true, attributeFilter: ['hidden']});
 // Writing prompts: a short assignment with a blank score (one whole-bar rest per bar) and goals that tick off live.
 function promptById(id) {
   return (typeof writingPrompts === 'undefined' ? [] : writingPrompts).find(p => p.id === id);
@@ -2988,8 +3350,13 @@ document.addEventListener('keydown', e => {
 });
 
 // Share by link. The link carries the score itself, so anyone with it gets a copy; nothing is uploaded.
-// Scores from a library edition carry the edition's id, so the rights notice travels with them.
+// Scores from a library edition carry the edition's id, so the rights notice travels with them. The share panel also
+// gives the same payload as embed code (#e=, a read-only view for an iframe) and as a QR code of the link.
 const SHARE_WARN_LENGTH = 8000;
+// The longest link a QR code holds (version 40 at error correction level M, byte mode), and the longest that fits
+// version 25 (117 modules); longer links make codes dense enough that a camera may need them shown full screen.
+const QR_MAX_BYTES = 2331,
+  QR_DENSE_BYTES = 997;
 function shareSourceId() {
   if (!current) return undefined;
   const source = catalog.find(
@@ -2997,16 +3364,30 @@ function shareSourceId() {
   );
   return source?.id;
 }
+const shareBase = () => `${location.origin}${location.pathname}`;
+// The payload and title the panel's link, embed code and QR code were made from, so later edits or another score
+// cannot mix into them; closeShare() clears them when a different score opens. shareRun counts shares and closes, so
+// a link still being compressed when the panel closes or another share starts is dropped.
+let shareCode = '',
+  shareTitle = '',
+  shareRun = 0;
 async function shareLink() {
-  const payload = {v: 1, a: $('abc').value, i: currentInstrument()};
+  const attempt = ++shareRun,
+    payload = {v: 1, a: $('abc').value, i: currentInstrument()};
   const source = shareSourceId();
   if (source) payload.s = source;
   // A built-in prompt travels by id (p); a teacher's assignment travels whole (q). Older apps ignore q.
   const prompt = activePrompt();
   if (prompt?.level === 'Custom') payload.q = prompt;
   else if (prompt) payload.p = prompt.id;
-  const url = `${location.origin}${location.pathname}#s=${await encodeShare(payload)}`;
+  const title = field('T', 'Untitled'),
+    code = await encodeShare(payload);
+  if (attempt !== shareRun) return;
+  shareCode = code;
+  shareTitle = title;
+  const url = `${shareBase()}#s=${shareCode}`;
   const panel = $('share-panel');
+  if (panel.hidden) showShareTab('link');
   panel.hidden = false;
   $('share-url').value = url;
   $('share-note').textContent =
@@ -3014,6 +3395,8 @@ async function shareLink() {
     (url.length > SHARE_WARN_LENGTH
       ? 'Some messaging apps cut links this long; export ABC for a safer copy.'
       : 'Anyone with the link gets a copy of the score. Nothing is uploaded; the music is inside the link.');
+  updateEmbedCode();
+  updateShareQR(url);
   let copied = false;
   try {
     if (typeof navigator.clipboard?.writeText !== 'function') throw new Error('no clipboard');
@@ -3022,9 +3405,22 @@ async function shareLink() {
   } catch {}
   toast(copied ? 'Link copied. Paste it anywhere.' : 'Select the link and copy it.');
   if (!copied) {
+    showShareTab('link');
     $('share-url').focus();
     $('share-url').select();
   }
+}
+// The score a link carries, ready to open: the library edition's credits come with it when the link names one.
+function sharedItem(payload) {
+  const source = catalog.find(x => x.id === payload.s);
+  return {
+    ...(source || {}),
+    title: payload.a.match(/^T:(.*)$/m)?.[1]?.trim() || 'Shared score',
+    composer: source?.composer || payload.a.match(/^C:(.*)$/m)?.[1]?.trim() || '',
+    kind: 'shared',
+    abc: payload.a,
+    instrument: instruments[payload.i] ? payload.i : undefined
+  };
 }
 // A shared score opens as a copy, in the sender's instrument, with the library edition's credits when it has one.
 async function openSharedLink(hash) {
@@ -3033,17 +3429,10 @@ async function openSharedLink(hash) {
     toast('This link did not contain a readable score.');
     return false;
   }
-  const source = catalog.find(x => x.id === payload.s);
-  const title = payload.a.match(/^T:(.*)$/m)?.[1]?.trim() || 'Shared score';
   // A teacher's assignment opens only if it passes validPrompt; otherwise the score still opens, without it.
   const assignment = 'q' in payload ? validPrompt(payload.q) : null;
   openScore({
-    ...(source || {}),
-    title,
-    composer: source?.composer || payload.a.match(/^C:(.*)$/m)?.[1]?.trim() || '',
-    kind: 'shared',
-    abc: payload.a,
-    instrument: instruments[payload.i] ? payload.i : undefined,
+    ...sharedItem(payload),
     prompt: assignment || (typeof payload.p === 'string' && promptById(payload.p) ? payload.p : undefined)
   });
   // The link was the only copy and show() has replaced it in the address bar, so treat the score as unsaved work.
@@ -3067,17 +3456,155 @@ async function openSharedLink(hash) {
   scheduleDraft();
   return true;
 }
-$('share-link').onclick = () => shareLink().catch(e => toast('Could not make a link: ' + e.message));
-$('share-copy').onclick = async () => {
-  try {
-    await navigator.clipboard.writeText($('share-url').value);
-    toast('Link copied.');
-  } catch {
-    $('share-url').focus();
-    $('share-url').select();
+// The embedded view (#e=…, in an iframe on a class website): the score read-only with Play, Stop, speed and its
+// credits, and a link that opens an editable copy in FretFree. body.embed hides everything else; shared.js keeps
+// storage untouched, and show() leaves the address alone so reloading the frame keeps the score.
+async function openEmbed(hash) {
+  const code = hash.slice(2),
+    payload = await decodeShare(code);
+  show('studio');
+  $('embed-bar').hidden = false;
+  $('notation').removeAttribute('tabindex');
+  if (!payload) {
+    document.body.classList.add('embed-unreadable');
+    $('embed-title').textContent = 'This embedded score could not be read.';
+    $('embed-open').hidden = true;
+    return false;
   }
-};
-$('share-close').onclick = () => ($('share-panel').hidden = true);
+  // An assignment's goals and checklist belong to the student's own copy, so the embed shows only the score.
+  openScore(sharedItem(payload));
+  const part = embedPart(currentInstrument());
+  $('embed-title').textContent = current.title;
+  $('embed-part').textContent = part;
+  $('embed-part').hidden = !part;
+  document.title = current.title + ' · FretFree';
+  $('notation').setAttribute(
+    'aria-label',
+    `Score: ${current.title}.${part ? ' ' + part : ''} Read-only; press Play to hear it.`
+  );
+  $('embed-open').href = `${location.href.split('#')[0]}#s=${code}`;
+  return true;
+}
+// A transposing instrument's part is drawn in written pitch while playback sounds at concert pitch, so the embed, which
+// hides the instrument menu, names the part and how it sounds. Empty for parts that sound as written.
+function embedPart(name) {
+  const interval = TRANSPOSE_INTERVALS.find(i => i.semitones === instruments[name]?.shift);
+  return interval ? `${name} part, in written pitch: it sounds a ${interval.name} lower.` : '';
+}
+// The iframe snippet for a score page. Width is pixels (with or without "px") or a percentage up to 100% (else 100%);
+// height is 200 to 2,000 pixels (else clamped to that range, or 420 when empty). A field whose value is replaced is
+// marked aria-invalid.
+const embedWidthOK = width => /^[1-9]\d{0,3}(px|%)?$/i.test(width) && !(width.endsWith('%') && parseInt(width) > 100);
+const embedHeightOK = height => /^\d+$/.test(height) && height >= 200 && height <= 2000;
+function embedSnippet(code, title, width = '100%', height = 420) {
+  width = String(width).trim();
+  width = embedWidthOK(width) ? width.replace(/px$/i, '') : '100%';
+  height = Math.max(200, Math.min(2000, Math.round(+height) || 420));
+  return `<iframe src="${esc(`${shareBase()}#e=${code}`)}" width="${width}" height="${height}" title="${esc('Score: ' + title)}" loading="lazy"></iframe>`;
+}
+function updateEmbedCode() {
+  if (!shareCode) return;
+  const width = $('embed-width').value.trim(),
+    height = $('embed-height').value.trim();
+  $('embed-width').setAttribute('aria-invalid', !embedWidthOK(width));
+  $('embed-height').setAttribute('aria-invalid', !embedHeightOK(height));
+  $('embed-code').value = embedSnippet(shareCode, shareTitle, width, height);
+  $('embed-preview').href = `${shareBase()}#e=${shareCode}`;
+}
+// A QR code as SVG, drawn here from the vendored encoder (vendor/qrcode.js): dark modules on white with the standard
+// four-module quiet zone, each row's runs as one path. It is drawn at QR_MODULE_PX per module (at least QR_MIN_PX), so
+// a camera can still read a long link's dense code from a laptop screen. Null when the encoder is missing or the text
+// is too long.
+const QR_MODULE_PX = 3,
+  QR_MIN_PX = 280;
+function qrSVG(text, label) {
+  if (typeof qrcode !== 'function') return null;
+  let code;
+  try {
+    code = qrcode(0, 'M');
+    code.addData(text);
+    code.make();
+  } catch {
+    return null;
+  }
+  const count = code.getModuleCount(),
+    side = count + 8,
+    size = Math.max(QR_MIN_PX, side * QR_MODULE_PX);
+  let d = '';
+  for (let y = 0; y < count; y++)
+    for (let x = 0; x < count; x++) {
+      if (!code.isDark(y, x)) continue;
+      let run = 1;
+      while (x + run < count && code.isDark(y, x + run)) run++;
+      d += `M${x + 4} ${y + 4}h${run}v1h-${run}z`;
+      x += run - 1;
+    }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${side} ${side}" shape-rendering="crispEdges" role="img" aria-label="${esc(label)}"><rect width="${side}" height="${side}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+}
+function updateShareQR(url) {
+  const bytes = new TextEncoder().encode(url).length,
+    svg = bytes <= QR_MAX_BYTES ? qrSVG(url, `QR code of the link to ${shareTitle}`) : null;
+  $('share-qr').innerHTML = svg || '';
+  $('share-qr').hidden = !svg;
+  $('qr-large').hidden = !svg || !document.fullscreenEnabled;
+  $('qr-note').textContent = svg
+    ? 'Scan it with a phone or tablet camera to open a copy of this score.' +
+      (bytes <= QR_DENSE_BYTES
+        ? ''
+        : document.fullscreenEnabled
+          ? ' This long link makes a dense code: show it full screen, or share the link if a camera can’t read it.'
+          : ' This long link makes a dense code: if a camera can’t read it, share the link instead.')
+    : typeof qrcode !== 'function'
+      ? 'QR codes could not be drawn in this browser. Share the link instead.'
+      : `This link is too long for a QR code: ${bytes.toLocaleString()} characters, and a QR code holds about 2,300. Share the link or the embed code instead, or share a few measures at a time.`;
+}
+const SHARE_TABS = ['link', 'embed', 'qr'];
+function showShareTab(name, focus = false) {
+  for (const tab of SHARE_TABS) {
+    const button = $('share-tab-' + tab),
+      on = tab === name;
+    button.setAttribute('aria-selected', on);
+    button.tabIndex = on ? 0 : -1;
+    $('share-pane-' + tab).hidden = !on;
+    if (on && focus) button.focus();
+  }
+}
+for (const tab of SHARE_TABS) $('share-tab-' + tab).onclick = () => showShareTab(tab);
+// Tabs follow the ARIA tabs pattern: arrow keys, Home and End move between them.
+$('share-tab-link').parentElement.addEventListener('keydown', e => {
+  const at = SHARE_TABS.findIndex(tab => $('share-tab-' + tab) === e.target),
+    to = {ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: SHARE_TABS.length - 1}[e.key];
+  if (at < 0 || to == null) return;
+  e.preventDefault();
+  showShareTab(SHARE_TABS[(to + SHARE_TABS.length) % SHARE_TABS.length], true);
+});
+async function copyField(id, message) {
+  try {
+    await navigator.clipboard.writeText($(id).value);
+    toast(message);
+  } catch {
+    $(id).focus();
+    $(id).select();
+  }
+}
+$('share-link').onclick = () => shareLink().catch(e => toast('Could not make a link: ' + e.message));
+$('share-copy').onclick = () => copyField('share-url', 'Link copied.');
+$('embed-copy').onclick = () => copyField('embed-code', 'Embed code copied. Paste it into your page’s HTML.');
+for (const id of ['embed-width', 'embed-height']) $(id).addEventListener('input', updateEmbedCode);
+// A projector shows the code full screen; browsers without the Fullscreen API (iPhone) keep the panel's size.
+$('qr-large').onclick = () =>
+  $('share-qr')
+    .requestFullscreen?.()
+    .catch(() => {});
+// The panel describes the score it was made for, so it closes when another score opens (openScore).
+function closeShare() {
+  shareRun++;
+  $('share-panel').hidden = true;
+  shareCode = shareTitle = '';
+  $('share-url').value = $('embed-code').value = '';
+  $('share-qr').innerHTML = '';
+}
+$('share-close').onclick = closeShare;
 
 // Unsaved-work recovery. While the score has unsaved changes, a copy goes to the local draft list two seconds later
 // (at once when the tab is hidden), so a discarded tab or a closed window does not lose the work. Each tab keeps one

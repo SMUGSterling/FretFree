@@ -8,29 +8,31 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=0f74da75a9e7" />
-    <script defer src="vendor/abcjs-basic-min.js?v=0f74da75a9e7"></script>
-    <script defer src="catalog.js?v=0f74da75a9e7"></script>
-    <script defer src="catalog-expanded.js?v=0f74da75a9e7"></script>
-    <script defer src="score-tools.js?v=0f74da75a9e7"></script>
-    <script defer src="rights-tools.js?v=0f74da75a9e7"></script>
-    <script defer src="musicxml.js?v=0f74da75a9e7"></script>
-    <script defer src="catalog-licensed.js?v=0f74da75a9e7"></script>
-    <script defer src="catalog-lieder.js?v=0f74da75a9e7"></script>
-    <script defer src="catalog-quartets.js?v=0f74da75a9e7"></script>
-    <script defer src="catalog-pgh.js?v=0f74da75a9e7"></script>
-    <script defer src="catalog-skills.js?v=0f74da75a9e7"></script>
-    <script defer src="prompts.js?v=0f74da75a9e7"></script>
-    <script defer src="shared.js?v=0f74da75a9e7"></script>
-    <script defer src="library.js?v=0f74da75a9e7"></script>
-    <script defer src="backup.js?v=0f74da75a9e7"></script>
-    <script defer src="editor.js?v=0f74da75a9e7"></script>
-    <script defer src="measure-tools.js?v=0f74da75a9e7"></script>
-    <script defer src="palette.js?v=0f74da75a9e7"></script>
-    <script defer src="playback.js?v=0f74da75a9e7"></script>
-    <script defer src="keyboard.js?v=0f74da75a9e7"></script>
-    <script defer src="assignments.js?v=0f74da75a9e7"></script>
-    <script defer src="app.js?v=0f74da75a9e7"></script>
+    <script src="theme.js?v=859b6fa1273f"></script>
+    <link rel="stylesheet" href="style.css?v=859b6fa1273f" />
+    <script defer src="vendor/abcjs-basic-min.js?v=859b6fa1273f"></script>
+    <script defer src="vendor/qrcode.js?v=859b6fa1273f"></script>
+    <script defer src="catalog.js?v=859b6fa1273f"></script>
+    <script defer src="catalog-expanded.js?v=859b6fa1273f"></script>
+    <script defer src="score-tools.js?v=859b6fa1273f"></script>
+    <script defer src="rights-tools.js?v=859b6fa1273f"></script>
+    <script defer src="musicxml.js?v=859b6fa1273f"></script>
+    <script defer src="catalog-licensed.js?v=859b6fa1273f"></script>
+    <script defer src="catalog-lieder.js?v=859b6fa1273f"></script>
+    <script defer src="catalog-quartets.js?v=859b6fa1273f"></script>
+    <script defer src="catalog-pgh.js?v=859b6fa1273f"></script>
+    <script defer src="catalog-skills.js?v=859b6fa1273f"></script>
+    <script defer src="prompts.js?v=859b6fa1273f"></script>
+    <script defer src="shared.js?v=859b6fa1273f"></script>
+    <script defer src="library.js?v=859b6fa1273f"></script>
+    <script defer src="backup.js?v=859b6fa1273f"></script>
+    <script defer src="editor.js?v=859b6fa1273f"></script>
+    <script defer src="measure-tools.js?v=859b6fa1273f"></script>
+    <script defer src="palette.js?v=859b6fa1273f"></script>
+    <script defer src="playback.js?v=859b6fa1273f"></script>
+    <script defer src="keyboard.js?v=859b6fa1273f"></script>
+    <script defer src="assignments.js?v=859b6fa1273f"></script>
+    <script defer src="app.js?v=859b6fa1273f"></script>
   </head>
   <body>
     <header>
@@ -45,7 +47,16 @@
         ><button class="nav" data-view="studio">Compose</button><button class="nav" data-view="saved">My scores</button
         ><button class="nav" data-view="about">About & rights</button>
       </nav>
-      <span class="privacy">● No account needed</span>
+      <div class="header-tools">
+        <span class="privacy">● No account needed</span
+        ><label class="inline theme-choice"
+          >Theme<select id="theme" title="Auto follows your device's light or dark setting">
+            <option value="auto">Auto</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select></label
+        >
+      </div>
     </header>
     <main>
       <section id="draft-banner" class="draft-banner" aria-label="Unsaved work" hidden>
@@ -317,6 +328,15 @@
               ><button id="key-keep" title="Change only the key signature">Keep notes</button
               ><button id="key-cancel" aria-label="Cancel the key change">✕</button>
             </div>
+            <label
+              >Feel<select id="feel" aria-describedby="feel-note">
+                <option value="0">Straight</option>
+                <option value="60">Light swing (60)</option>
+                <option value="66">Swing (66)</option>
+                <option value="75">Hard swing (75)</option>
+              </select></label
+            >
+            <p id="feel-note" class="small" hidden>Swing changes playback only in meters such as 4/4, 3/4 and 2/2.</p>
             <button id="transpose-open" class="transpose-open" aria-expanded="false" aria-controls="transpose-panel">
               Transpose…
             </button>
@@ -427,12 +447,21 @@
             <p class="small" id="save-status" role="status"></p>
           </aside>
           <div class="music-panel">
+            <div id="embed-bar" class="embed-bar" hidden>
+              <div>
+                <h1 id="embed-title">Score</h1>
+                <p id="embed-part" class="small" hidden></p>
+              </div>
+              <a id="embed-open" class="button-link" target="_blank" rel="noopener">Open in FretFree ↗</a>
+            </div>
             <div class="transport">
               <button id="play" class="primary">▶ Play</button
               ><button id="stop" aria-label="Stop playback">■ Stop</button
               ><label class="inline"><input type="checkbox" id="loop" /> Loop</label
               ><label class="inline"><input type="checkbox" id="metronome" /> Metronome</label
               ><label class="inline"><input type="checkbox" id="count-in" /> Count-in</label
+              ><label class="inline" title="Play the chord symbols as an accompaniment"
+                ><input type="checkbox" id="chords" checked /> Chords</label
               ><label class="volume"
                 >Volume<input id="volume" type="range" min="0" max="1" step="0.05" value="0.3" /></label
               ><span id="play-status" role="status">Ready to play</span>
@@ -454,7 +483,7 @@
                   <input id="end-measure" type="number" min="1" max="1" value="1" step="1" aria-label="Last measure" />
                   <span id="measure-count" class="small">of 1</span></span
                 ></label
-              ><label
+              ><label class="speed-control"
                 >Playback speed <strong id="speed-value">100%</strong
                 ><input id="speed" type="range" min="25" max="200" step="5" value="100" /></label
               ><button id="speed-reset">Reset to 100%</button
@@ -510,11 +539,11 @@
               <kbd>.</kbd> dot · <kbd>↑</kbd><kbd>↓</kbd> pitch (<kbd>Ctrl</kbd> octave) · <kbd>←</kbd
               ><kbd>→</kbd> select · <kbd>#</kbd> <kbd>-</kbd> <kbd>=</kbd> sharp, flat, natural · <kbd>+</kbd> tie ·
               <kbd>Z</kbd> respell (C♯ to D♭) · <kbd>;</kbd> <kbd>:</kbd> <kbd>&gt;</kbd> <kbd>"</kbd>
-              <kbd>^</kbd> staccato, tenuto, accent, marcato, fermata · <kbd>|</kbd> bar line · <kbd>Delete</kbd> ·
-              <kbd>Space</kbd> play from the note (or double-click it) · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> or
-              Shift+click select more · <kbd>Ctrl</kbd>+<kbd>A</kbd> all · <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd>
-              <kbd>V</kbd> copy, cut, paste · <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>[</kbd> <kbd>]</kbd> halve,
-              double lengths
+              <kbd>^</kbd> staccato, tenuto, accent, marcato, fermata · <kbd>K</kbd> chord symbol · <kbd>S</kbd> slur ·
+              <kbd>|</kbd> bar line · <kbd>Delete</kbd> · <kbd>Space</kbd> play from the note (or double-click it) ·
+              <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> or Shift+click select more · <kbd>Ctrl</kbd>+<kbd>A</kbd> all ·
+              <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd> <kbd>V</kbd> copy, cut, paste · <kbd>Ctrl</kbd>+<kbd>D</kbd>
+              duplicate · <kbd>[</kbd> <kbd>]</kbd> halve, double lengths
             </p>
             <div class="selection-tools" role="group" aria-label="Selected notes">
               <button id="select-left" aria-label="Select left" title="Move the end of the selection left (Shift+←)">
@@ -534,7 +563,7 @@
             <p class="small" id="selection-status" role="status">
               Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag
               up/down to change pitch; use the toolbar above the score or right-click a note for length, accidentals,
-              ties, articulations and dynamics. Playback speed leaves the score tempo unchanged.
+              ties, articulations, dynamics and chord symbols. Playback speed leaves the score tempo unchanged.
             </p>
             <div id="prompt-check" class="prompt-check" aria-live="polite" hidden></div>
             <div id="bar-check" class="bar-check" aria-live="polite" hidden></div>
@@ -646,6 +675,39 @@
                   title="sfz: sudden accent"
                 >
                   sfz
+                </button>
+              </div>
+              <div role="group" aria-label="Chord symbol">
+                <button data-palette="chord" aria-label="Chord symbol" aria-keyshortcuts="K" title="Chord symbol (K)">
+                  Chord
+                </button>
+              </div>
+              <div role="group" aria-label="Lines">
+                <button
+                  data-palette="line:slur"
+                  aria-label="Slur"
+                  aria-keyshortcuts="S"
+                  title="Slur over the selected notes, or to the next note (S)"
+                >
+                  <span class="glyph" aria-hidden="true">⌒</span> Slur</button
+                ><button
+                  data-palette="line:crescendo"
+                  aria-label="Crescendo"
+                  title="Crescendo (getting louder) over the selected notes, or to the next note"
+                >
+                  <span class="glyph" aria-hidden="true">&lt;</span> Cresc.</button
+                ><button
+                  data-palette="line:diminuendo"
+                  aria-label="Diminuendo"
+                  title="Diminuendo (getting softer) over the selected notes, or to the next note"
+                >
+                  <span class="glyph" aria-hidden="true">&gt;</span> Dim.</button
+                ><button
+                  data-palette="line:trill"
+                  aria-label="Trill line"
+                  title="Trill line over the selected notes, or to the next note"
+                >
+                  <span class="glyph trill-glyph" aria-hidden="true">tr</span> Trill line
                 </button>
               </div>
               <div role="group" aria-label="More marks">
@@ -786,6 +848,12 @@
                   <option value="4">4</option>
                   <option value="6">6</option>
                 </select></label
+              ><label
+                class="inline dark-paper-option"
+                id="dark-paper-option"
+                title="Show the score in light ink on dark paper. Prints and exports stay black on white."
+                hidden
+                ><input type="checkbox" id="dark-paper" /> Dark paper</label
               >
             </div>
             <div class="notation-paper">
@@ -794,6 +862,23 @@
                 tabindex="0"
                 aria-label="Score. Click a note, then type A to G to add notes after it; arrow keys move and select, Shift+arrows select more."
               ></div>
+              <div id="chord-entry" class="chord-entry" role="group" aria-label="Chord symbol" hidden>
+                <input
+                  id="chord-input"
+                  type="text"
+                  maxlength="40"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  enterkeyhint="done"
+                  placeholder="G7"
+                  aria-label="Chord symbol"
+                  aria-describedby="chord-hint"
+                /><button id="chord-next" type="button" tabindex="-1" title="Save and go to the next note (Tab)">
+                  Next ▸
+                </button>
+                <p id="chord-hint" class="chord-hint" aria-live="polite">Enter saves · Tab next note · Esc cancels</p>
+              </div>
             </div>
             <div
               id="piano"
@@ -822,15 +907,81 @@
               ><button id="share-link" class="primary">Share link</button>
             </div>
             <div id="share-panel" class="share-panel" hidden>
-              <label for="share-url">Link to this score</label>
-              <div class="share-row">
-                <input id="share-url" readonly spellcheck="false" aria-describedby="share-note" /><button
-                  id="share-copy"
-                >
-                  Copy</button
-                ><button id="share-close" aria-label="Close share link">✕</button>
+              <div class="share-head">
+                <div class="share-tabs" role="tablist" aria-label="Share as">
+                  <button id="share-tab-link" role="tab" aria-selected="true" aria-controls="share-pane-link">
+                    Link</button
+                  ><button
+                    id="share-tab-embed"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="share-pane-embed"
+                    tabindex="-1"
+                  >
+                    Embed</button
+                  ><button
+                    id="share-tab-qr"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="share-pane-qr"
+                    tabindex="-1"
+                  >
+                    QR code
+                  </button>
+                </div>
+                <button id="share-close" aria-label="Close sharing">✕</button>
               </div>
-              <p id="share-note" class="small"></p>
+              <div id="share-pane-link" role="tabpanel" aria-labelledby="share-tab-link">
+                <label for="share-url">Link to this score</label>
+                <div class="share-row">
+                  <input id="share-url" readonly spellcheck="false" aria-describedby="share-note" /><button
+                    id="share-copy"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <p id="share-note" class="small"></p>
+              </div>
+              <div id="share-pane-embed" role="tabpanel" aria-labelledby="share-tab-embed" hidden>
+                <p class="small">
+                  Paste this code into a class website, Google Sites, Canvas or a blog. Visitors see the score with Play
+                  and the credits; they can’t edit it, and nothing is saved on their device.
+                </p>
+                <div class="embed-size">
+                  <label
+                    >Width<input
+                      id="embed-width"
+                      value="100%"
+                      spellcheck="false"
+                      aria-describedby="embed-size-note" /></label
+                  ><label
+                    >Height<input
+                      id="embed-height"
+                      type="number"
+                      min="200"
+                      max="2000"
+                      step="10"
+                      value="420"
+                      aria-describedby="embed-size-note"
+                  /></label>
+                </div>
+                <p id="embed-size-note" class="small">
+                  Width in pixels or a percentage up to 100%; height from 200 to 2,000 pixels.
+                </p>
+                <label for="embed-code">Embed code</label>
+                <div class="share-row">
+                  <textarea id="embed-code" readonly spellcheck="false" rows="4"></textarea
+                  ><button id="embed-copy">Copy</button>
+                </div>
+                <p class="small">
+                  <a id="embed-preview" target="_blank" rel="noopener">Preview the embedded view ↗</a>
+                </p>
+              </div>
+              <div id="share-pane-qr" role="tabpanel" aria-labelledby="share-tab-qr" hidden>
+                <div id="share-qr" class="share-qr"></div>
+                <p id="qr-note" class="small" aria-live="polite"></p>
+                <button id="qr-large" hidden>Show full screen</button>
+              </div>
             </div>
             <div id="source-edition" class="source-edition" hidden></div>
             <div class="rights-box" id="rights"></div>
@@ -847,7 +998,8 @@
             <p>
               Saved on this browser, on this device. <strong>Back up</strong> writes everything here to one file; choose
               a synced folder (OneDrive, Google Drive, iCloud) and it follows you. <strong>Restore</strong> merges a
-              backup into this device without deleting anything.
+              backup into this device without deleting anything. <strong>History</strong> on a score lists the copies
+              each save replaced.
             </p>
             <p id="backup-status" class="small"></p>
           </div>
@@ -863,6 +1015,28 @@
             </button>
           </div>
         </div>
+        <section id="history-panel" class="history-panel" aria-labelledby="history-heading" hidden>
+          <div class="history-head">
+            <h2 id="history-heading" tabindex="-1">History</h2>
+            <button id="history-close" aria-label="Close history">✕</button>
+          </div>
+          <p id="history-current" class="small"></p>
+          <ol id="history-list" class="history-list"></ol>
+          <div id="history-preview" class="history-preview" hidden>
+            <div class="history-preview-head">
+              <strong id="history-preview-title"></strong
+              ><span class="history-actions"
+                ><button id="history-play" aria-pressed="false">▶ Play</button
+                ><button id="history-restore" class="primary">Restore this version</button></span
+              >
+            </div>
+            <div id="history-score" class="history-score" role="img" aria-labelledby="history-preview-title"></div>
+          </div>
+          <p class="small">
+            Restore opens a version in Compose as unsaved work. Saving it makes it the current copy, and the copy it
+            replaces is kept here.
+          </p>
+        </section>
         <div id="saved-cards" class="cards"></div>
       </section>
       <section id="about" class="view prose" hidden>
@@ -896,17 +1070,21 @@
         <p>
           Use ABC notation, the note buttons, the notation toolbar above the score, the on-screen piano keys, or a USB
           MIDI keyboard (in browsers with Web MIDI, such as Chrome and Edge) to write music and chords, with
-          articulations, dynamics and ornaments; dynamics, accents and staccato change the playback. Press Z or Respell
-          to respell a note, such as C♯ as D♭. Hear each note as you enter it, play the score with built-in synthesized
-          tones, change tempo, loop playback, and export ABC, MIDI, SVG, or MusicXML (for MuseScore, Noteflight, Finale,
-          Sibelius or Dorico). Open MusicXML from those programs too, converted to ABC on your device. Select a passage
-          to copy, cut, paste or repeat it, or to move or lengthen every note in it at once. Measure in the toolbar
-          inserts and deletes bars, and adds double and final bar lines, repeats, 1st and 2nd endings, segno, coda,
-          D.C., D.S. and Fine, rehearsal letters, and changes of time signature, key or clef. Zoom in for larger
-          notation, or choose how many measures go on each line. Use Print / PDF to produce a paper score, in large
-          print if you zoom in first. Transpose a score or a few measures by any interval or to a new key. Choose a B♭
-          or E♭ instrument for written-pitch transposition with concert-pitch playback, and tick Concert pitch to see
-          the notes as they sound. Classroom colors and letters in noteheads help beginners read, and both print.
+          articulations, dynamics and ornaments; dynamics, accents and staccato change the playback. Select some notes
+          and press S for a slur, or add a crescendo, diminuendo or trill line from the toolbar. Press Z or Respell to
+          respell a note, such as C♯ as D♭. Add chord symbols to make a lead sheet; they play as an accompaniment, which
+          the Chords switch turns off. Hear each note as you enter it, play the score with built-in synthesized tones,
+          change tempo, play with a swing feel, loop playback, and export ABC, MIDI, SVG, or MusicXML (for MuseScore,
+          Noteflight, Finale, Sibelius or Dorico). Open MusicXML from those programs too, converted to ABC on your
+          device. Select a passage to copy, cut, paste or repeat it, or to move or lengthen every note in it at once.
+          Measure in the toolbar inserts and deletes bars, and adds double and final bar lines, repeats, 1st and 2nd
+          endings, segno, coda, D.C., D.S. and Fine, rehearsal letters, and changes of time signature, key or clef. Zoom
+          in for larger notation, or choose how many measures go on each line. Use Print / PDF to produce a paper score,
+          in large print if you zoom in first. Transpose a score or a few measures by any interval or to a new key.
+          Choose a B♭ or E♭ instrument for written-pitch transposition with concert-pitch playback, and tick Concert
+          pitch to see the notes as they sound. Classroom colors and letters in noteheads help beginners read, and both
+          print. Theme in the header switches to a dark theme, or follows your device; the score stays black on white
+          unless you tick Dark paper, and prints stay black on white.
         </p>
         <h2>Privacy and school access</h2>
         <p>
@@ -914,10 +1092,14 @@
           score inside the link itself, so a teacher can hand out an assignment, or a student can hand work back,
           through whatever the school already uses; nothing is uploaded. <strong>✎ Assignment</strong> adds a teacher’s
           instructions and goals to the link, and each student’s copy shows them with a checklist that ticks off as they
-          write. Library scores and the notation engine ship with the site, so the core experience makes no third-party
-          requests. Local storage can be cleared by the browser or school device policy; export work you want to keep.
-          Unsaved changes are kept as a draft in the browser, so a closed or discarded tab offers them back on the next
-          visit.
+          write. The share panel also gives <strong>embed code</strong> for a class website, Google Sites, Canvas or a
+          blog, which shows the score read-only with Play and its credits and saves nothing on the visitor’s device, and
+          a <strong>QR code</strong> of the link for students to scan from the projector. Library scores and the
+          notation engine ship with the site, so the core experience makes no third-party requests. Local storage can be
+          cleared by the browser or school device policy; export work you want to keep. Unsaved changes are kept as a
+          draft in the browser, so a closed or discarded tab offers them back on the next visit. Saving a changed score
+          keeps the copy it replaces: <strong>History</strong> in My scores previews, plays and restores earlier
+          versions.
         </p>
         <p>
           A school can still block any website or disable browser audio/downloads. This design makes the educational
@@ -933,8 +1115,12 @@
         <h2>Credits</h2>
         <p>
           Notation and MIDI generation use <a href="https://www.abcjs.net/" target="_blank" rel="noopener">abcjs</a>,
-          distributed under the MIT license. Playback is generated locally with the Web Audio API; no recordings or
-          soundfonts are downloaded.
+          distributed under the MIT license. QR codes are drawn on the page by
+          <a href="https://github.com/kazuhikoarase/qrcode-generator" target="_blank" rel="noopener"
+            >qrcode-generator</a
+          >
+          by Kazuhiko Arase, also MIT (“QR Code” is a trademark of DENSO WAVE). Playback is generated locally with the
+          Web Audio API; no recordings or soundfonts are downloaded.
         </p>
       </section>
     </main>
