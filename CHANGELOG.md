@@ -1,3 +1,12 @@
+# Embed code and QR code for share links · 2026-10-06
+
+- The share panel has **Link**, **Embed** and **QR code** tabs (arrow keys, Home and End move between them).
+- **Embed** gives a copyable `<iframe>` for a class website, Google Sites, Canvas or a blog, with width and height fields. Its `#e=` link carries the share link's own payload (still `v: 1`). It opens a read-only view: the score, Play, Stop, volume and speed, the credit line with any non-commercial label, and **Open in FretFree ↗** for an editable copy. Nothing on the embedded score can be selected or dragged, an assignment's goals are left to the student's copy, and the view reads and writes no storage, so no saved scores, played marks or drafts. The frame keeps its address, so a reload shows the same score; a damaged embed link says so.
+- **QR code** draws the share link as an SVG QR code for students to scan from the projector, with **Show full screen** where the browser supports it. Links over 2,331 characters, the most a QR code holds, get an explanation instead.
+- QR codes are encoded on the page by qrcode-generator 2.0.4 (Kazuhiko Arase, MIT), vendored as `vendor/qrcode.js` with its licence in `vendor/QRCODE-LICENSE.md` and credited on the About page.
+
+---
+
 # Classroom colors and letters in noteheads · 2026-10-06
 
 - **Colors: Classroom** (next to Note names) colors each notehead by its letter, in the Boomwhacker and handbell order: C red, D orange, E yellow with a dark outline, F green, G light blue, A dark blue, B purple. Sharps and flats keep their letter's color, in every octave and inside chords. Stems, rests and accidentals stay black.

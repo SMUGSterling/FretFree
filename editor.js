@@ -212,11 +212,16 @@ function engraveOptions() {
     responsive: 'resize',
     staffwidth: 740,
     add_classes: true,
-    dragging: true,
-    selectTypes: ['note', 'bar'],
-    selectionColor: '#317761',
-    dragColor: '#ba663d',
-    clickListener: scoreClick,
+    // An embedded score is read-only: nothing on it can be selected or dragged.
+    ...(embedView
+      ? {selectTypes: false}
+      : {
+          dragging: true,
+          selectTypes: ['note', 'bar'],
+          selectionColor: '#317761',
+          dragColor: '#ba663d',
+          clickListener: scoreClick
+        }),
     ...(fingering === 'guitar' ? {tablature: [{instrument: 'guitar', label: 'Guitar'}], paddingbottom: 40} : {}),
     ...(fingering === 'recorder' ? {paddingbottom: 120} : {})
   };
@@ -264,6 +269,9 @@ function updateRights() {
   if (r) {
     $('rights').innerHTML =
       `<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${nonCommercial(current) ? `<em>${esc(nonCommercialNote(current))}</em><br>` : ''}${current.attribution ? `Credit: ${esc(current.attribution)}<br>` : ''}${current.licenseURL ? `<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>` : ''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty ? 'Your edits stay private. Export or save a copy to preserve them.' : 'Use, print, practice, and adapt this teaching version.'}</span>`;
+  } else if (current?.kind === 'shared' && embedView) {
+    $('rights').innerHTML =
+      '<strong>Shared from FretFree</strong>The music is inside this page’s link; nothing was uploaded. Open it in FretFree to practice, edit or save a copy.';
   } else if (current?.kind === 'shared') {
     $('rights').innerHTML =
       '<strong>Shared score</strong>Opened from a link. The music arrived inside the link itself; nothing was uploaded or stored elsewhere. Save it to My scores to keep a copy on this device.';
@@ -1944,8 +1952,11 @@ document.addEventListener('keydown', e => {
 });
 
 // Share by link. The link carries the score itself, so anyone with it gets a copy; nothing is uploaded.
-// Scores from a library edition carry the edition's id, so the rights notice travels with them.
+// Scores from a library edition carry the edition's id, so the rights notice travels with them. The share panel also
+// gives the same payload as embed code (#e=, a read-only view for an iframe) and as a QR code of the link.
 const SHARE_WARN_LENGTH = 8000;
+// The longest link a QR code holds (version 40 at error correction level M, byte mode).
+const QR_MAX_BYTES = 2331;
 function shareSourceId() {
   if (!current) return undefined;
   const source = catalog.find(
@@ -1953,6 +1964,8 @@ function shareSourceId() {
   );
   return source?.id;
 }
+const shareBase = () => `${location.origin}${location.pathname}`;
+let shareCode = '';
 async function shareLink() {
   const payload = {v: 1, a: $('abc').value, i: currentInstrument()};
   const source = shareSourceId();
@@ -1961,8 +1974,10 @@ async function shareLink() {
   const prompt = activePrompt();
   if (prompt?.level === 'Custom') payload.q = prompt;
   else if (prompt) payload.p = prompt.id;
-  const url = `${location.origin}${location.pathname}#s=${await encodeShare(payload)}`;
+  shareCode = await encodeShare(payload);
+  const url = `${shareBase()}#s=${shareCode}`;
   const panel = $('share-panel');
+  if (panel.hidden) showShareTab('link');
   panel.hidden = false;
   $('share-url').value = url;
   $('share-note').textContent =
@@ -1970,6 +1985,8 @@ async function shareLink() {
     (url.length > SHARE_WARN_LENGTH
       ? 'Some messaging apps cut links this long; export ABC for a safer copy.'
       : 'Anyone with the link gets a copy of the score. Nothing is uploaded; the music is inside the link.');
+  updateEmbedCode();
+  updateShareQR(url);
   let copied = false;
   try {
     if (typeof navigator.clipboard?.writeText !== 'function') throw new Error('no clipboard');
@@ -1978,9 +1995,22 @@ async function shareLink() {
   } catch {}
   toast(copied ? 'Link copied. Paste it anywhere.' : 'Select the link and copy it.');
   if (!copied) {
+    showShareTab('link');
     $('share-url').focus();
     $('share-url').select();
   }
+}
+// The score a link carries, ready to open: the library edition's credits come with it when the link names one.
+function sharedItem(payload) {
+  const source = catalog.find(x => x.id === payload.s);
+  return {
+    ...(source || {}),
+    title: payload.a.match(/^T:(.*)$/m)?.[1]?.trim() || 'Shared score',
+    composer: source?.composer || payload.a.match(/^C:(.*)$/m)?.[1]?.trim() || '',
+    kind: 'shared',
+    abc: payload.a,
+    instrument: instruments[payload.i] ? payload.i : undefined
+  };
 }
 // A shared score opens as a copy, in the sender's instrument, with the library edition's credits when it has one.
 async function openSharedLink(hash) {
@@ -1989,17 +2019,10 @@ async function openSharedLink(hash) {
     toast('This link did not contain a readable score.');
     return false;
   }
-  const source = catalog.find(x => x.id === payload.s);
-  const title = payload.a.match(/^T:(.*)$/m)?.[1]?.trim() || 'Shared score';
   // A teacher's assignment opens only if it passes validPrompt; otherwise the score still opens, without it.
   const assignment = 'q' in payload ? validPrompt(payload.q) : null;
   openScore({
-    ...(source || {}),
-    title,
-    composer: source?.composer || payload.a.match(/^C:(.*)$/m)?.[1]?.trim() || '',
-    kind: 'shared',
-    abc: payload.a,
-    instrument: instruments[payload.i] ? payload.i : undefined,
+    ...sharedItem(payload),
     prompt: assignment || (typeof payload.p === 'string' && promptById(payload.p) ? payload.p : undefined)
   });
   // The link was the only copy and show() has replaced it in the address bar, so treat the score as unsaved work.
@@ -2023,16 +2046,120 @@ async function openSharedLink(hash) {
   scheduleDraft();
   return true;
 }
-$('share-link').onclick = () => shareLink().catch(e => toast('Could not make a link: ' + e.message));
-$('share-copy').onclick = async () => {
-  try {
-    await navigator.clipboard.writeText($('share-url').value);
-    toast('Link copied.');
-  } catch {
-    $('share-url').focus();
-    $('share-url').select();
+// The embedded view (#e=…, in an iframe on a class website): the score read-only with Play, Stop, speed and its
+// credits, and a link that opens an editable copy in FretFree. body.embed hides everything else; shared.js keeps
+// storage untouched, and show() leaves the address alone so reloading the frame keeps the score.
+async function openEmbed(hash) {
+  const code = hash.slice(2),
+    payload = await decodeShare(code);
+  show('studio');
+  $('embed-bar').hidden = false;
+  $('notation').removeAttribute('tabindex');
+  if (!payload) {
+    document.body.classList.add('embed-unreadable');
+    $('embed-title').textContent = 'This embedded score could not be read.';
+    $('embed-open').hidden = true;
+    return false;
   }
-};
+  // An assignment's goals and checklist belong to the student's own copy, so the embed shows only the score.
+  openScore(sharedItem(payload));
+  $('embed-title').textContent = current.title;
+  document.title = current.title + ' · FretFree';
+  $('notation').setAttribute('aria-label', `Score: ${current.title}. Read-only; press Play to hear it.`);
+  $('embed-open').href = `${location.href.split('#')[0]}#s=${code}`;
+  return true;
+}
+// The iframe snippet for a score page. Width is pixels or a percentage up to 100% (else 100%); height is 200 to 2,000
+// pixels (else 420).
+const embedWidthOK = width => /^[1-9]\d{0,3}%?$/.test(width) && !(width.endsWith('%') && parseInt(width) > 100);
+function embedSnippet(code, title, width = '100%', height = 420) {
+  width = String(width).trim();
+  if (!embedWidthOK(width)) width = '100%';
+  height = Math.max(200, Math.min(2000, Math.round(+height) || 420));
+  return `<iframe src="${esc(`${shareBase()}#e=${code}`)}" width="${width}" height="${height}" title="${esc('Score: ' + title)}" loading="lazy"></iframe>`;
+}
+function updateEmbedCode() {
+  if (!shareCode) return;
+  const width = $('embed-width').value.trim();
+  $('embed-width').setAttribute('aria-invalid', !embedWidthOK(width));
+  $('embed-code').value = embedSnippet(shareCode, field('T', 'Untitled'), width, $('embed-height').value);
+  $('embed-preview').href = `${shareBase()}#e=${shareCode}`;
+}
+// A QR code as SVG, drawn here from the vendored encoder (vendor/qrcode.js): dark modules on white with the standard
+// four-module quiet zone, each row's runs as one path. Null when the encoder is missing or the text is too long.
+function qrSVG(text, label) {
+  if (typeof qrcode !== 'function') return null;
+  let code;
+  try {
+    code = qrcode(0, 'M');
+    code.addData(text);
+    code.make();
+  } catch {
+    return null;
+  }
+  const count = code.getModuleCount(),
+    side = count + 8;
+  let d = '';
+  for (let y = 0; y < count; y++)
+    for (let x = 0; x < count; x++) {
+      if (!code.isDark(y, x)) continue;
+      let run = 1;
+      while (x + run < count && code.isDark(y, x + run)) run++;
+      d += `M${x + 4} ${y + 4}h${run}v1h-${run}z`;
+      x += run - 1;
+    }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${side} ${side}" shape-rendering="crispEdges" role="img" aria-label="${esc(label)}"><rect width="${side}" height="${side}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+}
+function updateShareQR(url) {
+  const bytes = new TextEncoder().encode(url).length,
+    svg = bytes <= QR_MAX_BYTES ? qrSVG(url, `QR code of the link to ${field('T', 'this score')}`) : null;
+  $('share-qr').innerHTML = svg || '';
+  $('share-qr').hidden = !svg;
+  $('qr-large').hidden = !svg || !document.fullscreenEnabled;
+  $('qr-note').textContent = svg
+    ? 'Scan it with a phone or tablet camera to open a copy of this score.'
+    : typeof qrcode !== 'function'
+      ? 'QR codes could not be drawn in this browser. Share the link instead.'
+      : `This link is too long for a QR code: ${bytes.toLocaleString()} characters, and a QR code holds about 2,300. Share the link or the embed code instead, or share a few measures at a time.`;
+}
+const SHARE_TABS = ['link', 'embed', 'qr'];
+function showShareTab(name, focus = false) {
+  for (const tab of SHARE_TABS) {
+    const button = $('share-tab-' + tab),
+      on = tab === name;
+    button.setAttribute('aria-selected', on);
+    button.tabIndex = on ? 0 : -1;
+    $('share-pane-' + tab).hidden = !on;
+    if (on && focus) button.focus();
+  }
+}
+for (const tab of SHARE_TABS) $('share-tab-' + tab).onclick = () => showShareTab(tab);
+// Tabs follow the ARIA tabs pattern: arrow keys, Home and End move between them.
+$('share-tab-link').parentElement.addEventListener('keydown', e => {
+  const at = SHARE_TABS.findIndex(tab => $('share-tab-' + tab) === e.target),
+    to = {ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: SHARE_TABS.length - 1}[e.key];
+  if (at < 0 || to == null) return;
+  e.preventDefault();
+  showShareTab(SHARE_TABS[(to + SHARE_TABS.length) % SHARE_TABS.length], true);
+});
+async function copyField(id, message) {
+  try {
+    await navigator.clipboard.writeText($(id).value);
+    toast(message);
+  } catch {
+    $(id).focus();
+    $(id).select();
+  }
+}
+$('share-link').onclick = () => shareLink().catch(e => toast('Could not make a link: ' + e.message));
+$('share-copy').onclick = () => copyField('share-url', 'Link copied.');
+$('embed-copy').onclick = () => copyField('embed-code', 'Embed code copied. Paste it into your page’s HTML.');
+for (const id of ['embed-width', 'embed-height']) $(id).addEventListener('input', updateEmbedCode);
+// A projector shows the code full screen; browsers without the Fullscreen API (iPhone) keep the panel's size.
+$('qr-large').onclick = () =>
+  $('share-qr')
+    .requestFullscreen?.()
+    .catch(() => {});
 $('share-close').onclick = () => ($('share-panel').hidden = true);
 
 // Unsaved-work recovery. While the score has unsaved changes, a copy goes to the local draft list two seconds later

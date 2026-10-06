@@ -8,6 +8,7 @@ const {JSDOM} = require(process.env.JSDOM_PATH || 'jsdom');
 const root = path.resolve(__dirname, '..');
 const SCRIPTS = [
   'vendor/abcjs-basic-min.js',
+  'vendor/qrcode.js',
   'catalog.js',
   'catalog-expanded.js',
   'score-tools.js',
@@ -372,6 +373,166 @@ assert.equal(
   assert.ok($('rights').textContent.includes('CC0'), 'Credits travel with the link');
   assert.equal($('next-up').hidden, true, 'No suggestions for a shared copy');
   assert.equal(await run('openSharedLink("s=1garbage")'), false, 'A damaged link is refused');
+
+  // Embed code and QR code. The Embed tab's snippet carries the link's own payload as #e=, with sizes kept in range and
+  // the title escaped; the tabs follow the ARIA pattern; the QR code draws the vendored encoder's modules exactly, and
+  // a link too long for a QR code gets a note instead.
+  {
+    run('dirty = false');
+    const nc = run('catalog.find(x => nonCommercial(x)).id');
+    run(`openScore(catalog.find(x => x.id === ${JSON.stringify(nc)}))`);
+    $('abc').value = $('abc').value.replace(/^T:.*$/m, 'T:Tom & "Jerry" <reel>');
+    run('changed(); clearTimeout(renderTimer); render()');
+    await run('shareLink()');
+    const url = $('share-url').value,
+      code = url.split('#s=')[1];
+    assert.deepEqual(
+      [$('share-tab-link').getAttribute('aria-selected'), $('share-pane-link').hidden, $('share-pane-embed').hidden],
+      ['true', false, true],
+      'The panel opens on the Link tab'
+    );
+    $('share-tab-embed').click();
+    assert.deepEqual(
+      [
+        $('share-pane-link').hidden,
+        $('share-pane-embed').hidden,
+        $('share-tab-embed').tabIndex,
+        $('share-tab-link').tabIndex
+      ],
+      [true, false, 0, -1],
+      'The Embed tab shows its pane and takes the tab stop'
+    );
+    assert.equal(
+      $('embed-code').value,
+      `<iframe src="http://localhost:8000/#e=${code}" width="100%" height="420" title="Score: Tom &amp; &quot;Jerry&quot; &lt;reel&gt;" loading="lazy"></iframe>`
+    );
+    for (const [width, height, expected, invalid] of [
+      ['640', '300', 'width="640" height="300"', 'false'],
+      [' 80% ', '50', 'width="80%" height="200"', 'false'],
+      ['150%', '99999', 'width="100%" height="2000"', 'true'],
+      ['wide', '', 'width="100%" height="420"', 'true']
+    ]) {
+      $('embed-width').value = width;
+      $('embed-height').value = height;
+      $('embed-width').dispatchEvent(new w.Event('input'));
+      assert.ok(
+        $('embed-code').value.includes(expected),
+        `Size ${width} × ${height}: ${$('embed-code').value.slice(-90)}`
+      );
+      assert.equal($('embed-width').getAttribute('aria-invalid'), invalid);
+    }
+    $('embed-width').value = '100%';
+    $('embed-height').value = '420';
+    const key = (id, k) => $(id).dispatchEvent(new w.KeyboardEvent('keydown', {key: k, bubbles: true}));
+    key('share-tab-embed', 'ArrowRight');
+    assert.equal(w.document.activeElement.id, 'share-tab-qr', 'ArrowRight moves to the QR code tab');
+    key('share-tab-qr', 'ArrowRight');
+    assert.equal(w.document.activeElement.id, 'share-tab-link', 'and wraps round to Link');
+    key('share-tab-link', 'End');
+    assert.equal($('share-pane-qr').hidden, false, 'End opens the last tab');
+    const svg = $('share-qr').querySelector('svg');
+    assert.ok(svg && !$('share-qr').hidden, 'A typical tune gets a QR code');
+    assert.equal(svg.getAttribute('role'), 'img');
+    assert.match(svg.getAttribute('aria-label'), /^QR code of the link to Tom & "Jerry"/);
+    const dark = run(`(() => {
+      const q = qrcode(0, 'M');
+      q.addData(${JSON.stringify(url)});
+      q.make();
+      const cells = [];
+      for (let y = 0; y < q.getModuleCount(); y++)
+        for (let x = 0; x < q.getModuleCount(); x++) if (q.isDark(y, x)) cells.push((x + 4) + ',' + (y + 4));
+      return {count: q.getModuleCount(), cells: cells.join(' ')};
+    })()`);
+    assert.equal(svg.getAttribute('viewBox'), `0 0 ${dark.count + 8} ${dark.count + 8}`, 'Four modules of quiet zone');
+    const drawn = [];
+    for (const [, x, y, run] of svg
+      .querySelector('path')
+      .getAttribute('d')
+      .matchAll(/M(\d+) (\d+)h(\d+)v1h-\3z/g))
+      for (let i = 0; i < +run; i++) drawn.push(+x + i + ',' + y);
+    assert.equal(
+      drawn.sort().join(' '),
+      dark.cells.split(' ').sort().join(' '),
+      'Every dark module is drawn, and nothing else'
+    );
+    assert.match($('qr-note').textContent, /Scan it/);
+    $('abc').value = $('abc').value.replace(/^K:.*$/m, line => line + '\n% ' + 'a'.repeat(2400));
+    run('changed(); clearTimeout(renderTimer); render()');
+    await run('shareLink()');
+    assert.equal($('share-qr').hidden, true, 'No QR code for a link longer than one holds');
+    assert.match($('qr-note').textContent, /too long for a QR code: [\d,]+ characters/);
+    assert.equal(run('qrSVG("x".repeat(QR_MAX_BYTES + 1), "")'), null, 'The encoder refuses what does not fit');
+    assert.ok(run('qrSVG("x".repeat(QR_MAX_BYTES), "")'), 'The longest link that fits is drawn');
+    $('share-close').click();
+    run('dirty = false');
+
+    // The embed route (#e=): the score alone, read-only, with its credits and NC label, a link that opens an editable
+    // copy, and no storage read or written. A damaged embed says so.
+    const before = storage => {
+      storage.setItem(
+        'commonnote-scores-v1',
+        JSON.stringify([{id: 'mine', title: 'Mine', abc: 'X:1\nT:Mine\nK:C\nC4 |]', updated: 1}])
+      );
+      storage.setItem('fretfree-played', '["ode"]');
+    };
+    const page = boot(before, 'http://localhost:8000/index.html#e=' + code),
+      snapshot = () => JSON.stringify({...page.w.localStorage});
+    for (let i = 0; i < 100 && page.run('current?.kind') !== 'shared'; i++) await new Promise(r => setTimeout(r, 20));
+    const stored = snapshot();
+    assert.deepEqual(
+      [
+        page.w.document.body.classList.contains('embed'),
+        page.$('studio').hidden,
+        page.$('library').hidden,
+        page.$('embed-bar').hidden,
+        page.$('embed-title').textContent,
+        page.w.document.title,
+        page.w.location.hash.startsWith('#e='),
+        page.$('embed-open').href,
+        page.$('embed-open').target,
+        page.$('notation').hasAttribute('tabindex'),
+        page.$('cards').children.length
+      ],
+      [
+        true,
+        false,
+        true,
+        false,
+        'Tom & "Jerry" <reel>',
+        'Tom & "Jerry" <reel> · FretFree',
+        true,
+        'http://localhost:8000/index.html#s=' + code,
+        '_blank',
+        false,
+        0
+      ],
+      'The embed shows the score alone, keeps its address and links to an editable copy'
+    );
+    assert.match(page.$('rights').textContent, /NON-COMMERCIAL EDITION/, 'The embed shows the NC label');
+    assert.match(page.$('rights').textContent, /Non-commercial edition: free to use/);
+    assert.ok(page.$('notation').querySelector('svg'), 'The score is engraved');
+    assert.deepEqual(
+      [page.run('engraveOptions().selectTypes'), page.run('engraveOptions().clickListener'), page.run('dirty')],
+      [false, undefined, false],
+      'Nothing on the embedded score can be selected or dragged, and it is not unsaved work'
+    );
+    assert.deepEqual(
+      [page.run('saved.length'), page.run('played.size'), page.$('draft-banner').hidden],
+      [0, 0, true],
+      'The embed reads no saved scores, played marks or drafts'
+    );
+    page.run('render(); flushDraft()');
+    page.w.dispatchEvent(new page.w.Event('pagehide'));
+    page.$('speed').value = 80;
+    page.$('speed').oninput();
+    assert.equal(snapshot(), stored, 'The embed writes nothing to storage');
+    const damaged = boot(() => {}, 'http://localhost:8000/#e=1garbage');
+    for (let i = 0; i < 100 && !damaged.w.document.body.classList.contains('embed-unreadable'); i++)
+      await new Promise(r => setTimeout(r, 20));
+    assert.equal(damaged.$('embed-title').textContent, 'This embedded score could not be read.');
+    assert.equal(damaged.$('embed-open').hidden, true);
+    assert.equal(damaged.$('library').hidden, true, 'A damaged embed does not fall back to the library');
+  }
 
   // Teacher-written assignments: the builder takes its defaults from the score, three goals become a live checklist,
   // the link carries the assignment as q (never p), and the student's copy keeps it through save, reopen and backup.
@@ -806,7 +967,7 @@ assert.equal(
     assert.equal(page.run('current.kind'), 'shared', 'Discard leaves the open score alone');
   }
   console.log(
-    'PASS (jsdom): unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors), blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
+    'PASS (jsdom): embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors), blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
   );
 })().catch(e => {
   console.error(e);

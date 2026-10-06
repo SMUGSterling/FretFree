@@ -918,6 +918,90 @@ const {chromium} = require('playwright'),
   await broken.waitForFunction(() => !$('library').hidden);
   assert.match(await broken.evaluate(() => $('toast').textContent), /did not contain a readable score/);
   await broken.close();
+  // Embed code and QR code: the share panel's tabs work by keyboard; the copied snippet, pasted into a local HTML file,
+  // shows the score read-only with Play and the edition's credits, and writes nothing to storage; long links get a note.
+  {
+    await page.focus('#share-tab-link');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'share-tab-embed', 'Arrow keys move along tabs');
+    assert.ok(await page.isVisible('#embed-code'), 'The Embed tab shows the code');
+    await page.fill('#embed-height', '480');
+    const snippet = await page.inputValue('#embed-code'),
+      code = shareUrl.split('#s=')[1];
+    assert.ok(
+      snippet.includes(`#e=${code}" width="100%" height="480" title="Score: Für Elise (shared)`) &&
+        snippet.endsWith('loading="lazy"></iframe>'),
+      'The embed code carries the same score as the link: ' + snippet.slice(-90)
+    );
+    await page.focus('#share-tab-embed');
+    await page.keyboard.press('End');
+    assert.ok(await page.isVisible('#share-qr svg'), 'A typical tune gets a QR code');
+    const fs = require('node:fs'),
+      os = require('node:os'),
+      path = require('node:path'),
+      file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fretfree-embed-')), 'class.html');
+    fs.writeFileSync(
+      file,
+      `<!doctype html><meta charset="utf-8"><title>Class page</title><h1>Our class</h1>${snippet}`
+    );
+    for (const width of [1280, 390]) {
+      const host = await browser.newPage({viewport: {width, height: 900}});
+      host.on('pageerror', e => errors.push('embed: ' + e.message));
+      await host.goto('file://' + file);
+      const frame = await (await host.waitForSelector('iframe')).contentFrame();
+      await frame.waitForFunction(
+        () => typeof current !== 'undefined' && current?.kind === 'shared' && document.querySelector('#notation svg')
+      );
+      const keys = await frame.evaluate(() => Object.keys(localStorage).sort().join());
+      assert.deepEqual(
+        await frame.evaluate(() => [
+          document.body.classList.contains('embed'),
+          $('embed-title').textContent,
+          $('rights').textContent.includes('CC0'),
+          location.hash.startsWith('#e='),
+          $('embed-open').href.endsWith(location.hash.replace('#e=', '#s='))
+        ]),
+        [true, 'Für Elise (shared) · opening melody', true, true, true],
+        'The embed shows the score with its credits and an Open in FretFree link'
+      );
+      for (const hidden of ['header', 'nav', '.editor-panel', '#palette', '.export-bar', '#loop', '#start-measure'])
+        assert.equal(await frame.isVisible(hidden), false, `The embed hides ${hidden}`);
+      for (const shown of ['#play', '#stop', '#speed', '#rights', '#embed-open'])
+        assert.ok(await frame.isVisible(shown), `The embed shows ${shown}`);
+      assert.ok(
+        await frame.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
+        `No sideways scroll in the embed at ${width}px`
+      );
+      const abc = await frame.evaluate(() => $('abc').value);
+      await frame.locator('#notation .abcjs-notehead').first().click({force: true});
+      await frame.click('#play');
+      await frame.waitForFunction(() => playing);
+      await frame.click('#stop');
+      assert.equal(await frame.evaluate(() => $('abc').value), abc, 'Clicking the embedded score changes nothing');
+      assert.equal(
+        await frame.evaluate(() => Object.keys(localStorage).sort().join()),
+        keys,
+        'Playing an embedded score writes no storage'
+      );
+      await host.close();
+    }
+    // A link longer than a QR code holds gets an explanation instead (a comment of random letters does not compress).
+    await page.evaluate(() => {
+      const letters = Array.from(
+        crypto.getRandomValues(new Uint8Array(3000)),
+        b => 'abcdefghijklmnopqrstuvwxyz'[b % 26]
+      );
+      $('abc').value = $('abc').value.replace(/^K:.*$/m, line => `${line}\n% ${letters.join('')}`);
+      changed();
+    });
+    await page.click('#share-link');
+    await page.waitForFunction(() => $('qr-note').textContent.includes('too long'));
+    assert.equal(await page.isVisible('#share-qr svg'), false, 'No QR code for a very long link');
+    await page.evaluate(() => {
+      dirty = false;
+      $('share-panel').hidden = true;
+    });
+  }
   // Teacher-written assignment: build it with the keyboard on a 4-bar sheet, share it, open the link as a student,
   // write to meet every goal, and check that the instructions print above the score while the checklist does not.
   await page.evaluate(() => {
@@ -1674,7 +1758,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
+    'PASS: embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes and the long-link note, share panel tabs by keyboard, unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

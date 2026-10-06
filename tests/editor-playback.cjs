@@ -63,6 +63,7 @@ class FakeAudio {
 w.AudioContext = FakeAudio;
 for (const f of [
   'vendor/abcjs-basic-min.js',
+  'vendor/qrcode.js',
   'catalog.js',
   'catalog-expanded.js',
   'score-tools.js',

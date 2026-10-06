@@ -10,7 +10,8 @@ function show(view) {
   }
   if (view !== 'studio') stop();
   if (view !== 'library') stopPreview();
-  history.replaceState(null, '', '#' + view);
+  // An embedded score keeps its #e= address, so reloading the frame shows the same score.
+  if (!embedView) history.replaceState(null, '', '#' + view);
   window.scrollTo({top: 0, behavior: 'smooth'});
 }
 function allowReplace() {
@@ -367,11 +368,13 @@ ABCJS.renderAbc('hero-notation', catalog[0].abc, {
   paddingtop: 25,
   paddingbottom: 30
 });
-renderCards();
+// An embedded score opens on its own: no library cards, no blank sheet first, no draft offer and no storage.
+if (!embedView) renderCards();
 // Unsaved work from an earlier visit is offered once the start-up score is open; a share link opens first.
 loadDrafts();
-newScore();
-if (initialView.startsWith('s=')) {
+if (!embedView) newScore();
+if (embedView) openEmbed(initialView);
+else if (initialView.startsWith('s=')) {
   show('studio');
   openSharedLink(initialView).then(ok => {
     if (!ok) show('library');
