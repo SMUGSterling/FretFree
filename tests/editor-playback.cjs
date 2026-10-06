@@ -1034,7 +1034,7 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   pick(4);
   assert.equal(
     disabled(),
-    'tie to-rest acc:^ acc:_ acc:= acc: beam:join beam:break deco:staccato deco:tenuto deco:accent deco:marcato ' +
+    'tie to-rest acc:^ acc:_ acc:= acc: respell beam:join beam:break deco:staccato deco:tenuto deco:accent deco:marcato ' +
       'deco:wedge deco:upbow deco:downbow deco:breath deco:trill deco:mordent deco:turn deco:arpeggio',
     'A rest offers a dynamic and a fermata'
   );
@@ -1138,7 +1138,11 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   run('inputLength=null');
   open('C D E F | G4 |]');
   assert.equal(select(0, 2), 3);
-  assert.equal(disabled(), 'to-rest acc: beam:join beam:break', 'Buttons that cannot act on every note are off');
+  assert.equal(
+    disabled(),
+    'to-rest acc: respell beam:join beam:break',
+    'Buttons that cannot act on every note are off'
+  );
   press('to-rest');
   assert.equal(status(), 'Select a single note for this.');
   assert.equal(body(), 'C D E F | G4 |]');
