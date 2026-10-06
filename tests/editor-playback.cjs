@@ -1599,6 +1599,47 @@ async function checkPlayback() {
   );
   run(`openScore({abc:${JSON.stringify('X:1\nM:6/8\nL:1/8\nK:C\nc3 d3|]')}})`);
   assert.equal(run('beatsPerBar()'), 2, '6/8 counts two dotted beats');
+  // Cut time: the practice range, metronome and count-in keep time with the notes as heard. abcjs wrote 2/2 MIDI at
+  // half speed, so a one-bar range ended halfway through the bar and the clicks ran twice as fast as the notes.
+  const cut = 'X:1\nM:2/2\nL:1/8\nQ:1/2=60\nK:C\nCDEF GABc | cBAG FEDC | C8 |]';
+  run(`openScore({abc:${JSON.stringify(cut)},instrument:'Flute'});$('speed').value=100;setRange(1,1)`);
+  const heard = run(`parseMidi(midiBytes(${JSON.stringify(cut)})).notes.map(n => n.start)`);
+  assert.deepEqual([heard[1], heard[8], heard[16]], [0.25, 2, 4], 'Half = 60: eighths 0.25 s apart, bars 2 s');
+  assert.deepEqual(
+    [run('measureStarts.get(2)'), run('measureStarts.get(3)')],
+    [heard[8], heard[16]],
+    'Measure starts fall on the notes heard'
+  );
+  assert.equal(run('rangeEnd(1,99)'), 2, 'A one-bar range in 2/2 lasts the whole bar');
+  oscillators.length = 0;
+  await run('play()');
+  assert.equal(oscillators.length, 8, 'The range plays every note of its bar');
+  assert.ok(Math.abs(oscillators[7].startAt - oscillators[0].startAt - 1.75) < 1e-9, 'At the written tempo');
+  run('stop()');
+  run("$('metronome').checked=true;$('count-in').checked=true");
+  oscillators.length = 0;
+  await run('play()');
+  {
+    const clicks = oscillators.filter(o => o.type === 'square'),
+      notes = oscillators.filter(o => o.type !== 'square');
+    assert.equal(clicks.length, 4, 'Two half-note beats of count-in, then two clicks in the bar');
+    assert.ok(Math.abs(clicks[1].startAt - clicks[0].startAt - 1) < 1e-9, 'Count-in at half = 60');
+    assert.ok(Math.abs(notes[0].startAt - clicks[2].startAt) < 1e-9, 'The first note lands on the downbeat click');
+    assert.ok(Math.abs(notes[4].startAt - clicks[3].startAt) < 1e-9, 'The fifth eighth lands on the second beat');
+  }
+  run('stop()');
+  run("$('metronome').checked=false;$('count-in').checked=false");
+  // C| with no Q: keeps the speed it always sounded at (quarter = 180, half = 90); the timing follows it.
+  const reel = 'X:1\nM:C|\nL:1/8\nK:D\ndAFA dAFA | dfed cdeA |]';
+  run(`openScore({abc:${JSON.stringify(reel)}})`);
+  const reelNotes = run(`parseMidi(midiBytes(${JSON.stringify(reel)})).notes.map(n => n.start)`);
+  assert.ok(Math.abs(reelNotes[1] - 1 / 6) < 1e-6, 'Eighths at quarter = 180');
+  assert.ok(Math.abs(run('measureStarts.get(2)') - reelNotes[8]) < 1e-3, 'The bar starts with its first note');
+  assert.equal(
+    run('clickTimes(0,99,8/3).map(c=>c.time.toFixed(2)+(c.down?"*":"")).join()'),
+    '0.00*,0.67,1.33*,2.00',
+    'Clicks on the half-note beats'
+  );
   // Transpose panel, key changes and the key and meter menus.
   const body = () => run("$('abc').value.trim().split('\\n').pop()"),
     keyLine = () => run("$('abc').value.match(/^K:.*$/m)[0]");

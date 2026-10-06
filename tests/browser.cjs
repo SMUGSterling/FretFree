@@ -921,6 +921,47 @@ const {chromium} = require('playwright'),
     'Held whole note stays lit under moving quarters'
   );
   await page.click('#stop');
+  // In cut time the highlight stays on the note being heard: abcjs played 2/2 MIDI at half speed (and, with no Q:,
+  // timed the drawn notes at twice the speed they sounded), so the highlight ran ahead of the sound.
+  for (const abc of [
+    'X:1\nM:2/2\nL:1/4\nQ:1/2=60\nK:C\nC D E F | G A B c |]',
+    'X:1\nM:C|\nL:1/4\nK:C\nC D E F | G A B c |]'
+  ]) {
+    await reopen(abc);
+    await page.click('#play');
+    const samples = await page.evaluate(
+      abc =>
+        new Promise(done => {
+          const heard = parseMidi(midiBytes(abc)).notes,
+            heads = [...document.querySelectorAll('#notation .abcjs-note')],
+            out = [];
+          const sample = () => {
+            const at = playPosition();
+            if (at == null || at > heard.at(-1).start) return done(out);
+            const sounding = heard.findIndex(n => n.start <= at && at < n.start + n.duration);
+            // Skip the moments a note changes, which the next animation frame catches up with.
+            if (
+              sounding >= 0 &&
+              heard.every(n => Math.abs(n.start - at) > 0.05 && Math.abs(n.start + n.duration - at) > 0.05)
+            )
+              out.push({sounding, lit: heads.findIndex(h => h.classList.contains('abcjs-playing'))});
+            setTimeout(sample, 40);
+          };
+          sample();
+        }),
+      abc
+    );
+    await page.click('#stop');
+    assert.ok(
+      samples.length >= 10 && new Set(samples.map(s => s.sounding)).size >= 6,
+      `${abc}: ${samples.length} samples`
+    );
+    assert.deepEqual(
+      samples.filter(s => s.lit !== s.sounding),
+      [],
+      `${abc.split('\n')[1]}: the lit note is the one sounding`
+    );
+  }
   await reopen('X:1\nM:2/4\nK:C\nC4 D4|]');
   assert.match(await menuEdit(0, 'Half'), /C8 D4/, 'Implicit L:1/16 in 2/4');
   await reopen('X:1\nM:4/4\nL:1/4\nK:C\nB c d e|]', 'Clarinet in B♭');

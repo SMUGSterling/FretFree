@@ -229,7 +229,8 @@ function refreshPalette() {
 function updateMeasures() {
   measureStarts = new Map();
   if (renderedTune?.engraver) {
-    renderedTune.setTiming();
+    // The sound's tempo (see settleTempo), so the highlight, ranges, metronome and count-in keep time with it.
+    settleTempo(renderedTune).setTiming();
     for (const event of renderedTune.noteTimings || []) {
       if (event.type !== 'event') continue;
       const entries = (event.startCharArray || []).map(c => noteSources.get(c)).filter(Boolean);

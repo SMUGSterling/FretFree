@@ -1671,15 +1671,49 @@ function hashText(text) {
   return h;
 }
 
+// One tempo for both of abcjs's clocks. abcjs times the drawn notes (setTiming, noteTimings: the highlight, practice
+// ranges, metronome and count-in) in beats of the opening meter, a half note in 2/2 and a dotted quarter in 6/8, and
+// with no Q: at 180 beats a minute (120 in 6/8, 9/8 and 12/8). Its sound has its own default: 180 quarter notes a
+// minute outside x/8 meters, so a reel in C| sounded at half = 90 while the highlight ran at half = 180. A tempo with
+// no number (Q:"Slowly") played at 60 and was timed at 180, and a body tempo with no note length ([Q:120]) was heard
+// in quarters and timed in beats. This writes the tempo the sound uses into the parsed tune, where abcjs reads it for
+// both: no Q: (or no number) gives the sound's default, a body tempo with no number keeps the tempo before it, and one
+// with no length counts beats, as Q:120 does in the header. Nothing is drawn from it, since the tune is already
+// engraved (or never drawn), and the ABC is left alone.
+function settleTempo(tune) {
+  if (!tune?.metaText || typeof tune.getBeatLength !== 'function') return tune;
+  const beat = tune.getBeatLength(),
+    {num, den} = tune.getMeterFraction(),
+    tempo = tune.metaText.tempo;
+  if (!(tempo?.bpm > 0))
+    tune.metaText.tempo = {
+      ...tempo,
+      ...(+den === 8 ? {duration: [beat], bpm: +num !== 3 && num % 3 === 0 ? 120 : 180} : {duration: [1 / 4], bpm: 180})
+    };
+  else if (!tempo.duration?.length) tempo.duration = [beat];
+  let current = tune.metaText.tempo;
+  for (const line of tune.lines || [])
+    for (const staff of line.staff || [])
+      for (const e of (staff.voices || []).flat()) {
+        if (e.el_type !== 'tempo') continue;
+        if (!(e.bpm > 0)) Object.assign(e, {duration: current.duration, bpm: current.bpm});
+        else if (!e.duration?.length) e.duration = [beat];
+        current = e;
+      }
+  return tune;
+}
 // MIDI for playback and export. abcjs generates the file; parseMidi decodes its notes and tempo events.
-// Three abcjs slips are mended first. abcjs engraves sfz and marcato but plays them at the current volume, so they get
-// an accent (half as loud again). It plays any text in chord-symbol position that starts with A–G (Coda as a C chord,
-// D.C. as a D chord) and carries the last chord on through N.C.; here only what parseChordSymbol reads as a chord
-// plays, and N.C. stops the accompaniment until the next one. Its MIDI writer scales each note's gap by the tempo a
-// second time, so above about 95 bpm a staccato note-off comes before its note-on and the note rings on, and a tenuto
-// or slurred note runs into a repeat of its pitch, so one of the two is lost. Here staccato notes sound for 60% of
-// their length (abcjs's length at 60 bpm) and other notes for their full length. With chordsOff, chord symbols are not
-// played (the Chords switch); exports leave it out, so files keep the accompaniment.
+// Four abcjs slips are mended first. Its MIDI writer takes the tempo, counted in beats of the meter, as quarter notes
+// a minute (it corrects only x/8 meters), so 2/2, 3/2 and C| played at half speed: Q:1/2=60 sounded as quarter = 60.
+// Here the file's tempo is in quarter notes, and settleTempo gives the sound and the highlight the same tempo. abcjs
+// engraves sfz and marcato but plays them at the current volume, so they get an accent (half as loud again). It plays
+// any text in chord-symbol position that starts with A–G (Coda as a C chord, D.C. as a D chord) and carries the last
+// chord on through N.C.; here only what parseChordSymbol reads as a chord plays, and N.C. stops the accompaniment until
+// the next one. Its MIDI writer scales each note's gap by the tempo a second time, so above about 95 bpm a staccato
+// note-off comes before its note-on and the note rings on, and a tenuto or slurred note runs into a repeat of its
+// pitch, so one of the two is lost. Here staccato notes sound for 60% of their length (abcjs's length at 60 bpm) and
+// other notes for their full length. With chordsOff, chord symbols are not played (the Chords switch); exports leave
+// it out, so files keep the accompaniment.
 function midiBytes(source, {chordsOff = false} = {}) {
   const tune = ABCJS.parseOnly(source)[0];
   for (const line of tune?.lines || [])
@@ -1696,10 +1730,13 @@ function midiBytes(source, {chordsOff = false} = {}) {
             else c.position = 'above';
           }
       }
+  settleTempo(tune);
   const setUpAudio = tune?.setUpAudio;
   if (setUpAudio)
     tune.setUpAudio = function (options) {
       const sequence = setUpAudio.call(this, options);
+      // Beats a minute to quarters a minute. Body tempo changes stretch the notes by a ratio, so they follow.
+      sequence.tempo *= 4 * this.getBeatLength();
       for (const track of sequence.tracks)
         for (const e of track)
           if (e.cmd === 'note' && e.gap) {

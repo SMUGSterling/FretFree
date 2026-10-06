@@ -55,6 +55,11 @@ vm.runInContext(fs.readFileSync(require.resolve('../score-tools.js'), 'utf8'), c
 vm.runInContext(fs.readFileSync(require.resolve('../musicxml.js'), 'utf8'), context);
 assert.ok(context.library.length >= 200, 'Expanded library should contain at least 200 scores');
 assert.equal(new Set(context.library.map(x => x.id)).size, context.library.length, 'Unique score IDs');
+// The opening tempo of a MIDI file, in milliseconds a quarter note.
+const midiQuarter = bytes => {
+  const at = bytes.findIndex((b, i) => b === 0xff && bytes[i + 1] === 0x51 && bytes[i + 2] === 3);
+  return ((bytes[at + 3] << 16) | (bytes[at + 4] << 8) | bytes[at + 5]) / 1000;
+};
 for (const score of context.library) {
   const parsed = ABCJS.parseOnly(score.abc);
   assert.equal(parsed.length, 1, score.title);
@@ -64,6 +69,12 @@ for (const score of context.library) {
   const data = context.parseMidi(midi);
   assert.ok(data.notes.length > 0);
   assert.ok(data.duration > 0 && Number.isFinite(data.duration));
+  // The sound's tempo is the one abcjs times the drawn notes by (the highlight, practice ranges and metronome).
+  const timed = context.settleTempo(ABCJS.parseOnly(score.abc)[0]);
+  assert.ok(
+    Math.abs(midiQuarter(midi) - timed.millisecondsPerMeasure() / timed.getBarLength() / 4) < 0.01,
+    `${score.id}: MIDI tempo ${midiQuarter(midi)} ms a quarter, timed at ${timed.millisecondsPerMeasure()} ms a bar`
+  );
   for (const step of [-12, 2, 9]) {
     const transposed = ABCJS.strTranspose(score.abc, parsed, step);
     assert.ok(!ABCJS.parseOnly(transposed)[0].warnings?.length);
@@ -256,6 +267,46 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
       `${body}: at full length: ${played.map(n => n.duration.toFixed(3))}`
     );
   }
+}
+// Tempo in 2/2, 3/2 and C|. abcjs wrote their MIDI at half speed (Q:1/2=60 played as quarter = 60) and, with no Q:,
+// timed the drawn notes twice as fast as they sounded. A written tempo now plays in its own beat; with no Q: these
+// meters keep the speed they always sounded at, quarter = 180 (half = 90), and the timing follows.
+{
+  const starts = abc => context.parseMidi(context.midiBytes(abc)).notes.map(n => n.start),
+    same = (heard, expected, label) =>
+      assert.ok(
+        expected.every((t, i) => t == null || Math.abs(heard[i] - t) < 1e-3),
+        `${label}: ${heard.map(t => t.toFixed(3))}`
+      );
+  const bars = 'CDEF GABc | cBAG FEDC |]';
+  same(starts(`X:1\nM:2/2\nL:1/8\nQ:1/2=60\nK:C\n${bars}`), [0, 0.25, 0.5, 0.75, 1], '2/2, half = 60');
+  same(starts(`X:1\nM:2/2\nL:1/8\nQ:1/4=120\nK:C\n${bars}`), [0, 0.25, 0.5, 0.75, 1], '2/2, quarter = 120');
+  same(starts(`X:1\nM:2/2\nL:1/8\nQ:120\nK:C\n${bars}`), [0, 0.125, 0.25], '2/2, Q:120 counts half notes');
+  same(starts(`X:1\nM:3/2\nL:1/8\nQ:1/2=60\nK:C\nCDEF GABc cBAG |]`), [0, 0.25, 0.5], '3/2, half = 60');
+  same(starts(`X:1\nM:4/2\nL:1/4\nQ:1/2=60\nK:C\nCDEF GABc |]`), [0, 0.5, 1], '4/2, half = 60');
+  same(starts(`X:1\nM:C|\nL:1/8\nK:C\n${bars}`), [0, 1 / 6, 2 / 6], 'C| with no Q:, quarter = 180');
+  same(starts(`X:1\nM:2/2\nL:1/8\nK:C\n${bars}`), [0, 1 / 6, 2 / 6], '2/2 with no Q:, quarter = 180');
+  same(starts(`X:1\nM:6/4\nL:1/8\nK:C\n${bars}`), [0, 1 / 6, 2 / 6], '6/4 with no Q:, quarter = 180');
+  same(starts(`X:1\nM:4/4\nL:1/8\nK:C\n${bars}`), [0, 1 / 6, 2 / 6], '4/4 with no Q: is unchanged');
+  same(starts(`X:1\nM:6/8\nL:1/8\nK:C\nCDE FGA|]`), [0, 1 / 6, 2 / 6], '6/8 with no Q: is unchanged');
+  same(starts(`X:1\nM:4/4\nL:1/8\nQ:"Slowly"\nK:C\n${bars}`), [0, 1 / 6], 'A tempo with no number plays at 180');
+  // Tempo changes in the body, written inline or on their own line, with or without a Q: in the header.
+  const change = starts(`X:1\nM:2/2\nL:1/8\nQ:1/2=60\nK:C\nCDEF GABc | [Q:1/2=120] cBAG FEDC |]`);
+  same(change.slice(7), [1.75, 2, 2.125, 2.25], 'Half = 60, then half = 120');
+  const line = starts(`X:1\nM:2/2\nL:1/8\nQ:1/2=60\nK:C\nCDEF GABc |\nQ:1/4=60\ncBAG FEDC |]`);
+  same(line.slice(7), [1.75, 2, 2.5, 3], 'A Q: line in the body, quarter = 60');
+  const unset = starts(`X:1\nM:C|\nL:1/8\nK:C\nCDEF GABc | [Q:1/2=60] cBAG FEDC |]`);
+  same(unset.slice(8), [4 / 3, 4 / 3 + 0.25], 'No Q:, then half = 60');
+  const bare = starts(`X:1\nM:2/2\nL:1/8\nQ:1/2=60\nK:C\nCDEF GABc | [Q:120] cBAG | [Q:"Slower"] FEDC |]`);
+  same(bare.slice(8), [2, 2.125, 2.25, 2.375, 2.5, 2.625], '[Q:120] counts half notes, and a word keeps the tempo');
+  // Meter changes in the body: the opening meter's beat sets the tempo, so the notes keep their speed.
+  const meters = starts(`X:1\nM:2/2\nL:1/8\nQ:1/2=60\nK:C\nCDEF GABc | [M:4/4] cBAG FEDC | [M:3/2] CDEF GABc cBAG |]`);
+  same([meters[8], meters[16], meters[27]], [2, 4, 6.75], '2/2 to 4/4 to 3/2 at half = 60');
+  const into = starts(`X:1\nM:4/4\nL:1/8\nK:C\nCDEF GABc | [M:2/2] cBAG FEDC | [M:6/8] CDE FGA |]`);
+  same([into[8], into[16], into[21]], [4 / 3, 8 / 3, 3.5], '4/4 to 2/2 to 6/8 with no Q:');
+  // Exported MIDI says the same tempo in its own terms: half = 60 is 120 quarter notes a minute.
+  assert.equal(midiQuarter(context.midiBytes(`X:1\nM:C|\nL:1/8\nQ:1/2=60\nK:C\n${bars}`)), 500);
+  assert.equal(midiQuarter(context.midiBytes(`X:1\nM:6/8\nL:1/8\nQ:3/8=60\nK:C\nCDE FGA|]`)), 666.667);
 }
 // FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
 // Share links: the payload round-trips through deflate+base64url, and through plain base64url where
