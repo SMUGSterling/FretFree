@@ -218,6 +218,100 @@ assert.ok(chords.notes.filter(x => x.start === 0).length === 3, 'chord playback 
     .map(x => x.id);
   assert.equal(own.join(', '), '', 'FretFree teaching scores have correct bar lengths');
 }
+// Keys and transposition: key names and signatures, the key menu, intervals, whole-tune and slice transposition.
+{
+  const parts = v => {
+    const k = context.keyParts(v);
+    return [k.tonic, k.mode, k.key, k.rest].join('|');
+  };
+  assert.equal(parts('F clef=bass'), 'F||F| clef=bass', 'Modifiers after the key are kept apart');
+  assert.equal(parts('D dorian clef=bass'), 'D|Dor|D dorian| clef=bass');
+  assert.equal(parts('Bbm % flat'), 'Bb|m|Bbm| % flat');
+  assert.equal(parts('G treble'), 'G||G| treble', 'A clef name is not a mode');
+  assert.equal(parts('clef=bass'), '|||clef=bass', 'A clef-only field names no key');
+  assert.deepEqual(
+    ['C', 'G', 'F#', 'Cb', 'Am', 'Ebm', 'DDor', 'Dmix', 'BLoc', 'FLyd', 'none', 'HP'].map(context.keyFifths),
+    [0, 1, 6, -7, 0, -6, 0, 1, 0, 0, 0, null]
+  );
+  assert.deepEqual(['A minor', 'D dorian clef=bass', 'Gmaj', 'clef=bass'].map(context.canonicalKey), [
+    'Am',
+    'DDor',
+    'G',
+    'C'
+  ]);
+  assert.equal(context.keyLabel('Bb'), 'B♭ major (2♭)');
+  assert.equal(context.keyLabel('F#m'), 'F♯ minor (3♯)');
+  const keyList = vm.runInContext('KEY_LIST', context),
+    groups = name => keyList.filter(k => k.group === name).map(k => k.value);
+  assert.equal(groups('Major').length, 15, '15 major keys');
+  assert.equal(groups('Minor').length, 15, '15 minor keys');
+  assert.ok(groups('Major').includes('C#') && groups('Major').includes('Cb') && groups('Minor').includes('A#m'));
+  for (const [mode, value] of [
+    ['Dorian', 'DDor'],
+    ['Phrygian', 'EPhr'],
+    ['Lydian', 'FLyd'],
+    ['Mixolydian', 'GMix'],
+    ['Locrian', 'BLoc']
+  ])
+    assert.ok(groups(mode).includes(value), `${mode} mode listed`);
+  for (const k of keyList)
+    assert.ok(!ABCJS.parseOnly(`X:1\nK:${k.value}\nC|]`)[0].warnings?.length, `${k.value} parses`);
+  const move = (a, b) => JSON.stringify(context.keyInterval(a, b));
+  assert.equal(move('C', 'F#'), '{"semitones":6,"letters":3}', 'C to F# is an augmented 4th');
+  assert.equal(move('C', 'Gb'), '{"semitones":6,"letters":4}', 'C to Gb is a diminished 5th');
+  assert.equal(move('C', 'G'), '{"semitones":-5,"letters":-3}', 'The nearer way: down a 4th');
+  assert.equal(move('C', 'Em'), move('C', 'G'), 'A minor key moves by its signature');
+  const T = (abc, ...a) => context.transposeABC(abc, ...a);
+  assert.equal(
+    T('X:1\nL:1/4\nK:F\n"F"F "Bb"G|]', 2),
+    'X:1\nL:1/4\nK:G\n"G"G "C"A|]',
+    'Key, notes and chord symbols move'
+  );
+  assert.equal(
+    T('X:1\nL:1/4\nK:F clef=bass\nE F B c|]', 2),
+    'X:1\nL:1/4\nK:G clef=bass\nF G c d|]',
+    'clef= survives (strTranspose alone garbles the key)'
+  );
+  assert.equal(
+    T('X:1\nL:1/4\nK:clef=bass\nE F B c|]', 2),
+    'X:1\nL:1/4\nK:D clef=bass\nF G c d|]',
+    'A clef-only header key is C'
+  );
+  assert.equal(
+    T('X:1\nL:1/4\nK:C\n"C"C ^F "Am"=c {^g}G|]', 6, 3),
+    'X:1\nL:1/4\nK:F#\n"F#"F ^B "D#m"^f {^^c\'}c|]',
+    'Up an augmented 4th spells in F#'
+  );
+  assert.equal(
+    T('X:1\nL:1/4\nK:C\n"C"C ^F "Am"=c {^g}G|]', 6, 4),
+    'X:1\nL:1/4\nK:Gb\n"Gb"G =c "Ebm"_g {=d\'}d|]',
+    'Up a diminished 5th spells in Gb'
+  );
+  assert.equal(T('X:1\nK:B\nB|]', 2), 'X:1\nK:Db\nd|]', 'Seven sharps fall back to five flats');
+  assert.equal(T('X:1\nK:B\nB|]', 2, 1, 7), 'X:1\nK:C#\nc|]', 'unless seven are allowed');
+  assert.equal(
+    T('X:1\nL:1/4\nK:G\nG A|[K:clef=bass] B, C|[K:D] D E|]', -3),
+    'X:1\nL:1/4\nK:E\nE F|[K:clef=bass] G, A,|[K:B] B, C|]',
+    'Inline key changes move; clef-only fields stay'
+  );
+  assert.throws(() => T('X:1\nK:HP\nA|]', 2), /Bagpipe/);
+  const S = (...a) => context.transposeSlice(...a);
+  assert.equal(S('"F"F G A B|', 'F', '1/4', -3), '"D"D E ^F G|', 'A slice keeps its key signature');
+  assert.equal(S('E F ^F F|G', 'G', '1/4', 2), 'F ^G ^G G|A', 'Accidentals carry to the bar line');
+  assert.equal(S('c d e f', 'F', '1/4', -3, -2), 'A =B ^c d', 'Signature notes get naturals');
+  assert.throws(() => S('C [K:G] D', 'C', '1/4', 2), /changes key/);
+  const spans = abc =>
+    context
+      .measureSpans(ABCJS.parseOnly(abc)[0], 2, 2)
+      .map(s => abc.slice(s.start, s.end))
+      .join(' / ');
+  assert.equal(spans('X:1\nL:1/4\nK:C\nC D | E F | G A |]'), ' E F ', 'One measure, without its bar lines');
+  assert.equal(
+    spans('X:1\nL:1/4\nK:C\nV:1\nC D | E F | G A |]\nV:2\nc d | e f | g a |]'),
+    ' E F  /  e f ',
+    'One stretch per voice'
+  );
+}
 // Writing prompts: every example meets all its goals, and the blank starting score does not.
 vm.runInContext(
   fs
@@ -247,5 +341,5 @@ for (const prompt of context.writingPrompts) {
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, chords, public-domain declarations, and source-file hashes.'
 );

@@ -1,3 +1,12 @@
+# Transpose and key changes · 2026-10-06
+
+- **Transpose…** in Score settings moves the notes, key signatures and chord symbols by an interval up or down, or to a chosen key the nearer way round, as one undo step. Spelling follows the interval (an augmented 4th up from C is F♯ major, a diminished 5th is G♭). **Selection only** transposes the selected note's measure, or the practice range, and keeps the key signature.
+- The **Key** menu lists all 30 major and minor keys and the Dorian, Phrygian, Lydian, Mixolydian and Locrian modes, with their signatures. Picking a key asks **Transpose notes** or **Keep notes**; either way `clef=` and other modifiers on the K: line are kept (before, the key menu dropped them and never moved the notes).
+- The **Time signature** menu adds 2/2, 3/8, 5/4, 6/4, 7/8, 9/8, 12/8, C, C| and none.
+- Written pitch for B♭ and E♭ instruments now keeps `clef=` on the key line instead of garbling the key, and spells keys by the instrument's interval: concert E shows F♯ major on a B♭ clarinet, not G♭.
+
+---
+
 # Backup and restore · 2026-10-06
 
 - **My scores → ⬇ Back up** writes every saved score, favorite, played mark and practice setting to one JSON file. Where the browser offers a Save As dialog (Chrome, Edge) the file can go in a synced folder and is remembered for one-click repeat backups; elsewhere it downloads.

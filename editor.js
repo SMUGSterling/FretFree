@@ -18,16 +18,17 @@ function field(name, defaultValue = '') {
   const match = $('abc').value.match(new RegExp('^' + name + ':(.*)$', 'm'));
   return match ? match[1].trim() : defaultValue;
 }
-function assignSelect(id, value) {
+function assignSelect(id, value, label = value) {
   const select = $(id);
-  if (![...select.options].some(o => o.value === value)) select.add(new Option(value, value));
+  if (![...select.options].some(o => o.value === value)) select.add(new Option(label, value));
   select.value = value;
 }
 function syncFields() {
   $('title').value = field('T', 'Untitled');
   $('composer').value = field('C');
   assignSelect('meter', field('M', '4/4'));
-  assignSelect('key', field('K', 'C').split(/\s/)[0]);
+  assignSelect('key', canonicalKey(field('K', 'C')), keyLabel(field('K', 'C')));
+  hideKeyChoice();
   const m = field('Q', '100').match(/(\d+)\s*$/);
   $('bpm').value = m ? Math.max(40, Math.min(200, +m[1])) : 100;
   $('bpm-value').textContent = $('bpm').value;
@@ -35,7 +36,9 @@ function syncFields() {
 function setHeader(name, value) {
   const lines = $('abc').value.split('\n'),
     i = lines.findIndex(x => x.startsWith(name + ':'));
-  const text = name + ':' + String(value).replace(/[\r\n]/g, ' ');
+  let text = name + ':' + String(value).replace(/[\r\n]/g, ' ');
+  // A new key keeps the clef and other modifiers written after the old one.
+  if (name === 'K' && i >= 0) text += keyParts(lines[i].slice(2)).rest.replace(/^(?=\S)/, ' ');
   if (i >= 0) lines[i] = text;
   else
     lines.splice(
@@ -51,7 +54,12 @@ function setHeader(name, value) {
 function writtenABC() {
   let source = $('abc').value;
   const config = instruments[currentInstrument()];
-  if (config.shift) source = ABCJS.strTranspose(source, ABCJS.parseOnly(source), config.shift);
+  if (config.shift)
+    try {
+      source = transposeABC(source, config.shift);
+    } catch {
+      source = ABCJS.strTranspose(source, ABCJS.parseOnly(source), config.shift);
+    }
   source = source.replace(/^K:(.*)$/m, (_, key) => 'K:' + key.replace(/\s+clef=\S+/g, '') + ' clef=' + config.clef);
   if (fingeringShown() === 'recorder') source = source.replace(/^(X:.*)$/m, '$1\n%%staffsep 190');
   return labelSource(source, noteNamesMode());
@@ -1328,6 +1336,220 @@ $('prompt-cards').addEventListener('click', e => {
   const b = e.target.closest('[data-prompt]');
   if (b) startPrompt(promptById(b.dataset.prompt));
 });
+// Key changes and transposing. Keys here are the source's concert keys. Picking a key asks first: move the notes to
+// the new key, or keep them where they are and change only the signature. A score without notes just changes key.
+function fillKeySelect(select) {
+  for (const group of new Set(KEY_LIST.map(k => k.group))) {
+    const g = document.createElement('optgroup');
+    g.label = group;
+    for (const k of KEY_LIST.filter(x => x.group === group)) g.append(new Option(k.label, k.value));
+    select.append(g);
+  }
+}
+const sourceKey = () => canonicalKey(field('K', 'C'));
+let keyPending = null;
+function hideKeyChoice() {
+  keyPending = null;
+  if ($('key-choice')) $('key-choice').hidden = true;
+}
+function chooseKey(value) {
+  const from = sourceKey();
+  if (value === from) {
+    hideKeyChoice();
+    return;
+  }
+  const notes = scoreEvents(ABCJS.parseOnly($('abc').value)[0]).some(e => e.element.pitches?.length);
+  if (!notes) {
+    changeKey(value, false);
+    return;
+  }
+  keyPending = value;
+  $('key-choice-text').textContent = `Change the key to ${keyLabel(value)}:`;
+  $('key-transpose').disabled = !keyInterval(from, value);
+  $('key-choice').hidden = false;
+}
+function cancelKeyChoice() {
+  hideKeyChoice();
+  assignSelect('key', sourceKey(), keyLabel(field('K', 'C')));
+}
+// "up a major 2nd", or a count of semitones for moves that are not one of the listed intervals.
+function intervalWords(semitones, letters) {
+  const i = TRANSPOSE_INTERVALS.find(x => x.semitones === Math.abs(semitones) && x.letters === Math.abs(letters)),
+    way = semitones < 0 ? 'down' : 'up';
+  if (i) return `${way} ${/^[aeiou]/.test(i.name) ? 'an' : 'a'} ${i.name}`;
+  return `${way} ${Math.abs(semitones)} semitone${Math.abs(semitones) === 1 ? '' : 's'}`;
+}
+// Replace the whole source as one undo step.
+function commitSource(text, message) {
+  $('abc').value = text;
+  dirty = true;
+  $('save-status').textContent = 'Unsaved changes';
+  selectedRange = null;
+  clearTimeout(renderTimer);
+  syncFields();
+  render();
+  $('selection-status').textContent = message;
+  toast(message);
+}
+function changeKey(value, transpose) {
+  flushTyping();
+  hideKeyChoice();
+  const move = transpose ? keyInterval(sourceKey(), value) : null;
+  try {
+    if (move) $('abc').value = transposeABC($('abc').value, move.semitones, move.letters, 7);
+  } catch (e) {
+    toast(e.message);
+    cancelKeyChoice();
+    return;
+  }
+  setHeader('K', value);
+  const words = !move
+    ? 'The notes stay where they are.'
+    : move.semitones
+      ? `The notes moved ${intervalWords(move.semitones, move.letters)}.`
+      : 'The notes keep their pitches.';
+  commitSource($('abc').value, `Key: ${keyLabel(value)}. ${words}`);
+}
+$('key-transpose').onclick = () => keyPending && changeKey(keyPending, true);
+$('key-keep').onclick = () => keyPending && changeKey(keyPending, false);
+$('key-cancel').onclick = () => {
+  cancelKeyChoice();
+  $('key').focus();
+};
+$('key').addEventListener('keydown', e => {
+  if (e.key === 'Escape' && keyPending) cancelKeyChoice();
+});
+$('key-choice').addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  e.stopPropagation();
+  cancelKeyChoice();
+  $('key').focus();
+});
+// The Transpose panel: by an interval up or down, or to a key the nearer way round, for the whole score or only the
+// selected measures (the practice range when one is set, otherwise the selected note's measure).
+function transposeTarget() {
+  const {from, to, total} = measureRange();
+  if (noteSources.size && !(from === 1 && to === total)) return {from, to};
+  const sel = selectedNote();
+  return sel ? {from: sel.entry.measure, to: sel.entry.measure} : null;
+}
+const measuresText = t => (t.from === t.to ? `measure ${t.from}` : `measures ${t.from}–${t.to}`);
+function transposePlan() {
+  if ($('transpose-by-key').checked) {
+    const to = $('transpose-key').value,
+      move = keyInterval(sourceKey(), to);
+    return move && {...move, to};
+  }
+  const i = TRANSPOSE_INTERVALS.find(x => x.id === $('transpose-interval').value),
+    way = +$('transpose-direction').value;
+  return {semitones: i.semitones * way, letters: i.letters * way};
+}
+function refreshTranspose() {
+  if ($('transpose-panel').hidden) return;
+  const byKey = $('transpose-by-key').checked,
+    target = transposeTarget(),
+    only = $('transpose-selection');
+  $('transpose-interval-row').hidden = byKey;
+  $('transpose-key-row').hidden = !byKey;
+  only.disabled = !target;
+  if (!target) only.checked = false;
+  $('transpose-selection-label').textContent = target
+    ? `Selection only: ${measuresText(target)}`
+    : 'Selection only (click a note, or Shift+click to choose measures)';
+  const plan = transposePlan(),
+    key = sourceKey();
+  let note;
+  if (!plan) note = 'This key cannot be transposed.';
+  else {
+    const moved = intervalWords(plan.semitones, plan.letters);
+    if (plan.to === key) note = `The score is already in ${keyLabel(key)}.`;
+    else if (only.checked)
+      note = plan.semitones
+        ? `The notes in ${measuresText(target)} move ${moved}. The key signature stays.`
+        : 'The selected notes keep their pitches.';
+    else if (!plan.semitones) note = `${keyLabel(key)} becomes ${keyLabel(plan.to)}: the same pitches, spelled anew.`;
+    else {
+      const head = transposeABC(`X:1\nK:${key}\n`, plan.semitones, plan.letters, plan.to ? 7 : 6),
+        next = plan.to || keyParts(keyFields(head)[0].value).key;
+      note = `${keyLabel(key)} becomes ${keyLabel(next)}: the notes move ${moved}. Chord symbols move too.`;
+    }
+    if (transposing()) note += ` Keys are concert pitch; the score shows written pitch for ${currentInstrument()}.`;
+  }
+  $('transpose-note').textContent = note;
+}
+function toggleTranspose(open) {
+  $('transpose-panel').hidden = !open;
+  $('transpose-open').setAttribute('aria-expanded', open);
+  if (!open) return;
+  // Each opening starts on the whole score, so an old selection is never transposed by surprise.
+  $('transpose-selection').checked = false;
+  assignSelect('transpose-key', sourceKey(), keyLabel(field('K', 'C')));
+  refreshTranspose();
+  $('transpose-panel').querySelector('input:checked')?.focus();
+}
+function applyTranspose() {
+  if (renderedSource !== $('abc').value) {
+    clearTimeout(renderTimer);
+    render();
+  }
+  flushTyping();
+  const plan = transposePlan(),
+    target = $('transpose-selection').checked ? transposeTarget() : null,
+    value = $('abc').value;
+  if (!plan) {
+    toast('This key cannot be transposed.');
+    return;
+  }
+  let text = value;
+  try {
+    if (target)
+      for (const s of measureSpans(ABCJS.parseOnly(value)[0], target.from, target.to).reverse()) {
+        const unit = '1/' + Math.round(1 / unitLengthAt(s.start)),
+          moved = transposeSlice(
+            value.slice(s.start, s.end),
+            keyAt(value, s.start),
+            unit,
+            plan.semitones,
+            plan.letters
+          );
+        text = text.slice(0, s.start) + moved + text.slice(s.end);
+      }
+    else text = transposeABC(value, plan.semitones, plan.letters, plan.to ? 7 : 6);
+  } catch (e) {
+    toast(e.message);
+    return;
+  }
+  $('abc').value = text;
+  if (plan.to && !target) setHeader('K', plan.to);
+  const moved = plan.semitones ? `moved ${intervalWords(plan.semitones, plan.letters)}` : 'kept their pitches';
+  toggleTranspose(false);
+  commitSource(
+    $('abc').value,
+    target ? `The notes in ${measuresText(target)} ${moved}.` : `The notes ${moved}. Key: ${keyLabel(field('K', 'C'))}.`
+  );
+  $('transpose-open').focus();
+}
+$('transpose-open').onclick = () => toggleTranspose($('transpose-panel').hidden);
+$('transpose-close').onclick = () => {
+  toggleTranspose(false);
+  $('transpose-open').focus();
+};
+$('transpose-apply').onclick = applyTranspose;
+$('transpose-panel').addEventListener('input', refreshTranspose);
+$('transpose-panel').addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  e.stopPropagation();
+  toggleTranspose(false);
+  $('transpose-open').focus();
+});
+// The selection and the practice range can change while the panel is open.
+for (const [id, type] of [
+  ['notation', 'click'],
+  ['notation', 'keyup'],
+  ['start-measure', 'change'],
+  ['end-measure', 'change']
+])
+  $(id).addEventListener(type, refreshTranspose);
 // Bar check fixes.
 $('bar-check').addEventListener('click', e => {
   const b = e.target.closest('[data-bar-fix]'),

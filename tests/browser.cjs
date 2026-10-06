@@ -797,6 +797,47 @@ const {chromium} = require('playwright'),
   await page.locator('#cards .chip[aria-pressed="true"]').first().click();
   assert.equal(await page.evaluate(() => $('skill-filter').value), 'all', 'Clicking the active chip clears the filter');
   // Library preview: Listen plays the card's opening line and lights its notes; one preview at a time; opening a score stops it.
+  // Feature: transpose panel and key changes, by pointer and keyboard.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:T\nM:4/4\nL:1/4\nK:F clef=bass\nF, G, A, B, | C D E F | F,4 |]', instrument: 'Cello'});
+  });
+  const tbody = () => page.evaluate(() => $('abc').value.trim().split('\n').slice(-2).join(' '));
+  const heads = page.locator('#notation .abcjs-note .abcjs-notehead');
+  await heads.nth(4).click();
+  await heads.nth(6).click({modifiers: ['Shift']});
+  await page.click('#transpose-open');
+  assert.equal(await page.locator('#transpose-selection-label').textContent(), 'Selection only: measure 2');
+  await page.selectOption('#transpose-interval', 'm3');
+  await page.selectOption('#transpose-direction', '-1');
+  await page.click('#transpose-selection');
+  assert.match(await page.locator('#transpose-note').textContent(), /measure 2 move down a minor 3rd/);
+  await page.click('#transpose-apply');
+  assert.equal(await tbody(), 'K:F clef=bass F, G, A, B, | A, =B, ^C D | F,4 |]', 'Only the selected measure moves');
+  assert.ok(await page.locator('#transpose-panel').isHidden());
+  await page.selectOption('#key', 'G');
+  assert.ok(await page.locator('#key-choice').isVisible(), 'A new key asks before moving notes');
+  await page.locator('#key-keep').press('Enter');
+  assert.equal(await tbody(), 'K:G clef=bass F, G, A, B, | A, =B, ^C D | F,4 |]', 'Keep notes changes the key only');
+  await page.keyboard.press('Control+z');
+  assert.equal(await tbody(), 'K:F clef=bass F, G, A, B, | A, =B, ^C D | F,4 |]', 'One undo restores the key');
+  await page.locator('#transpose-open').focus();
+  await page.keyboard.press('Enter');
+  assert.ok(await page.locator('#transpose-by-interval').evaluate(e => e === document.activeElement));
+  await page.keyboard.press('ArrowDown');
+  assert.ok(await page.locator('#transpose-key-row').isVisible(), 'Arrow keys pick To key');
+  await page.locator('#transpose-key').selectOption('Bb');
+  await page.locator('#transpose-apply').press('Enter');
+  assert.equal(
+    await tbody(),
+    'K:Bb clef=bass B, C D E | D =E ^F G | B,4 |]',
+    'To key goes the nearer way, keeping clef='
+  );
+  assert.match(await page.locator('#selection-status').textContent(), /up a perfect 4th\. Key: B♭ major/);
+  await page.locator('#transpose-open').press('Enter');
+  await page.keyboard.press('Escape');
+  assert.ok(await page.locator('#transpose-panel').isHidden(), 'Escape closes the panel');
+  assert.ok(await page.locator('#transpose-open').evaluate(e => e === document.activeElement), 'and returns focus');
   await page.evaluate(() => {
     dirty = false;
     show('library');
@@ -849,7 +890,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.'
+    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, play from a note, note names, guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes and undo, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);
