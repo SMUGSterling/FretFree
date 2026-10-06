@@ -1784,3 +1784,87 @@ input[type='range'] {
   height: 18px;
   margin: 0;
 }
+/* Version history on My scores: earlier saved copies of one score, with a drawn and playable preview. */
+.history-panel {
+  margin-top: 25px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--paper);
+  padding: 16px 20px;
+}
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.history-head h2 {
+  margin: 0;
+  font-family: Georgia, serif;
+  font-size: 23px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.history-head button {
+  padding: 8px 12px;
+}
+.history-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.history-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+}
+.history-list li.selected {
+  background: #edf1e4;
+}
+.history-list li > span:first-child {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.history-actions button {
+  padding: 8px 12px;
+  font-size: 11px;
+}
+.history-preview {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+}
+.history-preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.history-score {
+  margin-top: 8px;
+  min-width: 0;
+  overflow: hidden;
+  background: white;
+}
+.history-score .abcjs-playing,
+.history-score .abcjs-playing path {
+  fill: #d9480f;
+  color: #d9480f;
+}
+@media print {
+  .history-panel {
+    display: none !important;
+  }
+}

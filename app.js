@@ -134,10 +134,15 @@ document.addEventListener('click', e => {
       renderSaved();
     } else toast('This browser could not save favorites.');
   }
-  if (b.dataset.delete && confirm('Delete this locally saved score?')) {
+  if (b.dataset.history) openHistory(b.dataset.history);
+  if (
+    b.dataset.delete &&
+    confirm(`Delete this locally saved score${versionsOf(b.dataset.delete).length ? ' and its history' : ''}?`)
+  ) {
     const next = saved.filter(x => x.id !== b.dataset.delete);
-    if (storage.set(KEYS.scores, next)) {
+    if (storeScores(next)) {
       saved = next;
+      removeVersions(b.dataset.delete);
       renderSaved();
       if (savedId === b.dataset.delete) savedId = null;
     } else toast('Deletion could not be saved.');
@@ -194,7 +199,9 @@ $('help-toggle').onclick = () => {
   $('abc-help').hidden = !$('abc-help').hidden;
 };
 $('save').onclick = () => {
-  const id = savedId || globalThis.crypto?.randomUUID?.() || 'score-' + Date.now();
+  const id = savedId || globalThis.crypto?.randomUUID?.() || 'score-' + Date.now(),
+    previous = saved.find(x => x.id === id);
+  // Each save of a score gets its own time, which names the version it later becomes.
   const entry = {
     ...current,
     id,
@@ -202,11 +209,13 @@ $('save').onclick = () => {
     composer: field('C'),
     abc: $('abc').value,
     instrument: currentInstrument(),
-    updated: Date.now()
+    updated: Math.max(Date.now(), (previous?.updated || 0) + 1)
   };
   const next = saved.filter(x => x.id !== id).concat(entry);
-  if (storage.set(KEYS.scores, next)) {
+  if (storeScores(next)) {
     saved = next;
+    // The copy this save replaced goes into the score's History, if its music changed.
+    if (previous && previous.abc !== entry.abc) keepVersion(previous);
     savedId = id;
     dirty = false;
     markClean();

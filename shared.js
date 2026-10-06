@@ -17,6 +17,7 @@ const KEYS = {
   measuresPerLine: 'fretfree-measures-per-line',
   piano: 'fretfree-piano',
   concertPitch: 'fretfree-concert-pitch',
+  versions: 'fretfree-versions',
   practice: id => 'fretfree-practice-' + id
 };
 let storageOK = true;

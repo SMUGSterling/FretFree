@@ -1,9 +1,9 @@
 'use strict';
-// Backup and restore: one JSON file holding everything this browser keeps for a student (saved scores, favorites,
-// the played list and practice settings). Backing up uses the browser's Save As dialog where it exists, so the file
-// can live in a synced folder (OneDrive, Google Drive, iCloud) and the same file is reused on the next backup;
-// elsewhere it is a plain download. Restoring merges: nothing is deleted, and a score present on both sides keeps
-// whichever copy was saved more recently.
+// Backup and restore: one JSON file holding everything this browser keeps for a student (saved scores and their
+// earlier versions, favorites, the played list and practice settings). Backing up uses the browser's Save As dialog
+// where it exists, so the file can live in a synced folder (OneDrive, Google Drive, iCloud) and the same file is reused
+// on the next backup; elsewhere it is a plain download. Restoring merges: nothing is deleted, and a score present on
+// both sides keeps whichever copy was saved more recently.
 const BACKUP_FORMAT = 1,
   LAST_BACKUP_KEY = 'fretfree-last-backup',
   BACKUP_SETTING_KEYS = () => [
@@ -30,7 +30,8 @@ function backupData() {
     scores: saved,
     favorites,
     played: [...played],
-    settings
+    settings,
+    versions: storedVersions()
   };
 }
 const backupFileName = () => `fretfree-backup-${new Date().toISOString().slice(0, 10)}.json`;
@@ -130,7 +131,9 @@ function applyBackup(data) {
     )
   )
     throw new Error('This backup file is damaged: a score entry is incomplete. Nothing was restored.');
-  const byId = new Map(saved.map(x => [x.id, x]));
+  const byId = new Map(saved.map(x => [x.id, x])),
+    myVersions = storedVersions(),
+    versions = cleanVersions(data.versions);
   let added = 0,
     updated = 0;
   for (const x of incoming) {
@@ -141,8 +144,24 @@ function applyBackup(data) {
     } else if ((x.updated || 0) > (mine.updated || 0)) {
       byId.set(x.id, x);
       updated++;
+      // The copy a newer one replaces becomes one of its versions, as when saving.
+      if (mine.abc !== x.abc)
+        (versions[x.id] ||= []).push({
+          at: Number.isFinite(mine.updated) ? mine.updated : 0,
+          abc: mine.abc,
+          ...(mine.instrument ? {instrument: mine.instrument} : {})
+        });
     }
   }
+  // Versions are unioned by the time each was saved, for scores this device keeps.
+  const versionCount = map => Object.values(map).reduce((n, list) => n + list.length, 0),
+    union = Object.create(null);
+  for (const id of byId.keys()) {
+    const list = [...(myVersions[id] || []), ...(versions[id] || [])];
+    if (list.length) union[id] = list;
+  }
+  const nextVersions = trimVersions(cleanVersions(union)),
+    versionsAdded = Math.max(0, versionCount(nextVersions) - versionCount(myVersions));
   const nextSaved = [...byId.values()],
     nextFavorites = [...new Set([...favorites, ...(Array.isArray(data.favorites) ? data.favorites : [])])].filter(
       x => typeof x === 'string'
@@ -169,11 +188,20 @@ function applyBackup(data) {
     for (const [key, value] of previous) if (value !== null) storage.set(key, value);
     throw new Error('This browser could not store the restored data (storage may be full). Nothing was changed.');
   }
+  // Versions go last and never stop a restore: when they do not fit, the oldest give way.
+  storeVersions(nextVersions);
   const favoritesAdded = nextFavorites.length - favorites.length;
   saved = nextSaved;
   favorites = nextFavorites;
   played = new Set(nextPlayed);
-  return {added, updated, unchanged: incoming.length - added - updated, favoritesAdded, settings: settingKeys.length};
+  return {
+    added,
+    updated,
+    unchanged: incoming.length - added - updated,
+    favoritesAdded,
+    settings: settingKeys.length,
+    versionsAdded
+  };
 }
 function restoreSummary(s) {
   const parts = [];
@@ -181,6 +209,7 @@ function restoreSummary(s) {
   if (s.updated) parts.push(`${s.updated} updated to a newer copy`);
   if (s.unchanged) parts.push(`${s.unchanged} already up to date`);
   if (s.favoritesAdded) parts.push(`${s.favoritesAdded} favorite${s.favoritesAdded === 1 ? '' : 's'} added`);
+  if (s.versionsAdded) parts.push(`${s.versionsAdded} earlier version${s.versionsAdded === 1 ? '' : 's'} added`);
   return parts.length ? 'Restored: ' + parts.join(', ') + '.' : 'Nothing new to restore.';
 }
 async function restoreFromFile(file) {

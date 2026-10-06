@@ -1,3 +1,12 @@
+# Version history for saved scores · 2026-10-06
+
+- Saving a saved score with changed music keeps the copy it replaces as an earlier version, with the time that copy was saved and its instrument. Each save gets its own time, so two quick saves never share one.
+- **History (n)** on a My scores card opens a panel listing the versions newest first. **Preview** draws a version read-only, in the instrument's written pitch (or concert pitch with Concert pitch on) with the editor's zoom and measures per line (200% on a phone), and **▶ Play** plays it with its notes lit, through the same player as the library's Listen. **Restore** opens the version in Compose as unsaved work on the same score; nothing stored changes until Save, and saving keeps the replaced copy in the list. The panel works from the keyboard (focus moves to it, Escape closes it and returns to the card) and fits a phone screen.
+- Versions are stored apart from the scores (`fretfree-versions`): up to 20 per score and about 1.5 MB in all, oldest dropped first. When storage is full the oldest versions make room for the save, and a version that cannot be stored is let go, so saving never fails because of history. Deleting a score deletes its versions.
+- Backups carry a top-level `versions` key (format stays 1; older apps ignore it). Restoring unions versions by save time without duplicates, leaves out versions of scores the device does not keep, and turns a copy replaced by a newer one from the backup into a version. Versions are written after the scores and settings, so a failed restore still changes nothing, and they give way rather than stop a restore when storage is short.
+
+---
+
 # Concert pitch view · 2026-10-06
 
 - **Concert pitch** (a checkbox under Instrument) appears for Clarinet in B♭, Trumpet in B♭ and Alto sax in E♭. Ticked, the score shows the key and pitches of the ABC source, as the instrument sounds; unticked, it shows the written part as before. The caption under the score says which one is shown.

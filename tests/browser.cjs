@@ -1968,6 +1968,85 @@ const {chromium} = require('playwright'),
     );
     await tab.close();
   }
+  // Version history: three saves edited with the keyboard leave two earlier versions. History opens from the keyboard,
+  // Preview draws a version and Play sounds and lights it; Restore opens it unsaved, and saving it keeps the copy it
+  // replaced. On a phone the panel fits the screen.
+  {
+    const tab = await browser.newPage({viewport: {width: 1280, height: 900}});
+    tab.on('pageerror', e => errors.push(e.message));
+    tab.on('dialog', dialog => dialog.accept());
+    await tab.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    await tab.locator('#cards [data-open="ode"]').click();
+    const copies = [];
+    for (const n of [0, 1, 2]) {
+      await tab.locator('#notation .abcjs-notehead').nth(n).click({force: true});
+      await tab.keyboard.press('ArrowUp');
+      await tab.click('#save');
+      copies.push(await tab.evaluate(() => $('abc').value));
+    }
+    assert.deepEqual(
+      await tab.evaluate(() => storedVersions()[savedId].map(v => v.abc)),
+      copies.slice(0, 2),
+      'Three saved copies leave two earlier versions'
+    );
+    await tab.click('.nav[data-view="saved"]');
+    const history = tab.locator('#saved-cards [data-history]');
+    assert.equal(await history.textContent(), 'History (2)');
+    await history.focus();
+    await tab.keyboard.press('Enter');
+    await tab.waitForSelector('#history-panel:not([hidden])');
+    assert.equal(await tab.evaluate(() => document.activeElement.id), 'history-heading', 'Focus moves to the panel');
+    const rows = await tab.locator('#history-list li').allTextContents();
+    assert.equal(rows.length, 2);
+    assert.match(rows[0], /^Version 2 · saved \d{1,2}:\d\d/, 'Newest first, with the time it was saved');
+    await tab.locator('#history-list [data-version-preview]').last().click();
+    await tab.waitForSelector('#history-score svg');
+    await tab.locator('#history-play').focus();
+    await tab.keyboard.press('Enter');
+    await tab.waitForFunction(() => document.querySelectorAll('#history-score .abcjs-playing').length > 0);
+    assert.deepEqual(
+      await tab.evaluate(() => [
+        previewId,
+        previewNodes.length === parseMidi(midiBytes(storedVersions()[savedId][0].abc)).notes.length,
+        $('history-play').textContent
+      ]),
+      ['history', true, '■ Stop'],
+      'Play sounds every note of the version and lights it up'
+    );
+    await tab.keyboard.press('Enter');
+    assert.deepEqual(
+      await tab.evaluate(() => [previewId, previewNodes.length, $('history-play').textContent]),
+      [null, 0, '▶ Play'],
+      'Play again stops'
+    );
+    await tab.click('#history-restore');
+    assert.deepEqual(
+      await tab.evaluate(() => [$('studio').hidden, $('abc').value, dirty, saved[0].abc]),
+      [false, copies[0], true, copies[2]],
+      'Restore opens version 1 as unsaved work and changes nothing saved'
+    );
+    await tab.locator('#save').focus();
+    await tab.keyboard.press('Enter');
+    assert.deepEqual(
+      await tab.evaluate(() => storedVersions()[savedId].map(v => v.abc)),
+      copies,
+      'Saving the restored version keeps the copy it replaced'
+    );
+    await tab.setViewportSize({width: 390, height: 844});
+    await tab.click('.nav[data-view="saved"]');
+    await tab.locator('#saved-cards [data-history]').click();
+    await tab.locator('#history-list [data-version-preview]').first().click();
+    await tab.waitForSelector('#history-score svg');
+    const restore = await tab.locator('#history-list [data-version-restore]').first().boundingBox();
+    assert.ok(restore.x >= 0 && restore.x + restore.width <= 390, 'Restore fits a phone screen');
+    assert.ok(
+      await tab.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+      'The history panel fits a phone screen'
+    );
+    await tab.keyboard.press('Escape');
+    assert.equal(await tab.evaluate(() => $('history-panel').hidden), true, 'Escape closes the history');
+    await tab.close();
+  }
   // Unsaved-work recovery: an edit made with the keyboard survives a reload; Restore (keyboard) brings it back with
   // its instrument and credits, Save clears it, and on a phone the banner fits and Discard removes the draft.
   {
@@ -2121,7 +2200,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
+    'PASS: version history (keyboard and pointer, preview, play, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);
