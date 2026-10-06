@@ -3697,9 +3697,15 @@ async function checkRoadMap() {
     oscillators.length = 0;
     await run('play()');
     run('stop()');
+    // The mixer schedules each track's notes together (the melody, then the chords), so the times are compared in
+    // time order.
     assert.equal(
-      oscillators.map(o => (o.startAt - 10.07).toFixed(4)).join(),
-      run("parseMidi(midiBytes($('abc').value)).notes.map(n=>n.start.toFixed(4)).join()"),
+      oscillators
+        .map(o => o.startAt - 10.07)
+        .sort((a, b) => a - b)
+        .map(t => t.toFixed(4))
+        .join(),
+      run("parseMidi(midiBytes($('abc').value)).notes.map(n=>n.start).sort((a,b)=>a-b).map(t=>t.toFixed(4)).join()"),
       'Every note at its MIDI time'
     );
   }
