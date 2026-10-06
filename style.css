@@ -926,6 +926,8 @@ input[type='range'] {
   box-shadow: 0 10px 28px #21372d2e;
   padding: 6px;
   min-width: 210px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   display: grid;
   gap: 2px;
 }
@@ -957,6 +959,15 @@ input[type='range'] {
   background: #e7ebdc;
   color: var(--green);
   border-color: #c9d4b3;
+}
+.note-menu .menu-marks {
+  grid-template-columns: repeat(5, 1fr);
+}
+.note-menu .menu-marks button {
+  min-height: 34px;
+  padding: 4px;
+  font-size: 15px;
+  text-align: center;
 }
 .note-menu hr {
   border: 0;
@@ -1353,7 +1364,8 @@ input[type='range'] {
   color: var(--ink);
 }
 /* On-screen piano: a scrolling strip of keys under the score, kept in view at the bottom of the window. */
-#piano-toggle[aria-pressed='true'] {
+#piano-toggle[aria-pressed='true'],
+#midi-toggle[aria-pressed='true'] {
   background: var(--green);
   color: white;
   border-color: var(--green);
@@ -1511,6 +1523,25 @@ input[type='range'] {
 }
 .palette .danger {
   color: #9e4d28;
+}
+.palette .articulation button {
+  font-size: 19px;
+}
+.palette .dynamic,
+.note-menu .dynamic {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-weight: 700;
+}
+.palette .dynamic {
+  font-size: 16px;
+}
+.palette-more:not([hidden]) {
+  display: contents;
+}
+.palette [data-palette='more'].in-use {
+  border-color: var(--green);
+  box-shadow: inset 0 -3px 0 var(--green);
 }
 @media (max-width: 720px) {
   .palette {

@@ -1,11 +1,30 @@
 # Concert pitch view · 2026-10-06
 
 - **Concert pitch** (a checkbox under Instrument) appears for Clarinet in B♭, Trumpet in B♭ and Alto sax in E♭. Ticked, the score shows the key and pitches of the ABC source, as the instrument sounds; unticked, it shows the written part as before. The caption under the score says which one is shown.
-- Typed letters, drawn notes, accidentals in the note menu and palette, Shift+letter chord notes and piano keys all enter the pitch shown, so on a B♭ clarinet the C key writes concert C in Concert pitch view and concert B♭ in the written view.
-- Note names, letters in noteheads and classroom colors follow the pitch shown.
+- Typed letters, drawn notes, accidentals in the note menu and palette, Shift+letter chord notes, piano keys and MIDI keyboard notes all enter the pitch shown, so on a B♭ clarinet the C key writes concert C in Concert pitch view and concert B♭ in the written view.
+- Note names, letters in noteheads, classroom colors and the spelling Respell names in the status line follow the pitch shown.
 - Playback, the ABC source and the undo history do not change when the view changes. Writing-prompt goals and new assignments still use written pitch, so a clarinet asked for G major is judged in G major in either view; while Concert pitch is on, the checklist says its goals are in written pitch.
 - Changing the view closes an open note menu. A note menu left open while the score is redrawn for another instrument asks for a fresh right-click instead of editing the wrong note.
 - Display only, remembered in the browser (`fretfree-concert-pitch`) and included in backups. Prints and SVG exports show the score as it is on screen.
+
+---
+
+# MIDI keyboard input and respelling · 2026-10-06
+
+- **MIDI input** (next to Piano keys) enters notes and chords from a USB MIDI keyboard. The button shows only where the browser has Web MIDI (Chrome, Edge and other Chromium browsers, and Firefox); it asks for MIDI access without SysEx, listens to every connected input, and the status line names the keyboards and follows them being plugged in or out. Blocked access gets a plain message, and the button stays off.
+- Each note goes in through the piano strip's entry path: keys are written pitch, notes land over the selected rest or after the selected note at the current length, spelled for the key in force, and each sounds with Hear notes. Notes that start within 40 ms of each other make one chord, entered lowest first (60, 64 and 67 together give `[CEG]`). Held keys light the piano strip. Notes played while the score is playing, or away from Compose, are ignored, and so are drum pads (MIDI channel 10). Turning MIDI input off closes the keyboard's connection, so other apps can use it.
+- **Z** respells the selected note or chord at the same pitch: `^C` becomes `_D` and back, `E` becomes `_F`, and D, G and A cycle through double accidentals. On a touch screen, **Respell** in the notation palette (and in the note menu) does the same. A chord moves as one and comes back in two presses: its other pitches swap (`[GCE]` becomes `[G^B,_F]`) while D, G and A stay plain, unless the chord has nothing else. A plain letter is read with the key signature and the bar's earlier accidentals, accidentals are written out only where the plain letter would change the pitch, and later notes in the bar keep theirs: `^C D` becomes `_D =D`, and the natural goes again with `^C`. Pressing again on the same note returns exactly the text it started from, and each press is one undo step. It works on one note or chord at a time; on a range selection it says so and changes nothing. The status line names the new spelling in written pitch. The pure `respell(text, key, {midis, explicit})` and `respellEdit()` are in score-tools.js.
+
+---
+
+# Articulations, dynamics and ornaments · 2026-10-06
+
+- With a note selected, **;** **:** **>** **"** **^** toggle staccato, tenuto, accent, marcato and fermata. The notation toolbar gains an **Articulation** group with the same five and a **Dynamics** group (ppp to fff, and sfz); **More** opens staccatissimo, up bow, down bow, breath mark, trill, mordent, turn and arpeggio. The note menu has a Marks section with the five articulations and the dynamics.
+- Buttons light up for the marks the selected note has; pressing a lit one takes it off. A new dynamic replaces the note's old one. Rests take a dynamic or a fermata, and invisible rests nothing; the status line says what changed or why nothing did. On a range selection a mark goes on every selected note that can take it, or comes off them all when they all have it, and a dynamic goes on the first note. While More is closed, its button shows when the note has one of its marks.
+- Marks go into the ABC as decorations just before the pitch, after chord symbols, slur and tuplet openings and grace notes: staccato as `.`, the others as `!tenuto!`, `!mf!` and so on. Shorthands already in a score (`L`, `H`, `T`, `u`, `v`, `M`, `!>!`) count as their mark and come off with it. Each change is one undo step, and marks stay through instrument changes and the written-pitch display.
+- Playback follows dynamics, accents and staccato, and sfz and marcato now play as accents (abcjs engraved them but played them at the current volume). Ornaments play only roughly: abcjs trills and mordents a whole step from the note, and turns a whole step above and a half step below, whatever the key, so they can sound a half step off. Every offered mark parses in abcjs without warnings; `fp` and `!staccatissimo!` do not, so they are not offered.
+- Two abcjs playback slips are mended. Above about 95 bpm a staccato note rang on to the next note of its pitch, and a repeated note after a tenuto or inside a slur went unheard (404 library scores lost notes this way). Staccato notes now sound for 60% of their length at any tempo and other notes for their full length, in playback and in exported MIDI.
+- The note menu scrolls when it is taller than the window.
 
 ---
 

@@ -155,6 +155,108 @@ for (const [text, edit, expected] of [
   ['z2', {rest: true}, 'z2']
 ])
   assert.equal(context.editNoteText(text, edit), expected, `editNoteText(${text}, ${JSON.stringify(edit)})`);
+// Articulations and ornaments go just before the pitch, after chord symbols, slur and tuplet openings and grace notes,
+// and toggling again restores the text. Shorthands and other spellings count as the mark. Dynamics never stack.
+for (const [text, name, expected] of [
+  ['"G"C2', 'accent', '"G"!accent!C2'],
+  ['(C', 'accent', '(!accent!C'],
+  ['[CEG]', 'accent', '!accent![CEG]'],
+  ['(3"Am"[CE]/2 ', 'staccato', '(3"Am".[CE]/2 '],
+  ['!p!{g}C-', 'trill', '!p!{g}!trill!C-'],
+  ['z2', 'fermata', '!fermata!z2'],
+  ['Z2', 'fermata', '!fermata!Z2']
+]) {
+  assert.equal(context.toggleDecoration(text, name), expected, `toggleDecoration(${text}, ${name})`);
+  assert.equal(context.toggleDecoration(expected, name), text, `toggleDecoration(${expected}, ${name}) undoes it`);
+}
+for (const [text, name] of [
+  ['L"G"C', 'accent'],
+  ['!>!"G"C', 'accent'],
+  ['+accent+"G"C', 'accent'],
+  ['"G"!emphasis!C', 'accent'],
+  ['"G"HC', 'fermata'],
+  ['"G"TC', 'trill'],
+  ['"G"uC', 'upbow'],
+  ['"G"vC', 'downbow'],
+  ['"G"MC', 'mordent'],
+  ['"G"!lowermordent!C', 'mordent']
+])
+  assert.equal(context.toggleDecoration(text, name), '"G"C', `${text} carries ${name}`);
+assert.equal(context.toggleDecoration('"."C', 'staccato'), '".".C', 'A dot inside a chord symbol is not a staccato');
+for (const [text, name] of [
+  ['x2', 'accent'],
+  ['C', 'staccatissimo'],
+  ['|', 'accent']
+])
+  assert.equal(context.toggleDecoration(text, name), text, `toggleDecoration(${text}, ${name}) changes nothing`);
+for (const [text, dyn, expected] of [
+  ['!p!C', 'f', '!f!C'],
+  ['"G"C', 'mf', '"G"!mf!C'],
+  ['!pp!.!sf!C', 'ff', '!ff!.C'],
+  ['!fp!(C', 'p', '!p!(C'],
+  ['!p!!accent!C', null, '!accent!C'],
+  ['+f+z4', 'sfz', '!sfz!z4'],
+  ['C', 'fp', 'C'],
+  ['x', 'f', 'x']
+])
+  assert.equal(context.setDynamic(text, dyn), expected, `setDynamic(${text}, ${dyn})`);
+assert.equal(
+  JSON.stringify(context.noteMarks('!mf!.H(3+accent+{g}C2 ')),
+  JSON.stringify({marks: ['staccato', 'fermata', 'accent'], dynamic: 'mf'})
+);
+assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
+// Every offered mark parses without warnings and reaches the note, on notes, chords and slur starts; rests take
+// dynamics and fermatas.
+{
+  const marks = vm.runInContext('NOTE_MARKS', context),
+    dynamics = vm.runInContext('DYNAMICS', context);
+  assert.equal(marks.length, 13);
+  assert.equal(dynamics.join(' '), 'ppp pp p mp mf f ff fff sfz');
+  const check = (body, add, name) => {
+    const tune = ABCJS.parseOnly(`X:1\nL:1/4\nK:C\n${add(body)} D|]`)[0],
+      note = tune.lines[0].staff[0].voices[0].find(e => e.el_type === 'note');
+    assert.ok(!tune.warnings?.length, `${add(body)}: ${tune.warnings}`);
+    assert.ok(note.decoration?.includes(name), `${add(body)} carries ${name}`);
+  };
+  for (const name of marks)
+    for (const body of ['C', '"G"[CEG]', '(C D)', '(3C D E']) check(body, t => context.toggleDecoration(t, name), name);
+  for (const name of dynamics)
+    for (const body of ['C', 'z', 'Z2', '"G"[CEG]']) check(body, t => context.setDynamic(t, name), name);
+  check('z', t => context.toggleDecoration(t, 'fermata'), 'fermata');
+}
+// Playback follows the marks: louder dynamics, accents, sfz and marcato raise the MIDI velocity, staccato shortens the
+// note at any tempo. On its own abcjs lets a staccato note ring on above about 95 bpm and loses a repeated note after
+// a tenuto or inside a slur; midiBytes mends both, so the exported file is right too.
+{
+  const notes = (body, tempo = 'Q:1/4=60\n') =>
+    context.parseMidi(context.midiBytes(`X:1\nL:1/4\n${tempo}K:C\n${body}|]`)).notes;
+  const [soft, loud] = notes('!pp!C !ff!D');
+  assert.ok(loud.velocity > soft.velocity, `ff (${loud.velocity}) is louder than pp (${soft.velocity})`);
+  const [plain, accented] = notes('!mf!C !accent!C');
+  assert.ok(accented.velocity > plain.velocity, 'An accent is louder');
+  for (const mark of ['!sfz!', '!marcato!']) {
+    const [before, marked, after] = notes(`!p!C ${mark}C C`);
+    assert.ok(marked.velocity > before.velocity, `${mark} is louder (${marked.velocity} > ${before.velocity})`);
+    assert.equal(after.velocity, before.velocity, `${mark} lasts one note`);
+  }
+  for (const tempo of ['Q:1/4=60\n', '', 'Q:1/4=120\n', 'Q:1/4=200\n']) {
+    const played = notes('C .C .C .C C', tempo),
+      beat = played[0].duration;
+    assert.equal(played.length, 5, `Every staccato note sounds at ${tempo || 'the default tempo'}`);
+    assert.ok(
+      played.slice(1, 4).every(n => n.duration < beat * 0.8 && n.duration > beat * 0.4),
+      `Staccato is shorter at ${tempo || 'the default tempo'}: ${played.map(n => n.duration.toFixed(3))}`
+    );
+  }
+  for (const body of ['!tenuto!C C C', '(C C C)', '(C !tenuto!C) C']) {
+    const played = notes(body, '');
+    assert.equal(played.length, 3, `${body}: every repeated note sounds`);
+    assert.ok(
+      played.every(n => Math.abs(n.duration - played[0].duration) < 0.01),
+      `${body}: at full length: ${played.map(n => n.duration.toFixed(3))}`
+    );
+  }
+}
 // FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
 // Share links: the payload round-trips through deflate+base64url, and through plain base64url where
 // CompressionStream is missing; damaged links decode to null.
@@ -275,6 +377,50 @@ for (const [text, edit, expected] of [
   assert.equal(add('[C2E2]', 'G'), '[C2E2G2]', 'Per-pitch chord lengths are copied');
   assert.equal(add('[CE]', 'E'), '[CE]', 'A pitch already there is not added');
   assert.equal(add('z2', 'E'), 'z2', 'Rests are left alone');
+  // respell (Z): the next spelling at the same pitch, keeping length, ties and decorations.
+  const re = (text, k = 'C', options) => context.respell(text, key(k), options),
+    cycle = (text, k = 'C') => {
+      const seen = [text];
+      for (let i = 0; i < 4 && (i === 0 || seen.at(-1) !== text); i++) seen.push(re(seen.at(-1), k));
+      return seen.join(' ');
+    };
+  assert.equal(cycle('^C'), '^C _D ^C', '^C turns into _D and back');
+  assert.equal(cycle('E'), 'E _F E');
+  assert.equal(cycle('C'), 'C ^B, C', 'B sharp is a letter lower, in the octave below');
+  assert.equal(cycle('b'), "b _c' b", 'C flat is in the octave above');
+  assert.equal(cycle('D'), 'D __E ^^C D', 'D, G and A cycle through double accidentals');
+  assert.equal(re('[^C^F]2'), '[_D_G]2', 'Every pitch of a chord');
+  assert.equal(re('[C2E2]'), '[^B,2_F2]', 'Per-pitch chord lengths stay');
+  assert.equal(re('!f!"Am"(^c/2-'), '!f!"Am"(_d/2-', 'Decorations, chord symbol, slur, length and tie stay');
+  assert.equal(re('z2'), 'z2', 'Rests are left alone');
+  assert.equal(cycle('C', 'D'), 'C _D C', 'In D major a plain C is C sharp, and comes back plain');
+  assert.equal(cycle('B', 'F'), 'B ^A B', 'In F major a plain B is B flat');
+  assert.equal(re('=C', 'D'), '^B,', 'A natural against the key');
+  assert.equal(re('^B,', 'D'), '=C', 'Back to C natural needs the natural sign in D major');
+  assert.equal(re('C', 'C', {midis: [61]}), '_D', 'midis: an earlier ^C in the bar makes this C sharp');
+  assert.equal(re('_D', 'D', {explicit: true}), '^C', 'explicit writes the accidental the key would give');
+  assert.equal(re('__D'), 'C', 'A spelling outside the cycle goes to the plainest one');
+  // A chord moves as one and comes back in two presses: D, G and A stay plain unless the chord is nothing else.
+  assert.equal(cycle('[GCE]'), '[GCE] [G^B,_F] [GCE]');
+  assert.equal(cycle('[A^CE]'), '[A^CE] [A_D_F] [A^CE]');
+  assert.equal(cycle('[^CE^G]'), '[^CE^G] [_D_F_A] [^CE^G]', 'C sharp minor as D flat minor');
+  assert.equal(cycle('[DG]'), '[DG] [__E__A] [^^C^^F] [DG]');
+  assert.equal(re('[^^CE]'), '[D_F]', 'A double sharp D in a chord goes plain');
+  // respellEdit: later notes keep their pitch, and lose an accidental that only the old spelling needed.
+  const zFirst = (body, text, k = 'C') => {
+    const source = `X:1\nM:4/4\nL:1/4\nK:${k}\n` + body,
+      start = source.length - body.length,
+      edit = context.respellEdit(source, start, start + body.indexOf(' '), text);
+    return (source.slice(0, start) + edit.text + source.slice(edit.end)).slice(start);
+  };
+  assert.equal(zFirst('^C D E F |]', '_D'), '_D =D E F |]', 'A later D keeps its pitch');
+  assert.equal(zFirst('_D =D E F |]', '^C'), '^C D E F |]', 'and loses the natural only D flat needed');
+  assert.equal(zFirst('^C C D z |]', '_D'), '_D ^C =D z |]');
+  assert.equal(zFirst('_D ^C =D z |]', '^C'), '^C ^C D z |]', 'Only on the letter the note leaves');
+  assert.equal(zFirst('C =C E _D |]', '_D', 'D'), '_D =C E _D |]', 'In D major, accidentals the key needs stay');
+  assert.equal(zFirst('_D =D =D z | =D4 |]', '^C'), '^C D =D z | =D4 |]', 'Courtesy naturals and later bars stay');
+  assert.equal(zFirst('_D [F=D] z2 |]', '^C'), '^C [FD] z2 |]', 'In a chord too');
+  assert.equal(zFirst('_D =d z2 |]', '^C'), '^C =d z2 |]', 'Only the same octave');
   // keepLaterPitches: an accidental entered on one note writes out the accidental later notes in the bar had.
   const keep = (body, from, to, text, select = null) => {
     const source = 'X:1\nL:1/4\nK:C\n' + body,
@@ -913,5 +1059,5 @@ for (const prompt of context.writingPrompts) {
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, piano spelling, chord building and later bar accidentals, MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
 );
