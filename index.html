@@ -12,33 +12,33 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-    <script src="theme.js?v=7ecc9796189a"></script>
-    <link rel="stylesheet" href="style.css?v=7ecc9796189a" />
-    <script defer src="vendor/abcjs-basic-min.js?v=7ecc9796189a"></script>
-    <script defer src="vendor/qrcode.js?v=7ecc9796189a"></script>
-    <script defer src="catalog.js?v=7ecc9796189a"></script>
-    <script defer src="catalog-expanded.js?v=7ecc9796189a"></script>
-    <script defer src="score-tools.js?v=7ecc9796189a"></script>
-    <script defer src="rights-tools.js?v=7ecc9796189a"></script>
-    <script defer src="musicxml.js?v=7ecc9796189a"></script>
-    <script defer src="catalog-licensed.js?v=7ecc9796189a"></script>
-    <script defer src="catalog-lieder.js?v=7ecc9796189a"></script>
-    <script defer src="catalog-quartets.js?v=7ecc9796189a"></script>
-    <script defer src="catalog-pgh.js?v=7ecc9796189a"></script>
-    <script defer src="catalog-skills.js?v=7ecc9796189a"></script>
-    <script defer src="prompts.js?v=7ecc9796189a"></script>
-    <script defer src="shared.js?v=7ecc9796189a"></script>
-    <script defer src="library.js?v=7ecc9796189a"></script>
-    <script defer src="backup.js?v=7ecc9796189a"></script>
-    <script defer src="editor.js?v=7ecc9796189a"></script>
-    <script defer src="measure-tools.js?v=7ecc9796189a"></script>
-    <script defer src="palette.js?v=7ecc9796189a"></script>
-    <script defer src="shortcuts.js?v=7ecc9796189a"></script>
-    <script defer src="playback.js?v=7ecc9796189a"></script>
-    <script defer src="keyboard.js?v=7ecc9796189a"></script>
-    <script defer src="assignments.js?v=7ecc9796189a"></script>
-    <script defer src="turn-in.js?v=7ecc9796189a"></script>
-    <script defer src="app.js?v=7ecc9796189a"></script>
+    <script src="theme.js?v=c8f3bab00497"></script>
+    <link rel="stylesheet" href="style.css?v=c8f3bab00497" />
+    <script defer src="vendor/abcjs-basic-min.js?v=c8f3bab00497"></script>
+    <script defer src="vendor/qrcode.js?v=c8f3bab00497"></script>
+    <script defer src="catalog.js?v=c8f3bab00497"></script>
+    <script defer src="catalog-expanded.js?v=c8f3bab00497"></script>
+    <script defer src="score-tools.js?v=c8f3bab00497"></script>
+    <script defer src="rights-tools.js?v=c8f3bab00497"></script>
+    <script defer src="musicxml.js?v=c8f3bab00497"></script>
+    <script defer src="catalog-licensed.js?v=c8f3bab00497"></script>
+    <script defer src="catalog-lieder.js?v=c8f3bab00497"></script>
+    <script defer src="catalog-quartets.js?v=c8f3bab00497"></script>
+    <script defer src="catalog-pgh.js?v=c8f3bab00497"></script>
+    <script defer src="catalog-skills.js?v=c8f3bab00497"></script>
+    <script defer src="prompts.js?v=c8f3bab00497"></script>
+    <script defer src="shared.js?v=c8f3bab00497"></script>
+    <script defer src="library.js?v=c8f3bab00497"></script>
+    <script defer src="backup.js?v=c8f3bab00497"></script>
+    <script defer src="editor.js?v=c8f3bab00497"></script>
+    <script defer src="measure-tools.js?v=c8f3bab00497"></script>
+    <script defer src="palette.js?v=c8f3bab00497"></script>
+    <script defer src="shortcuts.js?v=c8f3bab00497"></script>
+    <script defer src="playback.js?v=c8f3bab00497"></script>
+    <script defer src="keyboard.js?v=c8f3bab00497"></script>
+    <script defer src="assignments.js?v=c8f3bab00497"></script>
+    <script defer src="turn-in.js?v=c8f3bab00497"></script>
+    <script defer src="app.js?v=c8f3bab00497"></script>
   </head>
   <body>
     <header>
@@ -1019,6 +1019,13 @@
             <div class="export-bar">
               <span>Take your music with you</span><button id="print">Print / PDF</button
               ><button id="export-abc">ABC</button><button id="export-midi">MIDI</button
+              ><button
+                id="export-wav"
+                aria-expanded="false"
+                aria-controls="wav-panel"
+                title="An audio file of the score as playback sounds it"
+              >
+                WAV</button
               ><button id="export-svg">SVG</button
               ><button id="export-musicxml" title="For MuseScore, Noteflight, Finale, Sibelius or Dorico">
                 MusicXML</button
@@ -1139,6 +1146,22 @@
                 </p>
                 <button id="turn-in-download">Download file (.json)</button>
               </div>
+            </section>
+            <section id="wav-panel" class="share-panel wav-panel" aria-labelledby="wav-heading" hidden>
+              <div class="share-head">
+                <h2 id="wav-heading">Audio file (WAV)</h2>
+                <button id="wav-close" type="button" aria-label="Close audio file">✕</button>
+              </div>
+              <p id="wav-summary" class="small"></p>
+              <div class="wav-options">
+                <label class="inline"><input type="checkbox" id="wav-metronome" /> Include metronome</label
+                ><label class="inline" id="wav-chords-option"
+                  ><input type="checkbox" id="wav-chords" checked /> Include chords</label
+                >
+              </div>
+              <button id="wav-make" type="button" class="primary">Make WAV file</button>
+              <progress id="wav-progress" max="1" aria-label="Making the audio file" hidden></progress>
+              <p id="wav-status" class="small" role="status"></p>
             </section>
             <div id="source-edition" class="source-edition" hidden></div>
             <div class="rights-box" id="rights"></div>
@@ -1273,7 +1296,8 @@
           written-pitch transposition with concert-pitch playback, and tick Concert pitch to see the notes as they
           sound. Classroom colors and letters in noteheads help beginners read, and both print. Theme in the header
           switches to a dark theme, or follows your device; the score stays black on white unless you tick Dark paper,
-          and prints stay black on white.
+          and prints stay black on white. WAV makes an audio file of the score as playback sounds it, made on your
+          device, to hand in or to practice along with.
         </p>
         <h2>Privacy and school access</h2>
         <p>

@@ -163,6 +163,26 @@ function creditedMidi(bytes, source, item) {
   view.setUint16(10, view.getUint16(10) + 1);
   return out;
 }
+// The text a WAV export carries (wavBytes): the title and composer, and for a library edition its license and the full
+// credit with the corresponding editable ABC, as the MIDI export carries them. A score of your own carries only its
+// title and composer, or a copyright line kept from an imported file.
+function creditedWavInfo(source, item) {
+  const header = key =>
+      String(source)
+        .match(new RegExp(`^${key}:[ \\t]*(\\S.*)$`, 'm'))?.[1]
+        .trim() || '',
+    credit = exportCredit(item),
+    kept = [...String(source).matchAll(/^%%abc-copyright[ \t]+(.+)$/gm)].map(m => m[1].trim()).join('\n');
+  const info = {
+    title: header('T') || item?.title || '',
+    artist: (credit && (item.attribution || item.composer)) || header('C') || item?.composer || ''
+  };
+  if (credit) {
+    info.copyright = scoreLicense(item);
+    info.comment = credit + '\nCorresponding editable ABC source:\n' + creditedABC(source, item);
+  } else if (kept) info.copyright = kept;
+  return info;
+}
 function creditedSVG(container, source, item) {
   const svgs = [...container.querySelectorAll('svg')];
   if (!svgs.length) throw Error('There is no rendered score to export.');

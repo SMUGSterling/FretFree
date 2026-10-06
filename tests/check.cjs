@@ -35,7 +35,7 @@ const ADMITTED_LICENSES = new Set([
   'CC-BY-NC-SA-4.0',
   'GPL-2.0-or-later'
 ]);
-const context = {ABCJS, console, Uint8Array, DataView, Map, atob};
+const context = {ABCJS, console, Uint8Array, DataView, Map, atob, TextEncoder};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(require.resolve('../catalog.js'), 'utf8'), context);
 vm.runInContext(
@@ -940,6 +940,89 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
   assert.match(context.nonCommercialNote(ncsa), /Adaptations keep the same license\.$/);
   assert.ok(context.exportCredit(nc).includes('Non-commercial edition'), 'Exports carry the NC note');
   assert.ok(!context.exportCredit(sa).includes('Non-commercial edition'), 'SA-only exports do not');
+}
+// WAV export: wavBytes writes a 16-bit PCM RIFF file whose chunk sizes add up, with the INFO text before the samples;
+// creditedWavInfo gives a library edition its license and full credit, and a score of your own only its title and
+// composer.
+{
+  const readWav = bytes => {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+      text = (at, n) => String.fromCharCode(...bytes.slice(at, at + n)),
+      chunks = [];
+    assert.equal(text(0, 4) + text(8, 4), 'RIFFWAVE');
+    assert.equal(view.getUint32(4, true), bytes.length - 8, 'RIFF size');
+    for (let at = 12; at < bytes.length;) {
+      const size = view.getUint32(at + 4, true);
+      chunks.push({id: text(at, 4), at: at + 8, size});
+      at += 8 + size + (size & 1);
+      assert.ok(at <= bytes.length, 'Chunks fit the file');
+    }
+    const fmt = chunks.find(c => c.id === 'fmt '),
+      data = chunks.find(c => c.id === 'data'),
+      list = chunks.find(c => c.id === 'LIST'),
+      info = {};
+    if (list) {
+      assert.equal(text(list.at, 4), 'INFO');
+      for (let at = list.at + 4; at < list.at + list.size;) {
+        const size = view.getUint32(at + 4, true),
+          value = bytes.slice(at + 8, at + 8 + size);
+        assert.equal(value[size - 1], 0, 'INFO text ends in a zero byte');
+        info[text(at, 4)] = Buffer.from(value.slice(0, -1)).toString('utf8');
+        at += 8 + size + (size & 1);
+      }
+    }
+    return {
+      ids: chunks.map(c => c.id),
+      format: [
+        view.getUint16(fmt.at, true),
+        view.getUint16(fmt.at + 2, true),
+        view.getUint32(fmt.at + 4, true),
+        view.getUint32(fmt.at + 8, true),
+        view.getUint16(fmt.at + 12, true),
+        view.getUint16(fmt.at + 14, true)
+      ],
+      fmtSize: fmt.size,
+      samples: Array.from({length: data.size / 2}, (_, i) => view.getInt16(data.at + i * 2, true)),
+      info
+    };
+  };
+  const left = Float32Array.from([0, 1, -1, 0.5, 2]),
+    right = Float32Array.from([0, -0.5, 1, -2, -1]);
+  const wav = readWav(context.wavBytes([left, right], 44100, {title: 'Ode to Joy ♫', artist: 'Beethoven'}));
+  assert.deepEqual(wav.ids, ['fmt ', 'LIST', 'data'], 'INFO comes before the samples');
+  assert.equal(wav.fmtSize, 16);
+  assert.deepEqual(wav.format, [1, 2, 44100, 176400, 4, 16], 'PCM, stereo, 44.1 kHz, 16-bit');
+  assert.deepEqual(
+    wav.samples,
+    [0, 0, 32767, -16384, -32768, 32767, 16384, -32768, 32767, -32768],
+    'Interleaved, scaled and clipped'
+  );
+  assert.deepEqual(wav.info, {INAM: 'Ode to Joy ♫', IART: 'Beethoven'}, 'UTF-8 title, odd lengths padded');
+  const mono = readWav(context.wavBytes([new Float32Array(3)], 22050));
+  assert.deepEqual(mono.ids, ['fmt ', 'data'], 'No INFO chunk without text');
+  assert.deepEqual(mono.format, [1, 1, 22050, 44100, 2, 16]);
+  // A score of your own: title and composer only; an imported copyright line still travels.
+  const own = 'X:1\nT:My Waltz\nC:A. Student\nM:3/4\nK:G\nG3 |]';
+  assert.deepEqual(
+    {...context.creditedWavInfo(own, {title: 'My Waltz', abc: own})},
+    {title: 'My Waltz', artist: 'A. Student'}
+  );
+  assert.deepEqual({...context.creditedWavInfo('X:1\nK:C\nC', null)}, {title: '', artist: ''});
+  assert.equal(
+    context.creditedWavInfo('%%abc-copyright © 2024 A. Arranger\nX:1\nT:Kept\nK:C\nC', {}).copyright,
+    '© 2024 A. Arranger'
+  );
+  // Every catalog license reaches ICOP, and the full credit and ABC source reach ICMT; GPL editions carry the license.
+  const licenses = new Map(context.library.map(item => [context.scoreLicense(item), item]));
+  for (const [license, item] of licenses) {
+    const {info} = readWav(context.wavBytes([new Float32Array(2)], 44100, context.creditedWavInfo(item.abc, item)));
+    assert.equal(info.ICOP, license, license + ' in ICOP');
+    assert.ok(info.ICMT.startsWith(context.exportCredit(item)), license + ': the full credit in ICMT');
+    assert.ok(info.ICMT.includes('Corresponding editable ABC source:\n% FretFree-Notice-Begin'));
+    assert.equal(info.IART, item.attribution || item.composer);
+    if (license.startsWith('GPL')) assert.ok(info.ICMT.includes('GNU GENERAL PUBLIC LICENSE'));
+  }
+  assert.ok(licenses.size >= 10, 'Checked WAV credits for ' + licenses.size + ' licenses');
 }
 // Skill tags are read from the music; catalog-skills.js must match what skillTags() says about every score today.
 {
@@ -3320,7 +3403,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), road-map playback (marks from decorations and text, the order of play through D.C., D.S., Fine, coda signs and To Coda, repeats after a jump, fermata holds, notes and timing events in the order of play, library tunes that follow their road map), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), road-map playback (marks from decorations and text, the order of play through D.C., D.S., Fine, coda signs and To Coda, repeats after a jump, fermata holds, notes and timing events in the order of play, library tunes that follow their road map), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {

@@ -21,9 +21,11 @@ function allowReplace() {
 }
 function openScore(item, id = null) {
   if (!allowReplace()) return;
-  // The assignment builder and the share panel describe the score they were opened on, so they close with it.
+  // The assignment builder and the share and audio file panels describe the score they were opened on, so they close
+  // with it.
   toggleAssignmentBuilder(false);
   closeShare();
+  closeWav();
   if (typeof closeTurnIn === 'function') closeTurnIn();
   stop();
   stopPreview();
@@ -296,6 +298,7 @@ $('instrument').onchange = () => {
     selectedRange = null;
   }
   instrumentShown = currentInstrument();
+  updateWavSummary();
   changed();
 };
 // Concert pitch view is display only: the source, playback and the undo history stay as they are. An open note menu
@@ -479,6 +482,7 @@ $('trainer-goal').addEventListener('change', () => {
 $('speed').oninput = () => {
   const position = playPosition();
   $('speed-value').textContent = $('speed').value + '%';
+  updateWavSummary();
   if (position != null) {
     stop();
     play(position);
@@ -536,6 +540,99 @@ $('export-svg').onclick = () => {
     toast(e.message);
   }
 };
+// WAV export: a panel says what goes in the file and makes it. Include metronome and Include chords start from the
+// transport's switches; Include chords shows only when the score's chord symbols play. The summary names the speed and
+// the instrument, so it follows them while the panel is open. A bar shows how far the file has got, where the browser
+// can tell. Closing the panel, or opening another score, stops a file still being made and drops it.
+let wavRun = 0,
+  wavStop = null;
+function playsChords(source) {
+  try {
+    return parseMidi(midiBytes(source)).notes.length > parseMidi(midiBytes(source, {chordsOff: true})).notes.length;
+  } catch {
+    return false;
+  }
+}
+function showWavSummary() {
+  $('wav-summary').textContent = offlineAudio()
+    ? `The whole score in the ${currentInstrument()} sound at ${$('speed').value}% speed, as Play sounds it. ` +
+      'The file is made on this device; nothing is uploaded.'
+    : 'This browser can’t make audio files. Export MIDI instead, or try Chrome, Edge, Firefox or Safari.';
+}
+function updateWavSummary() {
+  if (!$('wav-panel').hidden) showWavSummary();
+}
+function openWav() {
+  $('wav-panel').hidden = false;
+  $('export-wav').setAttribute('aria-expanded', 'true');
+  $('wav-metronome').checked = $('metronome').checked;
+  $('wav-chords').checked = $('chords').checked;
+  $('wav-chords-option').hidden = !playsChords($('abc').value);
+  $('wav-make').disabled = !offlineAudio();
+  $('wav-status').textContent = '';
+  showWavSummary();
+  $('wav-panel').scrollIntoView?.({block: 'nearest', behavior: 'smooth'});
+  ($('wav-make').disabled ? $('wav-close') : $('wav-make')).focus({preventScroll: true});
+}
+function closeWav() {
+  if ($('wav-panel').hidden) return;
+  wavRun++;
+  wavStop?.abort();
+  wavStop = null;
+  $('wav-panel').hidden = true;
+  $('wav-progress').hidden = true;
+  $('wav-panel').removeAttribute('aria-busy');
+  $('export-wav').setAttribute('aria-expanded', 'false');
+}
+async function makeWav() {
+  const run = ++wavRun,
+    name = safeName() + '.wav',
+    bar = $('wav-progress');
+  // Without AbortController (older browsers) closing the panel still drops the file, after it is made.
+  wavStop = typeof AbortController === 'function' ? new AbortController() : null;
+  $('wav-make').disabled = true;
+  $('wav-panel').setAttribute('aria-busy', 'true');
+  $('wav-status').textContent = 'Making the audio file…';
+  // No value until the first report: a browser that cannot report progress shows a busy bar.
+  bar.removeAttribute('value');
+  bar.hidden = false;
+  showWavSummary();
+  try {
+    const wav = await renderWav({
+      metronome: $('wav-metronome').checked,
+      chords: $('wav-chords').checked,
+      signal: wavStop?.signal,
+      progress: done => {
+        if (run === wavRun) bar.value = done;
+      }
+    });
+    if (run !== wavRun) return;
+    download(wav.bytes, name, 'audio/wav');
+    $('wav-status').textContent =
+      `Downloaded ${name} (${clockTime(wav.seconds)}, ${(wav.bytes.length / 1048576).toFixed(1)} MB).`;
+  } catch (e) {
+    if (run === wavRun) $('wav-status').textContent = e.message;
+  } finally {
+    if (run === wavRun) {
+      wavStop = null;
+      bar.hidden = true;
+      $('wav-make').disabled = false;
+      $('wav-panel').removeAttribute('aria-busy');
+    }
+  }
+}
+$('export-wav').onclick = () => ($('wav-panel').hidden ? openWav() : closeWav());
+$('wav-close').onclick = () => {
+  closeWav();
+  $('export-wav').focus();
+};
+$('wav-panel').addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  e.stopPropagation();
+  closeWav();
+  $('export-wav').focus();
+});
+$('wav-make').onclick = makeWav;
 window.addEventListener('beforeunload', e => {
   if (dirty) {
     e.preventDefault();

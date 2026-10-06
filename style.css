@@ -2509,6 +2509,25 @@ header {
   font-size: 12px;
   padding: 7px 12px;
 }
+/* Audio file (WAV) panel under the export bar. Like the share panel, it does not print. */
+.wav-panel h2 {
+  font-size: 20px;
+}
+.wav-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 10px;
+}
+#wav-make {
+  margin-top: 12px;
+}
+#wav-progress {
+  display: block;
+  width: min(320px, 100%);
+  margin-top: 10px;
+  accent-color: var(--green);
+}
 /* Shortcut sheet and command search (shortcuts.js): a dialog over a dimmed page, with the list scrolling inside. */
 .keyboard-help .shortcuts-open {
   font-size: 11px;
