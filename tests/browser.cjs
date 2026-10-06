@@ -1281,6 +1281,8 @@ const {chromium} = require('playwright'),
   await page.click('#draw-mode');
   {
     const [x, y] = await page.evaluate(() => {
+      // The controls above the score push its staff to the bottom of a 900 px window; a mouse click needs it in view.
+      $('notation').scrollIntoView({block: 'center', behavior: 'instant'});
       const svg = $('notation').querySelector('svg'),
         st = renderedTune.engraver.staffgroups[0].staffs[0],
         rest = renderedTune.engraver.selectables.find(s => s.absEl.abcelem.rest).svgEl.getBBox();
