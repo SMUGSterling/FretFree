@@ -679,16 +679,45 @@ function barProblems(tune) {
   }
   return problems;
 }
+// A first measure (of barLengths) shaped like a pickup: shorter than the meter and closed by a bar line.
+const shortStart = m => m.measure === 1 && m.meter !== 'free' && !!m.bar && m.length < m.expected - 1e-6;
+// The voices (barLengths' ids) that open with that shape and have more music after it.
+function openingPickups(tune) {
+  const starts = new Set(),
+    more = new Set();
+  for (const m of barLengths(tune)) (shortStart(m) ? starts : more).add(m.voice);
+  return new Set([...starts].filter(v => more.has(v)));
+}
 // Where each note and rest starts in its measure, as a beat counted from 1 (2.5 is halfway through beat 2), keyed by
-// startChar. A beat is the meter's lower note, or three of them in 6/8, 9/8 and 12/8. A short first measure that ends
-// with a bar line is a pickup, so it ends on the last beat. Free meter (M:none) has no beats.
-function noteBeats(tune) {
-  const out = new Map();
-  for (const m of barLengths(tune)) {
+// startChar. A beat is the meter's lower note, or three of them in 6/8, 9/8 and 12/8. Free meter (M:none) has no beats.
+// A short first measure is a pickup, so it ends on the last beat, when a short bar that closes a section or the tune
+// makes up the rest of it, or when its voice is in opened (openingPickups of the score as it was opened). A first bar
+// that is short only because a note was deleted from it while writing starts on beat 1.
+function noteBeats(tune, opened = new Set()) {
+  const out = new Map(),
+    measures = barLengths(tune),
+    first = new Map(),
+    last = new Map(),
+    pickups = new Map();
+  for (const m of measures) last.set(m.voice, m);
+  for (const m of measures) {
+    if (m.measure === 1) {
+      if (shortStart(m)) first.set(m.voice, m);
+      continue;
+    }
+    const f = first.get(m.voice);
+    if (
+      f &&
+      (opened.has(m.voice) ||
+        ((m.sectionEnd || m === last.get(m.voice)) && Math.abs(m.length + f.length - m.expected) < 1e-6))
+    )
+      pickups.set(m.voice, f.expected - f.length);
+  }
+  for (const m of measures) {
     if (m.meter === 'free') continue;
     const count = Math.round(m.meter.length * m.meter.den),
       beat = m.meter.den >= 8 && count > 3 && count % 3 === 0 ? 3 / m.meter.den : 1 / m.meter.den,
-      pickup = m.measure === 1 && m.bar && m.length < m.expected - 1e-6 ? m.expected - m.length : 0;
+      pickup = m.measure === 1 ? pickups.get(m.voice) || 0 : 0;
     let start = 0;
     for (const n of m.notes) {
       out.set(n.element.startChar, Math.round((1 + (pickup + start) / beat) * 1e6) / 1e6);

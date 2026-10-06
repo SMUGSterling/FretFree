@@ -245,17 +245,22 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
   refreshPalette();
 }
 // A note, chord or rest of the source as the staff shows it, in words (describeNote): its length, written pitch,
-// measure and beat. The engraved score is read once per render for its spelling and beats. '' for a bar line.
-let writtenFacts = null;
+// measure and beat. The engraved score is read once per render for its spelling and beats. '' for a bar line. A short
+// first bar the score opened with stays a pickup as it is edited (openedPickups, read once from the opened text); one
+// shortened by an edit is a pickup only when a short closing bar makes up the rest (noteBeats).
+let writtenFacts = null,
+  openedPickups = null;
 function noteDescription(entry) {
   const display = entry?.element.el_type === 'note' && displayOf(entry);
   if (!display || renderedWritten == null) return '';
-  if (writtenFacts?.source !== renderedWritten) {
+  openedPickups ??= openingPickups(ABCJS.parseOnly(openedABC)[0]);
+  if (writtenFacts?.source !== renderedWritten || writtenFacts.opened !== openedPickups) {
     const tune = ABCJS.parseOnly(renderedWritten)[0];
     writtenFacts = {
       source: renderedWritten,
+      opened: openedPickups,
       names: new Map(noteLabels(tune, 'letters').map(l => [l.at, l.names])),
-      beats: noteBeats(tune)
+      beats: noteBeats(tune, openedPickups)
     };
   }
   const at = display.startChar;
@@ -514,12 +519,14 @@ function download(data, name, type) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 // Undo/redo for every change to the ABC source. Programmatic edits (drag, draw, menu, bar fixes, buttons) are one step
-// each; a burst of typing is one step. Undoing back to the opened text clears the unsaved-changes state.
+// each; a burst of typing is one step. Undoing back to the opened text clears the unsaved-changes state. openedABC is
+// that text, kept for its pickups (noteDescription).
 let editHistory = [],
   historyIndex = 0,
   typingEdit = false,
   lastTypingAt = 0,
-  cleanKey = '';
+  cleanKey = '',
+  openedABC = '';
 const HISTORY_LIMIT = 200;
 // A history state is the ABC text plus the instrument, which is saved with the score.
 function snapshot() {
@@ -534,6 +541,8 @@ function markClean() {
 function resetHistory() {
   editHistory = [snapshot()];
   historyIndex = 0;
+  openedABC = editHistory[0].abc;
+  openedPickups = null;
   markClean();
   typingEdit = false;
   lastTypingAt = 0;

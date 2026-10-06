@@ -670,11 +670,12 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
   assert.equal(own.join(', '), '', 'FretFree teaching scores have correct bar lengths');
 }
 // Screen-reader note descriptions: noteBeats places each note on a beat, noteLabels spells it with its octave in the
-// key and the bar's accidentals, and describeNote puts them into words.
+// key and the bar's accidentals, and describeNote puts them into words. Each score is read as just opened, so a short
+// first bar is a pickup.
 {
   const describeAll = abc => {
     const tune = ABCJS.parseOnly('X:1\n' + abc)[0],
-      beats = context.noteBeats(tune),
+      beats = context.noteBeats(tune, context.openingPickups(tune)),
       names = new Map(context.noteLabels(tune, 'letters').map(l => [l.at, l.names]));
     return [...context.scoreEvents(tune)]
       .filter(e => e.element.el_type === 'note')
@@ -719,6 +720,30 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     'Note F𝄪4, measure 1'
   ]);
   assert.equal(context.describeNote({duration: 0.375, rest: {type: 'rest'}}, 5), 'Dotted quarter rest, measure 5');
+}
+// Pickups: a short first bar is one when the score opened with it, or when a short bar that closes a section or the
+// tune makes up the rest of it. A first bar shortened by deleting a note while writing starts on beat 1.
+{
+  const parse = abc => ABCJS.parseOnly('X:1\nM:4/4\nL:1/4\nK:C\n' + abc)[0],
+    beats = (abc, opened) =>
+      [
+        ...context.noteBeats(parse(abc), opened == null ? undefined : context.openingPickups(parse(opened))).values()
+      ].join(' ');
+  assert.equal(beats('C E F | G A B c |]'), '1 2 3 1 2 3 4', 'A first bar left short by a deletion');
+  assert.equal(beats('C E F | G A B c |]', 'C D E F | G A B c |]'), '1 2 3 1 2 3 4', 'It opened full');
+  assert.equal(beats('C D | E F G A | B c |]'), '3 4 1 2 3 4 1 2', 'A last bar that makes up the bar');
+  assert.equal(beats('C D | E F G A | B c |'), '3 4 1 2 3 4 1 2', 'without a final bar line too');
+  assert.equal(beats('C D | E F G A | B |]'), '1 2 1 2 3 4 1', 'A short last bar that does not');
+  assert.equal(beats('C | E F G A | B c d :| e f g a |]'), '4 1 2 3 4 1 2 3 1 2 3 4', 'A repeat that makes it up');
+  assert.equal(beats('C D | E F G A |]', 'C D | E F G A |]'), '3 4 1 2 3 4', 'The score opened with a pickup');
+  assert.equal(beats('C | E F G A |]', 'C D | E F G A |]'), '4 1 2 3 4', 'and it stays one after an edit');
+  assert.equal(beats('C D |]', 'C D |]'), '1 2', 'One short bar is not a pickup');
+  assert.equal(beats('C D E F | G |]', 'C D | G |]'), '1 2 3 4 1', 'A first bar filled in is not');
+  assert.deepEqual(
+    [...context.openingPickups(ABCJS.parseOnly('X:1\nM:3/4\nL:1/4\nK:C\nV:1\nC | D E F |]\nV:2\nC,3 | D,3 |]')[0])],
+    ['0:0'],
+    'Each voice has its own'
+  );
 }
 // On-screen piano spelling and chords: midiToken spells a MIDI note for a key signature; addChordPitch builds chords.
 {

@@ -236,6 +236,11 @@ function markShortcut() {
 function openShortcuts() {
   if (!$('shortcuts').hidden) return;
   shortcutsReturn = document.activeElement;
+  // An open note menu closes first: score keys do nothing while it is shown, and the keyboard goes back to the score.
+  if ($('note-menu') && !$('note-menu').hidden && typeof closeNoteMenu === 'function') {
+    closeNoteMenu();
+    shortcutsReturn = null;
+  }
   $('shortcuts').hidden = false;
   $('shortcuts-open')?.setAttribute('aria-expanded', 'true');
   $('shortcuts-search').value = '';

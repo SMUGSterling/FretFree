@@ -1041,6 +1041,21 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
     'Half note chord G♭3 E5, measure 2, beat 4',
     'Without spelled names, the note is named from its own accidentals'
   );
+  // A first bar shortened by deleting a note is not a pickup, so its first note stays on beat 1; a pickup the score
+  // opened with stays one as it is edited.
+  const openBody = abc => run(`dirty=false;openScore({abc:${JSON.stringify('X:1\n' + abc)},instrument:'Flute'})`);
+  openBody('M:4/4\nL:1/4\nK:C\nC D E F | G A B c |]');
+  run('selectEntry(scoreNotes()[1])');
+  key('Delete');
+  assert.equal(body(), 'C E F | G A B c |]');
+  assert.equal(status(), 'Quarter note C4, measure 1, beat 1.', 'A first bar shortened by Delete starts on beat 1');
+  key('ArrowRight');
+  assert.equal(status(), 'Quarter note E4, measure 1, beat 2.');
+  openBody('M:4/4\nL:1/4\nK:C\nC D | E F G A |]');
+  run('selectEntry(scoreNotes()[1])');
+  key('Delete');
+  assert.equal(body(), 'C | E F G A |]');
+  assert.equal(status(), 'Quarter note C4, measure 1, beat 4.', 'An opened pickup stays one');
 }
 // Shortcut sheet: one SHORTCUTS table gives the palette its key hints; ? opens a dialog that lists the commands by
 // task, keeps the keyboard, filters as you type, and runs the chosen command on the selection with Enter.
@@ -1146,6 +1161,25 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
     ['Duplicate'],
     'Every word of the query must match'
   );
+  // ? over the note menu closes the menu, so the chosen command runs on the note, and Escape gives the keyboard to the
+  // score rather than to the hidden menu.
+  const menuOn = i =>
+    run(`selectEntry(scoreNotes()[${i}]);openNoteMenu(scoreNotes()[${i}],displayOf(scoreNotes()[${i}]),10,10)`);
+  run(`dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nC D E F |]')},instrument:'Flute'})`);
+  menuOn(1);
+  assert.equal(run("!!document.activeElement.closest('#note-menu')"), true);
+  press('document.activeElement', '?');
+  assert.equal(run("$('note-menu').hidden"), true, '? closes the note menu');
+  assert.equal(active(), 'shortcuts-search');
+  search('up a step');
+  press("$('shortcuts-search')", 'Enter');
+  assert.equal(body(), 'C E E F |]', 'The command runs on the note');
+  assert.equal(status(), 'Quarter note E4, measure 1, beat 2.');
+  menuOn(1);
+  press('document.activeElement', '?');
+  press("$('shortcuts-search')", 'Escape');
+  assert.equal(active(), 'notation', 'Escape gives the keyboard to the score');
+  run('stepHistory(-1)');
 }
 // Articulations, dynamics and ornaments: ; : > " ^ and the palette toggle marks, dynamics replace each other, rests take
 // only a dynamic or a fermata, and every edit is one undo step that keeps the selection.

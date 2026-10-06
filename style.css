@@ -2349,6 +2349,14 @@ header {
   padding: 3px 8px;
   vertical-align: baseline;
 }
+/* On phones and touch screens it is the way in to the command search, so it is a full-size tap target. */
+@media (max-width: 720px), (pointer: coarse) {
+  .keyboard-help .shortcuts-open {
+    min-height: 40px;
+    padding: 6px 12px;
+    vertical-align: middle;
+  }
+}
 .shortcuts {
   position: fixed;
   inset: 0;
@@ -2362,13 +2370,14 @@ header {
 .shortcuts[hidden] {
   display: none;
 }
+/* Its height leaves room for the backdrop's padding and its own top margin, so its bottom edge stays on screen. */
 .shortcuts-dialog {
   display: flex;
   flex-direction: column;
   gap: 6px;
   width: min(560px, 100%);
-  max-height: calc(100vh - 32px);
-  max-height: calc(100dvh - 32px);
+  max-height: calc(100vh - 32px - 4vh);
+  max-height: calc(100dvh - 32px - 4vh);
   margin-top: 4vh;
   background: var(--paper);
   color: var(--ink);
