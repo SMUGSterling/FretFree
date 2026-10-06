@@ -3931,10 +3931,128 @@ const {chromium} = require('playwright'),
       storeScores(saved);
     });
   }
+  // Play-along check in real Chromium. The "microphone" is first a loopback of FretFree's own output, 120 ms late, so a
+  // perfect player is heard: notes are marked green while the score plays on, and Pitch and Rhythm are shown. Then a
+  // steady wrong note: every note is red. Marks never reach SVG export or print, and nothing leaves the site.
+  {
+    await page.setViewportSize({width: 1280, height: 900});
+    const offSite = [],
+      watchRequests = request => {
+        if (!request.url().startsWith(new URL(page.url()).origin)) offSite.push(request.url());
+      };
+    page.on('request', watchRequests);
+    await page.evaluate(() => {
+      openScore({
+        title: 'Browser check',
+        abc: 'X:1\nT:Browser check\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nC D E F | G2 A2 |]'
+      });
+      $('metronome').checked = false;
+      $('loop').checked = false;
+      $('speed').value = 100;
+      $('speed').oninput();
+      // The loopback's own delay (output to stream to analyser) comes on top of the 120 ms.
+      storage.set(KEYS.latency, {ms: 160, at: Date.now()});
+      window.__mic = 'loopback';
+      navigator.mediaDevices.getUserMedia = async () => {
+        audioContext();
+        const loop = audio.createMediaStreamDestination();
+        if (window.__mic === 'loopback') {
+          const delay = audio.createDelay(1);
+          delay.delayTime.value = 0.12;
+          outputNode().connect(delay);
+          delay.connect(loop);
+        } else {
+          // F sharp, which this C major tune never has.
+          const osc = audio.createOscillator(),
+            gain = audio.createGain();
+          osc.frequency.value = 370;
+          gain.gain.value = 0.3;
+          osc.connect(gain).connect(loop);
+          osc.start();
+        }
+        return loop.stream;
+      };
+      window.scrollTo({top: 0, behavior: 'instant'});
+    });
+    await page.focus('#assess');
+    await page.keyboard.press('Enter');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'assess-start', 'Focus goes to Start check');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => check?.state === 'live');
+    assert.equal(await page.textContent('#assess'), '● Listening');
+    await page.waitForFunction(() => document.querySelectorAll('#notation .assess-mark').length >= 2, null, {
+      timeout: 15000
+    });
+    assert.equal(await page.evaluate(() => playing), true, 'Marks are drawn while the score plays on');
+    await page.waitForFunction(() => !check && lastCheck, null, {timeout: 20000});
+    const heard = await page.evaluate(() => ({
+      pitch: parseInt($('assess-pitch').textContent),
+      rhythm: parseInt($('assess-rhythm').textContent),
+      marks: [...document.querySelectorAll('#notation .assess-mark')].map(m => m.getAttribute('class')),
+      status: $('assess-status').textContent
+    }));
+    assert.match(heard.status, /^Checked 6 notes: pitch \d+%, rhythm \d+%, \d stars?\.$/);
+    assert.equal(heard.marks.length, 6, 'Every note is marked');
+    assert.ok(
+      heard.pitch >= 80 && heard.rhythm >= 80 && heard.marks.filter(m => m.endsWith('green')).length >= 5,
+      `The score, played back, is heard as right: ${JSON.stringify(heard)}`
+    );
+    const exported = await page.evaluate(() => {
+      window.__downloads = [];
+      download = data => __downloads.push(data);
+      $('export-svg').click();
+      return __downloads[0];
+    });
+    assert.ok(exported.includes('<svg') && !exported.includes('assess-mark'), 'Marks are left out of SVG export');
+    await page.emulateMedia({media: 'print'});
+    assert.equal(
+      await page.evaluate(() => getComputedStyle(document.querySelector('#notation .assess-mark')).display),
+      'none',
+      'Marks do not print'
+    );
+    await page.emulateMedia({media: 'screen'});
+    await page.evaluate(() => (window.__mic = 'wrong'));
+    await page.click('#assess-start');
+    await page.waitForFunction(() => !check && lastCheck && $('assess-history').children.length === 2, null, {
+      timeout: 20000
+    });
+    const wrong = await page.evaluate(() => ({
+      pitch: $('assess-pitch').textContent,
+      reds: document.querySelectorAll('#notation .assess-red').length,
+      problems: $('assess-problems').children.length,
+      first: $('assess-problems').firstElementChild.textContent
+    }));
+    assert.deepEqual([wrong.pitch, wrong.reds, wrong.problems], ['0%', 6, 6], 'A steady wrong note is red throughout');
+    assert.match(wrong.first, /^Measure 1, note 1: heard F♯, not C$/);
+    // Phone width: the panel fits without scrolling the page sideways, and its controls stay on screen.
+    await page.setViewportSize({width: 390, height: 844});
+    await page.locator('#assess-panel').scrollIntoViewIfNeeded();
+    assert.ok(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      'No sideways scroll at 390px'
+    );
+    assert.ok(
+      await page
+        .locator('#assess-panel button, #assess-panel select')
+        .evaluateAll(els => els.every(el => el.getBoundingClientRect().right <= window.innerWidth)),
+      'The check’s controls stay on screen'
+    );
+    await page.focus('#assess-start');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => $('assess-panel').hidden), true, 'Escape closes the panel');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'assess');
+    await page.setViewportSize({width: 1280, height: 900});
+    page.off('request', watchRequests);
+    assert.deepEqual(offSite, [], 'The check makes no request off the site');
+    await page.evaluate(() => {
+      storage.remove(KEYS.latency);
+      storage.remove(KEYS.attempts);
+    });
+  }
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: screen-reader note names on click, arrow keys and edits, the shortcut sheet (?, search, Enter, click, focus trap, Escape, over the note menu, fits the window and a phone) and an accessible name on every studio button, dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), tuplets and grace notes (T and letters filling and beaming the rests, staccato on and off and Delete in a triplet, the Tuplet menu by pointer, Grace, Grace ↑ and Slashed by pointer and keyboard, undo), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), lyrics (L, a verse typed with hyphens, Enter for the next verse with the box under it, undo, the toolbar button by keyboard, click away, a verse typed past the last note then Enter, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), WAV export (keyboard and pointer, a real download as long as playback at the chosen speed, 16-bit stereo at 44.1 kHz, sound from the first note, scaling, INFO credits, metronome, a summary that follows the Speed slider and the Instrument menu, the same file with progress checkpoints, Escape, a progress bar on a long score and closing the panel stopping its render at once, phone width), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, recording yourself (calibration by keyboard, a take lined up with the score within 50 ms, one pass with Loop on, not out of reach in another tab, kept with the score through a save and a reload, playing with the score, download, delete by keyboard, Escape, phone width, no off-site requests), offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
+    'PASS: screen-reader note names on click, arrow keys and edits, the shortcut sheet (?, search, Enter, click, focus trap, Escape, over the note menu, fits the window and a phone) and an accessible name on every studio button, dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), tuplets and grace notes (T and letters filling and beaming the rests, staccato on and off and Delete in a triplet, the Tuplet menu by pointer, Grace, Grace ↑ and Slashed by pointer and keyboard, undo), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), lyrics (L, a verse typed with hyphens, Enter for the next verse with the box under it, undo, the toolbar button by keyboard, click away, a verse typed past the last note then Enter, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), WAV export (keyboard and pointer, a real download as long as playback at the chosen speed, 16-bit stereo at 44.1 kHz, sound from the first note, scaling, INFO credits, metronome, a summary that follows the Speed slider and the Instrument menu, the same file with progress checkpoints, Escape, a progress bar on a long score and closing the panel stopping its render at once, phone width), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, recording yourself (calibration by keyboard, a take lined up with the score within 50 ms, one pass with Loop on, not out of reach in another tab, kept with the score through a save and a reload, playing with the score, download, delete by keyboard, Escape, phone width, no off-site requests), play-along checks (by keyboard, the score heard back through a loopback marked green while it plays on, Pitch and Rhythm shown, a steady wrong note all red with its words, marks out of SVG export and print, phone width, Escape, no off-site requests), offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

@@ -27,6 +27,8 @@ function stop() {
   $('play-status').textContent = 'Ready to play';
   // A recording ends with the playback it follows, and a take playing with the score stops with it.
   if (typeof takeStopped === 'function') takeStopped();
+  // A play-along check stops listening with it.
+  if (typeof checkStopped === 'function') checkStopped();
 }
 // Where playback is, in score seconds, so a speed change or the Chords switch can carry on from there.
 const playPosition = () => (playing ? playOrigin + Math.max(0, audio.currentTime - playClock) * playSpeed : null);
@@ -267,11 +269,11 @@ function schedulePass(p, from, percent, base, pass) {
   // A note that ends by from as written stays out, even if swing lengthened it past from: playing from a swung
   // off-beat starts with that note, not a blip of the one before it.
   const speed = percent / 100,
-    notes = p.full.notes.filter(n => !(n.straightEnd <= from + SLICE_EDGE)),
+    notes = p.full.notes.filter(n => !(n.straightEnd <= from + SLICE_EDGE) && (n.ch ?? 0) !== p.muted),
     data = playbackSlice({...p.full, notes}, from, percent, p.until),
     looping = !p.once && ($('loop').checked || $('trainer').checked);
   scheduleNotes(data.notes, base);
-  if ($('metronome').checked)
+  if ($('metronome').checked || p.muted != null)
     for (const c of clickTimes(from, p.until, p.full.duration)) click(base + (c.time - from) / speed, c.down);
   atAudioTime(base, () => {
     if (p.generation !== playGeneration) return;
@@ -303,10 +305,14 @@ function schedulePass(p, from, percent, base, pass) {
       if (p.generation === playGeneration) stop();
     });
 }
-// Options for recording and takes: countInBars counts in that many bars whatever the Count-in box says, once plays the
-// range a single time (no loop or trainer), percent and until replace the speed and the end, and onStart gets the audio
-// time where score time `from` sounds.
-async function play(resumeFrom = null, {countIn = false, countInBars = 0, once = false, percent, until, onStart} = {}) {
+// Options for recording, takes and play-along checks: countInBars counts in that many bars whatever the Count-in box
+// says, once plays the range a single time (no loop or trainer), percent and until replace the speed and the end,
+// melodyOff leaves the melody (the lowest channel) out and keeps the metronome on, and onStart gets the audio time where
+// score time `from` sounds, with the notes as played (full).
+async function play(
+  resumeFrom = null,
+  {countIn = false, countInBars = 0, once = false, percent, until, melodyOff = false, onStart} = {}
+) {
   if (playing) {
     stop();
     return;
@@ -363,8 +369,9 @@ async function play(resumeFrom = null, {countIn = false, countInBars = 0, once =
     playOrigin = from;
     playClock = base;
     playSpeed = percent / 100;
-    schedulePass({full, range, start: past ? from : start, until, generation, once}, from, percent, base, 1);
-    onStart?.({clock: base, from, until, percent});
+    const muted = melodyOff && full.notes.length ? Math.min(...full.notes.map(n => n.ch ?? 0)) : null;
+    schedulePass({full, range, start: past ? from : start, until, generation, once, muted}, from, percent, base, 1);
+    onStart?.({clock: base, from, until, percent, full});
   } catch (e) {
     stop();
     toast('Playback unavailable: ' + e.message);

@@ -33,6 +33,7 @@ const SCRIPTS = [
   'assignments.js',
   'turn-in.js',
   'record.js',
+  'assess.js',
   'app.js'
 ];
 // A fresh page load: `seed` fills localStorage before the scripts run, as a previous visit would have left it.
@@ -448,7 +449,9 @@ $('new-bars').value = '8';
       'fretfree-note-colors': 'classroom',
       'fretfree-zoom': 140,
       'fretfree-practice-chords': false,
-      'fretfree-record-count-in': 2
+      'fretfree-record-count-in': 2,
+      'fretfree-check-level': 'hard',
+      'fretfree-check-melody': false
     }
   };
   const before = run('saved.length');
@@ -470,6 +473,18 @@ $('new-bars').value = '8';
   assert.equal(run("$('record-count-in').value"), '2', 'The recording count-in restored from a backup');
   assert.equal(run('backupData().settings')['fretfree-record-count-in'], 2);
   assert.equal('fretfree-latency' in run('backupData().settings'), false, 'Latency is not backed up');
+  // So do the play-along check's level and melody choice; the checks themselves stay with the scores on this device.
+  assert.deepEqual(
+    [run("$('assess-level').value"), run("$('assess-melody').checked")],
+    ['hard', false],
+    'The check level and melody choice restored from a backup'
+  );
+  run("storage.set(KEYS.attempts, {'saved:x': []})");
+  assert.equal(run('backupData().settings')['fretfree-check-level'], 'hard');
+  assert.equal('fretfree-attempts' in run('backupData().settings'), false, 'Check history is not a setting');
+  run(
+    'storage.remove(KEYS.attempts);storage.remove(KEYS.checkLevel);storage.remove(KEYS.checkMelody);applyCheckSettings()'
+  );
   run('storage.remove(KEYS.latency)');
   const newer = {
     app: 'FretFree',
@@ -1603,6 +1618,67 @@ assert.equal(
   assert.equal(w.localStorage.getItem('fretfree-inbox'), null);
   assert.equal($('inbox-list').textContent, 'No submissions yet.');
   run('toggleInbox(false); dirty = false');
+  // Play-along checks go with turned-in work: the latest ten as h, read back field by field, and shown in the Turn in
+  // summary, the submission bar, Submissions and the turn-in file. Damaged checks are dropped wherever they are read.
+  run('dirty = false');
+  await run(`openSharedLink(${JSON.stringify(handout)})`);
+  const checkAt = Date.now() - 60000,
+    made = [
+      {at: checkAt, level: 'medium', speed: 80, from: 1, to: 2, pitch: 70, rhythm: 60, stars: 3},
+      {at: checkAt + 1000, level: 'hard', speed: 100, from: 1, to: 2, pitch: 95, rhythm: 90, stars: 4}
+    ];
+  w.localStorage.setItem('fretfree-attempts', JSON.stringify({[run('recordKey()')]: [...made, {at: 'x'}]}));
+  $('turn-in').click();
+  assert.match(
+    $('turn-in-summary').textContent,
+    / Best of 2 play-along checks: pitch 95%, rhythm 90%, 4 stars; they go with your work\.$/
+  );
+  $('student-name').value = 'Bo';
+  $('turn-in-form').requestSubmit();
+  await until(() => !$('turn-in-result').hidden);
+  const checkedLink = $('turn-in-url').value.split('#')[1],
+    carried = await run(`decodeShare(${JSON.stringify(checkedLink.slice(2))})`);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(carried.h)),
+    [
+      [checkAt, 70, 60, 3, 1, 80, 1, 2],
+      [checkAt + 1000, 95, 90, 4, 2, 100, 1, 2]
+    ],
+    'The link carries the checks as h, still at payload v 1'
+  );
+  assert.equal(carried.v, 1);
+  assert.equal(
+    JSON.parse(run('turnInFile(turnedIn)')).checks,
+    'Best of 2 play-along checks: pitch 95%, rhythm 90%, 4 stars'
+  );
+  $('turn-in-close').click();
+  run('dirty = false');
+  await run(`openSharedLink(${JSON.stringify(checkedLink)})`);
+  assert.match(
+    $('submission-text').textContent,
+    /^Turned in by Bo · .+ · Steps · Best of 2 play-along checks: pitch 95%, rhythm 90%, 4 stars$/
+  );
+  $('submission-add').click();
+  run('show("saved"); toggleInbox(true)');
+  assert.match(
+    $('inbox-list').querySelector('.inbox-checks').textContent,
+    /^Best of 2 play-along checks: pitch 95%, rhythm 90%, 4 stars$/
+  );
+  const withChecks = JSON.parse(w.localStorage.getItem('fretfree-inbox'))[0];
+  w.localStorage.setItem(
+    'fretfree-inbox',
+    JSON.stringify([{...withChecks, checks: [{...made[0], stars: 9}, made[1], 'x']}])
+  );
+  assert.deepEqual(JSON.parse(run('JSON.stringify(storedInbox()[0].checks)')), [made[1]], 'A damaged check is dropped');
+  run('renderInbox()');
+  assert.equal(
+    $('inbox-list').querySelector('.inbox-checks').textContent,
+    'Play-along check: pitch 95%, rhythm 90%, 4 stars'
+  );
+  // Work turned in without checks carries no h.
+  assert.equal(sent.h, undefined);
+  run('storeInbox([]); toggleInbox(false); dirty = false');
+  w.localStorage.removeItem('fretfree-attempts');
 
   // Unsaved-work recovery: an edit leaves this tab's draft in the local list; undoing to the opened text or saving
   // removes it.
@@ -2111,7 +2187,7 @@ assert.equal(
     assert.match($('toast').textContent, /^FretFree is installed/);
   }
   console.log(
-    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), turning in (name required and remembered, n/t/x/g links, the .json file, stale links after edits, Turned in by, escaping) and Submissions (30 pasted links in one group, bad lines reported, duplicates, sorting, Previous/Next with focus, feedback kept per student, return links with c, feedback on the student’s saved copy, backup and restore, damaged entries, the 200 cap, delete and clear), backup and restore (with classroom colors, zoom, the Chords switch and the recording count-in, but not the device latency), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files), and the offline notice and Install app.'
+    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), turning in (name required and remembered, n/t/x/g links, play-along checks as h in the link, the summary, the file, the submission bar and Submissions, with damaged checks dropped, the .json file, stale links after edits, Turned in by, escaping) and Submissions (30 pasted links in one group, bad lines reported, duplicates, sorting, Previous/Next with focus, feedback kept per student, return links with c, feedback on the student’s saved copy, backup and restore, damaged entries, the 200 cap, delete and clear), backup and restore (with classroom colors, zoom, the Chords switch, the recording count-in and the check level and melody choice, but not the device latency), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files), and the offline notice and Install app.'
   );
 })().catch(e => {
   console.error(e);

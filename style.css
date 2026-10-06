@@ -58,6 +58,9 @@
   --score-range: #dce8b1;
   --score-flag: #f3c4ae;
   --score-ghost: #245c4b;
+  --score-good: #2b8a3e;
+  --score-close: #e0a000;
+  --score-miss: #d6336c;
 }
 /* Dark theme: Auto follows the device setting, and data-theme on <html> (set by theme.js and shared.js) overrides
    it. The same tokens appear twice because CSS cannot join a media query and a selector in one rule. Screen only:
@@ -122,6 +125,9 @@
     --score-range: #3f5a2b;
     --score-flag: #7a3a22;
     --score-ghost: #7ccaa9;
+    --score-good: #69db7c;
+    --score-close: #ffd43b;
+    --score-miss: #ff8787;
   }
 }
 @media screen {
@@ -184,6 +190,9 @@
     --score-range: #3f5a2b;
     --score-flag: #7a3a22;
     --score-ghost: #7ccaa9;
+    --score-good: #69db7c;
+    --score-close: #ffd43b;
+    --score-miss: #ff8787;
   }
 }
 * {
@@ -2746,6 +2755,81 @@ header {
 @media print {
   .shortcuts,
   .keyboard-help .shortcuts-open {
+    display: none !important;
+  }
+}
+/* Play-along check: the panel (laid out like Record yourself) and the marks under checked notes. */
+#notation .assess-mark {
+  pointer-events: none;
+}
+#notation .assess-green {
+  fill: var(--score-good);
+}
+#notation .assess-yellow {
+  fill: var(--score-close);
+}
+#notation .assess-red {
+  fill: var(--score-miss);
+}
+.transport #assess.recording,
+#assess-start.recording {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--on-green);
+}
+#assess-start[aria-disabled='true'] {
+  cursor: wait;
+  opacity: 0.6;
+}
+.assess-result {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--ok-border);
+  background: var(--ok-bg);
+  border-radius: 4px;
+}
+.assess-panel .assess-scores {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  margin: 0;
+  font-size: 15px;
+}
+.assess-stars {
+  color: var(--orange);
+  letter-spacing: 2px;
+  white-space: nowrap;
+}
+.assess-scores button {
+  margin-left: auto;
+  font-size: 12px;
+}
+.assess-problems {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.assess-problems li::marker {
+  color: var(--score-miss);
+}
+.assess-problems li.assess-yellow::marker {
+  color: var(--score-close);
+}
+.assess-problems li.assess-green::marker {
+  color: var(--score-good);
+}
+.assess-history-heading {
+  margin: 14px 0 0;
+  font-size: 14px;
+}
+.assess-history li {
+  font-size: 13px;
+}
+@media print {
+  .assess-panel,
+  #notation .assess-mark {
     display: none !important;
   }
 }

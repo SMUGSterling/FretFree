@@ -1,8 +1,9 @@
 'use strict';
 // Turning in and the teacher's inbox. A student turns in an assignment as a share link that also carries their name,
-// the time and their goal results (n, t, x, g); nothing is uploaded. The teacher pastes the links (or drops the .json
-// files) into My scores → Submissions, which lists them by assignment and steps through the class in the studio. A
-// return link carries the teacher's feedback (c) back to the student. The checks on these keys are in score-tools.js.
+// the time, their goal results and their latest play-along checks (n, t, x, g, h); nothing is uploaded. The teacher
+// pastes the links (or drops the .json files) into My scores → Submissions, which lists them by assignment and steps
+// through the class in the studio. A return link carries the teacher's feedback (c) back to the student. The checks on
+// these keys are in score-tools.js.
 const INBOX_LIMIT = 200,
   INBOX_ABC_MAX = 200 * 1024;
 
@@ -12,6 +13,12 @@ const resolvePrompt = prompt => (typeof prompt === 'string' ? promptById(prompt)
   linkPrompt = payload => validPrompt(payload?.q) || (typeof payload?.p === 'string' && promptById(payload.p)) || null;
 const goalWords = (met, total) => (total ? `${met} of ${total} goal${total === 1 ? '' : 's'}` : 'No goals');
 const barWords = bars => (bars ? `${bars} bar${bars === 1 ? '' : 's'} to fix` : 'Bars ✓');
+// Play-along checks in a few words: the best of them, and how many there were.
+const checksWords = checks =>
+  checks?.length
+    ? `${checks.length === 1 ? 'Play-along check' : `Best of ${checks.length} play-along checks`}: ${checkWords(bestCheck(checks))}`
+    : '';
+const openChecks = () => (typeof storedChecks === 'function' ? storedChecks(recordKey()) : []);
 
 // Student: Turn in. The button shows on a score with an assignment or a writing prompt, but not on work someone turned
 // in, which the teacher answers with feedback instead.
@@ -34,9 +41,11 @@ function updateTurnIn() {
 }
 function showTurnInSummary(prompt) {
   const {met, total, bars} = turnInChecks(prompt);
+  const checks = openChecks().slice(-CHECKS_IN_LINK);
   $('turn-in-summary').textContent =
     `${prompt.level === 'Custom' ? 'Assignment' : 'Writing prompt'}: ${prompt.title}. ${goalWords(met, total)} met` +
-    (bars ? `; ${bars} bar${bars === 1 ? ' doesn’t' : 's don’t'} match the time signature.` : '.');
+    (bars ? `; ${bars} bar${bars === 1 ? ' doesn’t' : 's don’t'} match the time signature.` : '.') +
+    (checks.length ? ` ${checksWords(checks)}; ${checks.length === 1 ? 'it goes' : 'they go'} with your work.` : '');
 }
 function openTurnIn() {
   const prompt = activePrompt();
@@ -75,10 +84,27 @@ async function turnIn() {
   flushTyping();
   const checks = turnInChecks(prompt),
     at = Date.now(),
-    payload = {...sharePayload(), n: name, t: at, x: prompt.id, g: checks.goals.map(g => (g.ok ? 1 : 0))};
+    played = openChecks(),
+    payload = {
+      ...sharePayload(),
+      n: name,
+      t: at,
+      x: prompt.id,
+      g: checks.goals.map(g => (g.ok ? 1 : 0)),
+      ...(played.length ? {h: checksForLink(played)} : {})
+    };
   const url = `${shareBase()}#s=${await encodeShare(payload)}`;
   turnInSource = payload.a;
-  turnedIn = {name, at, title: prompt.title, met: checks.met, total: checks.total, url, abc: payload.a};
+  turnedIn = {
+    name,
+    at,
+    title: prompt.title,
+    met: checks.met,
+    total: checks.total,
+    checks: readChecks(payload.h),
+    url,
+    abc: payload.a
+  };
   $('turn-in-url').value = url;
   $('turn-in-result').hidden = false;
   await copyField(
@@ -89,7 +115,7 @@ async function turnIn() {
 }
 // The turn-in file: the link (which the inbox reads), a summary a person can read, and the credited ABC, so the
 // edition's credits and license travel with the file as with every export.
-function turnInFile({name, at, title, met, total, url, abc}, item = current) {
+function turnInFile({name, at, title, met, total, checks, url, abc}, item = current) {
   return JSON.stringify(
     {
       app: 'FretFree',
@@ -99,6 +125,7 @@ function turnInFile({name, at, title, met, total, url, abc}, item = current) {
       assignment: title,
       turnedIn: new Date(at).toISOString(),
       goals: goalWords(met, total),
+      ...(checks?.length ? {checks: checksWords(checks)} : {}),
       link: url,
       abc: creditedABC(abc, item)
     },
@@ -171,7 +198,8 @@ function inboxEntry(payload, prompt = linkPrompt(payload)) {
   if (!sub || typeof payload.a !== 'string' || payload.a.length > INBOX_ABC_MAX || !SHARE_ABC.test(payload.a))
     return null;
   const instrument = instruments[payload.i] ? payload.i : undefined,
-    source = catalog.some(x => x.id === payload.s) ? payload.s : undefined;
+    source = catalog.some(x => x.id === payload.s) ? payload.s : undefined,
+    played = readChecks(payload.h);
   let checks;
   try {
     checks = submissionChecks(payload.a, prompt, instruments[instrument]?.shift || 0);
@@ -189,10 +217,12 @@ function inboxEntry(payload, prompt = linkPrompt(payload)) {
     met: checks.met,
     total: checks.total,
     bars: checks.bars,
+    ...(played.length ? {checks: played} : {}),
     added: Date.now()
   };
 }
-const isCount = (n, max) => Number.isInteger(n) && n >= 0 && n <= max;
+const isCount = (n, max) => Number.isInteger(n) && n >= 0 && n <= max,
+  checksOf = e => (Array.isArray(e.checks) ? e.checks.map(cleanCheck).filter(Boolean).slice(-CHECKS_IN_LINK) : []);
 function cleanInboxEntry(e) {
   if (!e || typeof e !== 'object') return null;
   const prompt = resolvePrompt(e.prompt),
@@ -226,6 +256,7 @@ function cleanInboxEntry(e) {
     met: e.met,
     total: e.total,
     bars: e.bars,
+    ...(checksOf(e).length ? {checks: checksOf(e)} : {}),
     added: Number.isFinite(e.added) ? e.added : 0,
     ...(readFeedback(e.feedback) ? {feedback: readFeedback(e.feedback)} : {})
   };
@@ -349,7 +380,7 @@ function renderInbox() {
             `<section class="inbox-group" aria-labelledby="inbox-group-${g}"><h3 id="inbox-group-${g}">${esc(entries[0].title)} <span class="small">${entries.length} turned in</span></h3><ol class="history-list inbox-list">${entries
               .map(
                 e =>
-                  `<li data-entry="${esc(e.id)}"><span class="inbox-who"><strong>${esc(e.name)}</strong> <span class="small">${esc(draftTime(e.at))}</span></span> <span class="inbox-goals${e.total && e.met === e.total ? ' met' : ''}">${goalWords(e.met, e.total)}</span> <span class="inbox-bars${e.bars ? ' fix' : ''}">${barWords(e.bars)}</span> <span class="history-actions"><button data-inbox-open="${esc(e.id)}" aria-label="Open the work ${esc(e.name)} turned in">Open</button><button data-inbox-delete="${esc(e.id)}" aria-label="Delete the work ${esc(e.name)} turned in">Delete</button></span></li>`
+                  `<li data-entry="${esc(e.id)}"><span class="inbox-who"><strong>${esc(e.name)}</strong> <span class="small">${esc(draftTime(e.at))}</span></span> <span class="inbox-goals${e.total && e.met === e.total ? ' met' : ''}">${goalWords(e.met, e.total)}</span> <span class="inbox-bars${e.bars ? ' fix' : ''}">${barWords(e.bars)}</span>${e.checks ? ` <span class="inbox-checks small">${esc(checksWords(e.checks))}</span>` : ''} <span class="history-actions"><button data-inbox-open="${esc(e.id)}" aria-label="Open the work ${esc(e.name)} turned in">Open</button><button data-inbox-delete="${esc(e.id)}" aria-label="Delete the work ${esc(e.name)} turned in">Delete</button></span></li>`
               )
               .join('')}</ol></section>`
         )
@@ -472,9 +503,11 @@ function showSubmission(force = false) {
     group = inboxGroups().find(g => g[0].assignment === sub.assignment) || [],
     at = group.findIndex(e => e.id === sub.id),
     entry = group[at];
+  const played = (entry || (linkEntry?.id === sub.id ? linkEntry : null))?.checks;
   $('submission-text').innerHTML =
     `Turned in by <strong>${esc(name)}</strong> · ${esc(draftTime(sub.at))}` +
-    (prompt ? ` · ${esc(prompt.title)}` : '');
+    (prompt ? ` · ${esc(prompt.title)}` : '') +
+    (played?.length ? ` · ${esc(checksWords(played))}` : '');
   $('submission-pos').textContent = at >= 0 ? `${at + 1} of ${group.length}` : '';
   for (const id of ['submission-prev', 'submission-next', 'submission-pos']) $(id).hidden = at < 0;
   $('submission-prev').disabled = at <= 0;
