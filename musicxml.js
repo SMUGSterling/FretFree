@@ -153,7 +153,7 @@ const MXL_TYPES = [
 // Text for XML: escaped, and without the control characters XML 1.0 forbids (the GPL text carries form feeds).
 function xmlText(value) {
   return String(value ?? '')
-    .replace(/[^\t\n\r\x20-퟿-�\u{10000}-\u{10FFFF}]/gu, '')
+    .replace(/[^\t\n\r\x20-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -180,6 +180,34 @@ function mxlType(length) {
     for (let dots = 0; dots <= 3; dots++)
       if (Math.abs(value * (2 - 1 / 2 ** dots) - length) < 1e-6) return {type, dots};
   return null;
+}
+const MXL_VALUES = MXL_TYPES.flatMap(([value]) => [0, 1, 2, 3].map(dots => value * (2 - 1 / 2 ** dots))).sort(
+  (a, b) => b - a
+);
+// A length no single note has, such as the z5 left by filling a 6/8 bar, as the fewest note values, longest first
+// (5/8 is 1/2 + 1/8). The writer ties them or writes consecutive rests. Null when no short sum makes it up exactly.
+function mxlPieces(length) {
+  if (mxlType(length)) return [length];
+  const pieces = [];
+  let left = length;
+  while (left > 1e-9 && pieces.length < 8) {
+    const value = MXL_VALUES.find(v => v <= left + 1e-9);
+    if (!value) return null;
+    pieces.push(value);
+    left -= value;
+  }
+  return left > 1e-9 ? null : pieces;
+}
+// abcjs plays a transpose= or %%MIDI transpose part away from its written notes; MusicXML says so with <transpose>,
+// in semitones within the octave plus whole octaves, and the matching number of letter steps.
+function mxlTranspose(semitones, number) {
+  const octaves = Math.trunc(semitones / 12),
+    chromatic = semitones - 12 * octaves,
+    diatonic = Math.sign(chromatic) * [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6][Math.abs(chromatic)];
+  return (
+    `<transpose${number ? ` number="${number}"` : ''}><diatonic>${diatonic}</diatonic>` +
+    `<chromatic>${chromatic}</chromatic>${octaves ? `<octave-change>${octaves}</octave-change>` : ''}</transpose>`
+  );
 }
 function mxlKey(key) {
   const accs = (key?.accidentals || []).filter(a => a.acc !== 'natural'),
@@ -215,7 +243,7 @@ function mxlTime(meter) {
   if (!parts.length) return '';
   return '<time>' + parts.map(v => xmlTag('beats', v.num) + xmlTag('beat-type', v.den)).join('') + '</time>';
 }
-// Clef sign, line and octave shift. abcjs plays treble-8 an octave below the written letters, so the shift also moves
+// Clef sign, line and octave shift. A treble-8 clef sounds an octave below the written letters, so the shift also moves
 // the exported pitch, and MusicXML's clef-octave-change draws the note back in the same place.
 function mxlClef(type = 'treble') {
   const octave = /([+-])(8|15)$/.exec(type),
@@ -299,14 +327,16 @@ const mxlMetronome = t => {
     unit = beats.length === 1 && mxlType(beats[0]),
     words = [t.preString, t.postString].filter(Boolean),
     total = beats.reduce((a, b) => a + b, 0),
+    // For a text-only tempo such as Q:"Andante", abcjs makes up a beat and speed: it plays them but does not show them.
+    shown = !t.suppressBpm && t.bpm,
     types = [];
   if (words.length) types.push(`<words>${xmlText(words.join(' '))}</words>`);
-  if (unit && t.bpm)
+  if (unit && shown)
     types.push(
       `<metronome><beat-unit>${unit.type}</beat-unit>${'<beat-unit-dot/>'.repeat(unit.dots)}` +
         `<per-minute>${xmlText(t.bpm)}</per-minute></metronome>`
     );
-  else if (t.bpm) types.push(`<words>${xmlText('♩ = ' + t.bpm)}</words>`);
+  else if (shown) types.push(`<words>${xmlText('♩ = ' + t.bpm)}</words>`);
   return types.length
     ? {types, sound: t.bpm > 0 && total ? `<sound tempo="${+(t.bpm * total * 4).toFixed(2)}"/>` : ''}
     : null;
@@ -339,15 +369,18 @@ function abcToMusicXML(source, meta = {}) {
     for (const [n, s] of part.staffs.entries())
       for (let v = 0; v < staffInfo.get(s).voices; v++)
         part.voices.push({s, v, staffNo: part.staffs.length > 1 ? n + 1 : 0, number: part.voices.length + 1});
-  // Divisions per quarter note: the least common multiple of every sounding length's denominator.
+  // Divisions per quarter note: the least common multiple of every sounding length's denominator, counting each piece
+  // of a note that is written as several tied ones.
   let divisions = 1;
   for (const voice of voices) {
     let tuplet = 1;
     for (const e of voice) {
       if (e.el_type !== 'note') continue;
       if (e.startTriplet) tuplet = e.tripletMultiplier || 1;
-      const d = e.duration > 0 ? mxlFraction(e.duration * tuplet * 4)[1] : 1;
-      divisions = Math.min((divisions / mxlGcd(divisions, d)) * d, 100000);
+      for (const piece of e.duration > 0 ? mxlPieces(e.duration) || [e.duration] : []) {
+        const d = mxlFraction(piece * tuplet * 4)[1];
+        divisions = Math.min((divisions / mxlGcd(divisions, d)) * d, 100000);
+      }
       if (e.endTriplet) tuplet = 1;
     }
   }
@@ -370,20 +403,33 @@ function abcToMusicXML(source, meta = {}) {
       key = {},
       keySig = '',
       clef = mxlClef(),
-      octave = 0,
       clefType = '',
+      // Playback transposition in semitones, kept the way abcjs's player keeps it: from %%MIDI transpose in the
+      // header or the voice, or from the clef. A clef's transpose= sets it; an octave clef replaces it with -12 or
+      // 12, which a plain clef at the start of a later line (but not an inline one) sets back to 0.
+      transpose = tune.formatting?.midi?.transpose?.[0] || 0,
+      octaveClef = false,
+      transposeSig = '',
       meter = null,
       meterSig = '',
       carried = new Map(),
       tuplet = null,
       inBeam = false,
       ending = null,
-      wavy = false;
-    const tieAlters = new Map(),
-      slurs = new Map(),
+      wavy = false,
+      // Each pitch the last note tied on, with its alter and where it was written; a tie only carries to the same
+      // pitch in the next note.
+      tiedFrom = new Map();
+    const slurs = new Map(),
       slurNumbers = new Set(),
       lyricOpen = [];
     const open = () => (m ??= mxlBlank()),
+      // A tie that no note continues is taken off the note it started on.
+      untie = ({content, at}) =>
+        (content[at] = content[at]
+          .replace('<tie type="start"/>', '')
+          .replace('<tied type="start"/>', '')
+          .replace('<notations></notations>', '')),
       close = () => {
         if (!m) return;
         measures.push(m);
@@ -413,12 +459,27 @@ function abcToMusicXML(source, meta = {}) {
         if (first && leads && sig !== keySig) attributes(sig);
         keySig = sig;
       },
-      // Like abcjs playback, an inline clef without -8/+8 keeps the octave shift until the next line's clef.
-      setClef = (type, inline) => {
+      // Notes are written where the clef draws them; whatever abcjs plays beyond the clef's octave is a <transpose>.
+      setTranspose = () => {
+        const sig = mxlTranspose(transpose - 12 * clef.shift, pv.staffNo);
+        if (first && clefOwner && sig !== transposeSig) attributes(sig);
+        transposeSig = sig;
+      },
+      setClef = (c, atLine) => {
+        const type = c.type || 'treble',
+          octaves = /[-+]8/.exec(type);
         clef = mxlClef(type);
-        if (!inline || clef.shift) octave = clef.shift;
+        if (c.transpose && !(atLine && type === 'perc')) {
+          transpose = c.transpose;
+          if (atLine) octaveClef = false;
+        }
+        if (octaves) {
+          transpose = octaves[0] === '-8' ? -12 : 12;
+          if (atLine) octaveClef = true;
+        } else if (atLine && octaveClef) [transpose, octaveClef] = [0, false];
         if (first && clefOwner && type !== clefType) attributes(mxlClefXML(clef, pv.staffNo));
         clefType = type;
+        setTranspose();
       },
       setMeter = mt => {
         const sig = mxlTime(mt);
@@ -428,14 +489,14 @@ function abcToMusicXML(source, meta = {}) {
       },
       // Pitch as ABC spells it: an accidental lasts to the bar line at that octave, a tie carries it over the bar,
       // and otherwise the key signature applies.
-      spell = (p, endTie) => {
+      spell = (p, tied) => {
         const step = 'CDEFGAB'[((p.pitch % 7) + 7) % 7],
           explicit = p.accidental in MXL_ALTER;
         if (explicit) carried.set(p.pitch, MXL_ALTER[p.accidental]);
         const alter = explicit
           ? MXL_ALTER[p.accidental]
-          : endTie && tieAlters.has(p.pitch)
-            ? tieAlters.get(p.pitch)
+          : tied != null
+            ? tied
             : carried.has(p.pitch)
               ? carried.get(p.pitch)
               : key[step] || 0;
@@ -443,7 +504,7 @@ function abcToMusicXML(source, meta = {}) {
           alter,
           pitch:
             `<pitch><step>${step}</step>${alter ? `<alter>${alter}</alter>` : ''}` +
-            `<octave>${4 + Math.floor(p.pitch / 7) + octave}</octave></pitch>`,
+            `<octave>${4 + Math.floor(p.pitch / 7) + clef.shift}</octave></pitch>`,
           accidental: explicit ? `<accidental>${MXL_ACCIDENTAL[p.accidental]}</accidental>` : ''
         };
       },
@@ -461,15 +522,22 @@ function abcToMusicXML(source, meta = {}) {
       if (!voice) continue;
       if (!first) {
         setKey(staff.key);
-        setClef(staff.clef?.type || 'treble');
+        setClef(staff.clef || {}, true);
         setMeter(staff.meter);
-        first = {line: li, key: keySig, clef, meter: meterSig, length: meterLength()};
+        first = {
+          line: li,
+          key: keySig,
+          clef,
+          meter: meterSig,
+          transpose: transpose - 12 * clef.shift ? transposeSig : '',
+          length: meterLength()
+        };
         // A voice that first appears on a later line starts in the measure the others have reached.
         pad(lineStarts[li] || 0);
         if (firstOfScore && tune.metaText?.tempo) tempo(tune.metaText.tempo);
       } else {
         if (staff.key) setKey(staff.key);
-        if (staff.clef?.type) setClef(staff.clef.type);
+        if (staff.clef?.type) setClef(staff.clef, true);
         if (staff.meter) setMeter(staff.meter);
         pad(lineStarts[li] || 0);
       }
@@ -477,14 +545,18 @@ function abcToMusicXML(source, meta = {}) {
       lineStarts[li] = Math.max(lineStarts[li] || 0, measures.length);
       for (const e of voice) {
         if (e.el_type === 'key') setKey(e);
-        else if (e.el_type === 'clef') setClef(e.type, true);
-        else if (e.el_type === 'meter') setMeter(e);
+        else if (e.el_type === 'clef') setClef(e);
+        else if (e.el_type === 'midi' && e.cmd === 'transpose') {
+          transpose = +e.params?.[0] || 0;
+          setTranspose();
+        } else if (e.el_type === 'meter') setMeter(e);
         else if (e.el_type === 'tempo' && leads) tempo(e);
         else if (e.el_type === 'part' && leads) direction(`<rehearsal>${xmlText(e.title)}</rehearsal>`);
         else if (e.el_type === 'bar') bar(e);
         else if (e.el_type === 'note') note(e);
       }
     }
+    tiedFrom.forEach(untie);
     if (m?.notes) {
       if (ending) m.right.ending = {number: ending, type: 'discontinue'};
       close();
@@ -537,11 +609,11 @@ function abcToMusicXML(source, meta = {}) {
       const measure = open();
       measure.notes = true;
       if (/multimeasure/.test(rest)) {
-        // Z4 is four bars of rest: four measures, drawn as one multi-bar rest.
+        // Z4 is four bars of rest: four measures, drawn as one multi-bar rest if the whole part rests in them.
         const count = Math.max(1, Math.round(+e.rest.text) || 1),
           each = dur(meterLength() || e.duration / count),
           hidden = rest === 'multimeasure' ? '' : ' print-object="no"';
-        if (count > 1 && leads) attributes(`<measure-style><multiple-rest>${count}</multiple-rest></measure-style>`);
+        if (count > 1 && leads && !hidden) measure.multiRest = count;
         for (let i = 0; i < count; i++) {
           if (i) {
             close();
@@ -558,13 +630,18 @@ function abcToMusicXML(source, meta = {}) {
         const multiplier = e.tripletMultiplier || 1;
         tuplet = {actual: e.startTriplet, normal: Math.round(e.startTriplet * multiplier), multiplier, start: true};
       }
-      const length = dur(e.duration * (tuplet?.multiplier || 1)),
-        type = typeXML(e.duration),
+      // A length no single note has is written as several: tied notes, or rests one after another.
+      const pieces = (mxlPieces(e.duration) || [e.duration]).map(value => ({
+          length: dur(value * (tuplet?.multiplier || 1)),
+          type: typeXML(value)
+        })),
+        last = pieces.length - 1,
         timeMod = tuplet
           ? `<time-modification><actual-notes>${tuplet.actual}</actual-notes>` +
             `<normal-notes>${tuplet.normal}</normal-notes></time-modification>`
           : '';
-      // Slurs, the tuplet bracket, articulations and ornaments belong to the chord, so they go on its first note.
+      // Slurs, the tuplet bracket, articulations and ornaments belong to the chord, so they go on its first note, and
+      // on the first of the pieces; a tuplet ends on the last piece.
       const shared = [],
         articulations = [],
         ornaments = [],
@@ -584,7 +661,10 @@ function abcToMusicXML(source, meta = {}) {
         shared.push(`<slur type="start" number="${n}"/>`);
       }
       if (tuplet?.start) shared.push('<tuplet type="start" bracket="yes"/>');
-      if (tuplet && e.endTriplet) shared.push('<tuplet type="stop"/>');
+      const marks = k => [
+        ...(k ? [] : shared),
+        ...(tuplet && e.endTriplet && k === last ? ['<tuplet type="stop"/>'] : [])
+      ];
       let arpeggio = false;
       for (const d of e.decoration || []) {
         if (d in MXL_ARTICULATIONS) articulations.push(`<${MXL_ARTICULATIONS[d]}/>`);
@@ -610,13 +690,16 @@ function abcToMusicXML(source, meta = {}) {
       let beam = '';
       if (!rest && e.duration < 0.25) {
         if (e.startBeam && !e.endBeam) {
-          beam = '<beam number="1">begin</beam>';
+          beam = 'begin';
           inBeam = true;
         } else if (inBeam && e.endBeam) {
-          beam = '<beam number="1">end</beam>';
+          beam = 'end';
           inBeam = false;
-        } else if (inBeam) beam = '<beam number="1">continue</beam>';
+        } else if (inBeam) beam = 'continue';
       } else if (!rest) inBeam = false;
+      const beamAt = k =>
+        beam &&
+        `<beam number="1">${(beam === 'begin' && !k) || (beam === 'end' && k === last) ? beam : 'continue'}</beam>`;
       // Lyrics: a syllable followed by "-" begins or continues a word; "_" holds it over the next notes.
       const lyrics = [];
       if (!rest)
@@ -631,40 +714,56 @@ function abcToMusicXML(source, meta = {}) {
           );
         }
       for (const g of e.gracenotes || []) {
-        const {pitch, accidental} = spell(g, false);
+        const {pitch, accidental} = spell(g);
         measure.content.push(
           `<note><grace${g.acciaccatura ? ' slash="yes"' : ''}/>${pitch}${voiceTag}` +
             `${typeXML(g.duration) || '<type>eighth</type>'}${accidental}${staffTag}</note>`
         );
       }
       if (rest || !pitches.length)
-        measure.content.push(
-          `<note${rest === 'invisible' ? ' print-object="no"' : ''}><rest/><duration>${length}</duration>` +
-            `${voiceTag}${type}${timeMod}${staffTag}` +
-            (shared.length ? `<notations>${shared.join('')}</notations>` : '') +
-            '</note>'
-        );
-      else
-        for (const [i, p] of pitches.entries()) {
-          const {pitch, accidental, alter} = spell(p, p.endTie),
-            ties = [...(p.endTie ? ['stop'] : []), ...(p.startTie ? ['start'] : [])];
-          if (p.startTie) tieAlters.set(p.pitch, alter);
-          else if (p.endTie) tieAlters.delete(p.pitch);
-          const notations = [
-            ...ties.map(t => `<tied type="${t}"/>`),
-            ...(i ? [] : shared),
-            ...(arpeggio ? ['<arpeggiate/>'] : [])
-          ];
+        for (const [k, {length, type}] of pieces.entries())
           measure.content.push(
-            `<note>${i ? '<chord/>' : ''}${pitch}<duration>${length}</duration>` +
-              ties.map(t => `<tie type="${t}"/>`).join('') +
-              `${voiceTag}${type}${accidental}${timeMod}${staffTag}${i ? '' : beam}` +
-              (notations.length ? `<notations>${notations.join('')}</notations>` : '') +
-              (i ? '' : lyrics.join('')) +
+            `<note${rest === 'invisible' ? ' print-object="no"' : ''}><rest/><duration>${length}</duration>` +
+              `${voiceTag}${type}${timeMod}${staffTag}` +
+              (marks(k).length ? `<notations>${marks(k).join('')}</notations>` : '') +
               '</note>'
           );
-        }
-      measure.length += length;
+      else {
+        // abcjs marks the next note as tied even when its pitch differs; only the same pitch continues the tie.
+        const from = tiedFrom,
+          spelled = pitches.map(p => {
+            const endTie = p.endTie && from.has(p.pitch);
+            return {...spell(p, endTie ? from.get(p.pitch).alter : null), endTie};
+          });
+        for (const [pitch, tie] of from)
+          if (!pitches.some((p, i) => spelled[i].endTie && p.pitch === pitch)) untie(tie);
+        tiedFrom = new Map();
+        for (const [k, {length, type}] of pieces.entries())
+          for (const [i, p] of pitches.entries()) {
+            const ties = [...(spelled[i].endTie || k ? ['stop'] : []), ...(p.startTie || k < last ? ['start'] : [])],
+              notations = [
+                ...ties.map(t => `<tied type="${t}"/>`),
+                ...(i ? [] : marks(k)),
+                ...(arpeggio && !k ? ['<arpeggiate/>'] : [])
+              ];
+            measure.content.push(
+              `<note>${i ? '<chord/>' : ''}${spelled[i].pitch}<duration>${length}</duration>` +
+                ties.map(t => `<tie type="${t}"/>`).join('') +
+                `${voiceTag}${type}${k ? '' : spelled[i].accidental}${timeMod}${staffTag}${i ? '' : beamAt(k)}` +
+                (notations.length ? `<notations>${notations.join('')}</notations>` : '') +
+                (i || k ? '' : lyrics.join('')) +
+                '</note>'
+            );
+            if (p.startTie && k === last)
+              tiedFrom.set(p.pitch, {
+                alter: spelled[i].alter,
+                content: measure.content,
+                at: measure.content.length - 1
+              });
+          }
+        measure.sounds = true;
+      }
+      measure.length += pieces.reduce((sum, piece) => sum + piece.length, 0);
       if (tuplet) tuplet.start = false;
       if (e.endTriplet) tuplet = null;
     }
@@ -689,16 +788,21 @@ function abcToMusicXML(source, meta = {}) {
             .map(s => part.voices.find(v => v.s === s))
             .map(v => mxlClefXML(v.first?.clef || mxlClef(), v.staffNo))
             .join('') +
+          part.staffs.map(s => part.voices.find(v => v.s === s).first?.transpose || '').join('') +
           '</attributes>';
       if (bars.left.forward || bars.left.ending)
         xml +=
           '<barline location="left">' +
-          (bars.left.forward ? '<bar-style>heavy-light</bar-style>' : '') +
+          `<bar-style>${bars.left.forward ? 'heavy-light' : 'regular'}</bar-style>` +
           (bars.left.ending
             ? `<ending number="${bars.left.ending.number}" type="start">${xmlText(bars.left.ending.text)}.</ending>`
             : '') +
           (bars.left.forward ? '<repeat direction="forward"/>' : '') +
           '</barline>';
+      // multiple-rest covers every staff and voice of the part, so a Z rest is drawn as one only when all of them rest.
+      const multiRest = part.voices[0].measures[i]?.multiRest;
+      if (multiRest && part.voices.every(v => !v.measures.slice(i, i + multiRest).some(x => x.sounds)))
+        xml += `<attributes><measure-style><multiple-rest>${multiRest}</multiple-rest></measure-style></attributes>`;
       for (const [k, v] of voices.entries()) {
         xml += v.measures[i].content.join('');
         if (k < voices.length - 1 && v.measures[i].length)
@@ -717,7 +821,7 @@ function abcToMusicXML(source, meta = {}) {
       if (r.style || r.backward || r.ending)
         xml +=
           '<barline location="right">' +
-          (r.style ? `<bar-style>${r.style}</bar-style>` : '') +
+          `<bar-style>${r.style || 'regular'}</bar-style>` +
           (r.ending ? `<ending number="${r.ending.number}" type="${r.ending.type}"/>` : '') +
           (r.backward ? '<repeat direction="backward"/>' : '') +
           '</barline>';
@@ -736,11 +840,15 @@ function abcToMusicXML(source, meta = {}) {
     date = meta.date || new Date().toISOString().slice(0, 10);
   delete metadata.abc;
   // Part names come from V: name=; a braced group takes its top staff's, and voices sharing a staff list theirs.
+  // MuseScore wants an instrument for each part, so each has one by the same name.
   const partList = parts.map((part, i) => {
     const name =
       [...new Set((staffInfo.get(part.staffs[0]).staff.title || []).filter(Boolean))].join(', ') ||
       (parts.length === 1 ? meta.instrument || 'Music' : 'Part ' + (i + 1));
-    return `<score-part id="P${i + 1}">${xmlTag('part-name', name)}</score-part>`;
+    return (
+      `<score-part id="P${i + 1}">${xmlTag('part-name', name)}` +
+      `<score-instrument id="P${i + 1}-I1">${xmlTag('instrument-name', name)}</score-instrument></score-part>`
+    );
   });
   const credits = [
     ['title', title, 'default-x="612" default-y="1504" justify="center" valign="top" font-size="22"'],

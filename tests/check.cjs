@@ -246,9 +246,10 @@ for (const prompt of context.writingPrompts) {
   );
 }
 // MusicXML export. The notes of every voice must match the parse: count, sounding length in divisions, and pitch as
-// abcjs plays it (midiPitches). abcjs's player loses an accidental written on a note it does not sound (a tied-over
-// note, or one its tie handling swallows), but the ABC rule (and the export) keeps it for the rest of the bar, so later
-// notes of that pitch in that bar are not compared.
+// abcjs plays it (midiPitches, or for a tied-over note the pitch its tie started on), after the part's <transpose>.
+// A note no single note value fits is written as several, which together must last as long. abcjs's player loses an
+// accidental written on a note it does not sound (a tied-over note, or one its tie handling swallows), but the ABC
+// rule (and the export) keeps it for the rest of the bar, so later notes of that pitch in that bar are not compared.
 {
   const {JSDOM} = require(process.env.JSDOM_PATH || 'jsdom');
   const {DOMParser} = new JSDOM('').window,
@@ -262,15 +263,23 @@ for (const prompt of context.writingPrompts) {
   const exportedVoices = doc => {
     const voices = [];
     for (const part of doc.getElementsByTagName('part')) {
-      const byNumber = new Map();
-      for (const n of part.getElementsByTagName('note')) {
+      const byNumber = new Map(),
+        transpose = {};
+      // getElementsByTagName keeps document order, which jsdom's querySelectorAll('transpose, note') does not.
+      for (const n of [...part.getElementsByTagName('*')].filter(x => /^(transpose|note)$/.test(x.tagName))) {
+        if (n.tagName === 'transpose') {
+          transpose[n.getAttribute('number') || 'all'] =
+            +kid(n, 'chromatic').textContent + 12 * +(kid(n, 'octave-change')?.textContent || 0);
+          continue;
+        }
         if (kid(n, 'grace')) continue;
         const v = +kid(n, 'voice').textContent,
           p = kid(n, 'pitch'),
           midi = p
             ? 12 * (+kid(p, 'octave').textContent + 1) +
               SEMITONES[kid(p, 'step').textContent] +
-              +(kid(p, 'alter')?.textContent || 0)
+              +(kid(p, 'alter')?.textContent || 0) +
+              (transpose[kid(n, 'staff')?.textContent] ?? transpose.all ?? 0)
             : null;
         if (!byNumber.has(v)) byNumber.set(v, []);
         const list = byNumber.get(v);
@@ -290,25 +299,38 @@ for (const prompt of context.writingPrompts) {
     const events = context.scoreEvents(tune),
       lengths = context.effectiveDurations(events),
       expected = new Map(),
-      retied = new Map();
+      retied = new Map(),
+      tied = new Map();
     for (const {element: e, key} of events) {
       const voice = key.split(':').slice(0, 2).join(':');
-      if (!expected.has(voice)) expected.set(voice, []);
+      if (!expected.has(voice)) {
+        expected.set(voice, []);
+        tied.set(voice, new Map());
+      }
       if (e.el_type === 'bar' || !retied.has(voice)) retied.set(voice, new Set());
       if (e.el_type !== 'note' || !(e.duration > 0) || e.rest?.type === 'spacer') continue;
-      const skip = (e.pitches || []).some(p => retied.get(voice).has(p.pitch));
+      const skip = (e.pitches || []).some(p => retied.get(voice).has(p.pitch)),
+        list = expected.get(voice);
       for (const p of e.pitches || [])
         if (p.accidental && (p.endTie || !e.midiPitches?.length)) retied.get(voice).add(p.pitch);
+      // abcjs sounds a tied-over note as part of the previous note, whose tie on the same pitch gives its pitch;
+      // midiPitches lists the rest of the chord in order. A tie to another pitch is not compared.
+      const sounding = (e.midiPitches || []).map(x => x.pitch),
+        swallowed = sounding.length < (e.pitches || []).length,
+        pitches = (e.pitches || []).map(p =>
+          swallowed && p.endTie ? (p.accidental ? null : tied.get(voice).get(p.pitch)) : sounding.shift()
+        );
+      if (e.pitches?.length)
+        tied.set(voice, new Map(e.pitches.flatMap((p, i) => (p.startTie ? [[p.pitch, pitches[i]]] : []))));
       if (/multimeasure/.test(e.rest?.type || ''))
-        for (let i = 0; i < (Math.round(+e.rest.text) || 1); i++) expected.get(voice).push({rest: true});
+        for (let i = 0; i < (Math.round(+e.rest.text) || 1); i++) list.push({rest: true, pieces: 1});
       else
-        expected.get(voice).push({
+        list.push({
           rest: !!e.rest,
+          pieces: (context.mxlPieces(e.duration) || [0]).length,
           duration: Math.round(lengths.get(e) * 4 * divisions),
           pitches:
-            e.rest || skip || e.pitches.some(p => p.endTie)
-              ? null
-              : e.midiPitches.map(x => x.pitch).sort((a, b) => a - b)
+            e.rest || skip || sounding.length || pitches.some(x => x == null) ? null : pitches.sort((a, b) => a - b)
         });
     }
     const got = exportedVoices(doc),
@@ -318,17 +340,29 @@ for (const prompt of context.writingPrompts) {
     assert.equal(got.length, order.length, `${label}: one MusicXML voice per ABC voice`);
     order.forEach((voice, i) => {
       const want = expected.get(voice);
-      assert.equal(got[i].length, want.length, `${label} voice ${voice}: note count`);
-      want.forEach((x, j) => {
-        const at = `${label} voice ${voice} note ${j + 1}`;
-        if (x.duration != null) assert.equal(got[i][j].duration, x.duration, at + ': duration');
-        if (x.rest) assert.deepEqual(got[i][j].pitches, [], at + ': rest');
-        else if (x.pitches?.length)
-          assert.deepEqual(
-            [...got[i][j].pitches].sort((a, b) => a - b),
-            x.pitches,
-            at
+      assert.equal(
+        got[i].length,
+        want.reduce((sum, x) => sum + x.pieces, 0),
+        `${label} voice ${voice}: note count`
+      );
+      let j = 0;
+      want.forEach((x, w) => {
+        const at = `${label} voice ${voice} note ${w + 1}`,
+          pieces = got[i].slice(j, (j += x.pieces));
+        if (x.duration != null)
+          assert.equal(
+            pieces.reduce((sum, n) => sum + n.duration, 0),
+            x.duration,
+            at + ': duration'
           );
+        for (const n of pieces)
+          if (x.rest) assert.deepEqual(n.pitches, [], at + ': rest');
+          else if (x.pitches?.length)
+            assert.deepEqual(
+              [...n.pitches].sort((a, b) => a - b),
+              x.pitches,
+              at
+            );
       });
     });
     return {xml, doc};
@@ -464,7 +498,7 @@ for (const prompt of context.writingPrompts) {
     ['1G', '2F', '2G']
   );
   assert.equal(parts[0].querySelectorAll('backup').length, 4);
-  assert.equal(parts[0].querySelector('multiple-rest').textContent, '2');
+  assert.equal(parts[0].querySelectorAll('multiple-rest').length, 0, 'The left hand plays under the Z2 rest');
   assert.deepEqual(
     parts.map(p => p.querySelectorAll('measure').length),
     [4, 4],
@@ -472,6 +506,89 @@ for (const prompt of context.writingPrompts) {
   );
   assert.equal(parts[1].querySelector('clef-octave-change').textContent, '-1');
   assert.equal(parts[1].querySelector('octave').textContent, '4', 'treble-8 sounds an octave down, as abcjs plays it');
+  assert.equal(two.querySelectorAll('transpose').length, 0, 'An octave clef needs no transposition');
+  const pick = (doc, selector) => [...doc.querySelectorAll(selector)],
+    noteKinds = doc =>
+      pick(doc, 'note').map(
+        n =>
+          (kid(n, 'rest') ? 'r' : '') +
+          (kid(n, 'chord') ? '+' : '') +
+          kid(n, 'type')?.textContent +
+          '.'.repeat(n.querySelectorAll('dot').length)
+      );
+  // A length no single note has, like the z5 left when a 6/8 bar is filled, becomes tied notes or several rests.
+  const split = matchesParse(
+    'X:1\nM:6/8\nL:1/8\nK:C\nd z5 | A5 B | [CE]5 z |\nw: one two three four',
+    null,
+    'split lengths'
+  ).doc;
+  assert.deepEqual(noteKinds(split), [
+    'eighth',
+    'rhalf',
+    'reighth',
+    'half',
+    'eighth',
+    'eighth',
+    'half',
+    '+half',
+    'eighth',
+    '+eighth',
+    'reighth'
+  ]);
+  assert.deepEqual(
+    pick(split, 'tied').map(t => t.getAttribute('type')),
+    ['start', 'stop', 'start', 'start', 'stop', 'stop']
+  );
+  assert.equal(pick(split, 'lyric').length, 4, 'A lyric goes on the first of the tied notes');
+  assert.deepEqual(noteKinds(matchesParse('X:1\nM:4/4\nL:1/16\nK:C\nC3 z13 |', null, 'dotted eighth').doc), [
+    'eighth.',
+    'rhalf.',
+    'r16th'
+  ]);
+  // A tie carries an accidental over the bar line to the same pitch only; slurs open and close in pairs.
+  const ties = matchesParse('X:1\nL:1/4\nK:C\n^F2- | F2 [^F^A]2- | [FA] (AB) ^c- d | d- c |]', null, 'ties').doc;
+  assert.deepEqual(
+    pick(ties, 'note')
+      .filter(n => n.querySelector('tie[type="stop"]'))
+      .map(n => kid(n, 'pitch').textContent),
+    ['F14', 'F14', 'A14'],
+    'Tied-over notes keep the sharp; the last c, tied from d, is natural'
+  );
+  assert.equal(pick(ties, 'note').at(-1).querySelector('pitch').textContent, 'C5');
+  assert.deepEqual(
+    pick(ties, 'slur').map(n => n.getAttribute('type') + n.getAttribute('number')),
+    ['start1', 'stop1']
+  );
+  // multiple-rest covers the whole part, so it is written only when both hands rest.
+  const rests = '%%score {RH | LH}\nM:2/4\nL:1/4\nK:C\nV:RH\nV:LH clef=bass\n[V:RH] Z2 | c d |]\n';
+  assert.equal(
+    pick(matchesParse('X:1\n' + rests + '[V:LH] z2 | Z | E,F, |]', null, 'both rest').doc, 'multiple-rest')
+      .map(n => n.textContent)
+      .join(),
+    '2'
+  );
+  assert.equal(
+    pick(matchesParse('X:1\n' + rests + '[V:LH] C,2 | D,2 | E,F, |]', null, 'LH plays').doc, 'multiple-rest').length,
+    0
+  );
+  // A text-only tempo shows only its text; abcjs's made-up speed is kept for playback.
+  const andante = matchesParse('X:1\nM:6/8\nL:1/8\nQ:"Andante"\nK:C\nCDE FGA |', null, 'Andante').doc;
+  assert.deepEqual([pick(andante, 'words')[0].textContent, pick(andante, 'metronome').length], ['Andante', 0]);
+  assert.equal(pick(andante, 'sound')[0].getAttribute('tempo'), '120');
+  // Playback transposition (transpose=, %%MIDI transpose) keeps the written notes and adds <transpose>; matchesParse
+  // checks the sounding pitches against abcjs's.
+  const shifted = matchesParse(
+    'X:1\nL:1/4\n%%MIDI transpose -12\nK:C\nV:1 transpose=-2\nC D | E F |\nV:2\nC D |[K:clef=treble-8] E F |\nV:3 clef=treble-8\nC D | E F |',
+    null,
+    'transposed'
+  ).doc;
+  assert.deepEqual(
+    pick(shifted, 'part').map(part =>
+      pick(part, 'transpose').map(n => [...n.children].map(c => c.tagName + c.textContent).join(' '))
+    ),
+    [['diatonic-1 chromatic-2'], ['diatonic0 chromatic0 octave-change-1', 'diatonic0 chromatic0'], []]
+  );
+  assert.equal(pick(shifted, 'octave')[0].textContent, '4', 'The written notes stay as they are drawn');
   assert.deepEqual(
     [...parts[0].querySelectorAll('fifths')].map(n => n.textContent),
     ['-1', '1']
