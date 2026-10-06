@@ -55,6 +55,11 @@ vm.runInContext(fs.readFileSync(require.resolve('../score-tools.js'), 'utf8'), c
 vm.runInContext(fs.readFileSync(require.resolve('../musicxml.js'), 'utf8'), context);
 assert.ok(context.library.length >= 200, 'Expanded library should contain at least 200 scores');
 assert.equal(new Set(context.library.map(x => x.id)).size, context.library.length, 'Unique score IDs');
+// The opening tempo of a MIDI file, in milliseconds a quarter note.
+const midiQuarter = bytes => {
+  const at = bytes.findIndex((b, i) => b === 0xff && bytes[i + 1] === 0x51 && bytes[i + 2] === 3);
+  return ((bytes[at + 3] << 16) | (bytes[at + 4] << 8) | bytes[at + 5]) / 1000;
+};
 for (const score of context.library) {
   const parsed = ABCJS.parseOnly(score.abc);
   assert.equal(parsed.length, 1, score.title);
@@ -64,6 +69,12 @@ for (const score of context.library) {
   const data = context.parseMidi(midi);
   assert.ok(data.notes.length > 0);
   assert.ok(data.duration > 0 && Number.isFinite(data.duration));
+  // The sound's tempo is the one abcjs times the drawn notes by (the highlight, practice ranges and metronome).
+  const timed = context.settleTempo(ABCJS.parseOnly(score.abc)[0]);
+  assert.ok(
+    Math.abs(midiQuarter(midi) - timed.millisecondsPerMeasure() / timed.getBarLength() / 4) < 0.01,
+    `${score.id}: MIDI tempo ${midiQuarter(midi)} ms a quarter, timed at ${timed.millisecondsPerMeasure()} ms a bar`
+  );
   for (const step of [-12, 2, 9]) {
     const transposed = ABCJS.strTranspose(score.abc, parsed, step);
     assert.ok(!ABCJS.parseOnly(transposed)[0].warnings?.length);
@@ -256,6 +267,46 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
       `${body}: at full length: ${played.map(n => n.duration.toFixed(3))}`
     );
   }
+}
+// Tempo in 2/2, 3/2 and C|. abcjs wrote their MIDI at half speed (Q:1/2=60 played as quarter = 60) and, with no Q:,
+// timed the drawn notes twice as fast as they sounded. A written tempo now plays in its own beat; with no Q: these
+// meters keep the speed they always sounded at, quarter = 180 (half = 90), and the timing follows.
+{
+  const starts = abc => context.parseMidi(context.midiBytes(abc)).notes.map(n => n.start),
+    same = (heard, expected, label) =>
+      assert.ok(
+        expected.every((t, i) => t == null || Math.abs(heard[i] - t) < 1e-3),
+        `${label}: ${heard.map(t => t.toFixed(3))}`
+      );
+  const bars = 'CDEF GABc | cBAG FEDC |]';
+  same(starts(`X:1\nM:2/2\nL:1/8\nQ:1/2=60\nK:C\n${bars}`), [0, 0.25, 0.5, 0.75, 1], '2/2, half = 60');
+  same(starts(`X:1\nM:2/2\nL:1/8\nQ:1/4=120\nK:C\n${bars}`), [0, 0.25, 0.5, 0.75, 1], '2/2, quarter = 120');
+  same(starts(`X:1\nM:2/2\nL:1/8\nQ:120\nK:C\n${bars}`), [0, 0.125, 0.25], '2/2, Q:120 counts half notes');
+  same(starts(`X:1\nM:3/2\nL:1/8\nQ:1/2=60\nK:C\nCDEF GABc cBAG |]`), [0, 0.25, 0.5], '3/2, half = 60');
+  same(starts(`X:1\nM:4/2\nL:1/4\nQ:1/2=60\nK:C\nCDEF GABc |]`), [0, 0.5, 1], '4/2, half = 60');
+  same(starts(`X:1\nM:C|\nL:1/8\nK:C\n${bars}`), [0, 1 / 6, 2 / 6], 'C| with no Q:, quarter = 180');
+  same(starts(`X:1\nM:2/2\nL:1/8\nK:C\n${bars}`), [0, 1 / 6, 2 / 6], '2/2 with no Q:, quarter = 180');
+  same(starts(`X:1\nM:6/4\nL:1/8\nK:C\n${bars}`), [0, 1 / 6, 2 / 6], '6/4 with no Q:, quarter = 180');
+  same(starts(`X:1\nM:4/4\nL:1/8\nK:C\n${bars}`), [0, 1 / 6, 2 / 6], '4/4 with no Q: is unchanged');
+  same(starts(`X:1\nM:6/8\nL:1/8\nK:C\nCDE FGA|]`), [0, 1 / 6, 2 / 6], '6/8 with no Q: is unchanged');
+  same(starts(`X:1\nM:4/4\nL:1/8\nQ:"Slowly"\nK:C\n${bars}`), [0, 1 / 6], 'A tempo with no number plays at 180');
+  // Tempo changes in the body, written inline or on their own line, with or without a Q: in the header.
+  const change = starts(`X:1\nM:2/2\nL:1/8\nQ:1/2=60\nK:C\nCDEF GABc | [Q:1/2=120] cBAG FEDC |]`);
+  same(change.slice(7), [1.75, 2, 2.125, 2.25], 'Half = 60, then half = 120');
+  const line = starts(`X:1\nM:2/2\nL:1/8\nQ:1/2=60\nK:C\nCDEF GABc |\nQ:1/4=60\ncBAG FEDC |]`);
+  same(line.slice(7), [1.75, 2, 2.5, 3], 'A Q: line in the body, quarter = 60');
+  const unset = starts(`X:1\nM:C|\nL:1/8\nK:C\nCDEF GABc | [Q:1/2=60] cBAG FEDC |]`);
+  same(unset.slice(8), [4 / 3, 4 / 3 + 0.25], 'No Q:, then half = 60');
+  const bare = starts(`X:1\nM:2/2\nL:1/8\nQ:1/2=60\nK:C\nCDEF GABc | [Q:120] cBAG | [Q:"Slower"] FEDC |]`);
+  same(bare.slice(8), [2, 2.125, 2.25, 2.375, 2.5, 2.625], '[Q:120] counts half notes, and a word keeps the tempo');
+  // Meter changes in the body: the opening meter's beat sets the tempo, so the notes keep their speed.
+  const meters = starts(`X:1\nM:2/2\nL:1/8\nQ:1/2=60\nK:C\nCDEF GABc | [M:4/4] cBAG FEDC | [M:3/2] CDEF GABc cBAG |]`);
+  same([meters[8], meters[16], meters[27]], [2, 4, 6.75], '2/2 to 4/4 to 3/2 at half = 60');
+  const into = starts(`X:1\nM:4/4\nL:1/8\nK:C\nCDEF GABc | [M:2/2] cBAG FEDC | [M:6/8] CDE FGA |]`);
+  same([into[8], into[16], into[21]], [4 / 3, 8 / 3, 3.5], '4/4 to 2/2 to 6/8 with no Q:');
+  // Exported MIDI says the same tempo in its own terms: half = 60 is 120 quarter notes a minute.
+  assert.equal(midiQuarter(context.midiBytes(`X:1\nM:C|\nL:1/8\nQ:1/2=60\nK:C\n${bars}`)), 500);
+  assert.equal(midiQuarter(context.midiBytes(`X:1\nM:6/8\nL:1/8\nQ:3/8=60\nK:C\nCDE FGA|]`)), 666.667);
 }
 // Slurs, hairpins and trill lines over a run of notes: toggleSlur and toggleSpan write ( … ) and the !<(! … !<)!,
 // !>(! … !>)! and !trill(! … !trill)! decorations, take them off again, replace the lines of the same family they
@@ -460,14 +511,19 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
       `Swing and back to Straight keeps the other text: ${tempo}`
     );
   assert.match(context.setSwing('X:1\nQ:"Medium swing" 1/4=120\nK:C\nC|]', 66), /^Q:"Medium swing" 1\/4=120$/m);
-  // Without a beat in Q:, abcjs plays text alone at 60 qpm but times notes at 180, and drops a bare number after
-  // text, so Swing writes out the beat abcjs plays: the tempo stays as it was.
+  // abcjs drops a bare number after tempo text, so Swing writes out the beat the score plays at (settleTempo) when Q:
+  // has none: the tempo stays as it was. With no Q:, 2/2, C|, 3/2 and 6/4 play at quarter = 180, not abcjs's own
+  // 1/2=180 or 3/4=180, which would now play two or three times as fast.
   for (const [source, tempo] of [
     ['X:1\nM:4/4\nL:1/8\nK:C\nCDEF GABc|]', '1/4=180'],
-    ['X:1\nM:2/2\nL:1/8\nK:C\nCDEF GABc|]', '1/2=180'],
+    ['X:1\nM:2/2\nL:1/8\nK:C\nCDEF GABc|]', '1/4=180'],
+    ['X:1\nM:C|\nL:1/8\nK:D\ndAFA dAFA|]', '1/4=180'],
+    ['X:1\nM:3/2\nL:1/8\nK:C\nCDEF GABc cBAG|]', '1/4=180'],
+    ['X:1\nM:6/4\nL:1/8\nK:C\nCDEF GABc cBAG|]', '1/4=180'],
     ['X:1\nM:6/8\nL:1/8\nK:C\nCDE FGA|]', '3/8=120'],
     ['X:1\nM:4/4\nL:1/8\nQ:120\nK:C\nCDEF GABc|]', '1/4=120'],
     ['X:1\nM:2/2\nL:1/8\nQ:120\nK:C\nCDEF GABc|]', '1/2=120'],
+    ['X:1\nM:C|\nL:1/8\nQ:60\nK:C\nCDEF GABc|]', '1/4=60'],
     ['X:1\nM:6/8\nL:1/8\nQ:100\nK:C\nCDE FGA|]', '1/8=100'],
     ['X:1\nM:4/4\nL:1/8\nQ: 1/4=100\nK:C\nCDEF GABc|]', '1/4=100'],
     ['X:1\nM:4/4\nL:1/8\nK:C\nCDEF GABc|\nQ:1/4=80\nCDEF GABc|]', '1/4=80']
@@ -479,6 +535,17 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     assert.deepEqual([parsed.warnings, parsed.metaText.tempo.preString], [undefined, 'Swing']);
     assert.ok(Math.abs(seconds(swing) - seconds(source)) < 1e-3, `Swing keeps the tempo of ${source}`);
     assert.equal(context.setSwing(swing, 0).match(/^Q:.*$/m)[0], 'Q:' + tempo, 'Straight keeps the beat');
+  }
+  {
+    const slowly = 'X:1\nM:2/2\nL:1/8\nQ:"Slowly"\nK:C\nCDEF GABc|]',
+      swing = context.setSwing(slowly, 66),
+      quarter = abc => context.parseMidi(context.midiBytes(abc)).quarter;
+    assert.equal(swing.match(/^Q:.*$/m)[0], 'Q:"Slowly, swing" 1/4=180', 'Tempo text alone in 2/2');
+    assert.deepEqual(
+      [quarter(swing), quarter(slowly)],
+      [1 / 3, 1 / 3].map(x => +x.toFixed(6)),
+      'keeps its tempo'
+    );
   }
   assert.equal(
     context.setSwing('X:1\nT:t\nM:4/4\nL:1/8\nK:C\nCDEF GABc|\nQ:1/4=80\nCDEF GABc|]', 66),
@@ -1699,6 +1766,110 @@ for (const prompt of context.writingPrompts) {
   assert.ok(!('onload' in cleaned), 'Unknown top-level fields are dropped');
   assert.equal(cleaned.text.length, 2000, '2,000 characters of instructions are allowed');
 }
+// Instrument sounds: every instrument has its own timbre (partials, envelope and vibrato) with a basic wave that is
+// never the metronome's square; plucked and struck ones fade while held, winds, strings and voice sustain. The
+// written interval above the sound and the playback octave come from shift and sound.
+{
+  const all = vm.runInContext('instruments', context),
+    names = Object.keys(all),
+    plucked = ['Guitar', 'Ukulele', 'Bass guitar', 'Piano', 'Glockenspiel'];
+  assert.ok(names.length >= 22, 'At least 22 instruments');
+  for (const name of ['Voice', 'Viola', 'Double bass', 'Horn in F', 'Tenor sax in B♭', 'Baritone sax in E♭', 'Oboe'])
+    assert.ok(all[name], name + ' is listed');
+  for (const name of ['Bassoon', 'Tuba', 'Euphonium', 'Ukulele', 'Bass guitar', 'Glockenspiel'])
+    assert.ok(all[name], name + ' is listed');
+  const timbres = new Set();
+  for (const [name, config] of Object.entries(all)) {
+    assert.ok(['treble', 'bass', 'alto'].includes(config.clef), name + ' clef');
+    assert.ok(['sine', 'triangle', 'sawtooth'].includes(config.wave), name + ' falls back to a basic wave, not square');
+    assert.equal(typeof config.family, 'string', name + ' family');
+    assert.ok(
+      config.partials.length >= 4 && config.partials.every(a => a >= 0 && a <= 1) && config.partials.some(a => a > 0),
+      name + ' partials'
+    );
+    timbres.add(JSON.stringify([config.partials, config.env, config.vibrato]));
+    const peak = 0.12,
+      held = env => {
+        const {steps, stop} = context.noteEnvelope(env, 10, 2, peak);
+        assert.ok(
+          steps.every(([, level, time], i) => level >= 0 && level <= peak && (!i || time >= steps[i - 1][2])),
+          name + ' envelope steps run forward within the peak'
+        );
+        assert.ok(stop > steps.at(-1)[2] && steps.at(-1)[1] === 0, name + ' releases to silence before it stops');
+        return steps.find(([, , time]) => time === 12)[1] / peak;
+      };
+    if (plucked.includes(name)) assert.ok(config.env.pluck > 0 && held(config.env) < 0.3, name + ' decays');
+    else assert.ok(!config.env.pluck && held(config.env) >= 0.7, name + ' sustains');
+  }
+  assert.equal(timbres.size, names.length, 'Each instrument has a distinct timbre');
+  // Very short notes still rise and fall in order.
+  for (const env of [all.Flute.env, all.Guitar.env, {}]) {
+    const {steps} = context.noteEnvelope(env, 0, 0.02, 0.1);
+    assert.ok(
+      steps.every(([, , t], i) => !i || t >= steps[i - 1][2]),
+      'A 20 ms note keeps its steps in order'
+    );
+  }
+  // The default envelope stops 30 ms after the note, as before.
+  assert.equal(context.noteEnvelope({}, 1, 0.5, 0.1).stop, 1.53);
+  const sound = name => vm.runInContext('instrumentSound', context)(all[name]),
+    written = name => vm.runInContext('writtenAboveSound', context)(all[name]);
+  assert.deepEqual(
+    ['Flute', 'Clarinet in B♭', 'Cello', 'Trombone', 'Tuba', 'Baritone sax in E♭', 'Double bass', 'Glockenspiel'].map(
+      sound
+    ),
+    [0, 0, -12, -12, -12, -12, -24, 24],
+    'Playback octave: -12 only for shift -12 unless sound is set'
+  );
+  assert.deepEqual(
+    [
+      'Clarinet in B♭',
+      'Trumpet in B♭',
+      'Alto sax in E♭',
+      'Horn in F',
+      'Tenor sax in B♭',
+      'Baritone sax in E♭',
+      'Cello',
+      'Double bass',
+      'Glockenspiel',
+      'Viola'
+    ].map(written),
+    [2, 2, 9, 7, 14, 21, 0, 12, -24, 0],
+    'Written above sounding'
+  );
+  assert.deepEqual([2, 7, 8, 9, 11, 12, 13, 14, 16, 21, 24, -7].map(context.intervalPhrase), [
+    'a major 2nd',
+    'a perfect 5th',
+    'a minor 6th',
+    'a major 6th',
+    'a major 7th',
+    'an octave',
+    'a minor 9th',
+    'a major 9th',
+    'a major 10th',
+    'an octave and a major 6th',
+    'two octaves',
+    'a perfect 5th'
+  ]);
+  // Horn in F is written a fifth above concert and tenor sax a ninth; the transposition keeps the key's spelling.
+  const ode = 'X:1\nM:4/4\nL:1/4\nK:F\nF G A B | c4 |]';
+  assert.match(context.transposeABC(ode, all['Horn in F'].shift), /K:C\nc d e f \| g4 \|\]/);
+  assert.match(context.transposeABC(ode, all['Tenor sax in B♭'].shift), /K:G\ng a b c' \| d'4 \|\]/);
+  assert.match(context.transposeABC(ode, all['Baritone sax in E♭'].shift), /K:D\nd e f g \| a4 \|\]/);
+  // Vibrato: a detune curve from its delay to the note's end, within its depth and fading in from zero.
+  assert.equal(context.vibratoCurve(undefined, 2), null);
+  assert.equal(context.vibratoCurve(all.Violin.vibrato, 0.3), null, 'Short notes have no vibrato');
+  const curve = context.vibratoCurve(all.Violin.vibrato, 2.2);
+  assert.ok(
+    curve.start === 0.2 &&
+      Math.abs(curve.length - 2) < 1e-9 &&
+      curve.values[0] === 0 &&
+      curve.values.every(v => Math.abs(v) <= all.Violin.vibrato.depth) &&
+      Math.max(...curve.values) > all.Violin.vibrato.depth * 0.95,
+    'Violin vibrato curve'
+  );
+  assert.ok(context.vibratoCurve(all.Voice.vibrato, 600).values.length <= 2048, 'Long notes keep a bounded curve');
+}
 // Turning in: names are cleaned, a link's n/t/x must fit the assignment it carries (g is not read), feedback is
 // capped, goals are checked in written pitch, and pasted text gives one code per line.
 {
@@ -2807,7 +2978,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, swing feel (tempo text kept with other text, a written-out beat that keeps the tempo, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {

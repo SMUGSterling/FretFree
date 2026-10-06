@@ -89,9 +89,9 @@ function clickTimes(from, until, end = until) {
   return out;
 }
 // Swing grid for playback, in the decoded MIDI's seconds: each measure as played, with its quarter-note length from its
-// real start and end, so swing follows repeats and tempo changes. Only x/4 and x/2 meters swing. abcjs's note timings
-// are whole milliseconds, and its MIDI plays x/2 meters at half their tempo, so each measure start is scaled by the
-// two clocks' opening tempos, then moved onto the MIDI note that starts there, if one does.
+// real start and end, so swing follows repeats and tempo changes. Only x/4 and x/2 meters swing. The note timings and
+// the MIDI share one tempo (settleTempo), so scale is 1 to within MIDI's whole microseconds; abcjs's note timings are
+// whole milliseconds, so each measure start is then moved onto the MIDI note that starts there, if one does.
 function swingBars(midi) {
   if (![2, 4].includes(meterParts()[1])) return [];
   const bar = renderedTune?.getBarLength?.() || 1,
@@ -183,25 +183,53 @@ function click(time, down) {
   osc.onended = () => (osc.done = true);
   nodes.push(osc);
 }
+// Each instrument's partials (catalog.js) as a periodic wave, made once per audio context. Without
+// createPeriodicWave (or if it fails) the instrument falls back to its basic `wave`.
+const periodicWaves = new WeakMap();
+function instrumentWave(ctx, name, config) {
+  if (!config.partials || typeof ctx.createPeriodicWave !== 'function') return null;
+  let waves = periodicWaves.get(ctx);
+  if (!waves) periodicWaves.set(ctx, (waves = new Map()));
+  if (!waves.has(name))
+    try {
+      waves.set(
+        name,
+        ctx.createPeriodicWave(new Float32Array(config.partials.length + 1), Float32Array.from([0, ...config.partials]))
+      );
+    } catch {
+      waves.set(name, null);
+    }
+  return waves.get(name);
+}
+// One oscillator and one gain per note: the instrument's wave, its octave (instrumentSound), its envelope and, where
+// the browser can automate detune, its vibrato.
 function scheduleNotes(notes, base, instrument = currentInstrument(), into = nodes) {
-  const config = instruments[instrument] || instruments.Piano,
-    output = outputNode();
+  if (!instruments[instrument]) instrument = 'Piano';
+  const config = instruments[instrument],
+    output = outputNode(),
+    wave = instrumentWave(audio, instrument, config),
+    octave = instrumentSound(config);
   for (const n of notes) {
     const osc = audio.createOscillator(),
       gain = audio.createGain();
-    osc.type = config.wave;
-    osc.frequency.value = 440 * 2 ** ((n.note + (config.shift === -12 ? -12 : 0) - 69) / 12);
+    if (wave) osc.setPeriodicWave(wave);
+    else osc.type = config.wave;
+    osc.frequency.value = 440 * 2 ** ((n.note + octave - 69) / 12);
     const start = base + n.start,
-      end = start + n.duration,
-      attack = Math.min(0.012, n.duration / 3);
-    gain.gain.setValueAtTime(0, start);
-    gain.gain.linearRampToValueAtTime((0.12 * n.velocity) / 100, start + attack);
-    gain.gain.setValueAtTime((0.08 * n.velocity) / 100, Math.max(start + attack, end - 0.04));
-    gain.gain.linearRampToValueAtTime(0, end + 0.025);
+      envelope = noteEnvelope(config.env, start, n.duration, (0.12 * n.velocity) / 100);
+    for (const [kind, level, time] of envelope.steps)
+      if (kind === 'set') gain.gain.setValueAtTime(level, time);
+      else if (kind === 'exp') gain.gain.exponentialRampToValueAtTime(level, time);
+      else gain.gain.linearRampToValueAtTime(level, time);
+    const vibrato = vibratoCurve(config.vibrato, n.duration);
+    if (vibrato && typeof osc.detune?.setValueCurveAtTime === 'function')
+      try {
+        osc.detune.setValueCurveAtTime(Float32Array.from(vibrato.values), start + vibrato.start, vibrato.length);
+      } catch {}
     osc.connect(gain);
     gain.connect(output);
     osc.start(start);
-    osc.stop(end + 0.03);
+    osc.stop(envelope.stop);
     osc.onended = () => (osc.done = true);
     into.push(osc);
   }
@@ -229,7 +257,7 @@ function schedulePass(p, from, percent, base, pass) {
   // A note that ends by from as written stays out, even if swing lengthened it past from: playing from a swung
   // off-beat starts with that note, not a blip of the one before it.
   const speed = percent / 100,
-    notes = p.full.notes.filter(n => !(n.straightEnd <= from + 0.002)),
+    notes = p.full.notes.filter(n => !(n.straightEnd <= from + SLICE_EDGE)),
     data = playbackSlice({...p.full, notes}, from, percent, p.until),
     looping = $('loop').checked || $('trainer').checked;
   scheduleNotes(data.notes, base);

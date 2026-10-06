@@ -31,10 +31,21 @@ function syncFields() {
   assignSelect('meter', field('M', '4/4'));
   assignSelect('key', canonicalKey(field('K', 'C')), keyLabel(field('K', 'C')));
   hideKeyChoice();
-  const m = tempoParts(field('Q', '100')).beat.match(/(\d+)\s*$/);
+  const m = sliderBeat().match(/(\d+)$/);
   $('bpm').value = m ? Math.max(40, Math.min(200, +m[1])) : 100;
   $('bpm-value').textContent = $('bpm').value;
   syncFeel();
+}
+// The Tempo slider reads and writes the tempo as played, in the header's own beat: Q:1/2=60 reads 60, and moving it
+// writes 1/2=61, not 1/4=61 at half the speed. A score with no Q:, tempo text alone or a bare number reads the beat it
+// plays at (playedBeat), 180 quarter notes or 120 dotted quarters in 6/8, so the first move keeps its speed. Only the
+// header is parsed, as this runs on every keystroke, with a rest after K: so that abcjs has a staff to read the meter
+// from.
+function sliderBeat() {
+  const source = $('abc').value,
+    k = source.search(/^K:/m),
+    end = k < 0 ? -1 : source.indexOf('\n', k);
+  return playedBeat((end < 0 ? source : source.slice(0, end)) + '\nz');
 }
 // Feel menu: Straight or a swing amount read from the score; an amount typed into the ABC gets its own entry.
 function syncFeel() {
@@ -69,7 +80,8 @@ function setHeader(name, value) {
   $('abc').value = lines.join('\n');
 }
 // The instrument's shift: its part is written this many semitones above the concert source (2 for a B-flat clarinet,
-// 9 for an E-flat alto sax). Cello and trombone show the source an octave lower, a range change, not a transposition.
+// 9 for an E-flat alto sax, 14 for a tenor sax). Cello and trombone show the source an octave lower, a range change,
+// not a transposition; how each sounds is instrumentSound (score-tools.js).
 const instrumentShift = () => instruments[currentInstrument()]?.shift || 0,
   transposesInstrument = () => instrumentShift() % 12 !== 0;
 // Concert pitch view, display only: a transposing instrument's score shows the source's sounding pitches and key.
@@ -245,7 +257,8 @@ function refreshPalette() {
 function updateMeasures() {
   measureStarts = new Map();
   if (renderedTune?.engraver) {
-    renderedTune.setTiming();
+    // The sound's tempo (see settleTempo), so the highlight, ranges, metronome and count-in keep time with it.
+    settleTempo(renderedTune).setTiming();
     for (const event of renderedTune.noteTimings || []) {
       if (event.type !== 'event') continue;
       const entries = (event.startCharArray || []).map(c => noteSources.get(c)).filter(Boolean);
@@ -366,19 +379,29 @@ function restoreSelection(display) {
   const shown = scoreEvents(display).find(e => e.element.startChar === match[0]);
   if (shown) renderedTune.engraver.rangeHighlight(shown.element.startChar, shown.element.endChar);
 }
+// The caption names the instrument, its clef or staves, and what is shown against what plays: written pitch and the
+// interval it sounds below, a bass-range octave, or an octave transposition such as a double bass or glockenspiel.
+// A transposing instrument that also plays in another octave (baritone sax) does not sound at the source's pitch, so
+// its caption gives the source's distance from the sound instead of calling it concert pitch.
 function updateCaption() {
   $('workspace-heading').textContent = field('T', 'Untitled melody');
   const config = instruments[currentInstrument()],
-    staves = staffClefs[0]?.length || 1;
+    staves = staffClefs[0]?.length || 1,
+    sound = instrumentSound(config),
+    written = writtenAboveSound(config),
+    sounds = written ? ` It sounds ${intervalPhrase(written)} ${written > 0 ? 'lower' : 'higher'} than written.` : '',
+    source = sound ? `${intervalPhrase(sound)} ${sound < 0 ? 'above' : 'below'} how it sounds` : '';
   const pitch = concertView()
-    ? 'Concert pitch shown, as it sounds; turn off Concert pitch for the written part.'
+    ? `${sound ? `ABC source shown, ${source}` : 'Concert pitch shown, as it sounds'}; turn off Concert pitch for the written part.`
     : transposesInstrument()
-      ? 'Written pitch shown; ABC source and MIDI are concert pitch.'
+      ? `Written pitch shown; it sounds ${intervalPhrase(written)} lower. ABC source and MIDI are ${source || 'concert pitch'}.`
       : config.shift === -12
-        ? `${staves > 1 ? 'Parts' : 'Melody'} lowered one octave for bass range.`
-        : staves > 1
-          ? 'Concert pitch.'
-          : 'Concert pitch melody part.';
+        ? `${staves > 1 ? 'Parts' : 'Melody'} lowered one octave for bass range.${sounds}`
+        : written
+          ? `${staves > 1 ? 'Parts' : 'Melody part'}.${sounds}`
+          : staves > 1
+            ? 'Concert pitch.'
+            : 'Concert pitch melody part.';
   // A score with several staves (a template or V: voices) has their own clefs, so it counts them instead.
   $('score-caption').textContent =
     `${currentInstrument()} · ${staves > 1 ? `${staves} staves` : `${config.clef} clef`} · ${pitch}`;
@@ -3498,8 +3521,10 @@ async function openEmbed(hash) {
 // A transposing instrument's part is drawn in written pitch while playback sounds at concert pitch, so the embed, which
 // hides the instrument menu, names the part and how it sounds. Empty for parts that sound as written.
 function embedPart(name) {
-  const interval = TRANSPOSE_INTERVALS.find(i => i.semitones === instruments[name]?.shift);
-  return interval ? `${name} part, in written pitch: it sounds a ${interval.name} lower.` : '';
+  const written = instruments[name] ? writtenAboveSound(instruments[name]) : 0;
+  return written
+    ? `${name} part, in written pitch: it sounds ${intervalPhrase(written)} ${written > 0 ? 'lower' : 'higher'}.`
+    : '';
 }
 // The iframe snippet for a score page. Width is pixels (with or without "px") or a percentage up to 100% (else 100%);
 // height is 200 to 2,000 pixels (else clamped to that range, or 420 when empty). A field whose value is replaced is
