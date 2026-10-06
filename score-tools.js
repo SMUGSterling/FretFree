@@ -118,9 +118,10 @@ function lengthValue(text) {
   const num = m[1] ? +m[1] : 1;
   return m[2] ? num / (m[3] ? +m[3] : 2 ** m[2].length) : num;
 }
-// Decorations/annotations, then a note, chord or rest, then its length, then ties or broken rhythm.
+// Decorations/annotations, slur openings and tuplet specs ((3, (3:2, (3:2:3) in any order, then a note, chord or
+// rest, then its length, then ties, slur ends or broken rhythm.
 const NOTE_PARTS =
-  /^((?:"[^"]*"|![^!]*!|\+[^+]*\+|\{[^}]*\}|[.~HLMOPSTuv]|\s)*)(\[[^\]]*\]|(?:\^{1,2}|_{1,2}|=)?[A-Ga-g][,']*|[zx])(\d*\/*\d*)([^]*)$/;
+  /^((?:"[^"]*"|![^!]*!|\+[^+]*\+|\{[^}]*\}|\((?:\d+(?::\d*){0,2})?|[.~HLMOPSTuv]|\s)*)(\[[^\]]*\]|(?:\^{1,2}|_{1,2}|=)?[A-Ga-g][,']*|[zx])(\d*\/*\d*)([^]*)$/;
 function noteParts(text) {
   const m = String(text).match(NOTE_PARTS);
   return m && {pre: m[1], core: m[2], length: lengthValue(m[3]), post: m[4]};
@@ -387,12 +388,14 @@ function promptSource(prompt, key = prompt.key, body = null) {
 }
 // Note-name labels for every voice, as written: letters (F♯) or movable-do solfège (do-based major,
 // la-based minor; notes raised against the key signature use sharp syllables, lowered ones flat syllables).
-// Each voice keeps its own key and bar accidentals.
+// Each voice keeps its own key and bar accidentals; a note tied across a bar line keeps the accidental it was tied
+// from. Each label also has `midis`: every pitch of the note as playback sounds it (see playbackShift).
 const SOLFEGE_SHARP = ['do', 'di', 're', 'ri', 'mi', 'fa', 'fi', 'sol', 'si', 'la', 'li', 'ti'],
   SOLFEGE_FLAT = ['do', 'ra', 're', 'me', 'mi', 'fa', 'se', 'sol', 'le', 'la', 'te', 'ti'];
 function noteLabels(tune, mode) {
   const labels = [],
-    voices = new Map();
+    voices = new Map(),
+    globalShift = +tune.formatting?.midi?.transpose?.[0] || 0;
   const keyState = k => {
     const state = {key: keyAlters(k), doPc: 0};
     if (k?.root && k.root !== 'none') {
@@ -405,9 +408,10 @@ function noteLabels(tune, mode) {
     for (const [s, staff] of (line.staff || []).entries())
       for (const [v, voice] of (staff.voices || []).entries()) {
         const id = s + ':' + v,
-          state = voices.get(id) || {carried: {}};
+          state = voices.get(id) || {carried: {}, tied: {}, shift: globalShift};
         voices.set(id, state);
         if (staff.key) Object.assign(state, keyState(staff.key));
+        playbackShift(state, staff.clef, true);
         for (const e of voice) {
           if (e.el_type === 'key') {
             Object.assign(state, keyState(e));
@@ -417,23 +421,59 @@ function noteLabels(tune, mode) {
             state.carried = {};
             continue;
           }
+          if (e.el_type === 'clef' || (e.el_type === 'midi' && e.cmd === 'transpose')) {
+            playbackShift(state, e);
+            continue;
+          }
           if (e.el_type !== 'note' || !e.pitches?.length || e.rest) continue;
-          const p = e.pitches[0],
-            letter = ((p.pitch % 7) + 7) % 7,
-            name = 'CDEFGAB'[letter],
-            key = state.key || {};
-          if (p.accidental) state.carried[p.pitch] = ALTER[p.accidental] ?? 0;
-          const alter = state.carried[p.pitch] ?? key[name] ?? 0,
+          const key = state.key || {},
+            tied = {};
+          // Every pitch of a chord sets its own bar accidental and gets a MIDI number; the label names the first.
+          const spelled = e.pitches.map(p => {
+            const letter = ((p.pitch % 7) + 7) % 7,
+              name = 'CDEFGAB'[letter];
+            if (p.accidental) state.carried[p.pitch] = ALTER[p.accidental] ?? 0;
+            const alter =
+              (p.accidental || !p.endTie ? null : state.tied[p.pitch]) ?? state.carried[p.pitch] ?? key[name] ?? 0;
+            if (p.startTie) tied[p.pitch] = alter;
+            return {letter, name, alter, midi: 60 + 12 * Math.floor(p.pitch / 7) + LETTER_SEMIS[letter] + alter};
+          });
+          state.tied = tied;
+          const {letter, name, alter, midi} = spelled[0],
             pc = (LETTER_SEMIS[letter] + alter + 12) % 12;
           // Lowered against the key signature (a flat, or a natural on a sharp) takes the flat syllable.
           const text =
             mode === 'solfege'
               ? (alter < (key[name] ?? 0) ? SOLFEGE_FLAT : SOLFEGE_SHARP)[(pc - (state.doPc || 0) + 12) % 12]
               : name + ({1: '♯', 2: '𝄪', '-1': '♭', '-2': '𝄫'}[alter] || '');
-          labels.push({at: e.startChar, text, midi: 60 + 12 * Math.floor(p.pitch / 7) + LETTER_SEMIS[letter] + alter});
+          labels.push({at: e.startChar, text, midi, midis: spelled.map(x => x.midi + state.shift)});
         }
       }
   return labels;
+}
+// How far playback moves a voice from the written pitches, by abcjs's MIDI rules. The latest change wins; they do not
+// add up. %%MIDI transpose sets it for the whole tune. Each line's clef then applies its transpose= and octave
+// (treble-8 sounds an octave down, and a plain clef after an octave clef goes back to 0). Inline clef changes and
+// %%MIDI transpose lines in the voice apply where they stand. Pass lineStart for a line's clef.
+function playbackShift(state, e, lineStart = false) {
+  if (!e) return;
+  if (e.el_type === 'midi') {
+    state.shift = +e.params?.[0] || 0;
+    return;
+  }
+  const octave = /-8/.test(e.type) ? -12 : /\+8/.test(e.type) ? 12 : 0;
+  if (!lineStart) {
+    if (e.transpose) state.shift = e.transpose;
+    if (octave) state.shift = octave;
+    return;
+  }
+  if (e.transpose && e.type !== 'perc') {
+    state.shift = e.transpose;
+    state.octaveClef = false;
+  }
+  if (octave) state.shift = octave;
+  else if (state.octaveClef) state.shift = 0;
+  state.octaveClef = !!octave;
 }
 // Add the labels to an ABC source as annotations below each note.
 function labelSource(source, mode) {

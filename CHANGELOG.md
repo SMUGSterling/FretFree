@@ -7,6 +7,22 @@
 
 ---
 
+# Hear notes and live volume · 2026-10-06
+
+- **Hear notes** (on by default, next to Draw notes): clicking, typing, drawing or moving a note plays it once, as does changing its accidental or stepping to it with ←→. Chords play every pitch. It uses the chosen instrument's sound at concert pitch with playback's octave rule, stays silent during playback, and is remembered and backed up (`fretfree-audition`).
+- **Volume** no longer stops playback: it changes loudness live. All notes and metronome clicks now pass through one master gain and, where the browser supports it, a limiter, so chords and accompaniment do not clip. This bus is the base for a later mixer, audio export and recording.
+- Note names and audition now apply bar accidentals from every pitch of a chord, not only the first, and a note tied across a bar line keeps the accidental it was tied from.
+- Audition follows the same pitch rules as playback: octave clefs (`clef=treble-8`, `bass-8`, `treble+8`), `transpose=` on K: and V: lines, and `%%MIDI transpose`. The note sounds before the score redraws, so long scores do not delay it.
+
+---
+
+# Edit notes that start a slur or tuplet · 2026-10-06
+
+- The note menu and the keyboard now edit notes written with a slur opening or a tuplet in front, such as `(C`, `(3C` or `(3:2:3C`. Before, length, dot, accidental and tie edits on these notes did nothing. The `(` or `(3` stays in place, and a slur end `C)` keeps its `)`.
+- `noteParts` and `editNoteText` in score-tools.js accept slur openings and tuplet specs in the prefix, in any order with decorations and chord symbols. Later notation tools (palette, articulations, slurs, tuplets) build on this.
+
+---
+
 # Backup and restore · 2026-10-06
 
 - **My scores → ⬇ Back up** writes every saved score, favorite, played mark and practice setting to one JSON file. Where the browser offers a Save As dialog (Chrome, Edge) the file can go in a synced folder and is remembered for one-click repeat backups; elsewhere it downloads.
