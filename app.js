@@ -242,6 +242,7 @@ function applyStoredSettings() {
     $(id).checked = !!storage.get(KEYS.practice(id), false);
   $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
   $('note-names').value = storage.get(KEYS.noteNames, 'off');
+  $('note-colors').value = storage.get(KEYS.noteColors, 'off');
   $('audition').checked = storage.get(KEYS.audition, true) !== false;
   prepareTrainer();
 }
@@ -342,9 +343,14 @@ $('fingering').onchange = () => {
 $('audition').checked = storage.get(KEYS.audition, true) !== false;
 $('audition').onchange = () => storage.set(KEYS.audition, $('audition').checked);
 $('note-names').value = storage.get(KEYS.noteNames, 'off');
-if (noteNamesMode() !== 'off') render();
+$('note-colors').value = storage.get(KEYS.noteColors, 'off');
+if (noteNamesMode() !== 'off' || lettersInHeads() || noteColorsShown()) render();
 $('note-names').onchange = () => {
   storage.set(KEYS.noteNames, $('note-names').value);
+  render();
+};
+$('note-colors').onchange = () => {
+  storage.set(KEYS.noteColors, $('note-colors').value);
   render();
 };
 // A remembered speed trainer needs the same below-goal start as a freshly ticked one.

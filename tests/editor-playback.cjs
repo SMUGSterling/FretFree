@@ -125,6 +125,65 @@ assert.equal(
   'A note tied across a bar line keeps its accidental; the next note in the bar does not'
 );
 assert.equal(run(`labelSource('X:1\\nL:1/4\\nK:G\\nG A|]','letters')`), 'X:1\nL:1/4\nK:G\n"_G"G "_A"A|]');
+// Classroom colors and letters in noteheads: drawn on the SVG by written letter, never written to the ABC source.
+{
+  const abc = 'X:1\nL:1/4\nK:D\nC, c [CEG] ^c | g G, z [G^g] | _B2 e2 |]',
+    instrument = run('currentInstrument()');
+  run(`openScore({abc:${JSON.stringify(abc)},instrument:'Flute'})`);
+  run("$('note-colors').value='classroom';$('note-colors').onchange()");
+  const heads = () =>
+    run(
+      `[...document.querySelectorAll('#notation .abcjs-notehead')].map(h=>(h.getAttribute('data-name').match(/[A-G]/i)[0].toUpperCase())+'='+h.getAttribute('fill')).join(' ')`
+    );
+  const fills = new Set(heads().split(' '));
+  for (const [letter, fill] of [
+    ['C', '#d62828'],
+    ['G', '#4cc9f0'],
+    ['E', '#ffd60a'],
+    ['B', '#7b2cbf']
+  ])
+    assert.deepEqual(
+      [...fills].filter(f => f.startsWith(letter + '=')),
+      [letter + '=' + fill],
+      `Every ${letter} head is colored, in all octaves, chords and with accidentals`
+    );
+  assert.equal(run("document.querySelectorAll('#notation .abcjs-notehead:not([fill])').length"), 0);
+  assert.equal(run("document.querySelectorAll('#notation .abcjs-stem[fill], #notation .abcjs-rest [fill]').length"), 0);
+  assert.equal(
+    run("document.querySelector('#notation .abcjs-notehead[data-name=\"E\"]').getAttribute('stroke')"),
+    '#6b5300'
+  );
+  assert.equal(run("storage.get('fretfree-note-colors')"), 'classroom', 'Colors setting persists');
+  run("$('note-names').value='heads';$('note-names').onchange()");
+  assert.equal(
+    run("[...document.querySelectorAll('#notation .notehead-letter')].map(t=>t.textContent).join('')"),
+    'CCCEGCGGGGBE',
+    'A letter in every head'
+  );
+  assert.equal(run("document.querySelectorAll('#notation .abcjs-annotation').length"), 0, 'No labels under the score');
+  assert.equal(run("$('abc').value"), abc, 'The ABC source is byte-identical');
+  run(`openScore({abc:${JSON.stringify('X:1\nL:1/4\nK:C\nC E G c|]')},instrument:'Clarinet in B♭'})`);
+  assert.equal(
+    run("[...document.querySelectorAll('#notation .notehead-letter')].map(t=>t.textContent).join('')"),
+    'DFAD',
+    'Written letters for a transposing instrument'
+  );
+  assert.equal(
+    run("document.querySelector('#notation .abcjs-notehead').getAttribute('fill')"),
+    '#f77f00',
+    'Written D is orange'
+  );
+  run(
+    "$('note-colors').value='off';$('note-colors').onchange();$('note-names').value='off';$('note-names').onchange()"
+  );
+  assert.equal(
+    run("document.querySelectorAll('#notation .notehead-letter, #notation .abcjs-notehead[fill]').length"),
+    0
+  );
+  w.localStorage.removeItem('fretfree-note-colors');
+  w.localStorage.removeItem('fretfree-note-names');
+  run(`openScore({abc:${JSON.stringify(abc)},instrument:${JSON.stringify(instrument)}})`);
+}
 const flaggedBars = abc => run(`barProblems(ABCJS.parseOnly(${JSON.stringify(abc)})[0]).map(m=>m.measure).join()`);
 assert.equal(flaggedBars('X:1\nM:4/4\nL:1/4\nK:C\nC D E | F G A B | c4 |]'), '', 'Short opening bar is a pickup');
 assert.equal(
@@ -410,7 +469,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, bar checks, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, bar checks, classroom colors and letters in noteheads, and legacy storage.'
   );
   w.close();
 }

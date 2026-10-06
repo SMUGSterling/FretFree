@@ -219,7 +219,7 @@ $('new-bars').value = '8';
     ],
     favorites: ['elise', 'elise'],
     played: ['ode'],
-    settings: {'fretfree-practice-loop': true, 'fretfree-note-names': 'letters'}
+    settings: {'fretfree-practice-loop': true, 'fretfree-note-names': 'letters', 'fretfree-note-colors': 'classroom'}
   };
   const before = run('saved.length');
   const summary = run(`applyBackup(${JSON.stringify(incoming)})`);
@@ -230,6 +230,8 @@ $('new-bars').value = '8';
   assert.equal(run('saved.find(x => x.id === saved[0].id).abc').includes('% older'), false, 'My newer copy kept');
   assert.ok(run("favorites.includes('elise')") && run("played.has('ode')"), 'Favorites and played marks merged');
   assert.equal(run("storage.get('fretfree-note-names')"), 'letters', 'Settings restored');
+  assert.equal(run("storage.get('fretfree-note-colors')"), 'classroom', 'Classroom colors restored');
+  assert.equal(run('backupData().settings')['fretfree-note-colors'], 'classroom', 'Classroom colors backed up');
   const newer = {
     app: 'FretFree',
     format: 1,
@@ -510,7 +512,7 @@ assert.equal(
   assert.equal(w.document.activeElement.id, 'share-url', 'Without a clipboard the link is selected to copy by hand');
   run('dirty = false');
   console.log(
-    'PASS (jsdom): teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore, blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
+    'PASS (jsdom): teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors), blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
   );
 })().catch(e => {
   console.error(e);

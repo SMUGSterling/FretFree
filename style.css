@@ -523,6 +523,8 @@ footer .brand {
   border-radius: 7px;
   display: none;
   z-index: 10;
+  /* Information only: a note under the toast can still be clicked. */
+  pointer-events: none;
 }
 svg {
   max-width: 100%;
@@ -1395,5 +1397,24 @@ input[type='range'] {
   .prompt-check .small,
   .prompt-check .prompt-done {
     display: none !important;
+  }
+}
+/* Classroom colors and letters in noteheads: a selected or playing note still shows its highlight color. Both print. */
+#notation .abcjs-note_selected .classroom-color,
+#notation .abcjs-playing .classroom-color {
+  fill: inherit;
+  stroke: none;
+}
+#notation .abcjs-note_selected .notehead-letter:not(.hollow),
+#notation .abcjs-playing .notehead-letter:not(.hollow) {
+  fill: white;
+}
+#notation .notehead-letter {
+  pointer-events: none;
+}
+@media print {
+  #notation svg {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }

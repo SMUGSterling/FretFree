@@ -1,3 +1,12 @@
+# Classroom colors and letters in noteheads · 2026-10-06
+
+- **Colors: Classroom** (next to Note names) colors each notehead by its letter, in the Boomwhacker and handbell order: C red, D orange, E yellow with a dark outline, F green, G light blue, A dark blue, B purple. Sharps and flats keep their letter's color, in every octave and inside chords. Stems, rests and accidentals stay black.
+- **Letters in noteheads** (a new Note names choice) writes the letter inside each head, in black or white for contrast, and in ink on half and whole notes. Grace notes are colored but too small for a letter.
+- Both follow written pitch for transposing instruments, appear in prints and SVG exports, are remembered and backed up (`fretfree-note-colors`; the letters reuse `fretfree-note-names`), and never change the ABC source. A selected or playing note still shows its highlight color.
+- Fixes: a note under the "Score saved" message can be clicked, and the note menu no longer closes at once when the page shifts a few pixels as the status line above the score rewraps.
+
+---
+
 # Assignments in a link · 2026-10-06
 
 - **✎ Assignment** in the studio turns the open score into an assignment: a title, instructions and goals chosen from the writing-prompt goal types (filled bars, note lengths, first and last note, the note that ends a bar, steps, range, staying in key, at least so many rests, eighth notes or leaps). Bar count, meter and written key (minor and modal keys too) come from the score, and the goal labels are written in plain words. The filled-bars goal needs every bar to be a full bar of the meter, so it is not offered on a score with a pickup, a short closing bar or a meter change. The builder keeps up with edits and instrument changes while it is open, and closes when another score opens.
