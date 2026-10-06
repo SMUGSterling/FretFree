@@ -1448,6 +1448,15 @@ async function checkPlayback() {
     '0+0.36 0.33+0.2 0.5+0.36 0.83+0.2 1+0.36 1.33+0.2 1.5+0.36 1.83+0.2 2+0.53 2.5+0.1967 2.6667+0.1967 2.8333+0.1967 3+1.03 4+2.03',
     'At 66 and 120 BPM the off-beat eighth starts 1/3 of a beat late (at 2/3 of the beat); quarters, triplets and long notes stay'
   );
+  oscillators.length = 0;
+  await run('play(0.25)');
+  assert.deepEqual(
+    oscillators.map(o => o.frequency.value.toFixed(1)).slice(0, 2),
+    ['293.7', '329.6'],
+    'Playing from a swung off-beat D starts with the D, without a blip of the C that swing lengthened'
+  );
+  assert.equal(oscillators.length, 13);
+  run('stop()');
   run('stepHistory(-1)');
   assert.equal(run("$('abc').value"), blues, 'Choosing a feel is one undo step');
   assert.equal(run("$('feel').value"), '0', 'Undo restores the Feel menu');
@@ -1459,6 +1468,10 @@ async function checkPlayback() {
   assert.match(run("$('abc').value"), /\nQ:"Swing" 1\/4=120\n/, 'setHeader keeps the tempo text');
   run("$('feel').value='0';$('feel').dispatchEvent(new Event('input'))");
   assert.equal(run("$('abc').value"), blues, 'Straight removes the tempo text and the directive');
+  run(`$('abc').value=$('abc').value.replace(/^Q:.*$/m,'Q:"Allegro" 1/4=132 "swing"');syncFields()`);
+  assert.equal(run("$('bpm').value"), '132', 'The Tempo slider reads a beat with text after it');
+  run("setHeader('Q','1/4=120')");
+  assert.match(run("$('abc').value"), /\nQ:"Allegro" 1\/4=120 "swing"\n/, 'and keeps the text on both sides');
   // A pickup eighth is an off-beat, and swing in a meter that is not x/4 or x/2 plays straight with a note.
   run(
     `openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/8\nQ:"Swing" 1/4=120\n%%MIDI swing 66\nK:C\nB,|CDEF GABc|]')}});setRange(1,2)`
@@ -1479,6 +1492,71 @@ async function checkPlayback() {
     '0+0.3633 0.3333+0.3633 0.6667+0.3633 1+0.3633 1.3333+0.3633 1.6667+0.3633',
     '6/8 plays straight'
   );
+  // Swing at tempos whose note timings are not whole milliseconds, through a tempo change, without Q: and in 2/2.
+  const eighths = 'CDEF GABc|CDEF GABc|]',
+    feel = amount =>
+      run(`$('feel').value='${amount}';$('feel').dispatchEvent(new Event('input'));clearTimeout(renderTimer);render()`);
+  run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/8\nQ:1/4=90\nK:C\n' + eighths)}});setRange(1,2)`);
+  feel(66);
+  assert.equal(
+    (await starts()).split(' ').slice(6, 10).join(' '),
+    '2+0.47 2.44+0.2567 2.6667+0.47 3.1067+0.2567',
+    'At 90 BPM the off-beat eighth starts at 2/3 of the beat'
+  );
+  run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\nCDEF GABc|[Q:1/4=110]' + eighths)}})`);
+  run('setRange(1,3)');
+  feel(66);
+  assert.equal(
+    (await starts()).split(' ').slice(8, 12).join(' '),
+    '2+0.3902 2.3603+0.2156 2.5458+0.3902 2.9061+0.2156',
+    'Swing follows an inline tempo change to 110 BPM'
+  );
+  run(`openScore({abc:${JSON.stringify('X:1\nT:No tempo\nM:4/4\nL:1/8\nK:C\n' + eighths)}});setRange(1,2)`);
+  const plain = await starts();
+  feel(66);
+  assert.match(run("$('abc').value"), /\nQ:"Swing" 1\/4=180\n/, 'A score without Q: gets the beat abcjs plays it at');
+  assert.equal(run("$('bpm').value"), '180', 'The Tempo slider shows that beat');
+  const swungPlain = await starts();
+  assert.equal(
+    swungPlain.split(' ').slice(0, 4).join(' '),
+    '0+0.25 0.22+0.1433 0.3333+0.25 0.5533+0.1433',
+    'A score without Q: swings at its own tempo'
+  );
+  const ends = times =>
+    times.split(' ').map(t =>
+      t
+        .split('+')
+        .reduce((a, b) => +a + +b)
+        .toFixed(3)
+    );
+  assert.equal(ends(swungPlain).pop(), ends(plain).pop(), 'and ends where it did');
+  feel(0);
+  assert.equal(await starts(), plain, 'Back to Straight plays as before');
+  run(`openScore({abc:${JSON.stringify('X:1\nM:2/2\nL:1/8\nQ:1/2=60\nK:C\n' + eighths)}});setRange(1,2)`);
+  feel(66);
+  const cut = (await starts()).split(' ').map(t => +t.split('+')[0]);
+  assert.equal(run("$('feel-note').hidden"), true, '2/2 swings, with no note');
+  assert.deepEqual(
+    [cut[1] / cut[2], (cut[3] - cut[2]) / (cut[4] - cut[2]), (cut[15] - cut[14]) / (cut[2] - cut[0])].map(
+      r => +r.toFixed(3)
+    ),
+    [0.66, 0.66, 0.66],
+    'In 2/2 each quarter beat swings'
+  );
+  // A pickup played again at a repeat, and a new section's pickup, swing as off-beats.
+  run(
+    `openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/8\nQ:"Swing" 1/4=120\n%%MIDI swing 66\nK:C\nB,|CDEF GABc|CDEF GAB:|\nB,|CDEF GABc|]')}})`
+  );
+  run('setRange(1,+$("start-measure").max)');
+  oscillators.length = 0;
+  await run('play()');
+  assert.deepEqual(
+    oscillators.filter(o => o.frequency.value < 250).map(o => +(o.startAt - oscillators[0].startAt).toFixed(3)),
+    [0, 4, 8],
+    "The pickup played again at the repeat and the second section's pickup swing like the first"
+  );
+  assert.equal(+(oscillators[1].startAt - oscillators[0].startAt).toFixed(3), 0.17, 'The pickup plays late');
+  run('stop()');
   run(`openScore({abc:${JSON.stringify(pickup)}})`);
   assert.equal(
     run('clickTimes(0,1.3).map(c=>c.time.toFixed(1)+(c.down?"*":"")).join()'),
@@ -1794,7 +1872,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times, pickups, straight 6/8), speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

@@ -31,7 +31,7 @@ function syncFields() {
   assignSelect('meter', field('M', '4/4'));
   assignSelect('key', canonicalKey(field('K', 'C')), keyLabel(field('K', 'C')));
   hideKeyChoice();
-  const m = field('Q', '100').match(/(\d+)\s*$/);
+  const m = tempoParts(field('Q', '100')).beat.match(/(\d+)\s*$/);
   $('bpm').value = m ? Math.max(40, Math.min(200, +m[1])) : 100;
   $('bpm-value').textContent = $('bpm').value;
   syncFeel();
@@ -51,9 +51,11 @@ function setHeader(name, value) {
   let text = name + ':' + String(value).replace(/[\r\n]/g, ' ');
   // A new key keeps the clef and other modifiers written after the old one.
   if (name === 'K' && i >= 0) text += keyParts(lines[i].slice(2)).rest.replace(/^(?=\S)/, ' ');
-  // A new tempo keeps the tempo text printed with it, such as "Swing".
-  const words = name === 'Q' && i >= 0 && !text.includes('"') && lines[i].match(/"[^"]*"/)?.[0];
-  if (words) text = 'Q:' + words + ' ' + text.slice(2);
+  // A new tempo keeps the tempo text printed before and after it, such as "Swing".
+  if (name === 'Q' && i >= 0 && !text.includes('"')) {
+    const {pre, post} = tempoParts(lines[i].slice(2));
+    text = 'Q:' + [pre, text.slice(2), post].filter(Boolean).join(' ');
+  }
   if (i >= 0) lines[i] = text;
   else
     lines.splice(

@@ -86,20 +86,54 @@ function clickTimes(from, until, end = until) {
   }
   return out;
 }
-// Swing grid for playback: each measure as played, with its quarter-note length from its real start and end, so
-// swing follows repeats and tempo changes. A pickup's beats are counted back from its end. Only x/4 and x/2 meters swing.
-function swingBars(end) {
+// Swing grid for playback, in the decoded MIDI's seconds: each measure as played, with its quarter-note length from its
+// real start and end, so swing follows repeats and tempo changes. Only x/4 and x/2 meters swing. abcjs's note timings
+// are whole milliseconds, and its MIDI plays x/2 meters at half their tempo, so each measure start is scaled by the
+// two clocks' opening tempos, then moved onto the MIDI note that starts there, if one does.
+function swingBars(midi) {
   if (![2, 4].includes(meterParts()[1])) return [];
   const bar = renderedTune?.getBarLength?.() || 1,
+    perQuarter = (renderedTune?.millisecondsPerMeasure?.() || 0) / 1000 / bar / 4,
+    scale = perQuarter > 0 && midi.quarter > 0 ? midi.quarter / perQuarter : 1,
+    onsets = [...new Set(midi.notes.map(n => n.start))].sort((a, b) => a - b),
     lengths = measureLengths(),
-    starts = (renderedTune?.noteTimings || []).filter(e => e.type === 'event' && e.measureStart);
+    timings = renderedTune?.noteTimings || [],
+    starts = timings.filter(e => e.type === 'event' && e.measureStart),
+    end = timings.find(e => e.type === 'end');
+  if (!starts.length) return [];
+  const sizes = starts.map(
+      e => lengths.get((e.startCharArray || []).map(c => noteSources.get(c)?.measure).find(Boolean)) || bar
+    ),
+    marks = starts
+      .map(e => (e.milliseconds / 1000) * scale)
+      .concat(end ? (end.milliseconds / 1000) * scale : midi.duration);
+  // MIDI ticks round each step, so a measure can drift from its timing by a few ticks; the drift found at one measure
+  // carries to the next. A measure starts on a MIDI note within a 64th note of where it should, and the tune ends
+  // where the MIDI does if that is as close.
+  let drift = 0,
+    k = 0;
+  const times = marks.map((mark, i) => {
+    const t = mark + drift,
+      j = Math.min(i, sizes.length - 1),
+      window = (marks[j + 1] - marks[j]) / sizes[j] / 64;
+    while (k + 1 < onsets.length && onsets[k + 1] <= t) k++;
+    const hit = (i < sizes.length ? onsets.slice(k, k + 2) : [midi.duration]).reduce(
+      (best, x) => (Math.abs(x - t) < Math.abs(best - t) ? x : best),
+      Infinity
+    );
+    if (!(Math.abs(hit - t) < window)) return t;
+    drift += hit - t;
+    return hit;
+  });
+  const short = i => sizes[i] < bar - 1e-9;
   return starts.map((e, i) => {
-    const time = e.milliseconds / 1000,
-      next = starts[i + 1] ? starts[i + 1].milliseconds / 1000 : end;
-    const measure = (e.startCharArray || []).map(c => noteSources.get(c)?.measure).find(Boolean);
-    const length = lengths.get(measure) || bar,
-      quarter = (next - time) / length / 4;
-    return {time, quarter, origin: i === 0 && length < bar - 1e-9 ? next : time};
+    // A pickup, at the start or after a short measure that it completes (at a repeat or a new section), ends on the beat.
+    const pickup = short(i) && (i === 0 || (short(i - 1) && Math.abs(sizes[i - 1] + sizes[i] - bar) < 1e-9));
+    return {
+      time: times[i],
+      quarter: (times[i + 1] - times[i]) / sizes[i] / 4,
+      origin: pickup ? times[i + 1] : times[i]
+    };
   });
 }
 // Master bus: every note and click goes through one gain node that follows the Volume slider live, then a limiter
@@ -190,8 +224,11 @@ function auditionPitches(midis) {
   }
 }
 function schedulePass(p, from, percent, base, pass) {
+  // A note that ends by from as written stays out, even if swing lengthened it past from: playing from a swung
+  // off-beat starts with that note, not a blip of the one before it.
   const speed = percent / 100,
-    data = playbackSlice(p.full, from, percent, p.until),
+    notes = p.full.notes.filter(n => !(n.straightEnd <= from + 0.002)),
+    data = playbackSlice({...p.full, notes}, from, percent, p.until),
     looping = $('loop').checked || $('trainer').checked;
   scheduleNotes(data.notes, base);
   if ($('metronome').checked)
@@ -240,7 +277,7 @@ async function play(resumeFrom = null, {countIn = false} = {}) {
     if (generation !== playGeneration) return;
     // Swing moves note times only; measure starts, clicks and the note highlight keep the written beat.
     const midi = parseMidi(midiBytes($('abc').value)),
-      full = swingPlayback(midi, swingAmount($('abc').value), swingBars(midi.duration)),
+      full = swingPlayback(midi, swingAmount($('abc').value), swingBars(midi)),
       range = measureRange(),
       start = measureStarts.get(range.from);
     const from = resumeFrom ?? start;

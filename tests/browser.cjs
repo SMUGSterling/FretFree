@@ -430,10 +430,12 @@ const {chromium} = require('playwright'),
   await rightClick(page.locator('#notation .abcjs-notehead').nth(1));
   await page.locator('#note-menu button', {hasText: 'Rest'}).click();
   assert.equal(await kbody(), 'C D- z E F G | G4 |]', 'Menu ties and inserts a rest');
-  // Notes that open a slur or tuplet take menu and key edits and keep the ( or (3.
+  // Notes that open a slur or tuplet take menu and key edits and keep the ( or (3. Opening a score scrolls smoothly
+  // to the top, and a scroll closes the note menu, so the scroll ends at once.
   await page.evaluate(() => {
     dirty = false;
     openScore({abc: 'X:1\nT:K\nM:4/4\nL:1/8\nK:C\n(C D E F) (3GAB c2 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
   });
   await rightClick(page.locator('#notation .abcjs-notehead').nth(0));
   await page.locator('#note-menu button', {hasText: 'Quarter'}).click();

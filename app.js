@@ -167,7 +167,8 @@ $('key').addEventListener('input', () => chooseKey($('key').value));
 $('feel').addEventListener('input', () => {
   noteTyping('feel');
   $('abc').value = setSwing($('abc').value, +$('feel').value);
-  syncFeel();
+  // The Tempo slider follows the beat that swing writes out for a score with no Q:.
+  syncFields();
   changed();
 });
 // On a prompt score the assignment is in written pitch, so a new instrument transposes the concert source to keep
