@@ -243,12 +243,56 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
     refreshPalette();
     return;
   }
-  $('selection-status').textContent =
-    `Measure ${entry.measure} selected · type A–G to add notes after it, ↑↓ to change pitch · Shift+click another note to practice from here to there`;
+  // A note is named for screen readers (its length, pitch, measure and beat). A pointer click adds what to do next;
+  // the arrow keys and code select quietly, so moving along the score reads one note at a time.
+  const named = noteDescription(entry);
+  $('selection-status').textContent = event
+    ? `${named || `Measure ${entry.measure} selected`} · type A–G to add notes after it, ↑↓ to change pitch · Shift+click another note to practice from here to there`
+    : named
+      ? named + '.'
+      : `Measure ${entry.measure} selected.`;
   // A pointer click sounds the note (Hear notes); a drag sounded it before the render. Calls from code pass no
   // event, so the note menu stays quiet.
   if (event && !drag?.step) auditionAt(start);
   refreshPalette();
+}
+// A note, chord or rest of the source as the staff shows it, in words (describeNote): its length, written pitch,
+// measure and beat. The engraved score is read once per render for its spelling and beats. '' for a bar line. A short
+// first bar the score opened with stays a pickup as it is edited (openedPickups, read once from the opened text); one
+// shortened by an edit is a pickup only when a short closing bar makes up the rest (noteBeats).
+let writtenFacts = null,
+  openedPickups = null;
+function noteDescription(entry) {
+  const display = entry?.element.el_type === 'note' && displayOf(entry);
+  if (!display || renderedWritten == null) return '';
+  openedPickups ??= openingPickups(ABCJS.parseOnly(openedABC)[0]);
+  if (writtenFacts?.source !== renderedWritten || writtenFacts.opened !== openedPickups) {
+    const tune = ABCJS.parseOnly(renderedWritten)[0];
+    writtenFacts = {
+      source: renderedWritten,
+      opened: openedPickups,
+      names: new Map(noteLabels(tune, 'letters').map(l => [l.at, l.names])),
+      beats: noteBeats(tune, openedPickups)
+    };
+  }
+  const at = display.startChar;
+  return describeNote(display, entry.measure, writtenFacts.beats.get(at), writtenFacts.names.get(at));
+}
+// After an edit the status line names the note it changed, or the selected note, so a screen reader hears the
+// result of every key; an edit with its own message ("Dotted.") sets that afterwards instead. A range selection is
+// left to its own messages. An edit that leaves nothing selected (a bar line added after a note) says so, so the
+// status line never names a note that is no longer selected.
+const NOTHING_SELECTED = 'Nothing selected. Letters add notes at the end.';
+function announceNote(at) {
+  if (selectionAnchor) return;
+  const sel = selectedNote(),
+    entry = at == null ? sel?.entry : scoreNotes().find(n => n.element.startChar <= at && at < n.element.endChar),
+    named = noteDescription(entry);
+  $('selection-status').textContent = named
+    ? named + '.'
+    : sel
+      ? `Measure ${sel.entry.measure} selected.`
+      : NOTHING_SELECTED;
 }
 // The notation palette (palette.js) shows the selection's state; it is optional, so editing works without it.
 function refreshPalette() {
@@ -514,12 +558,14 @@ function download(data, name, type) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 // Undo/redo for every change to the ABC source. Programmatic edits (drag, draw, menu, bar fixes, buttons) are one step
-// each; a burst of typing is one step. Undoing back to the opened text clears the unsaved-changes state.
+// each; a burst of typing is one step. Undoing back to the opened text clears the unsaved-changes state. openedABC is
+// that text, kept for its pickups (noteDescription).
 let editHistory = [],
   historyIndex = 0,
   typingEdit = false,
   lastTypingAt = 0,
-  cleanKey = '';
+  cleanKey = '',
+  openedABC = '';
 const HISTORY_LIMIT = 200;
 // A history state is the ABC text plus the instrument, which is saved with the score.
 function snapshot() {
@@ -534,6 +580,8 @@ function markClean() {
 function resetHistory() {
   editHistory = [snapshot()];
   historyIndex = 0;
+  openedABC = editHistory[0].abc;
+  openedPickups = null;
   markClean();
   typingEdit = false;
   lastTypingAt = 0;
@@ -942,6 +990,7 @@ function applyNoteEdit(
   render();
   if (selectedRange) area.setSelectionRange(...selectedRange);
   focusScore();
+  announceNote(hear);
 }
 // Note audition: the concert pitches of the note or chord that starts at a source position, as playback sounds them
 // (octave clefs and transpose= included), keyed by startChar and cached per source text. scheduleNotes then adds the
@@ -1915,6 +1964,7 @@ function editNote(entry, display, action) {
     const token =
       action === 'bar-after' ? '|' : 'z' + lengthText((entry.element.duration || beatLength()) / unitLengthAt(end));
     insertAt(end, token, action === 'rest-after');
+    if (action === 'bar-after') $('selection-status').textContent = 'Bar line added. ' + NOTHING_SELECTED;
     return;
   }
   if (action === 'beam:join' || action === 'beam:break') {
@@ -2352,7 +2402,10 @@ function scoreKey(e) {
   }
   if (key === '|') {
     if (last) editNote(last.entry, last.display, 'bar-after');
-    else insertAt(tuneEndPosition(), '|', false);
+    else {
+      insertAt(tuneEndPosition(), '|', false);
+      $('selection-status').textContent = 'Bar line added. ' + NOTHING_SELECTED;
+    }
     return true;
   }
   // ← and → leave a range selection from its first or last note.
@@ -2370,7 +2423,7 @@ function scoreKey(e) {
     selectionAnchor = null;
     renderedTune?.engraver?.rangeHighlight?.(-1, -1);
     if (typeof showPianoSelection === 'function') showPianoSelection();
-    $('selection-status').textContent = 'Nothing selected. Letters add notes at the end.';
+    $('selection-status').textContent = NOTHING_SELECTED;
     refreshPalette();
     return true;
   }
@@ -3579,11 +3632,12 @@ $('bar-check').addEventListener('click', e => {
 });
 // Undo/redo buttons and shortcuts (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or Ctrl+Y). In the ABC box they replace the browser's
 // own undo, which doesn't know about edits made on the score. Other text fields keep their own; menus, sliders and
-// boxes have none, so a key change made from the Key menu undoes from there.
+// boxes have none, so a key change made from the Key menu undoes from there. The shortcut sheet is modal, so the
+// score behind it stays as it is.
 $('undo').onclick = () => stepHistory(-1);
 $('redo').onclick = () => stepHistory(1);
 document.addEventListener('keydown', e => {
-  if (!(e.ctrlKey || e.metaKey) || e.altKey || $('studio').hidden) return;
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || $('studio').hidden || $('shortcuts')?.hidden === false) return;
   const key = e.key.toLowerCase(),
     field = e.target.closest?.('input,select,textarea');
   if (field && field.id !== 'abc' && !/^(select-one|checkbox|radio|range)$/.test(field.type)) return;

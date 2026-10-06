@@ -2570,3 +2570,140 @@ header {
     display: none !important;
   }
 }
+/* Shortcut sheet and command search (shortcuts.js): a dialog over a dimmed page, with the list scrolling inside. */
+.keyboard-help .shortcuts-open {
+  font-size: 11px;
+  padding: 3px 8px;
+  vertical-align: baseline;
+}
+/* On phones and touch screens it is the way in to the command search, so it is a full-size tap target. */
+@media (max-width: 720px), (pointer: coarse) {
+  .keyboard-help .shortcuts-open {
+    min-height: 40px;
+    padding: 6px 12px;
+    vertical-align: middle;
+  }
+}
+.shortcuts {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 16px;
+  background: #0d1a1599;
+}
+.shortcuts[hidden] {
+  display: none;
+}
+/* Its height leaves room for the backdrop's padding and its own top margin, so its bottom edge stays on screen. */
+.shortcuts-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(560px, 100%);
+  max-height: calc(100vh - 32px - 4vh);
+  max-height: calc(100dvh - 32px - 4vh);
+  margin-top: 4vh;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px var(--shadow-menu);
+  padding: 14px 16px 16px;
+  overflow: hidden;
+}
+.shortcuts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.shortcuts-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.shortcuts-head button {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 6px 10px;
+}
+.shortcuts-dialog label {
+  font-weight: 650;
+  font-size: 13px;
+}
+.shortcuts-dialog input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--field);
+  color: var(--ink);
+}
+.shortcuts-dialog p {
+  margin: 0;
+}
+#shortcuts-status:empty {
+  display: none;
+}
+.shortcuts-list {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+.shortcut-group {
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  font-weight: 750;
+  color: var(--muted);
+  padding: 10px 8px 3px;
+}
+.shortcuts-list [role='option'] {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.shortcuts-list [role='option']:hover {
+  background: var(--hover);
+}
+.shortcuts-list [role='option'][aria-selected='true'] {
+  background: var(--tint);
+  box-shadow: inset 3px 0 0 var(--green);
+}
+.shortcuts-list [role='option'][aria-disabled='true'] {
+  cursor: default;
+  color: var(--muted);
+}
+.shortcut-keys {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+.shortcut-keys kbd,
+.shortcuts-open kbd {
+  font: 600 11px system-ui;
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: var(--paper);
+}
+@media print {
+  .shortcuts,
+  .keyboard-help .shortcuts-open {
+    display: none !important;
+  }
+}
