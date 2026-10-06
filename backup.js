@@ -11,6 +11,7 @@ const BACKUP_FORMAT = 1,
     KEYS.noteNames,
     KEYS.noteColors,
     KEYS.audition,
+    KEYS.piano,
     ...['loop', 'metronome', 'count-in', 'trainer'].map(KEYS.practice)
   ];
 function backupData() {

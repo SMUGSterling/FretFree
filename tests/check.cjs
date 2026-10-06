@@ -255,6 +255,46 @@ for (const [text, edit, expected] of [
     .map(x => x.id);
   assert.equal(own.join(', '), '', 'FretFree teaching scores have correct bar lengths');
 }
+// On-screen piano spelling and chords: midiToken spells a MIDI note for a key signature; addChordPitch builds chords.
+{
+  const key = k => ABCJS.parseOnly(`X:1\nK:${k}\nC`)[0].lines[0].staff[0].key,
+    spell = (k, ...midis) => midis.map(m => context.midiToken(m, key(k))).join(' ');
+  assert.equal(spell('C', 60, 61, 63, 66, 72, 48, 84, 59), "C ^C ^D ^F c C, c' B,");
+  assert.equal(spell('F', 70, 71, 66, 61), 'B =B _G _D', 'Flat keys use flats; B flat is in the key');
+  assert.equal(spell('G', 66, 65, 70), 'F =F ^A', 'Sharp keys use sharps; F sharp is in the key');
+  assert.equal(spell('Bb', 70, 63, 68), 'B E _A');
+  assert.equal(spell('Am', 68, 69), '^G A', 'Minor keys spell from their signature');
+  assert.equal(spell('C#', 60, 65), 'B, E', 'B sharp and E sharp are in C sharp major');
+  assert.equal(context.midiToken(70, key('F'), true), '_B', 'Explicit writes the key accidental');
+  assert.equal(context.midiToken(60, key('C'), true), '=C');
+  assert.equal(context.midiToken(61, null), '^C', 'No key is C major');
+  const add = (text, core) => context.addChordPitch(text, core);
+  assert.equal(add('C2', 'E'), '[CE]2');
+  assert.equal(add('[CE]2', 'G'), '[CEG]2');
+  assert.equal(add('"Am"!f!(C2- ', '^g'), '"Am"!f!([C^g]2- ', 'Decorations, slur, tie and spacing stay put');
+  assert.equal(add('[C2E2]', 'G'), '[C2E2G2]', 'Per-pitch chord lengths are copied');
+  assert.equal(add('[CE]', 'E'), '[CE]', 'A pitch already there is not added');
+  assert.equal(add('z2', 'E'), 'z2', 'Rests are left alone');
+  // keepLaterPitches: an accidental entered on one note writes out the accidental later notes in the bar had.
+  const keep = (body, from, to, text, select = null) => {
+    const source = 'X:1\nL:1/4\nK:C\n' + body,
+      at = source.length - body.length,
+      r = context.keepLaterPitches(source, at + from, at + to, text, select && select.map(x => at + x));
+    return [source.slice(at, at + from) + r.text + source.slice(r.end), r.select && r.select.map(x => x - at)];
+  };
+  assert.deepEqual(keep('z C D C | C', 0, 1, '^C', [3, 4]), ['^C =C D C | C', [3, 5]], 'Only the first later C');
+  assert.deepEqual(keep('z c [EC] C', 0, 1, '_C'), ['_C c [E=C] C', null], 'Other octaves keep theirs; chords too');
+  assert.deepEqual(keep('z | C', 0, 1, '^C'), ['^C | C', null], 'The next bar is not touched');
+  assert.equal(keep('z F G', 0, 1, '=F').join(), '=F F G,', 'A natural against the key: later F is natural anyway');
+  const g = (body, ...edit) => {
+    const source = 'X:1\nL:1/4\nK:G\n' + body,
+      at = source.length - body.length,
+      r = context.keepLaterPitches(source, at + edit[0], at + edit[1], edit[2], null);
+    return source.slice(at, at + edit[0]) + r.text + source.slice(r.end);
+  };
+  assert.equal(g('z !f!F2 F', 0, 1, '=F'), '=F !f!^F2 F', 'The key signature sharp is written after decorations');
+  assert.equal(g('z ^^G G', 0, 1, '_G'), '_G ^^G G', 'Notes with their own accidental are left alone');
+}
 // Keys and transposition: key names and signatures, the key menu, intervals, whole-tune and slice transposition.
 {
   const parts = v => {
@@ -873,5 +913,5 @@ for (const prompt of context.writingPrompts) {
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, piano spelling, chord building and later bar accidentals, MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
 );

@@ -256,6 +256,7 @@ function applyStoredSettings() {
   $('note-names').value = storage.get(KEYS.noteNames, 'off');
   $('note-colors').value = storage.get(KEYS.noteColors, 'off');
   $('audition').checked = storage.get(KEYS.audition, true) !== false;
+  if (typeof setPiano === 'function') setPiano(storage.get(KEYS.piano, false) === true, false);
   prepareTrainer();
 }
 for (const id of ['loop', 'metronome', 'count-in', 'trainer']) {

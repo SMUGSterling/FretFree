@@ -78,6 +78,7 @@ for (const f of [
   'editor.js',
   'palette.js',
   'playback.js',
+  'keyboard.js',
   'assignments.js',
   'app.js'
 ])
@@ -275,6 +276,132 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   pick(3);
   key('=');
   assert.equal(body(), '(3:2:3^CDE (=F G) A2 B2 |]', 'Written-pitch accidentals on tuplet- and slur-start notes');
+}
+// On-screen piano: keys are written pitch; notes go into the source at concert pitch, spelled for the key in force,
+// over a selected rest or after the selected note; Shift (or a held key) adds to the chord. One undo step per tap.
+{
+  const body = () => run("$('abc').value.trim().split('\\n').pop()"),
+    tap = (midi, shift = false) =>
+      run(
+        `$('piano-keys').querySelector('[data-piano-midi="${midi}"]').dispatchEvent(new MouseEvent('click',{bubbles:true,shiftKey:${shift}}))`
+      ),
+    open = (abc, instrument = 'Flute') =>
+      run(
+        `openScore({abc:${JSON.stringify(abc)},instrument:${JSON.stringify(instrument)}});selectEntry(scoreNotes()[0])`
+      ),
+    held = () => run("[...document.querySelectorAll('#piano-keys .held')].map(k=>k.dataset.pianoMidi).join()");
+  assert.equal(run("$('piano').hidden"), true, 'The piano starts hidden');
+  assert.equal(run("$('piano-keys').querySelectorAll('[data-piano-midi]').length"), 61, 'C2 to C7');
+  assert.equal(run(`$('piano-keys').querySelector('[data-piano-midi="61"]').getAttribute('aria-label')`), 'C♯4 or D♭4');
+  run("$('piano-toggle').click()");
+  assert.equal(run("$('piano').hidden"), false);
+  assert.equal(run("$('piano-toggle').getAttribute('aria-pressed')"), 'true');
+  assert.equal(w.localStorage.getItem('fretfree-piano'), 'true', 'The piano setting is remembered');
+  assert.ok(run('BACKUP_SETTING_KEYS()').includes('fretfree-piano'), 'The piano setting is in backups');
+  open('X:1\nM:4/4\nL:1/4\nK:C\nz4 | z4 |]');
+  tap(64);
+  assert.equal(body(), 'E z3 | z4 |]', 'Tapping E4 with a rest selected writes E over it');
+  tap(65);
+  tap(67);
+  assert.equal(body(), 'E F G z | z4 |]', 'Tapping in sequence enters a melody');
+  tap(72, true);
+  assert.equal(body(), 'E F [Gc] z | z4 |]', 'Shift+tap adds to the note just entered');
+  run("scoreKey({key:'E',shiftKey:true})");
+  assert.equal(body(), 'E F [Gce] z | z4 |]', 'Shift+E adds the E above the chord');
+  assert.ok(run('!!selectedNote().entry.element.rest'), 'The rest after the chord stays selected');
+  tap(60);
+  assert.equal(body(), 'E F [Gce] C | z4 |]', 'The rest stays selected, so entry carries on after the chord');
+  run('stepHistory(-1)');
+  assert.equal(body(), 'E F [Gce] z | z4 |]', 'Each tap is one undo step');
+  run('selectEntry(scoreNotes()[2])');
+  assert.equal(held(), '67,72,76', "The selected chord's keys are lit");
+  run('pianoFollow(selectedNote().display.startChar,true)');
+  assert.equal(run("document.querySelectorAll('#piano-keys .sounding').length"), 3, 'Sounding notes light their keys');
+  run('stop()');
+  assert.equal(run("document.querySelectorAll('#piano-keys .sounding').length"), 0, 'Stopping clears the lights');
+  open('X:1\nM:4/4\nL:1/4\nK:C\nC z3 |]');
+  run("scoreKey({key:'E',shiftKey:true})");
+  assert.equal(body(), '[CE] z3 |]', 'Shift+E turns C into [CE]');
+  run('stepHistory(-1);selectEntry(scoreNotes()[0])');
+  tap(64, true);
+  assert.equal(body(), '[CE] z3 |]', 'Shift+tap turns C into [CE]');
+  tap(64, true);
+  assert.equal(body(), '[CE] z3 |]', 'A pitch already in the chord is not added twice');
+  // Spelling: in-key notes need no accidental; others use sharps in sharp keys and C, flats in flat keys; an
+  // accidental earlier in the bar is cancelled with a natural.
+  open('X:1\nM:4/4\nL:1/4\nK:F\nz4 |]');
+  tap(70);
+  tap(66);
+  assert.equal(body(), 'B _G z2 |]', 'In F major the black key between A and B is B; F sharp is G flat');
+  open('X:1\nM:4/4\nL:1/4\nK:G\nz4 |]');
+  tap(66);
+  tap(65);
+  assert.equal(body(), 'F =F z2 |]', 'In G major the F sharp key enters F, and F natural needs =');
+  open('X:1\nM:4/4\nL:1/4\nK:C\nz4 |]');
+  tap(61);
+  tap(60);
+  tap(84);
+  tap(48);
+  assert.equal(body(), "^C =C c' C, |]", 'In C the C sharp key enters ^C; C after it in the bar needs =');
+  // Transposing instruments: keys are written pitch, the source is concert.
+  open('X:1\nM:4/4\nL:1/4\nK:C\nz4 |]', 'Clarinet in B♭');
+  tap(62);
+  assert.equal(body(), 'C z3 |]', 'On Clarinet in B♭ written D4 enters concert C');
+  assert.equal(held(), '', 'A rest lights no keys');
+  run('selectEntry(scoreNotes()[0])');
+  assert.equal(held(), '62', 'Lights show the written pitch');
+  open('X:1\nM:4/4\nL:1/4\nK:C\nz4 |]', 'Cello');
+  tap(48);
+  assert.equal(body(), 'C z3 |]', 'On Cello written C3 enters the source an octave up, as the cello part is written');
+  // With nothing selected a tap adds the note at the end of the music.
+  run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:D\nD E |]')},instrument:'Flute'})`);
+  tap(66);
+  assert.equal(body(), 'D E F |]', 'With nothing selected the note goes at the end');
+  assert.equal(run("$('warnings').textContent"), '');
+  // Filling a rest completely passes the selection on to the next note, but chord pitches still go on the note just
+  // entered, until the student picks a note on the score.
+  open('X:1\nM:4/4\nL:1/4\nK:C\nC D z F |]');
+  run('selectEntry(scoreNotes()[2])');
+  tap(64);
+  tap(67, true);
+  assert.equal(body(), 'C D [EG] F |]', 'A chord after a filled rest goes on the note just entered');
+  tap(72, true);
+  assert.equal(body(), 'C D [EGc] F |]', 'And it keeps growing');
+  run('stepHistory(-1);stepHistory(-1);stepHistory(-1);selectEntry(scoreNotes()[2])');
+  tap(64);
+  run("scoreKey({key:'G',shiftKey:true})");
+  assert.equal(body(), 'C D [EG] F |]', 'Shift+G after a filled rest adds to the note just entered');
+  run('selectEntry(scoreNotes()[3])');
+  tap(72, true);
+  assert.equal(body(), 'C D [EG] [Fc] |]', 'A note picked on the score takes the next chord pitch');
+  open('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | z G A B |]');
+  run('selectEntry(scoreNotes()[4])');
+  tap(64);
+  tap(67, true);
+  assert.equal(body(), 'C D E F | [EG] G A B |]', 'Also for a note just after a bar line');
+  // An accidental from the piano does not change later notes of that pitch in the bar: they get their own accidental.
+  const midis = () => run("parseMidi(midiBytes($('abc').value)).notes.map(n=>n.note).join()");
+  open('X:1\nM:4/4\nL:1/4\nK:C\nz C D C | C4 |]');
+  tap(61);
+  assert.equal(body(), '^C =C D C | C4 |]', 'The C after a new C sharp keeps its pitch');
+  assert.equal(midis(), '61,60,62,60,60');
+  run('stepHistory(-1)');
+  assert.equal(body(), 'z C D C | C4 |]', 'One undo step');
+  open('X:1\nM:4/4\nL:1/4\nK:G\nE z F2 |]');
+  tap(65, true);
+  assert.equal(body(), '[E=F] z ^F2 |]', 'A chord pitch with an accidental keeps later notes too');
+  run('selectEntry(scoreNotes()[1])');
+  tap(70);
+  assert.equal(body(), '[E=F] ^A ^F2 |]', 'Notes of other letters are left alone');
+  // The status line names the key as the key signature in force spells it.
+  open('X:1\nM:4/4\nL:1/4\nK:C\nC D [K:Bb] z2 |]');
+  run('selectEntry(scoreNotes()[2])');
+  tap(70);
+  assert.equal(body(), 'C D [K:Bb] B z |]');
+  assert.match(run("$('selection-status').textContent"), /^Added B♭4\./, 'Named for the key after an inline K:');
+  w.localStorage.setItem('fretfree-piano', 'false');
+  run('applyStoredSettings()');
+  assert.equal(run("$('piano').hidden"), true, 'Restored settings apply the piano setting');
 }
 // Notation palette: buttons show the selected note's state and make the same edit as the menu or key, one undo step each.
 {
@@ -786,6 +913,8 @@ async function checkPlayback() {
   assert.equal(run("letterToken('A', $('abc').value.length - 2)"), 'F', 'Typed A is written A-flat: concert F#');
   assert.equal(run("(e => accidentalEdit(e, displayOf(e), ''))(scoreNotes()[2])"), 'A ', 'A plain written C is A#');
   assert.equal(run("(e => accidentalEdit(e, displayOf(e), '^'))(scoreNotes()[2])"), '^^A ');
+  run("selectEntry(scoreNotes()[0]);scoreKey({key:'C',shiftKey:true})");
+  assert.equal(body(), '[FA] G ^A B |]', 'Shift+C adds the written C above written A-flat: concert A#');
   run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C#\nC D E F |]')},instrument:'Alto sax in E♭'})`);
   assert.equal(run("letterToken('A', $('abc').value.length - 2)"), 'B', 'Typed A on alto sax is concert B#');
   await checkAudio();
@@ -794,7 +923,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, notation palette state, edits and guards, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, notation palette state, edits and guards, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

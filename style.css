@@ -1352,6 +1352,115 @@ input[type='range'] {
   background: var(--paper);
   color: var(--ink);
 }
+/* On-screen piano: a scrolling strip of keys under the score, kept in view at the bottom of the window. */
+#piano-toggle[aria-pressed='true'] {
+  background: var(--green);
+  color: white;
+  border-color: var(--green);
+}
+.piano {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin: -8px 0 20px;
+  padding: 8px 10px 10px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 -4px 14px #21372d14;
+}
+.piano-head {
+  margin: 0 0 6px;
+  color: var(--muted);
+}
+.piano-head strong {
+  color: var(--ink);
+  margin-right: 4px;
+}
+.piano-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: 2px 2px 4px;
+}
+.piano-keys {
+  --white-w: 30px;
+  --black-w: 20px;
+  --white-h: 112px;
+  position: relative;
+  width: calc(var(--whites, 36) * var(--white-w));
+  height: var(--white-h);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.piano-key {
+  position: absolute;
+  top: 0;
+  padding: 0;
+  border-radius: 0 0 5px 5px;
+  font-weight: 500;
+}
+.piano-key.white {
+  left: calc(var(--x) * var(--white-w));
+  width: var(--white-w);
+  height: var(--white-h);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 6px;
+  background: white;
+  color: var(--muted);
+  border: 1px solid #b9bdb0;
+  font-size: 10px;
+}
+.piano-key.black {
+  left: calc(var(--x) * var(--white-w) - var(--black-w) / 2);
+  width: var(--black-w);
+  height: calc(var(--white-h) * 0.6);
+  z-index: 1;
+  background: #26302d;
+  border: 1px solid #111;
+}
+.piano-key.white:hover {
+  background: #edf1e4;
+}
+.piano-key.black:hover {
+  background: #3d4a46;
+}
+.piano-key:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: -3px;
+  z-index: 2;
+}
+.piano-key.held {
+  background: var(--lime);
+  border-color: var(--green);
+  color: var(--green);
+}
+.piano-key.black.held {
+  background: var(--green);
+}
+.piano-key.white.sounding,
+.piano-key.black.sounding,
+.piano-key.white.down,
+.piano-key.black.down {
+  background: #f59f00;
+  border-color: #d9480f;
+  color: #4a1a00;
+}
+@media (pointer: coarse) {
+  .piano-keys {
+    --white-w: 36px;
+    --black-w: 24px;
+    --white-h: 124px;
+  }
+}
+@media print {
+  .piano {
+    display: none !important;
+  }
+}
 .palette {
   display: flex;
   flex-wrap: wrap;

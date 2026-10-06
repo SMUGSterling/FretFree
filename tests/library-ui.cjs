@@ -25,6 +25,7 @@ const SCRIPTS = [
   'editor.js',
   'palette.js',
   'playback.js',
+  'keyboard.js',
   'assignments.js',
   'app.js'
 ];

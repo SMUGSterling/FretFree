@@ -7,6 +7,16 @@
 
 ---
 
+# On-screen piano keys · 2026-10-06
+
+- **Piano keys** (under the note buttons) shows a piano strip, C2 to C7, under the score. It stays at the bottom of the window and scrolls to the selected note or to the instrument's range. Tap a key to write the note over the selected rest or after the selected note; tapping in turn enters a melody at the current length, and each tap sounds with Hear notes. On a touch screen the note goes in when the finger lifts, so a swipe that starts on a key scrolls the strip or the page without entering anything. Keys are written pitch: on Clarinet in B♭ the D key writes concert `C`.
+- **Chords:** Shift+tap, or hold one key while tapping others on a touch screen, to add the pitch to the selected note or the note just entered (`C2` becomes `[CE]2`). <kbd>Shift</kbd>+<kbd>A</kbd>–<kbd>G</kbd> on the score does the same with the letter just above the chord's top note.
+- **Spelling** follows the key in force: in-key notes need no accidental (the black key between A and B is `B` in F major, F♯ is `F` in G major), others take sharps in sharp keys and C (`^C`) and flats in flat keys, and a natural is written where an earlier accidental in the bar would change the note. An accidental from the piano does not change notes after it in the bar: they get their own accidental (`z C` with C♯ tapped over the rest becomes `^C =C`).
+- The selected note's keys are lit, and keys light as playback sounds them. From the keyboard, ←→ move between keys, Enter adds the note, Shift+Enter adds it to the chord, and the score's other shortcuts still work. The setting is remembered and backed up (`fretfree-piano`), and the strip is hidden in print.
+- `midiToken(midi, key)`, `addChordPitch(text, pitch)` and `keepLaterPitches(...)` in score-tools.js spell a MIDI note for a key signature, add a pitch to a note or chord, and write out the accidentals later notes in the bar need after an edit; `insertNote` now goes through `insertCore(pitch, selection)`, which later input methods (MIDI keyboards, fretboard) can share.
+
+---
+
 # MusicXML export · 2026-10-06
 
 - **Studio → MusicXML** downloads the score as MusicXML 4.0 for MuseScore, Noteflight, Finale, Sibelius or Dorico, at concert pitch. The converter (`musicxml.js`) walks the abcjs parse: each staff is a part, and staves braced with `%%score {RH | LH}` share one part. It writes key (with mode), time and clef changes, pickups, notes, rests, chords, ties, tuplets, grace notes, multi-bar rests, chord symbols as harmony, lyrics (syllables and extenders), dynamics, hairpins, articulations, ornaments, fingerings, slurs, segno/coda/D.C. text, repeats with numbered endings, and tempo marks.
