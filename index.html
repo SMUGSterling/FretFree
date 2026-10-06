@@ -8,31 +8,35 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <script src="theme.js?v=f5d91d4f2f7f"></script>
-    <link rel="stylesheet" href="style.css?v=f5d91d4f2f7f" />
-    <script defer src="vendor/abcjs-basic-min.js?v=f5d91d4f2f7f"></script>
-    <script defer src="vendor/qrcode.js?v=f5d91d4f2f7f"></script>
-    <script defer src="catalog.js?v=f5d91d4f2f7f"></script>
-    <script defer src="catalog-expanded.js?v=f5d91d4f2f7f"></script>
-    <script defer src="score-tools.js?v=f5d91d4f2f7f"></script>
-    <script defer src="rights-tools.js?v=f5d91d4f2f7f"></script>
-    <script defer src="musicxml.js?v=f5d91d4f2f7f"></script>
-    <script defer src="catalog-licensed.js?v=f5d91d4f2f7f"></script>
-    <script defer src="catalog-lieder.js?v=f5d91d4f2f7f"></script>
-    <script defer src="catalog-quartets.js?v=f5d91d4f2f7f"></script>
-    <script defer src="catalog-pgh.js?v=f5d91d4f2f7f"></script>
-    <script defer src="catalog-skills.js?v=f5d91d4f2f7f"></script>
-    <script defer src="prompts.js?v=f5d91d4f2f7f"></script>
-    <script defer src="shared.js?v=f5d91d4f2f7f"></script>
-    <script defer src="library.js?v=f5d91d4f2f7f"></script>
-    <script defer src="backup.js?v=f5d91d4f2f7f"></script>
-    <script defer src="editor.js?v=f5d91d4f2f7f"></script>
-    <script defer src="palette.js?v=f5d91d4f2f7f"></script>
-    <script defer src="playback.js?v=f5d91d4f2f7f"></script>
-    <script defer src="keyboard.js?v=f5d91d4f2f7f"></script>
-    <script defer src="assignments.js?v=f5d91d4f2f7f"></script>
-    <script defer src="turn-in.js?v=f5d91d4f2f7f"></script>
-    <script defer src="app.js?v=f5d91d4f2f7f"></script>
+    <meta name="theme-color" content="#245c4b" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <script src="theme.js?v=eab3a4550c84"></script>
+    <link rel="stylesheet" href="style.css?v=eab3a4550c84" />
+    <script defer src="vendor/abcjs-basic-min.js?v=eab3a4550c84"></script>
+    <script defer src="vendor/qrcode.js?v=eab3a4550c84"></script>
+    <script defer src="catalog.js?v=eab3a4550c84"></script>
+    <script defer src="catalog-expanded.js?v=eab3a4550c84"></script>
+    <script defer src="score-tools.js?v=eab3a4550c84"></script>
+    <script defer src="rights-tools.js?v=eab3a4550c84"></script>
+    <script defer src="musicxml.js?v=eab3a4550c84"></script>
+    <script defer src="catalog-licensed.js?v=eab3a4550c84"></script>
+    <script defer src="catalog-lieder.js?v=eab3a4550c84"></script>
+    <script defer src="catalog-quartets.js?v=eab3a4550c84"></script>
+    <script defer src="catalog-pgh.js?v=eab3a4550c84"></script>
+    <script defer src="catalog-skills.js?v=eab3a4550c84"></script>
+    <script defer src="prompts.js?v=eab3a4550c84"></script>
+    <script defer src="shared.js?v=eab3a4550c84"></script>
+    <script defer src="library.js?v=eab3a4550c84"></script>
+    <script defer src="backup.js?v=eab3a4550c84"></script>
+    <script defer src="editor.js?v=eab3a4550c84"></script>
+    <script defer src="palette.js?v=eab3a4550c84"></script>
+    <script defer src="playback.js?v=eab3a4550c84"></script>
+    <script defer src="keyboard.js?v=eab3a4550c84"></script>
+    <script defer src="assignments.js?v=eab3a4550c84"></script>
+    <script defer src="turn-in.js?v=eab3a4550c84"></script>
+    <script defer src="app.js?v=eab3a4550c84"></script>
   </head>
   <body>
     <header>
@@ -49,6 +53,8 @@
       </nav>
       <div class="header-tools">
         <span class="privacy">● No account needed</span
+        ><span id="offline-status" class="offline-status" role="status"></span
+        ><button id="install-app" class="install-app" hidden>⤓ Install app</button
         ><label class="inline theme-choice"
           >Theme<select id="theme" title="Auto follows your device's light or dark setting">
             <option value="auto">Auto</option>
@@ -1115,6 +1121,13 @@
           by the browser or school device policy; export work you want to keep. Unsaved changes are kept as a draft in
           the browser, so a closed or discarded tab offers them back on the next visit. Saving a changed score keeps the
           copy it replaces: <strong>History</strong> in My scores previews, plays and restores earlier versions.
+        </p>
+        <p>
+          <strong>Offline and installing.</strong> After one visit, FretFree opens and works without internet: the
+          library, your saved scores, the editor and playback. A PDF or MIDI file works offline once you have opened it.
+          In Chrome and Edge, <strong>Install app</strong> at the top of the page adds FretFree to your apps; on an iPad
+          or iPhone, use Share → Add to Home Screen. A new version loads the next time you open FretFree online.
+          <span id="offline-ready"></span>
         </p>
         <p>
           A school can still block any website or disable browser audio/downloads. This design makes the educational

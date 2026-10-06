@@ -11,8 +11,8 @@
   "serve": "python3 -m http.server 8000",
   "bump": "node scripts/bump-version.cjs",
   "build:skills": "node scripts/build-skills.cjs",
-  "format": "prettier --write index.html style.css theme.js shared.js library.js backup.js editor.js palette.js playback.js keyboard.js assignments.js turn-in.js app.js score-tools.js rights-tools.js musicxml.js 'scripts/*.cjs' 'tests/*.cjs'",
-  "format:check": "prettier --check index.html style.css theme.js shared.js library.js backup.js editor.js palette.js playback.js keyboard.js assignments.js turn-in.js app.js score-tools.js rights-tools.js musicxml.js 'scripts/*.cjs' 'tests/*.cjs'"
+  "format": "prettier --write index.html style.css theme.js shared.js library.js backup.js editor.js palette.js playback.js keyboard.js assignments.js turn-in.js app.js score-tools.js rights-tools.js musicxml.js sw.js manifest.webmanifest 'scripts/*.cjs' 'tests/*.cjs'",
+  "format:check": "prettier --check index.html style.css theme.js shared.js library.js backup.js editor.js palette.js playback.js keyboard.js assignments.js turn-in.js app.js score-tools.js rights-tools.js musicxml.js sw.js manifest.webmanifest 'scripts/*.cjs' 'tests/*.cjs'"
  },
  "devDependencies": {
   "jsdom": "^29.1.1",
