@@ -1055,11 +1055,14 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   pick(1);
   key('Delete');
   assert.equal(body(), 'c z2 z | z4 |]', 'Delete leaves a rest of the same length');
-  assert.equal(status(), 'Changed to a rest, so the bar stays full. Shift+Delete removes a note without one.');
+  assert.equal(
+    status(),
+    'Changed to a rest, so the bar stays full. Shift+Delete, or Remove in the note menu, takes a note out.'
+  );
   assert.equal(run("$('abc').value.slice(...selectedRange).trim()"), 'z2', 'The rest is selected');
   key('Delete');
   assert.equal(body(), 'c z2 z | z4 |]', 'Delete leaves a rest as it is');
-  assert.equal(status(), 'A rest keeps the bar full. Shift+Delete removes it.');
+  assert.equal(status(), 'A rest keeps the bar full. Shift+Delete, or Remove in the note menu, takes it out.');
   assert.ok(run("document.querySelector('[data-palette=\"delete\"]').getAttribute('aria-disabled')") === 'true');
   key('Delete', {shiftKey: true});
   assert.equal(body(), 'c z | z4 |]', 'Shift+Delete removes the rest');
@@ -1102,11 +1105,34 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.equal(status(), 'Already quarter notes.');
   key('Delete');
   assert.equal(body(), 'C z z | z G A |]', 'Delete on a range leaves rests');
-  assert.equal(status(), 'Changed 3 notes to rests, so the bars stay full. Shift+Delete removes notes without them.');
+  assert.equal(
+    status(),
+    'Changed 3 notes to rests, so the bars stay full. Shift+Delete, or Delete with Keep bars full off, takes notes out.'
+  );
   key('Delete');
-  assert.equal(status(), 'Rests keep the bars full. Shift+Delete removes them.');
+  assert.equal(
+    status(),
+    'Rests keep the bars full. Shift+Delete, or Delete with Keep bars full off, takes them out.',
+    'A touch screen has no Shift+Delete, so the switch is named too'
+  );
   key('Delete', {shiftKey: true});
   assert.equal(body(), 'C G A |]', 'Shift+Delete removes them, as Delete did before');
+  // A range Delete takes off a tie into its first note, in the same undo step, as a single note's Delete does.
+  run(`dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nz2 C2- | C2 D2 |]')},fit:true})`);
+  pick(2);
+  key('ArrowRight', {shiftKey: true});
+  key('Delete');
+  assert.equal(body(), 'z2 C2 | z2 z2 |]', 'No tie into a rest');
+  assert.equal(run("$('abc').value.slice(...selectedRange).trim()"), 'z2 z2', 'The new rests stay selected');
+  run('stepHistory(-1)');
+  assert.equal(body(), 'z2 C2- | C2 D2 |]', 'One undo step');
+  // . on a range says what it did, as the palette's Dot does.
+  run(`dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nC D z2 | z4 |]')},fit:true})`);
+  pick(0);
+  key('ArrowRight', {shiftKey: true});
+  key('.');
+  assert.equal(body(), 'C3/2 D3/2 z | z4 |]');
+  assert.equal(status(), 'Changed 2 notes. They took time from the rests after them.');
   // Off: lengths change freely and Delete removes, as before the switch.
   run(`dirty=false;openScore({abc:${JSON.stringify('X:1\nM:3/4\nL:1/4\nK:C\nC D E | F G A |]')},fit:true})`);
   run("$('keep-bars').click()");
@@ -1151,6 +1177,16 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   run('dirty=false;newScore(2)');
   run(`storage.set(KEYS.draft, [${JSON.stringify({...draft, tab: 'earlier'})}]);loadDrafts();restoreDraft()`);
   assert.equal(checked(), false, 'and restoring it brings it back');
+  // A prompt is on by default, so turning it off must be saved too: also when an earlier save had it on.
+  const prompt = {abc: 'X:1\nT:Prompt work\nM:3/4\nL:1/4\nK:C\nz3 |]', kind: 'personal', prompt: 'first-melody'};
+  run(`dirty=false;openScore(${JSON.stringify(prompt)});$('save').onclick()`);
+  const promptId = run('savedId');
+  assert.equal(run(`saved.find(x=>x.id===${JSON.stringify(promptId)}).fit`), true);
+  run("$('keep-bars').click();$('save').onclick()");
+  assert.equal(run(`saved.find(x=>x.id===${JSON.stringify(promptId)}).fit`), false, 'Off is saved for a prompt');
+  run('dirty=false;newScore(2)');
+  run(`openScore(saved.find(x=>x.id===${JSON.stringify(promptId)}),${JSON.stringify(promptId)})`);
+  assert.equal(checked(), false, 'and stays off when the prompt is opened again');
   run('dirty=false;storage.remove(KEYS.draft)');
   run(`saved=saved.filter(x=>${savedBefore}.includes(x.id));storeScores(saved);savedId=null`);
 }

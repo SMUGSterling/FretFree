@@ -79,7 +79,7 @@ function paletteBlocked(action, state) {
   if (state.multiRest && action === 'dot') return 'A multi-measure rest cannot be dotted.';
   // Under Keep bars full, Delete leaves a rest as it is (Shift+Delete or Remove in the note menu takes it out).
   if (state.isRest && action === 'delete' && !state.tuplet && keepBars())
-    return 'A rest keeps the bar full. Shift+Delete removes it.';
+    return 'A rest keeps the bar full. Shift+Delete, or Remove in the note menu, takes it out.';
   if (state.isRest && !['dot', 'delete'].includes(action))
     return action === 'to-rest' ? 'This is already a rest.' : 'Rests have no accidental, tie or beam.';
   if (action.startsWith('beam:')) {

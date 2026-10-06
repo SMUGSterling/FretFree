@@ -2206,6 +2206,16 @@ function checkLyricLines(original) {
   lyricCounts = {history: editHistory, source: renderedSource, counts};
   $('lyric-check').hidden = !before || ![...counts].some(([key, n]) => before.has(key) && before.get(key) !== n);
 }
+// The note before entry in its voice, when it is tied into entry; null otherwise. A note that becomes a rest takes
+// that tie off, since nothing can be tied to a rest.
+function tiedInto(entry) {
+  const v = $('abc').value,
+    voice = e => e.key.replace(/:\d+$/, ''),
+    prev = scoreNotes()
+      .filter(n => voice(n) === voice(entry) && n.element.startChar < entry.element.startChar)
+      .pop();
+  return prev && /^-/.test(noteParts(v.slice(prev.element.startChar, prev.element.endChar))?.post || '') ? prev : null;
+}
 // One edit on one note, shared by the note menu, the keyboard and the palette. Actions: acc:<^|_|=|>, len:<whole>,
 // dot, tie, to-rest, beam:join, beam:break, deco:<mark>, dyn:<dynamic|>, delete, rest-after, bar-after, play-from,
 // range-from, respell, chord (opens the chord symbol box), lyric (opens the lyrics box), tuplet:<count>, grace,
@@ -2260,7 +2270,7 @@ function editNote(entry, display, action) {
   if (action === 'remove') action = 'delete';
   else if (action === 'delete' && keepBars() && !tupletGroup(entry)) {
     if (!entry.element.pitches?.length) {
-      fitNote = {say: 'A rest keeps the bar full. Shift+Delete removes it.'};
+      fitNote = {say: 'A rest keeps the bar full. Shift+Delete, or Remove in the note menu, takes it out.'};
       $('selection-status').textContent = fitNote.say;
       return;
     }
@@ -2322,19 +2332,14 @@ function editNote(entry, display, action) {
           : editNoteText(t, {length: (action === 'dot' ? (dotted ? len / 1.5 : len * 1.5) : newLength) / unit});
   const cleared = () => {
     if (action !== 'clear') return;
-    fitNote = {say: 'Changed to a rest, so the bar stays full. Shift+Delete removes a note without one.'};
+    fitNote = {
+      say: 'Changed to a rest, so the bar stays full. Shift+Delete, or Remove in the note menu, takes a note out.'
+    };
     $('selection-status').textContent = fitNote.say;
   };
   // Nothing can be tied to a rest, so a note that becomes one also takes the tie off the note before it in its voice,
   // in the same edit (one undo step).
-  const voice = e => e.key.replace(/:\d+$/, ''),
-    tiedFrom =
-      (action === 'to-rest' || action === 'clear') &&
-      scoreNotes()
-        .filter(n => voice(n) === voice(entry) && n.element.startChar < start)
-        .pop()?.element,
-    untie =
-      tiedFrom && /^-/.test(noteParts(v.slice(tiedFrom.startChar, tiedFrom.endChar))?.post || '') ? tiedFrom : null;
+  const untie = action === 'to-rest' || action === 'clear' ? tiedInto(entry)?.element : null;
   const edit = (from, to, text) => {
     if (!untie || untie.endChar > from) return applyNoteEdit(from, to, text);
     const lead = editNoteText(v.slice(untie.startChar, untie.endChar), {tie: false}) + v.slice(untie.endChar, from),
@@ -3275,8 +3280,12 @@ function rangeKey(e, picked) {
     return true;
   }
   if (key === '.') {
-    const all = picked.every(isDotted);
-    setLengths(picked, n => (all ? n.element.duration / 1.5 : isDotted(n) ? null : n.element.duration * 1.5));
+    const all = picked.every(isDotted),
+      before = $('abc').value;
+    if (setLengths(picked, n => (all ? n.element.duration / 1.5 : isDotted(n) ? null : n.element.duration * 1.5)))
+      $('selection-status').textContent = fitSaid(
+        $('abc').value === before ? 'No change.' : `Changed ${countWords(picked.filter(pitched).length)}.`
+      );
     return true;
   }
   if (key === 'Delete' || key === 'Backspace') {
@@ -3296,16 +3305,24 @@ const RANGE_PALETTE = {dot: '.', tie: '+', 'acc:^': '#', 'acc:_': '-', 'acc:=': 
 function rangePalette(action, picked = selectedNotes()) {
   return picked.length > 1 && !!RANGE_PALETTE[action] && rangeKey({key: RANGE_PALETTE[action]}, picked);
 }
-// Delete under Keep bars full: the notes of a run become rests of the same length, as Cut leaves them.
+// Delete under Keep bars full: the notes of a run become rests of the same length, as Cut leaves them. A note tied
+// into the first one loses its tie in the same step, as a single note's Delete does.
 function clearRun(picked) {
   const notes = picked.filter(pitched);
   if (!notes.length) {
-    $('selection-status').textContent = 'Rests keep the bars full. Shift+Delete removes them.';
+    $('selection-status').textContent =
+      'Rests keep the bars full. Shift+Delete, or Delete with Keep bars full off, takes them out.';
     return;
   }
-  editNotes(picked, (n, text) => restText(text), picked);
+  const untie = pitched(picked[0]) ? tiedInto(picked[0]) : null;
+  editNotes(
+    untie ? [untie, ...picked] : picked,
+    (n, text) => (n === untie ? editNoteText(text, {tie: false}) : restText(text)),
+    picked
+  );
   $('selection-status').textContent =
-    `Changed ${countWords(notes.length)} to rests, so the bars stay full. Shift+Delete removes notes without them.`;
+    `Changed ${countWords(notes.length)} to rests, so the bars stay full. ` +
+    'Shift+Delete, or Delete with Keep bars full off, takes notes out.';
 }
 // Delete a run. Whole measures go with one of their bar lines, so no empty measure is left behind, and a line left
 // with nothing on it goes with its line break: a blank line ends the tune in ABC, which would drop every measure

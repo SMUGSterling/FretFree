@@ -338,8 +338,8 @@ $('save').onclick = () => {
     composer: field('C'),
     abc: $('abc').value,
     instrument: currentInstrument(),
-    // Keep bars full stays as it was left, once a score has a setting of its own (see keepBarsFor).
-    ...(keepBars() || item.fit != null ? {fit: keepBars()} : {}),
+    // Keep bars full stays as it was left (see keepBarsFor), even where that is the score's default.
+    fit: keepBars(),
     updated: Math.max(Date.now(), (previous?.updated || 0) + 1)
   };
   const next = saved.filter(x => x.id !== id).concat(entry);

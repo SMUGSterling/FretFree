@@ -1163,7 +1163,8 @@ function restValues(from, length, meter) {
 // bar left short), which a longer note may take before it is refused. In an overfull bar, shorter notes first take
 // off the extra time. Returns {edits ({start, end, text}, for spliceAll), added, taken} or {why}: 'room' (with room,
 // the time there is), 'tuplet', 'broken' (a dotted pair written with > or <) or 'multi' (a multi-measure rest).
-// unit is the unit length (L:) the bar is written in. rests counts the rests written for a shorter note.
+// unit is the unit length (L:) the bar starts in, and an inline [L:] in the bar changes it from there. rests counts the
+// rests written for a shorter note.
 function fitBar(source, bar, lengths, unit, slack = 0) {
   const notes = bar.notes,
     near = (a, b) => Math.abs(a - b) < 1e-9,
@@ -1200,21 +1201,25 @@ function fitBar(source, bar, lengths, unit, slack = 0) {
     last = changed.at(-1),
     // Rests are placed from the downbeat; a pickup bar ends on one.
     shift = bar.measure === 1 && bar.length < bar.expected ? bar.expected - bar.length : 0,
-    restText = values => values.map(v => 'z' + lengthText(v / unit)).join(' '),
+    unitAt = at => (/\[L:/.test(source.slice(notes[0].element.startChar, at)) ? unitLengthIn(source, at) : unit),
+    restText = (values, at) => values.map(v => 'z' + lengthText(v / unitAt(at))).join(' '),
     edits = [];
   let added = 0,
     taken = 0,
     rests = 0,
     tail = '';
   if (delta < 0) {
+    // The new rests take in the rests after the note while only spaces come between: an inline field ([K:], [L:]),
+    // a comment, a line break or a line of words there stays, and the rests after it keep their place.
+    const spaced = k => /^[ \t]*$/.test(source.slice(head(k - 1).end, head(k).start));
     let gap = Math.max(0, -delta - Math.max(0, bar.length - bar.expected)),
       k = last + 1;
-    for (; k < notes.length && free(k); k++) gap += duration(k);
+    for (; k < notes.length && free(k) && spaced(k); k++) gap += duration(k);
     added = gap;
     if (gap > 1e-9) {
       const values = restValues(notes[last].at + delta + shift, gap, bar.meter);
       rests = values.length;
-      tail = ' ' + restText(values);
+      tail = ' ' + restText(values, head(last).end);
     }
     if (k > last + 1 || tail) {
       const from = head(last).end,
@@ -1234,7 +1239,7 @@ function fitBar(source, bar, lengths, unit, slack = 0) {
         edits.push({
           start: h.start,
           end: h.end,
-          text: restText(restValues(notes[k].at - left + shift, left, bar.meter))
+          text: restText(restValues(notes[k].at - left + shift, left, bar.meter), h.start)
         });
       else {
         let end = h.end;
@@ -1254,7 +1259,10 @@ function fitBar(source, bar, lengths, unit, slack = 0) {
     edits.push({
       start: h.start,
       end: h.end,
-      text: editNoteText(source.slice(h.start, h.end), {length: lengths[i] / unit, tie: untie ? false : undefined})
+      text: editNoteText(source.slice(h.start, h.end), {
+        length: lengths[i] / unitAt(h.start),
+        tie: untie ? false : undefined
+      })
     });
   }
   return {edits: edits.sort((a, b) => a.start - b.start), added, taken, rests};

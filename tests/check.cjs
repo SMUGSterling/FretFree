@@ -3786,6 +3786,13 @@ async function musicXMLImportFiles() {
     'A chord, and the line continuation stays'
   );
   assert.equal(fit('C2 z2\\\n| z4 |]', 1, 0, 1), 'C4 \\\n| z4 |]');
+  // Rests merge only across spaces: what else lies between them stays, and so do the rests after it.
+  assert.equal(fit('C2 z [K:G] z | F4 |]', 1, 0, 1 / 4), 'C z z [K:G] z | F4 |]', 'An inline field stays');
+  assert.equal(fit('C2 z\nw: la\nz | z4 |]', 1, 0, 1 / 4), 'C z z\nw: la\nz | z4 |]', 'A line of words stays');
+  assert.equal(fit('C2 z % hi\nz | z4 |]', 1, 0, 1 / 4), 'C z z % hi\nz | z4 |]', 'A comment stays');
+  // Lengths are written in the unit length where they go.
+  assert.equal(fit('C2 [L:1/8] z4 | z8 |]', 1, 0, 3 / 4), 'C3 [L:1/8] z2 | z8 |]', 'A rest after [L:1/8]');
+  assert.equal(fit('C [L:1/8] D4 z2 | z8 |]', 1, 1, 1 / 4), 'C [L:1/8] D2 z4 | z8 |]', 'A note after [L:1/8]');
   assert.equal(fit('z | C2 z2 |]', 2, 0, 1 / 4), 'z | C z z2 |]', 'After a pickup');
   assert.equal(fit('C | D2 z2 |]', 1, 0, 1 / 2), 'room 0', 'A pickup stays a pickup');
   assert.equal(fit('C D E F G | z4 |]', 1, 0, 1 / 8), 'C/2 D E F G | z4 |]', 'An overfull bar first loses its extra');
