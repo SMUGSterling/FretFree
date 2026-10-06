@@ -258,8 +258,10 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
   }
 }
 // Slurs, hairpins and trill lines over a run of notes: toggleSlur and toggleSpan write ( … ) and the !<(! … !<)!,
-// !>(! … !>)! and !trill(! … !trill)! decorations, take them off again, replace lines of the same family they cover,
-// and keep each note's text whole for abcjs (decorations before slur and tuplet openings, ( before a staccato dot).
+// !>(! … !>)! and !trill(! … !trill)! decorations, take them off again, replace the lines of the same family they
+// cover or cross (keeping a slur around them and lines that only meet them at an end note), and keep each note's text
+// whole for abcjs (decorations before slur and tuplet openings, ( before a staccato dot). Slurs pair as abcjs pairs
+// them, and a line goes on in its voice's next block.
 {
   const head = 'X:1\nL:1/4\nM:4/4\nK:C\n',
     tuneOf = body => ABCJS.parseOnly(head + body + '\n')[0],
@@ -276,7 +278,8 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
   for (const [body, i, j, kind, expected] of [
     ['C D E F|', 0, 3, 'slur', '(C D E F)|'],
     ['(C D E F)|', 0, 3, 'slur', 'C D E F|'],
-    ['(C D) E (F|G)', 0, 3, 'slur', '(C D E F)|G'],
+    ['(C D) (E F)|G', 0, 3, 'slur', '(C D E F)|G'],
+    ['(C D) E (F|G)', 0, 3, 'slur', '(C D E (F)|G)'],
     ['(C D E F|G)|', 0, 2, 'slur', '(C D E) F|G|'],
     ['"G"!p!.C D E F2-|', 0, 3, 'slur', '"G"!p!(.C D E F2-)|'],
     ['"G"(.C D E) F|', 0, null, 'slur', '"G".C D E F|'],
@@ -298,11 +301,86 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     ['z D E Z|', 0, 3, 'crescendo', '!<(!z D E !<)!Z|'],
     ['x D E F|', 0, 3, 'crescendo', 'x D E F|'],
     ['C D E F|', 0, 3, 'trill', '!trill(!C D E !trill)!F|'],
-    ['!trill(!C D E !trill)!F|', 0, null, 'trill', 'C D E F|']
+    ['!trill(!C D E !trill)!F|', 0, null, 'trill', 'C D E F|'],
+    // Chained slurs: abcjs reads a note's ) before its (, so (C D (E) F) is C to E and E to F.
+    ['(C D E) F|', 2, 3, 'slur', '(C D (E) F)|'],
+    ['(C D (E) F)|', 0, 2, 'slur', 'C D (E F)|'],
+    ['(C D (E) F)|', 2, 3, 'slur', '(C D E) F|'],
+    ['(C D (E) F)|', 2, null, 'slur', '(C D E) F|'],
+    ['(C (D) E) F|', 1, null, 'slur', '(C D) E F|'],
+    ['(C D>)E F|', 1, 3, 'slur', '(C (D>)E F)|'],
+    // Lines that start before the run and end inside it come off; a slur around it stays, a hairpin around it goes.
+    ['(B, C D) E F|', 1, 3, 'slur', 'B, (C D E) F|'],
+    ['!<(!B, C D !<)!E F|', 1, 4, 'crescendo', 'B, !<(!C D E !<)!F|'],
+    ['!<(!B, C D !<)!E F|', 1, 4, 'diminuendo', 'B, !>(!C D E !>)!F|'],
+    ['!trill(!B, C D !trill)!E F|', 1, 4, 'trill', 'B, !trill(!C D E !trill)!F|'],
+    ['(B, C D E F)|', 1, 3, 'slur', '(B, (C D E) F)|'],
+    ['!<(!B, C D E !<)!F|', 1, 3, 'crescendo', 'B, !<(!C D !<)!E F|'],
+    ['(B, C D E F|', 1, 3, 'slur', '(B, (C D E) F|'],
+    ['C D) E F|', 0, 3, 'slur', '(C D E F)|'],
+    // abcjs pairs slurs on chords and rests apart from slurs on single notes, so this slur would take the outer one's
+    // end; the outer one comes off instead.
+    ['(C [CE] D E)|', 1, 2, 'slur', 'C ([CE] D) E|'],
+    ['([CE] C D [EG])|', 1, 2, 'slur', '([CE] (C D) [EG])|'],
+    // Hairpins meeting at a note: the one ending there ends before the next starts.
+    ['C D !<(!E !<)!F|', 0, 2, 'crescendo', '!<(!C D !<)!!<(!E !<)!F|'],
+    ['!<(!C !<)!D E F|', 1, 3, 'crescendo', '!<(!C !<)!!<(!D E !<)!F|'],
+    // Marks just before a ( that abcjs starts the note after are the note's.
+    ['!<(!(.C D) E !<)!F|', 0, 3, 'crescendo', '(.C D) E F|'],
+    ['((3{d}C D E)|', 0, 2, 'slur', '(3{d}C D E|']
   ]) {
     const result = toggle(body, i, j, kind);
     assert.equal(result, expected, `${kind} from note ${i} to ${j} on ${body}`);
     assert.ok(!tuneOf(result).warnings?.length, `${result} parses cleanly: ${tuneOf(result).warnings}`);
+  }
+  // FretFree finds the slurs abcjs draws, and no others.
+  for (const body of [
+    '(C D (E) F)|',
+    '(C (D) E) F|',
+    '((C D) E)|',
+    '(C D (E F))|',
+    '((E)) F)|',
+    '(C ([CE] D) E)|',
+    '([CE] (D [EG]) F)|',
+    '(z C) (D z)|',
+    '(  .D E) F|'
+  ]) {
+    const abc = head + body + '\n',
+      notes = notesOf(tuneOf(body)),
+      open = new Map(),
+      drawn = [];
+    notes.forEach((n, k) => {
+      for (const label of [n, ...(n.pitches || [])].flatMap(x => x.endSlur || []))
+        if (open.has(label)) (drawn.push([open.get(label), k]), open.delete(label));
+      for (const {label} of [n, ...(n.pitches || [])].flatMap(x => x.startSlur || [])) open.set(label, k);
+    });
+    for (const [i, j] of drawn) assert.ok(context.lineAt(abc, notes[i], notes[j], 'slur'), `${body}: ${i} to ${j}`);
+    assert.equal(
+      context.linePairs(abc).pairs.filter(p => p.kind === 'slur' && p.open && p.close).length,
+      drawn.length,
+      body
+    );
+  }
+  // A voice written in blocks (V:1, V:2, V:1 ...): a line goes on to the voice's next block, and comes off again.
+  for (const voice of ['V:1\n', '[V:1] ']) {
+    const other = voice.replace('1', '2'),
+      abc = `${head}${voice}C D E F|\n${other}C, D, E, F,|\n${voice}G A B c|\n${other}G, A, B, C|\n`,
+      first = abc => {
+        const notes = ABCJS.parseOnly(abc)[0].lines.flatMap(l =>
+          l.staff[0].voices[0].filter(e => e.el_type === 'note')
+        );
+        return [notes[3], notes[4], notes[2]];
+      },
+      [f, g] = first(abc),
+      slurred = context.toggleSlur(abc, f, g);
+    assert.equal(slurred, abc.replace('F|', '(F|').replace('G A', 'G) A'));
+    assert.equal(context.toggleSlur(slurred, ...first(slurred).slice(0, 2)), abc, 'Taken off again');
+    assert.equal(context.toggleSlur(slurred, first(slurred)[0], null), abc, 'Taken off from its first note');
+    const [, g2, e2] = first(abc),
+      louder = context.toggleSpan(abc, e2, g2, 'crescendo');
+    assert.equal(louder, abc.replace('E F|', '!<(!E F|').replace('G A', '!<)!G A'));
+    assert.ok(context.lineAt(louder, first(louder)[2], first(louder)[1], 'crescendo'));
+    assert.equal(context.toggleSpan(louder, first(louder)[2], first(louder)[1], 'crescendo'), abc);
   }
   // Each note keeps all its text, so a slur and its marks stay part of the note abcjs reads, and lines reach the
   // right notes.
@@ -1838,7 +1916,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), slurs, hairpins and trill lines (toggling, replacing, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits) and MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits) and MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files).'
     )
   )
   .catch(e => {

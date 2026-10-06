@@ -1333,6 +1333,79 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   pick(2);
   key('S');
   assert.equal(body(), 'V:1\nC D|\nV:2\n(E F)|]');
+  // A voice written in blocks (V:1, V:2, V:1 ...): the slur goes on to the voice's next block, and S takes it off.
+  open('V:1\nC D|\nV:2\nE F|\nV:1\nG A|\nV:2\nB c|]');
+  pick(1);
+  key('S');
+  assert.equal(body(), 'V:1\nC (D|\nV:2\nE F|\nV:1\nG) A|\nV:2\nB c|]');
+  assert.equal(pressed(), 'line:slur', 'The slur is found across the other voice');
+  key('S');
+  assert.equal(body(), 'V:1\nC D|\nV:2\nE F|\nV:1\nG A|\nV:2\nB c|]', 'S takes off both ends');
+  // Chained slurs: one ends on the note where the next starts, which abcjs reads as two slurs.
+  open('C D E F | G4 |]');
+  select(0, 2);
+  key('S');
+  select(2, 3);
+  key('S');
+  assert.equal(body(), '(C D (E) F) | G4 |]', 'A slur from the last note of another');
+  assert.equal(status(), 'Slur added over 2 notes.');
+  assert.equal(run("$('notation').querySelectorAll('.abcjs-slur').length"), 2);
+  assert.equal(pressed(), 'line:slur', 'The new slur is found');
+  select(0, 2);
+  assert.equal(pressed(), 'line:slur', 'So is the first');
+  key('S');
+  assert.equal(body(), 'C D (E F) | G4 |]', 'S takes off the first and keeps the second');
+  assert.equal(status(), 'Slur removed.');
+  run('stepHistory(-1)');
+  select(2, 3);
+  key('S');
+  assert.equal(body(), '(C D E) F | G4 |]', 'S takes off the second and keeps the first');
+  // One note at a time: S on the note a slur ends on starts the next slur there, and S again takes off only that one.
+  open('C D E F | G4 |]');
+  pick(0);
+  key('S');
+  pick(1);
+  assert.equal(pressed(), '', 'No slur starts on D');
+  key('S');
+  assert.equal(body(), '(C (D) E) F | G4 |]');
+  assert.equal(pressed(), 'line:slur');
+  key('S');
+  assert.equal(body(), '(C D) E F | G4 |]', 'The slur from C to D stays');
+  // A line that starts before the selection and ends inside it comes off, so lines of a kind never cross; one around
+  // the selection stays for a slur (a phrase mark) and comes off for a hairpin.
+  open('(B, C D) E F | G4 |]');
+  select(1, 3);
+  key('S');
+  assert.equal(body(), 'B, (C D E) F | G4 |]');
+  assert.equal(pressed(), 'line:slur');
+  open('!<(!B, C D !<)!E F | G4 |]');
+  select(1, 4);
+  press('line:diminuendo');
+  assert.equal(body(), 'B, !>(!C D E !>)!F | G4 |]', 'A diminuendo replaces a crescendo it crosses');
+  assert.equal(pressed(), 'line:diminuendo');
+  open('(B, C D E F) | G4 |]');
+  select(1, 3);
+  key('S');
+  assert.equal(body(), '(B, (C D E) F) | G4 |]');
+  assert.equal(pressed(), 'line:slur');
+  assert.equal(run("$('warnings').textContent"), '');
+  // On a transposing instrument the score shows a trill line's start as tr; an accidental on that note, from a key,
+  // the toolbar or a range, changes only the pitch in the source.
+  for (const instrument of ['Clarinet in B♭', 'Alto sax in E♭']) {
+    run(
+      `dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\n!trill(!C D E !trill)!F | G4 |]')},instrument:${JSON.stringify(instrument)}})`
+    );
+    pick(0);
+    key('#');
+    assert.equal(body(), '!trill(!^C D E !trill)!F | G4 |]', `${instrument}: # keeps the trill line`);
+    press('acc:_');
+    assert.equal(body(), '!trill(!_C D E !trill)!F | G4 |]', `${instrument}: the toolbar's flat keeps it`);
+    select(0, 3);
+    key('#');
+    assert.equal(body(), '!trill(!^C ^D =E !trill)!^F | G4 |]', `${instrument}: so does # on a range`);
+    assert.equal(pressed(), 'line:trill');
+    assert.equal(run("$('warnings').textContent"), '');
+  }
 }
 // Master bus and note audition: every note and click reaches the speakers through one gain node that follows the
 // Volume slider live; entering, selecting or moving a note sounds it once at concert pitch when Hear notes is on.
@@ -2124,7 +2197,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices, replacing lines inside, one undo each, edits on slurred notes), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

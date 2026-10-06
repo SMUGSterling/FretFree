@@ -1160,7 +1160,14 @@ function accidentalEdit(entry, display, acc, batch = null) {
     steps = batch ? batch.steps(entry.element.startChar) : writtenSteps($('abc').value, entry.element.startChar, shift),
     mini = `X:1\nL:1/8\nK:${key}\n${editNoteText(text, {accidental: acc})}\n`,
     done = batch?.notes.get(steps + mini);
-  if (done !== undefined) return done ?? old;
+  // Only the new pitch goes into the source note: the rest of the written text can differ from the source for display
+  // (a trill line's start is drawn as a plain trill), and that must not be written back.
+  const pitch = note => {
+    const m = old.match(NOTE_PARTS),
+      core = note?.match(NOTE_PARTS)?.[2];
+    return m && core ? m[1] + core + m[3] + m[4] : (note ?? old);
+  };
+  if (done !== undefined) return pitch(done);
   // Back to concert pitch by the letters the written key moved, so a plain note means what the source's key says
   // (a plain C in written Ab major is A# in concert F# major, not the Bb that abcjs's own Gb major would give).
   let note = null;
@@ -1169,7 +1176,7 @@ function accidentalEdit(entry, display, acc, batch = null) {
     note = lines[lines.findIndex(l => l.startsWith('K:')) + 1] ?? null;
   } catch {}
   batch?.notes.set(steps + mini, note);
-  return note ?? old;
+  return pitch(note);
 }
 // A note joined to its neighbour by > or < (broken rhythm), as [first, second] source entries.
 function brokenPair(entry) {
@@ -1388,6 +1395,17 @@ function markRange(picked, action) {
 // hairpin may start or end on a rest), or from one selected note to the next. The same press on the same notes takes
 // it off. Each is one undo step that keeps the selection.
 const LINE_WORDS = {slur: 'Slur', crescendo: 'Crescendo', diminuendo: 'Diminuendo', trill: 'Trill line'};
+// Each voice's notes in order, worked out once per render: the toolbar asks about all four kinds of line on every
+// selection change.
+let voicesMemo = null;
+function notesByVoice() {
+  if (voicesMemo?.sources !== noteSources) {
+    const voices = new Map();
+    for (const n of scoreNotes()) voices.get(voiceOf(n))?.push(n) ?? voices.set(voiceOf(n), [n]);
+    voicesMemo = {sources: noteSources, voices};
+  }
+  return voicesMemo.voices;
+}
 // The notes a line of a kind would join for the selection ({first, last, count}; last is null to take off the line
 // that starts on a single selected note), or {why} when it cannot go on.
 function lineEnds(kind, picked = selectedNotes()) {
@@ -1404,7 +1422,7 @@ function lineEnds(kind, picked = selectedNotes()) {
   if (!fits(first))
     return {why: hairpin ? 'Invisible rests take no marks.' : `A ${word} starts on a note, not a rest.`};
   if (lineAt($('abc').value, first.element, null, kind)) return {first, last: null};
-  const voice = scoreNotes().filter(n => voiceOf(n) === voiceOf(first)),
+  const voice = notesByVoice().get(voiceOf(first)) || [],
     i = voice.indexOf(first),
     j = voice.findIndex((n, k) => k > i && fits(n));
   if (j < 0) return {why: `There is no next note to end the ${word} on.`};
@@ -2901,9 +2919,7 @@ function updateTrillLines() {
     }
   };
   // Each voice's trill lines, from the note that opens one to the note that closes it (or just its first note).
-  const voices = new Map();
-  for (const n of scoreNotes()) voices.get(voiceOf(n))?.push(n) ?? voices.set(voiceOf(n), [n]);
-  for (const notes of voices.values()) {
+  for (const notes of notesByVoice().values()) {
     let start = null;
     notes.forEach((n, i) => {
       const deco = n.element.decoration || [];
