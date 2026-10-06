@@ -66,6 +66,11 @@ function mixClick(ctx = audio, out = outputNode(ctx), {countIn = false} = {}) {
   return countIn ? chain.level : mixAudible().has('metronome') ? chain.gate : null;
 }
 const mixChanged = () => !!validMixer(current?.mixer);
+// Whether the mix leaves a track out: muted, or silent while another is on Solo.
+function mixSilences() {
+  const audible = mixAudible();
+  return mixTracks.some(t => !audible.has(t.key));
+}
 // The panel. Rows are rebuilt only when the tracks change, so a render while a slider is in use keeps its focus.
 const panText = pan =>
   Math.abs(pan) < 0.005 ? 'Center' : `${pan < 0 ? 'Left' : 'Right'} ${Math.round(Math.abs(pan) * 100)}%`;
@@ -143,20 +148,28 @@ function applyMix(glide = true) {
   const chains = audio && mixChains.get(audio);
   if (chains) for (const [key, chain] of chains) setChain(chain, key, audio, glide);
 }
-// A saved score keeps its mix straight away, without a new version in its History; other scores keep it on Save.
+// A saved score keeps its mix straight away, without a new version in its History; other scores keep it on Save. The
+// change gets a new saved time, so backups count the score as changed and a restore takes the newer mix.
 function storeMix() {
   const entry = savedId && saved.find(x => x.id === savedId);
   if (!entry) return;
   const {mixer, ...rest} = entry,
     mix = validMixer(current?.mixer),
-    next = saved.map(x => (x === entry ? {...rest, ...(mix ? {mixer: mix} : {})} : x));
+    updated = Math.max(Date.now(), (entry.updated || 0) + 1),
+    next = saved.map(x => (x === entry ? {...rest, ...(mix ? {mixer: mix} : {}), updated} : x));
   if (storeScores(next)) saved = next;
 }
-// One change to the mix: applied live, drawn, and stored on change (a slider stores when it is let go).
-function changeMix(key, patch, store = true) {
+// Puts a mix (undefined for none) on the open score: applied live, drawn, and stored and kept in the draft when store
+// is set (a slider stores when it is let go). A library score's catalog entry is shared by every later opening of it,
+// so the mix goes on a copy of it, as an assignment does; libraryEntry() still counts the copy as that entry.
+function setMix(mix, store = true) {
   if (!current) return;
-  const before = mixAudible(),
-    mix = validMixer({...(current.mixer || {}), [key]: {...mixSetting(current.mixer, key), ...patch}});
+  const before = mixAudible();
+  if (catalog.includes(current)) {
+    const entry = current;
+    current = {...entry};
+    libraryCopies.set(current, entry);
+  }
   if (mix) current.mixer = mix;
   else delete current.mixer;
   applyMix();
@@ -167,6 +180,11 @@ function changeMix(key, patch, store = true) {
     scheduleDraft();
   }
   resumeMix(before);
+}
+// One change to one track.
+function changeMix(key, patch, store = true) {
+  if (current)
+    setMix(validMixer({...(current.mixer || {}), [key]: {...mixSetting(current.mixer, key), ...patch}}), store);
 }
 // Playback carries on from where it is when a track that was left out of it can now be heard.
 function resumeMix(before) {
@@ -197,14 +215,7 @@ $('mixer-panel').addEventListener('keydown', e => {
   $('mixer-toggle').focus();
 });
 $('mixer-reset').onclick = () => {
-  if (!current) return;
-  const before = mixAudible();
-  delete current.mixer;
-  applyMix();
-  drawMixer();
-  updateWavSummary();
-  storeMix();
-  resumeMix(before);
+  setMix(undefined);
   $('mixer-tracks').querySelector('.mixer-mute')?.focus();
 };
 $('mixer-tracks').addEventListener('click', e => {

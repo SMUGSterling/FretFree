@@ -2726,7 +2726,8 @@ async function checkWavExport() {
 // Mixer: the panel lists the score's voices, Chords and the Metronome; Mute silences a track at once during playback
 // and leaves it out of the next pass and the WAV file; Solo plays only that track and the metronome; Volume and Pan
 // change the track's chain live without a restart; a track that can be heard again restarts playback where it was.
-// The mix saves with the score (straight away for a saved one), goes in share links and drafts, and Reset clears it.
+// The mix saves with the score (straight away for a saved one, with a new saved time), goes in share links and drafts,
+// and Reset clears it everywhere. A library score's mix goes on a copy, so its catalog entry never changes.
 async function checkMixer() {
   const tick = () => new Promise(r => w.setTimeout(r, 0)),
     names = () =>
@@ -2871,10 +2872,12 @@ async function checkMixer() {
     ['1/0.5', '1/1'],
     'with Voice 2 at its 50% level'
   );
-  assert.match(
-    run('(updateWavSummary(),$("wav-panel").hidden=false,showWavSummary(),$("wav-summary").textContent)'),
-    /mixer’s settings apply/
-  );
+  const summary = () =>
+    run('(updateWavSummary(),$("wav-panel").hidden=false,showWavSummary(),$("wav-summary").textContent)');
+  assert.match(summary(), /mixer’s settings apply: muted tracks are left out\./);
+  run(`${row('chords')}.querySelector('.mixer-mute').click()`);
+  assert.match(summary(), /mixer’s settings apply\. The file/, 'Levels and pan alone leave nothing out');
+  run(`${row('chords')}.querySelector('.mixer-mute').click()`);
   run("$('wav-panel').hidden=true");
   run(`${row('V:1')}.querySelector('.mixer-mute').click();${row('V:2')}.querySelector('.mixer-mute').click()`);
   await assert.rejects(run('renderWav({chords:true})'), /Every track is muted/);
@@ -2894,15 +2897,22 @@ async function checkMixer() {
   assert.equal(run(`${row('V:2')}.querySelector('.mixer-solo').getAttribute('aria-pressed')`), 'true');
   assert.equal(run(`${row('V:2')}.querySelector('.mixer-level input').value`), '0.5', 'Reopened with its mix');
   const updated = stored().updated,
-    versions = w.localStorage.getItem('fretfree-versions');
+    versions = w.localStorage.getItem('fretfree-versions'),
+    keepBackup = w.localStorage.getItem('fretfree-last-backup');
+  run(
+    "storage.set(LAST_BACKUP_KEY,{at:Date.now(),name:'b.json',scores:Object.fromEntries(saved.map(x=>[x.id,x.updated]))})"
+  );
   run(`${row('V:2')}.querySelector('.mixer-solo').click()`);
   assert.deepEqual(
     stored().mixer,
     {'V:1': {pan: -0.4}, 'V:2': {volume: 0.5}, chords: {mute: true}},
     'Stored without pressing Save'
   );
-  assert.equal(stored().updated, updated);
+  assert.ok(stored().updated > updated, 'with a new saved time');
   assert.equal(w.localStorage.getItem('fretfree-versions'), versions, 'and no new version');
+  assert.match(run("(renderBackupStatus(),$('backup-status').textContent)"), /1 score changed since/, 'Backups see it');
+  if (keepBackup === null) w.localStorage.removeItem('fretfree-last-backup');
+  else w.localStorage.setItem('fretfree-last-backup', keepBackup);
   assert.match(run("$('mixer-note').textContent"), /saved with this score/);
   // Share links carry the mix (m) and open with it; a link without one opens with none.
   const payload = JSON.parse(run('JSON.stringify(sharePayload())'));
@@ -2911,12 +2921,37 @@ async function checkMixer() {
   assert.deepEqual(JSON.parse(run(`JSON.stringify(sharedItem(${JSON.stringify(payload)}).mixer)`)), payload.m);
   assert.equal(run(`sharedItem(${JSON.stringify({...payload, m: {x: 'bad'}})}).mixer`), undefined);
   assert.deepEqual(JSON.parse(run('JSON.stringify(draftData().mixer)')), payload.m, 'Drafts keep the mix');
-  // Reset clears the mix; Escape closes the panel and hands focus back to its button.
-  run("$('mixer-reset').click()");
+  // Reset clears the mix, in the stored score and in the draft of unsaved changes, so restoring the draft does not
+  // bring the mix back.
+  run("$('abc').value+='\\n';$('abc').dispatchEvent(new Event('input'));writeDraft()");
+  const draft = () => run('JSON.stringify(storedDrafts().find(d=>d.tab===draftTab)?.mixer)');
+  assert.equal(draft(), JSON.stringify(payload.m));
+  run("$('mixer-reset').click();flushDraft()");
   assert.equal(run('current.mixer'), undefined);
   assert.equal(stored().mixer, undefined);
+  assert.equal(draft(), undefined, 'The draft has no mix after Reset');
   assert.equal(run("$('mixer-reset').disabled"), true);
-  run(`${row('V:1')}.querySelector('.mixer-mute').focus()`);
+  run('dirty=false;clearDraft()');
+  // A library score's mix goes on a copy of it: the catalog entry stays as it was, so opening the score again starts
+  // with no mix, and the copy still counts as that library edition (its irregular bars are not flagged).
+  run("openScore(catalog.find(x=>x.id==='oneill-1850-0005'))");
+  run(`${row('V:')}.querySelector('.mixer-mute').click()`);
+  assert.deepEqual(JSON.parse(run('JSON.stringify(current.mixer)')), {'V:': {mute: true}});
+  assert.deepEqual(
+    [run("catalog.find(x=>x.id==='oneill-1850-0005').mixer"), run('libraryEntry()?.id'), run('dirty')],
+    [undefined, 'oneill-1850-0005', false],
+    'The catalog entry is unchanged'
+  );
+  run('render()');
+  assert.deepEqual(
+    [run('barIssues.length'), run("/historic edition/.test($('bar-check').textContent)")],
+    [0, true],
+    'A mixed library score keeps its bar-check baseline'
+  );
+  run("openScore(catalog[1]);openScore(catalog.find(x=>x.id==='oneill-1850-0005'))");
+  assert.equal(run('current.mixer'), undefined, 'Opening it again starts with no mix');
+  assert.equal(run(`${row('V:')}.querySelector('.mixer-mute').getAttribute('aria-pressed')`), 'false');
+  run(`${row('V:')}.querySelector('.mixer-mute').focus()`);
   run("$('mixer-panel').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
   assert.equal(run("$('mixer-panel').hidden"), true);
   assert.equal(run('document.activeElement.id'), 'mixer-toggle');
@@ -3804,7 +3839,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, screen-reader note descriptions (selection, arrow keys, edits, typing over rests, pickups, compound and free meters, triplets, written and concert pitch), the shortcut sheet (? and the button, groups, focus trap, search, Enter running a command as one undo step, hints, Escape, tuplet and Measure panel commands), measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, the mixer (tracks for one and two voices with chords, Mute at once and left out of the next pass and the WAV file, Solo with the metronome, live Volume and Pan, restarts when a track comes back, count-in with a muted metronome, saving, reopening, share links, drafts, Reset and Escape), WAV export (the notes, times, speed, clicks and chords Play has, its own full-level bus, INFO title, scaling, no offline audio, a summary that follows Speed and the instrument, a busy or filling progress bar, a closed panel cutting the render off, too long with its length and MIDI as the way out), instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, screen-reader note descriptions (selection, arrow keys, edits, typing over rests, pickups, compound and free meters, triplets, written and concert pitch), the shortcut sheet (? and the button, groups, focus trap, search, Enter running a command as one undo step, hints, Escape, tuplet and Measure panel commands), measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, the mixer (tracks for one and two voices with chords, Mute at once and left out of the next pass and the WAV file, Solo with the metronome, live Volume and Pan, restarts when a track comes back, count-in with a muted metronome, saving with a new saved time that backups see, reopening, share links, drafts, Reset in the draft too, a library score mixed on a copy that leaves the catalog as it was, and Escape), WAV export (the notes, times, speed, clicks and chords Play has, its own full-level bus, INFO title, scaling, no offline audio, a summary that follows Speed and the instrument, a busy or filling progress bar, a closed panel cutting the render off, too long with its length and MIDI as the way out), instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

@@ -556,7 +556,7 @@ function playsChords(source) {
 function showWavSummary() {
   $('wav-summary').textContent = offlineAudio()
     ? `The whole score in the ${currentInstrument()} sound at ${$('speed').value}% speed, as Play sounds it. ` +
-      (mixChanged() ? 'The mixer’s settings apply: muted tracks are left out. ' : '') +
+      (mixChanged() ? `The mixer’s settings apply${mixSilences() ? ': muted tracks are left out' : ''}. ` : '') +
       'The file is made on this device; nothing is uploaded.'
     : 'This browser can’t make audio files. Export MIDI instead, or try Chrome, Edge, Firefox or Safari.';
 }

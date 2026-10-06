@@ -752,7 +752,7 @@ function newBarProblems(problems) {
 }
 function updateBarCheck(tune) {
   const problems = barProblems(tune),
-    fromLibrary = catalog.includes(current),
+    fromLibrary = !!libraryEntry(),
     voices = new Set(barLengths(tune).map(m => m.voice)).size;
   if (!dirty) barBaseline = fromLibrary ? problems.map(m => ({key: barKey(m), measure: m.measure})) : [];
   barIssues = newBarProblems(problems);

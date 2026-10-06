@@ -2908,6 +2908,8 @@ function settleTempo(tune) {
 // it out, so files keep the accompaniment.
 function midiBytes(source, {chordsOff = false} = {}) {
   const tune = ABCJS.parseOnly(source)[0];
+  // Each voice keeps its MIDI channel on every line, as the mixer expects.
+  if (tune) tune.lines = steadyLines(tune, source);
   for (const line of tune?.lines || [])
     for (const staff of line.staff || [])
       for (const e of (staff.voices || []).flat()) {
@@ -3007,12 +3009,67 @@ function melodyNotes(notes) {
   const first = Math.min(...notes.map(n => n.ch ?? 0));
   return notes.filter(n => (n.ch ?? 0) === first);
 }
+// A tune's lines with the same staffs and voices on each. abcjs numbers the voices of each line in the order that line
+// has its staffs, and plays each number on its own MIDI channel. A voice that runs out of lines before the others
+// leaves its staff (or its & overlay) off the later systems, so the voices below it move up a place there and their
+// notes play on its channel. Here every line has every staff, in the order of the first line and with all of its
+// voices, empty where one has ended, so each voice keeps its channel. Staffs are told apart by the V: id in force where
+// their music starts on the line. A tune whose staffs cannot be told apart, or that has a staff or voice that starts
+// after the first line or comes back after a gap, is left as it is: an empty voice there would put the voice's later
+// notes out of time. midiBytes and mixerTracks both use it, so their channels agree.
+function steadyLines(tune, source = '') {
+  const lines = tune?.lines || [];
+  if (lines.every(line => !line.staff || line.staff.length === 1)) return lines;
+  const starts = linePairs(String(source)).voices,
+    ids = lines.map(line =>
+      (line.staff || []).map(staff => {
+        const at = staff.voices?.[0]?.find(e => e.startChar >= 0)?.startChar;
+        return starts.findLast(x => x.at <= at)?.voice.replace(/&\d+$/, '') ?? null;
+      })
+    ),
+    order = [],
+    size = new Map(),
+    live = new Map(),
+    model = new Map();
+  for (const [i, line] of lines.entries()) {
+    if (!line.staff) continue;
+    const here = ids[i],
+      first = !order.length;
+    if (here.includes(null) || new Set(here).size < here.length) return lines;
+    for (const id of order) if (!here.includes(id)) live.set(id, 0);
+    for (const [s, id] of here.entries()) {
+      const count = line.staff[s].voices.length;
+      if (first) {
+        order.push(id);
+        size.set(id, count);
+      } else if (!size.has(id) || count > live.get(id)) return lines;
+      live.set(id, count);
+      model.set(id, line.staff[s]);
+    }
+  }
+  const empty = n => Array.from({length: n}, () => []);
+  return lines.map((line, i) => {
+    if (!line.staff) return line;
+    const same =
+      ids[i].length === order.length &&
+      order.every((id, s) => ids[i][s] === id && line.staff[s].voices.length === size.get(id));
+    if (same) return line;
+    const staff = order.map(id => {
+      const s = ids[i].indexOf(id),
+        st = s >= 0 ? line.staff[s] : {...model.get(id), voices: []};
+      return {...st, voices: [...st.voices, ...empty(size.get(id) - st.voices.length)]};
+    });
+    return {...line, staff};
+  });
+}
 // The mixer's tracks for the first tune of a source: its voices, then Chords when a chord symbol plays (as midiBytes
 // reads them), then the Metronome. abcjs gives each voice of a line a MIDI channel, counting staff by staff in the
 // order the score draws them, and puts the chords on the channel after the last voice. An & overlay plays on a channel
 // of its own but belongs to the voice it is written in. A voice is keyed by its V: id ('V:' for a tune without one),
 // so its settings stay with it when other voices are added. It is named by its V: name, or else Voice and its number
-// (V:2 is Voice 2), or its place and id (Voice 2 (LH)); the only voice is Melody. Each track is
+// (V:2 is Voice 2), or its place and id (Voice 2 (A)); the only voice is Melody. The voices of a %%score brace with
+// one name between them (a piano's {RH LH}) are one instrument, so they take its name and their ids, Piano (RH) and
+// Piano (LH), or their places in the brace when the ids are numbers (Piano 1, Piano 2). Each track is
 // {key, name, kind: 'voice' | 'chords' | 'metronome', channels}.
 function voiceNames(source) {
   const names = new Map();
@@ -3021,24 +3078,34 @@ function voiceNames(source) {
       name = (m[2] ?? m[4]).match(/\b(?:name|nm)=(?:"([^"]*)"|(\S+))/);
     if (name && !names.has(id)) names.set(id, (name[1] ?? name[2]).replace(/\\n/g, ' ').trim());
   }
+  for (const m of String(source).matchAll(/^%%(?:score|staves)\b[^\n]*/gm))
+    for (const brace of m[0].matchAll(/\{([^}]*)\}/g)) {
+      const ids = brace[1].match(/[^\s()[\]|*]+/g) || [],
+        named = ids.filter(id => names.has(id)),
+        name = names.get(named[0]);
+      if (ids.length > 1 && named.length === 1)
+        for (const [i, id] of ids.entries()) names.set(id, /^\d+$/.test(id) ? `${name} ${i + 1}` : `${name} (${id})`);
+    }
   return names;
 }
 function mixerTracks(tune, source = '') {
-  const counts = [];
-  for (const line of tune?.lines || [])
+  // The staffs as midiBytes has abcjs number them (see steadyLines).
+  const steady = tune && {lines: steadyLines(tune, source)},
+    counts = [];
+  for (const line of steady?.lines || [])
     for (const [s, staff] of (line.staff || []).entries())
       counts[s] = Math.max(counts[s] || 0, staff.voices?.length || 0);
   const channel = (s, v) => counts.slice(0, s).reduce((sum, n) => sum + (n || 0), 0) + v,
     total = counts.reduce((sum, n) => sum + (n || 0), 0),
     first = new Map();
-  for (const {element, key} of tune ? scoreEvents(tune) : []) {
+  for (const {element, key} of steady ? scoreEvents(steady) : []) {
     const id = key.split(':').slice(0, 2).join(':');
     if (!first.has(id)) first.set(id, element.startChar);
   }
   // The V: id in force where a voice's music starts (linePairs tracks V: lines and [V:] fields).
   const starts = linePairs(String(source)).voices,
     idAt = at => (starts.filter(x => x.at <= at).at(-1)?.voice || '').replace(/^\d*:/, '').replace(/&\d+$/, ''),
-    kept = tune ? scoreVoices(tune, source) : [],
+    kept = steady ? scoreVoices(steady, source) : [],
     names = voiceNames(source),
     voices = [];
   for (const id of kept) {
@@ -3048,10 +3115,12 @@ function mixerTracks(tune, source = '') {
     while (voices.some(t => t.key === key)) key += '+';
     voices.push({key, id: vid, staff: s, voice: v, channels: [channel(s, v)]});
   }
+  // An overlay goes with the voice it is written in, or else the voice before it on its staff.
   for (const id of first.keys()) {
     if (kept.includes(id)) continue;
     const [s, v] = id.split(':').map(Number),
-      host = voices.filter(t => t.staff === s && t.voice < v).at(-1);
+      before = voices.filter(t => t.staff === s && t.voice < v),
+      host = before.find(t => t.id === idAt(first.get(id))) || before.at(-1);
     host?.channels.push(channel(s, v));
   }
   const tracks = voices.map((t, i) => {
