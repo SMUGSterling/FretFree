@@ -26,6 +26,7 @@ function openScore(item, id = null) {
   savedId = id;
   dirty = false;
   selectedRange = null;
+  toggleTranspose(false);
   $('selection-status').textContent =
     'Click a note to select its ABC text; Shift+click another to practice from the first to the second. Drag up/down to change pitch; chords move together.';
   $('start-measure').value = 1;
@@ -65,6 +66,11 @@ function newScore(bars) {
     `Blank sheet of ${bars} bars. Click a bar and type A–G, or turn on Draw notes and click the staff; each bar fills from its rest. ＋ 4 bars adds more.`;
 }
 for (const name of Object.keys(instruments)) $('instrument').add(new Option(name, name));
+fillKeySelect($('key'));
+fillKeySelect($('transpose-key'));
+for (const i of TRANSPOSE_INTERVALS)
+  $('transpose-interval').add(new Option(i.name[0].toUpperCase() + i.name.slice(1), i.id));
+$('transpose-interval').value = 'M2';
 for (const note of 'CDEFGAB') {
   $('note-buttons').insertAdjacentHTML('beforeend', `<button data-token="${note}">${note}</button>`);
 }
@@ -147,7 +153,6 @@ for (const [id, header] of [
   ['title', 'T'],
   ['composer', 'C'],
   ['meter', 'M'],
-  ['key', 'K'],
   ['bpm', 'Q']
 ])
   $(id).addEventListener('input', () => {
@@ -155,7 +160,9 @@ for (const [id, header] of [
     setHeader(header, id === 'bpm' ? '1/4=' + $(id).value : $(id).value);
     $('bpm-value').textContent = $('bpm').value;
     changed();
-  }); // On a prompt score the assignment is in written pitch, so a new instrument transposes the concert source to keep
+  });
+$('key').addEventListener('input', () => chooseKey($('key').value));
+// On a prompt score the assignment is in written pitch, so a new instrument transposes the concert source to keep
 // every written note, and the written key, exactly where the student put them.
 $('instrument').onchange = () => {
   const before = instruments[instrumentShown]?.shift || 0,
@@ -163,7 +170,11 @@ $('instrument').onchange = () => {
     source = $('abc').value;
   if (activePrompt() && before !== after) {
     flushTyping();
-    $('abc').value = ABCJS.strTranspose(source, ABCJS.parseOnly(source), before - after);
+    try {
+      $('abc').value = transposeABC(source, before - after);
+    } catch {
+      $('abc').value = ABCJS.strTranspose(source, ABCJS.parseOnly(source), before - after);
+    }
     selectedRange = null;
   }
   instrumentShown = currentInstrument();
@@ -223,6 +234,7 @@ $('import-file').onchange = async () => {
     }
     openScore({...metadata, kind: 'personal', abc: source});
     dirty = true;
+    scheduleDraft();
     $('save-status').textContent = 'Imported locally. Save or export to keep a copy.';
   } catch (e) {
     toast(e.message);
@@ -309,9 +321,22 @@ window.addEventListener('beforeunload', e => {
     e.returnValue = '';
   }
 });
+// A hidden tab may be discarded without warning (Chromebooks do this), so a pending draft is written straight away.
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) stop();
+  if (document.hidden) {
+    stop();
+    flushDraft();
+  }
 });
+window.addEventListener('pagehide', flushDraft);
+// Another tab may have restored or discarded this tab's draft from its banner; while the work here is unsaved, it goes
+// back. A page coming back from the back/forward cache may have missed that, so it checks too.
+window.addEventListener('storage', e => {
+  if (e.key === KEYS.draft || e.key === null) keepDraft();
+});
+window.addEventListener('pageshow', keepDraft);
+$('draft-restore').onclick = restoreDraft;
+$('draft-discard').onclick = discardDraft;
 const initialView = location.hash.slice(1);
 for (const name of [...new Set(catalog.map(scoreCollection))].sort())
   $('collection-filter').add(new Option(name, name));
@@ -328,13 +353,19 @@ ABCJS.renderAbc('hero-notation', catalog[0].abc, {
   paddingbottom: 30
 });
 renderCards();
+// Unsaved work from an earlier visit is offered once the start-up score is open; a share link opens first.
+loadDrafts();
 newScore();
 if (initialView.startsWith('s=')) {
   show('studio');
   openSharedLink(initialView).then(ok => {
     if (!ok) show('library');
+    offerDraft();
   });
-} else show(['studio', 'saved', 'about'].includes(initialView) ? initialView : 'library');
+} else {
+  show(['studio', 'saved', 'about'].includes(initialView) ? initialView : 'library');
+  offerDraft();
+}
 $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
 $('fingering').onchange = () => {
   storage.set(KEYS.fingering, $('fingering').checked);

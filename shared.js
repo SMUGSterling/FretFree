@@ -11,6 +11,7 @@ const KEYS = {
   fingering: 'fretfree-fingering',
   noteNames: 'fretfree-note-names',
   noteColors: 'fretfree-note-colors',
+  draft: 'fretfree-draft',
   audition: 'fretfree-audition',
   practice: id => 'fretfree-practice-' + id
 };
@@ -31,6 +32,11 @@ const storage = {
       storageOK = false;
       return false;
     }
+  },
+  remove(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch {}
   }
 };
 // Stored values are checked for shape: a damaged entry must not stop the app from loading.
