@@ -90,6 +90,7 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
     $('save-status').textContent = 'Unsaved changes';
     clearTimeout(renderTimer);
     selectedRange = [start, nextEnd];
+    auditionEdit(start);
     render();
   }
   selectedRange = [start, nextEnd];
@@ -106,6 +107,9 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
   }
   $('selection-status').textContent =
     `Measure ${entry.measure} selected · type A–G to add notes after it, ↑↓ to change pitch · Shift+click another note to practice from here to there`;
+  // A pointer click sounds the note (Hear notes); a drag sounded it before the render. Calls from code pass no
+  // event, so the note menu stays quiet.
+  if (event && !drag?.step) auditionAt(start);
   refreshPalette();
 }
 // The notation palette (palette.js) shows the selection's state; it is optional, so editing works without it.
@@ -160,6 +164,7 @@ function render() {
     updateMeasures();
     updateBarCheck(original);
     updatePromptCheck(display);
+    if (typeof updateAssignmentBuilder === 'function') updateAssignmentBuilder();
     restoreSelection(display);
     $('warnings').textContent = (renderedTune?.warnings || []).map(x => String(x).replace(/<[^>]+>/g, '')).join(' · ');
     updateCaption();
@@ -168,6 +173,7 @@ function render() {
   } catch (e) {
     $('warnings').textContent = 'Could not render this score: ' + e.message;
   }
+  scheduleDraft();
   refreshPalette();
 }
 // abcjs options for the main score. Guitar adds a tab staff; recorder leaves room below for the fingering diagrams.
@@ -244,6 +250,8 @@ function changed() {
   $('save-status').textContent = 'Unsaved changes';
   clearTimeout(renderTimer);
   renderTimer = setTimeout(render, 220);
+  // Started here as well as after render(), so a tab hidden or closed before the render still writes the draft.
+  scheduleDraft();
 }
 function noteLength() {
   const match = field('L', '1/8').match(/^(\d+)\/(\d+)$/);
@@ -282,6 +290,10 @@ function insertToken(token) {
   area.focus();
   changed();
   clearTimeout(renderTimer);
+  // A letter after a ♯ ♭ ♮ button starts its note at the accidental.
+  let at = start;
+  while (at > 0 && /[\^_=]/.test(area.value[at - 1])) at--;
+  if (/^[A-G]$/.test(token)) auditionEdit(at);
   render();
 }
 function safeName() {
@@ -694,7 +706,8 @@ function showGhost(t) {
   $('selection-status').textContent =
     `Draw: click to add ${pitchName(t.written)} (${lengthName(beatLength()) || 'one-beat'} note) · right-click a note to change it`;
 }
-function applyNoteEdit(start, end, text, select = text ? [start, start + text.length] : null) {
+// Pass hear (a source position in the new text) to sound that note (Hear notes).
+function applyNoteEdit(start, end, text, select = text ? [start, start + text.length] : null, hear = null) {
   flushTyping();
   const area = $('abc');
   // An edit that leaves the text as it was (a dot on a multi-measure rest) keeps the score saved.
@@ -706,9 +719,37 @@ function applyNoteEdit(start, end, text, select = text ? [start, start + text.le
   clearTimeout(renderTimer);
   syncFields();
   selectedRange = select;
+  if (hear != null) auditionEdit(hear);
   render();
   if (selectedRange) area.setSelectionRange(...selectedRange);
   focusScore();
+}
+// Note audition: the concert pitches of the note or chord that starts at a source position, as playback sounds them
+// (octave clefs and transpose= included), keyed by startChar and cached per source text. scheduleNotes then adds the
+// instrument's octave (a cello sounds an octave below the source).
+let concertPitches = {source: null, at: new Map()};
+function concertPitchesAt(at) {
+  const source = $('abc').value;
+  if (concertPitches.source !== source)
+    concertPitches = {
+      source,
+      at: new Map(noteLabels(ABCJS.parseOnly(source)[0], 'letters').map(l => [l.at, l.midis]))
+    };
+  // abcjs can start an element at the whitespace before it (after a bar line, for one).
+  while (!concertPitches.at.has(at) && at > 0 && /\s/.test(source[at - 1])) at--;
+  return concertPitches.at.get(at) || [];
+}
+function auditionAt(at) {
+  if (playing || $('audition')?.checked === false) return;
+  try {
+    auditionPitches(concertPitchesAt(at));
+  } catch {}
+}
+// After an edit, sound the note before the render: engraving a long score can take a second or more, and the audio
+// clock plays a scheduled note on time while the page is busy. The render stops playback anyway, so stop it first.
+function auditionEdit(at) {
+  stop();
+  auditionAt(at);
 }
 function drawNote(t) {
   if (renderedSource !== $('abc').value) {
@@ -770,7 +811,7 @@ function drawNote(t) {
   }
   if (at > 0 && !/\s/.test(value[at - 1]) && !text.startsWith(' ') && !text.startsWith('\n')) text = ' ' + text;
   const start = at + text.indexOf(token);
-  applyNoteEdit(at, at, text, [start, start + token.length]);
+  applyNoteEdit(at, at, text, [start, start + token.length], start);
   $('selection-status').textContent = `Added ${pitchName(t.written)} · right-click it to change accidental or length`;
 }
 function setDrawMode(on) {
@@ -954,7 +995,7 @@ function editNote(entry, display, action) {
     return;
   }
   if (action.startsWith('acc:')) {
-    applyNoteEdit(start, end, accidentalEdit(entry, display, action.slice(4)));
+    applyNoteEdit(start, end, accidentalEdit(entry, display, action.slice(4)), undefined, start);
     return;
   }
   if (action === 'tie') {
@@ -1092,8 +1133,8 @@ function selectEntry(entry) {
   scoreClick(display, 0, [], {}, null);
   renderedTune?.engraver?.rangeHighlight?.(display.startChar, display.endChar);
 }
-// Insert a token at a source position with spacing, then select it.
-function insertAt(at, token, select = true) {
+// Insert a token at a source position with spacing, then select it (and sound it, with hear).
+function insertAt(at, token, select = true, hear = false) {
   const v = $('abc').value,
     before = at > 0 && !/\s/.test(v[at - 1]) ? ' ' : '',
     after = v[at] && !/\s/.test(v[at]) ? ' ' : '';
@@ -1101,7 +1142,8 @@ function insertAt(at, token, select = true) {
     at,
     at,
     before + token + after,
-    select ? [at + before.length, at + before.length + token.length] : null
+    select ? [at + before.length, at + before.length + token.length] : null,
+    hear ? at + before.length : null
   );
 }
 // Where a new note goes with nothing selected: before the closing bar line, or at the end of the music.
@@ -1127,7 +1169,7 @@ function insertNote(letter, sel) {
     // Letters name what the student sees, so pick the octave in written pitch, nearest the previous note.
     token = letterToken(letter, at);
   }
-  insertAt(at, token + lengthText(length / unitLengthAt(at)));
+  insertAt(at, token + lengthText(length / unitLengthAt(at)), true, letter !== 'z');
 }
 // Written-pitch note token for a letter, in the octave nearest the last note before a source position.
 function letterToken(letter, at) {
@@ -1162,7 +1204,7 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength()) {
     const remainder = 'z' + lengthText(left / unit),
       text = lead + token + ' ' + remainder + trail,
       at = start + lead.length + token.length + 1;
-    applyNoteEdit(start, end, text, [at, at + remainder.length]);
+    applyNoteEdit(start, end, text, [at, at + remainder.length], start + lead.length);
     return;
   }
   const text = lead + token + trail,
@@ -1174,7 +1216,8 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength()) {
     text,
     next
       ? [next.element.startChar + delta, next.element.endChar + delta]
-      : [start + lead.length, start + lead.length + token.length]
+      : [start + lead.length, start + lead.length + token.length],
+    start + lead.length
   );
 }
 // Keys 3–7 and the palette's length buttons: set the length of new notes, and of the selected note. A selected rest
@@ -1232,6 +1275,7 @@ function scoreKey(e) {
     const i = sel ? notes.indexOf(sel.entry) : key === 'ArrowLeft' ? notes.length : -1,
       next = notes[Math.max(0, Math.min(notes.length - 1, i + (key === 'ArrowLeft' ? -1 : 1)))];
     selectEntry(next);
+    auditionAt(next.element.startChar);
     return true;
   }
   if (key === 'Escape' && sel) {
@@ -1256,7 +1300,13 @@ function scoreKey(e) {
   if (!isNote) return false;
   if (key === 'ArrowUp' || key === 'ArrowDown') {
     const v = $('abc').value;
-    applyNoteEdit(start, end, moveNoteText(v.slice(start, end), (key === 'ArrowUp' ? 1 : -1) * (e.ctrlKey ? 7 : 1)));
+    applyNoteEdit(
+      start,
+      end,
+      moveNoteText(v.slice(start, end), (key === 'ArrowUp' ? 1 : -1) * (e.ctrlKey ? 7 : 1)),
+      undefined,
+      start
+    );
     return true;
   }
   const accidental = {'#': '^', '-': '_', '=': '='}[key];
@@ -1332,6 +1382,11 @@ function updateFingering(source) {
 function promptById(id) {
   return (typeof writingPrompts === 'undefined' ? [] : writingPrompts).find(p => p.id === id);
 }
+// The open score's prompt: a built-in prompt's id, or a teacher's assignment object. An object can come from a link,
+// a backup or storage, so it is checked every time it is used.
+function activePrompt(prompt = current?.prompt) {
+  return typeof prompt === 'string' ? promptById(prompt) : validPrompt(prompt) || undefined;
+}
 function renderPromptCards() {
   $('prompt-cards').innerHTML = writingPrompts
     .map(
@@ -1344,6 +1399,7 @@ function togglePrompts(open) {
   $('prompt-picker').hidden = !open;
   $('open-prompts').setAttribute('aria-expanded', open);
   if (open) {
+    if (typeof toggleAssignmentBuilder === 'function') toggleAssignmentBuilder(false);
     renderPromptCards();
     $('prompt-picker').scrollIntoView({block: 'nearest', behavior: 'smooth'});
   }
@@ -1375,18 +1431,19 @@ function startPrompt(prompt) {
 }
 function updatePromptCheck(shown) {
   const box = $('prompt-check'),
-    prompt = current?.prompt && promptById(current.prompt);
+    prompt = activePrompt();
   if (!box) return;
   if (!prompt) {
     box.hidden = true;
     box.innerHTML = '';
     return;
   }
+  // A teacher's assignment may have instructions and no goals; then there is no checklist.
   const goals = checkPrompt(prompt, melodyBars(shown)),
-    done = goals.every(g => g.ok);
+    done = goals.length > 0 && goals.every(g => g.ok);
   box.hidden = false;
   box.classList.toggle('done', done);
-  box.innerHTML = `<div class="prompt-check-head"><strong>Writing prompt · ${esc(prompt.title)}</strong><span class="small">${goals.filter(g => g.ok).length} of ${goals.length} goals</span></div><p>${esc(prompt.text)}</p><ul>${goals.map(g => `<li class="${g.ok ? 'met' : ''}"><span aria-hidden="true">${g.ok ? '✓' : '○'}</span> ${esc(g.label)}<span class="sr-only">${g.ok ? ' (done)' : ' (not yet)'}</span></li>`).join('')}</ul>${done ? '<p class="prompt-done">All goals met. Play it back, then save it or export it to hand in.</p>' : ''}`;
+  box.innerHTML = `<div class="prompt-check-head"><strong>${prompt.level === 'Custom' ? 'Assignment' : 'Writing prompt'} · ${esc(prompt.title)}</strong>${goals.length ? `<span class="small">${goals.filter(g => g.ok).length} of ${goals.length} goals</span>` : ''}</div>${prompt.text ? `<p class="prompt-text">${esc(prompt.text)}</p>` : ''}${goals.length ? `<ul>${goals.map(g => `<li class="${g.ok ? 'met' : ''}"><span aria-hidden="true">${g.ok ? '✓' : '○'}</span> ${esc(g.label)}<span class="sr-only">${g.ok ? ' (done)' : ' (not yet)'}</span></li>`).join('')}</ul>` : ''}${done ? '<p class="prompt-done">All goals met. Play it back, then save it or export it to hand in.</p>' : ''}`;
 }
 $('open-prompts').onclick = () => togglePrompts($('prompt-picker').hidden);
 $('close-prompts').onclick = () => togglePrompts(false);
@@ -1463,7 +1520,10 @@ async function shareLink() {
   const payload = {v: 1, a: $('abc').value, i: currentInstrument()};
   const source = shareSourceId();
   if (source) payload.s = source;
-  if (current?.prompt) payload.p = current.prompt;
+  // A built-in prompt travels by id (p); a teacher's assignment travels whole (q). Older apps ignore q.
+  const prompt = activePrompt();
+  if (prompt?.level === 'Custom') payload.q = prompt;
+  else if (prompt) payload.p = prompt.id;
   const url = `${location.origin}${location.pathname}#s=${await encodeShare(payload)}`;
   const panel = $('share-panel');
   panel.hidden = false;
@@ -1494,6 +1554,8 @@ async function openSharedLink(hash) {
   }
   const source = catalog.find(x => x.id === payload.s);
   const title = payload.a.match(/^T:(.*)$/m)?.[1]?.trim() || 'Shared score';
+  // A teacher's assignment opens only if it passes validPrompt; otherwise the score still opens, without it.
+  const assignment = 'q' in payload ? validPrompt(payload.q) : null;
   openScore({
     ...(source || {}),
     title,
@@ -1501,13 +1563,27 @@ async function openSharedLink(hash) {
     kind: 'shared',
     abc: payload.a,
     instrument: instruments[payload.i] ? payload.i : undefined,
-    prompt: payload.p
+    prompt: assignment || (typeof payload.p === 'string' && promptById(payload.p) ? payload.p : undefined)
   });
   // The link was the only copy and show() has replaced it in the address bar, so treat the score as unsaved work.
   dirty = true;
   cleanKey = '';
   $('save-status').textContent = 'Shared copy, not yet saved on this device. Save it to My scores to keep it.';
-  toast('Opened a shared score. Save it to My scores to keep a copy.');
+  // An assignment starts like a writing prompt: the first note or rest is selected, ready for typing.
+  const first = assignment && scoreNotes()[0];
+  if (first) {
+    selectEntry(first);
+    $('selection-status').textContent =
+      'The first note is selected. Type note letters (A–G) to write from there; 3–7 change the length.';
+  }
+  toast(
+    assignment
+      ? 'Opened an assignment. Its goals tick off as you write; save it to My scores to keep your work.'
+      : 'q' in payload
+        ? 'This link’s assignment could not be read, so only the score opened.'
+        : 'Opened a shared score. Save it to My scores to keep a copy.'
+  );
+  scheduleDraft();
   return true;
 }
 $('share-link').onclick = () => shareLink().catch(e => toast('Could not make a link: ' + e.message));
@@ -1521,3 +1597,161 @@ $('share-copy').onclick = async () => {
   }
 };
 $('share-close').onclick = () => ($('share-panel').hidden = true);
+
+// Unsaved-work recovery. While the score has unsaved changes, a copy goes to the local draft list two seconds later
+// (at once when the tab is hidden), so a discarded tab or a closed window does not lose the work. Each tab keeps one
+// entry, marked with its own tab id, so a second open tab never overwrites or clears the first tab's work. Saving,
+// undoing back to the opened text, or replacing the score removes this tab's entry; render() runs after each of these,
+// so it is the hook. Drafts found at start-up are offered newest first and stay stored until restored or discarded.
+const DRAFT_DELAY = 2000,
+  DRAFT_MAX_LENGTH = 500 * 1024,
+  DRAFT_LIMIT = 3,
+  draftTab = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+let draftTimer = null,
+  draftOwned = false,
+  pendingDrafts = [],
+  draftCount = 0;
+function draftData() {
+  return {
+    abc: $('abc').value,
+    instrument: currentInstrument(),
+    title: field('T', current?.title || 'Untitled'),
+    prompt: current?.prompt,
+    sourceId: shareSourceId(),
+    savedId,
+    kind: current?.kind,
+    tab: draftTab,
+    at: Date.now()
+  };
+}
+const sameDraft = (a, b) => a.tab === b.tab && a.at === b.at;
+// The stored drafts, newest first, without damaged entries.
+function storedDrafts() {
+  const list = storage.get(KEYS.draft, []);
+  return (Array.isArray(list) ? list : [])
+    .filter(d => d && typeof d === 'object' && typeof d.abc === 'string' && d.abc.trim())
+    .sort((a, b) => (+b.at || 0) - (+a.at || 0));
+}
+function storeDrafts(list) {
+  if (list.length) return storage.set(KEYS.draft, list);
+  storage.remove(KEYS.draft);
+  return true;
+}
+function removeDrafts(match) {
+  const list = storedDrafts(),
+    rest = list.filter(d => !match(d));
+  if (rest.length < list.length) storeDrafts(rest);
+}
+// This tab's draft goes first. The oldest other drafts make room when the list is over its count or size limit;
+// with `keep`, nothing is written instead, so two open tabs never take turns pushing each other out.
+function writeDraft(keep = false) {
+  clearTimeout(draftTimer);
+  draftTimer = null;
+  if (!dirty) return;
+  const data = draftData();
+  // Very long scores are skipped rather than crowding saved scores out of storage; a full quota is ignored.
+  if (JSON.stringify(data).length > DRAFT_MAX_LENGTH) return;
+  const list = [data, ...storedDrafts().filter(d => d.tab !== draftTab)];
+  while (list.length > 1 && (list.length > DRAFT_LIMIT || JSON.stringify(list).length > DRAFT_MAX_LENGTH)) {
+    if (keep) return;
+    list.pop();
+  }
+  if (storeDrafts(list)) draftOwned = true;
+}
+function scheduleDraft() {
+  if (!dirty) clearDraft();
+  else if (!draftTimer) draftTimer = setTimeout(() => writeDraft(), DRAFT_DELAY);
+}
+function flushDraft() {
+  if (draftTimer) writeDraft();
+}
+function clearDraft() {
+  clearTimeout(draftTimer);
+  draftTimer = null;
+  if (!draftOwned) return;
+  draftOwned = false;
+  removeDrafts(d => d.tab === draftTab);
+}
+// Another tab's banner can restore or discard this tab's draft while this tab is still open. If the work here is
+// still unsaved, it goes back in the list.
+function keepDraft() {
+  if (draftOwned && dirty && !storedDrafts().some(d => d.tab === draftTab)) writeDraft(true);
+}
+// The drafts to offer at start-up. One that matches the saved score it came from, text and instrument, is dropped;
+// a saved score from before instruments were saved never matches, so its draft is kept.
+function loadDrafts() {
+  const list = storedDrafts();
+  pendingDrafts = list.filter(draft => {
+    const entry = draft.savedId && saved.find(x => x.id === draft.savedId);
+    return !entry || entry.abc !== draft.abc || entry.instrument !== draft.instrument;
+  });
+  if (pendingDrafts.length < list.length) storeDrafts(pendingDrafts);
+  draftCount = pendingDrafts.length;
+  return pendingDrafts;
+}
+function draftTime(at) {
+  const when = new Date(at);
+  if (!Number.isFinite(when.getTime())) return 'earlier';
+  return when.toDateString() === new Date().toDateString()
+    ? when.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})
+    : when.toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
+}
+// Shown at start-up, and again after Discard while more drafts wait. Focus moves to Restore so the choice is announced
+// and one key away; the start-up score would otherwise hold focus, with every note a tab stop before the banner. The
+// reload's scroll restoration is turned off so the banner at the top stays in view.
+function offerDraft() {
+  const banner = $('draft-banner'),
+    draft = pendingDrafts[0];
+  banner.hidden = !draft;
+  if (!draft) return;
+  const place = draftCount > 1 ? ` (${draftCount - pendingDrafts.length + 1} of ${draftCount})` : '';
+  $('draft-text').textContent =
+    `Unsaved work from ${draftTime(draft.at)}: ${String(draft.title || 'Untitled')}${place}.`;
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  $('draft-restore').focus({preventScroll: true});
+}
+// Restoring rebuilds the score as a shared link does: the library edition's credits, the saved entry it belongs to,
+// and the draft's own text, instrument and prompt, marked unsaved. Other waiting drafts stay stored for the next visit.
+function restoreDraft() {
+  const draft = pendingDrafts[0];
+  if (!draft || !allowReplace()) return;
+  pendingDrafts = [];
+  $('draft-banner').hidden = true;
+  dirty = false;
+  const source = catalog.find(x => x.id === draft.sourceId),
+    entry = draft.savedId ? saved.find(x => x.id === draft.savedId) : null,
+    title = String(draft.title || 'Untitled');
+  openScore(
+    {
+      ...(source || {}),
+      ...(entry || {}),
+      title,
+      composer: entry?.composer ?? source?.composer ?? (draft.abc.match(/^C:(.*)$/m)?.[1]?.trim() || ''),
+      kind: draft.kind || source?.kind || 'personal',
+      abc: draft.abc,
+      instrument: instruments[draft.instrument] ? draft.instrument : undefined,
+      prompt: draft.prompt
+    },
+    entry ? entry.id : null
+  );
+  dirty = true;
+  cleanKey = '';
+  updateRights();
+  $('save-status').textContent = `Restored unsaved work from ${draftTime(draft.at)}. Save it to keep it.`;
+  focusScore();
+  // The work is now this tab's own draft; the entry it came from goes once that copy is stored.
+  writeDraft();
+  if (draftOwned) removeDrafts(d => sameDraft(d, draft));
+}
+// Discarding removes only the offered draft; the next one, if any, takes its place in the banner.
+function discardDraft() {
+  const draft = pendingDrafts.shift();
+  if (!draft) return;
+  removeDrafts(d => sameDraft(d, draft));
+  toast('Unsaved work discarded.');
+  if (pendingDrafts.length) offerDraft();
+  else {
+    $('draft-banner').hidden = true;
+    document.querySelector('.nav.active')?.focus();
+  }
+}

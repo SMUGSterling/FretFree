@@ -211,6 +211,8 @@ const {chromium} = require('playwright'),
   });
   await page.check('#trainer');
   await page.check('#metronome');
+  // Clicking notes above sounded them (Hear notes); count only what playback schedules.
+  await page.evaluate(() => (__starts.length = 0));
   await page.click('#play');
   await page.waitForTimeout(4600);
   const starts = await page.evaluate(() => __starts);
@@ -799,6 +801,89 @@ const {chromium} = require('playwright'),
   await broken.waitForFunction(() => !$('library').hidden);
   assert.match(await broken.evaluate(() => $('toast').textContent), /did not contain a readable score/);
   await broken.close();
+  // Teacher-written assignment: build it with the keyboard on a 4-bar sheet, share it, open the link as a student,
+  // write to meet every goal, and check that the instructions print above the score while the checklist does not.
+  await page.evaluate(() => {
+    dirty = false;
+    $('instrument').value = 'Flute';
+    newScore(4);
+  });
+  await page.click('#open-assignment');
+  assert.equal(
+    await page.evaluate(() => document.activeElement.id),
+    'assignment-title',
+    'The builder focuses its title'
+  );
+  await page.keyboard.press('Control+a');
+  await page.keyboard.type('Step <b>up</b>');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Move by step.\nEnd on C.');
+  await page.focus('#goal-steps');
+  await page.keyboard.press('Space');
+  assert.deepEqual(
+    await page.evaluate(() => [...document.querySelectorAll('#assignment-goals [data-goal]:checked')].map(b => b.id)),
+    ['goal-bars', 'goal-end', 'goal-steps', 'goal-inKey']
+  );
+  // With the clipboard allowed, the link is copied and focus returns to ✎ Assignment instead of being lost.
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.focus('#assignment-form button[type="submit"]');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => $('share-url').value.includes('#s='));
+  const assignmentUrl = await page.inputValue('#share-url');
+  assert.equal(await page.locator('#assignment-builder').isHidden(), true);
+  await page.waitForFunction(() => $('toast').textContent.includes('Link copied'));
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'open-assignment', 'Focus is not lost');
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), assignmentUrl);
+  const student = await browser.newPage({viewport: {width: 1280, height: 900}});
+  student.on('pageerror', e => errors.push(e.message));
+  await student.goto(assignmentUrl);
+  await student.waitForFunction(() => current?.kind === 'shared' && !$('prompt-check').hidden);
+  assert.deepEqual(
+    await student.evaluate(() => [
+      document.querySelector('#prompt-check strong').textContent,
+      document.querySelector('#prompt-check .prompt-text').textContent,
+      document.querySelectorAll('#prompt-check li').length,
+      document.querySelectorAll('#prompt-check b').length
+    ]),
+    ['Assignment · Step <b>up</b>', 'Move by step.\nEnd on C.', 4, 0],
+    'The link opens with escaped instructions and a checklist of the chosen goals'
+  );
+  for (const k of ['c', 'd', 'e', 'f', 'g', 'f', 'e', 'd', 'c', 'd', 'e', 'f', 'e', 'd', 'c', 'c'])
+    await student.keyboard.press(k);
+  await student.waitForFunction(() => document.querySelectorAll('#prompt-check li.met').length === 4);
+  assert.match(await student.locator('#prompt-check').innerText(), /All goals met/);
+  await student.emulateMedia({media: 'print'});
+  assert.deepEqual(
+    await student.evaluate(() => {
+      const box = $('prompt-check'),
+        visible = el => !!el && getComputedStyle(el).display !== 'none';
+      return [
+        visible(box.querySelector('.prompt-text')),
+        visible(box.querySelector('ul')),
+        visible(box.querySelector('.prompt-done')),
+        box.getBoundingClientRect().bottom <= $('notation').getBoundingClientRect().top
+      ];
+    }),
+    [true, false, false, true],
+    'Instructions print above the score; the checklist does not'
+  );
+  await student.emulateMedia({media: 'screen'});
+  await student.setViewportSize({width: 390, height: 844});
+  await student.click('#open-assignment');
+  assert.ok(
+    await student.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    'The assignment builder fits a phone'
+  );
+  await student.keyboard.press('Escape');
+  assert.deepEqual(
+    await student.evaluate(() => [$('assignment-builder').hidden, document.activeElement.id]),
+    [true, 'open-assignment'],
+    'Escape closes the builder and returns focus'
+  );
+  await student.close();
+  await page.evaluate(() => {
+    dirty = false;
+  });
   await page.evaluate(() => {
     dirty = false;
   });
@@ -906,6 +991,248 @@ const {chromium} = require('playwright'),
     'ode',
     'mutopia-263'
   ]);
+  // Master bus and note audition in a real AudioContext: every note and click reaches the speakers through one gain
+  // node and a limiter; Volume changes loudness without stopping; clicks, letters, arrows and drawing sound the note
+  // once; nothing sounds during playback or with Hear notes off.
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const pairs = [],
+        connect = AudioNode.prototype.connect;
+      AudioNode.prototype.connect = function (to, ...rest) {
+        pairs.push([this, to]);
+        return connect.call(this, to, ...rest);
+      };
+      const ctx = new AudioContext(),
+        bus = outputNode(ctx),
+        limiter = pairs.find(([from]) => from === bus)?.[1];
+      AudioNode.prototype.connect = connect;
+      ctx.close();
+      return [
+        bus instanceof GainNode,
+        limiter instanceof DynamicsCompressorNode,
+        pairs.some(([from, to]) => from === limiter && to === ctx.destination),
+        outputNode(ctx) === bus
+      ];
+    }),
+    [true, true, true, true],
+    'Master gain feeds a limiter, then the speakers, once per context'
+  );
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:Hear\nM:4/4\nL:1/4\nQ:1/4=60\nK:C\nC D E F | z4 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+    $('metronome').checked = true;
+    $('volume').value = '0.3';
+    window.__routes = [];
+    window.__heard = [];
+    const connect = AudioNode.prototype.connect,
+      make = AudioContext.prototype.createOscillator;
+    AudioNode.prototype.connect = function (to, ...rest) {
+      __routes.push([this, to]);
+      return connect.call(this, to, ...rest);
+    };
+    AudioContext.prototype.createOscillator = function () {
+      const o = make.call(this),
+        start = o.start.bind(o);
+      o.start = t => {
+        __heard.push({hz: Math.round(o.frequency.value * 100) / 100, type: o.type});
+        start(t);
+      };
+      return o;
+    };
+  });
+  await page.click('#play');
+  await page.waitForTimeout(300);
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const bus = outputNode(),
+        notes = __routes.filter(([from]) => from instanceof GainNode && from !== bus);
+      return [notes.length > 4, notes.every(([, to]) => to === bus), __heard.some(h => h.type === 'square')];
+    }),
+    [true, true, true],
+    'Every note and click connects to the master gain'
+  );
+  await page.locator('#volume').fill('0.8');
+  await page.waitForTimeout(250);
+  assert.deepEqual(
+    await page.evaluate(() => [playing, Math.round(outputNode().gain.value * 100) / 100]),
+    [true, 0.8],
+    'Volume changes loudness live without stopping playback'
+  );
+  await page.evaluate(() => (__heard.length = 0));
+  await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+  await page.waitForTimeout(100);
+  assert.deepEqual(
+    await page.evaluate(() => [playing, __heard.length]),
+    [true, 0],
+    'Selecting a note during playback stays quiet'
+  );
+  await page.click('#stop');
+  await page.evaluate(() => {
+    $('metronome').checked = false;
+    $('volume').value = '0.3';
+    updateVolume();
+    __heard.length = 0;
+  });
+  const heard = async () => {
+    await page.waitForTimeout(80);
+    return page.evaluate(() => __heard.splice(0).map(h => h.hz));
+  };
+  await page.locator('#notation .abcjs-notehead').nth(2).click({force: true});
+  assert.deepEqual(await heard(), [329.63], 'Clicking a note sounds it once');
+  await page.keyboard.press('g');
+  assert.deepEqual(await heard(), [392], 'Typing a letter sounds the new note');
+  await page.keyboard.press('ArrowDown');
+  assert.deepEqual(await heard(), [349.23], 'Down arrow sounds the lowered note');
+  await page.click('#draw-mode');
+  {
+    const [x, y] = await page.evaluate(() => {
+      const svg = $('notation').querySelector('svg'),
+        st = renderedTune.engraver.staffgroups[0].staffs[0],
+        rest = renderedTune.engraver.selectables.find(s => s.absEl.abcelem.rest).svgEl.getBBox();
+      const p = new DOMPoint(rest.x + rest.width / 2, st.absoluteY - (6 * 93) / 24).matrixTransform(svg.getScreenCTM());
+      return [p.x, p.y];
+    });
+    await page.mouse.click(x, y);
+  }
+  assert.match(await page.evaluate(() => $('abc').value), /\| B z3 \|\]/, 'Drawing writes over the rest');
+  assert.deepEqual(await heard(), [493.88], 'Drawing a note sounds it');
+  await page.click('#draw-mode');
+  // Note buttons: a ♯ ♭ ♮ button and then a letter sound the altered note once; letters follow the key signature.
+  const cursorAfter = (abc, after) =>
+    page.evaluate(
+      ([abc, after]) => {
+        dirty = false;
+        openScore({abc, instrument: 'Flute'});
+        const a = $('abc'),
+          at = a.value.lastIndexOf(after) + after.length;
+        a.focus();
+        a.setSelectionRange(at, at);
+        __heard.length = 0;
+      },
+      [abc, after]
+    );
+  await cursorAfter('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | z4 |]', 'F ');
+  await page.click('[data-token="^"]');
+  await page.click('[data-token="C"]');
+  assert.match(await page.evaluate(() => $('abc').value), /F \^C \| z4/);
+  assert.deepEqual(await heard(), [277.18], 'Sharp then C on the note buttons sounds C sharp once');
+  await cursorAfter('X:1\nM:4/4\nL:1/4\nK:D\nD E | z2 |]', 'E ');
+  await page.click('[data-token="F"]');
+  assert.deepEqual(await heard(), [369.99], 'A note button follows the key signature');
+  await page.uncheck('#audition');
+  await page.locator('#notation .abcjs-notehead').nth(0).click({force: true});
+  await page.keyboard.press('ArrowUp');
+  assert.deepEqual(await heard(), [], 'Hear notes off is silent');
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem('fretfree-audition')),
+    'false',
+    'Hear notes is remembered'
+  );
+  await page.check('#audition');
+  await page.evaluate(() => {
+    dirty = false;
+  });
+  // Unsaved-work recovery: an edit made with the keyboard survives a reload; Restore (keyboard) brings it back with
+  // its instrument and credits, Save clears it, and on a phone the banner fits and Discard removes the draft.
+  {
+    const tab = await browser.newPage({viewport: {width: 1280, height: 900}});
+    tab.on('pageerror', e => errors.push(e.message));
+    tab.on('dialog', dialog => dialog.accept());
+    await tab.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    await tab.locator('#cards [data-open="ode"]').click();
+    await tab.selectOption('#instrument', 'Violin');
+    await tab.locator('#notation .abcjs-notehead').first().click({force: true});
+    await tab.keyboard.press('ArrowUp');
+    const edited = await tab.evaluate(() => $('abc').value);
+    assert.notEqual(edited, await tab.evaluate(() => catalog.find(x => x.id === 'ode').abc), 'The key edits the score');
+    await tab.waitForFunction(() => storedDrafts().some(d => d.tab === draftTab && d.abc === $('abc').value), null, {
+      timeout: 15000
+    });
+    await tab.reload();
+    await tab.waitForSelector('#draft-banner:not([hidden])');
+    assert.match(await tab.locator('#draft-text').textContent(), /^Unsaved work from .+: Ode to Joy\.$/);
+    assert.equal(await tab.evaluate(() => document.activeElement.id), 'draft-restore', 'Restore has focus');
+    await tab.keyboard.press('Enter');
+    assert.deepEqual(
+      await tab.evaluate(() => [
+        $('abc').value,
+        $('instrument').value,
+        current.rights === catalog.find(x => x.id === 'ode').rights,
+        dirty,
+        $('studio').hidden,
+        $('draft-banner').hidden
+      ]),
+      [edited, 'Violin', true, true, false, true],
+      'Restore brings back the edit, instrument and credits, marked unsaved'
+    );
+    await tab.click('#save');
+    assert.equal(await tab.evaluate(() => localStorage.getItem('fretfree-draft')), null, 'Saving clears the draft');
+    await tab.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+    await tab.keyboard.press('ArrowDown');
+    // No waiting for the two-second timer: the page writes the draft as it is hidden and unloaded.
+    assert.equal(await tab.evaluate(() => localStorage.getItem('fretfree-draft')), null, 'The timer has not run yet');
+    await tab.setViewportSize({width: 390, height: 844});
+    await tab.reload();
+    await tab.waitForSelector('#draft-banner:not([hidden])');
+    assert.ok(
+      await tab.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+      'The banner fits a phone screen'
+    );
+    await tab.click('#draft-discard');
+    assert.deepEqual(
+      await tab.evaluate(() => [$('draft-banner').hidden, localStorage.getItem('fretfree-draft'), saved.length]),
+      [true, null, 1],
+      'Discard removes the draft and keeps the saved score'
+    );
+    await tab.close();
+  }
+  // Two tabs keep a draft each. The second tab offers the first tab's live draft; discarding it there does not lose
+  // it, and an edit in the second tab does not replace it, so when both tabs are gone the next visit offers both.
+  {
+    const context = await browser.newContext({viewport: {width: 1280, height: 900}});
+    const open = async () => {
+      const tab = await context.newPage();
+      tab.on('pageerror', e => errors.push(e.message));
+      tab.on('dialog', dialog => dialog.accept());
+      await tab.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+      return tab;
+    };
+    const edit = async tab => {
+      await tab.locator('#notation .abcjs-notehead').first().click({force: true});
+      await tab.keyboard.press('ArrowUp');
+      await tab.evaluate(() => flushDraft());
+      return tab.evaluate(() => $('abc').value);
+    };
+    const stored = tab => tab.evaluate(() => storedDrafts().map(d => d.abc));
+    const first = await open();
+    await first.locator('#cards [data-open="ode"]').click();
+    const firstAbc = await edit(first);
+    const second = await open();
+    assert.match(
+      await second.locator('#draft-text').textContent(),
+      /: Ode to Joy\.$/,
+      "The first tab's draft is offered"
+    );
+    await second.click('#draft-discard');
+    await second.waitForFunction(abc => storedDrafts().some(d => d.abc === abc), firstAbc, {timeout: 15000});
+    await second.evaluate(() => openScore(catalog.find(x => x.id === 'mozart')));
+    const secondAbc = await edit(second);
+    assert.deepEqual(await stored(second), [secondAbc, firstAbc], 'Both drafts are kept, newest first');
+    await first.close({runBeforeUnload: false});
+    await second.close({runBeforeUnload: false});
+    const third = await open();
+    assert.match(await third.locator('#draft-text').textContent(), /\(1 of 2\)\.$/);
+    await third.click('#draft-discard');
+    assert.match(await third.locator('#draft-text').textContent(), /: Ode to Joy \(2 of 2\)\.$/);
+    await third.click('#draft-restore');
+    assert.deepEqual(
+      [await third.evaluate(() => $('abc').value), await stored(third)],
+      [firstAbc, [firstAbc]],
+      "The first tab's work comes back"
+    );
+    await context.close();
+  }
   await page.setViewportSize({width: 390, height: 844});
   await page.evaluate(() => {
     dirty = false;
@@ -942,7 +1269,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.'
+    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), legacy storage, mobile width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);
