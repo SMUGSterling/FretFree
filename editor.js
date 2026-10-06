@@ -1266,6 +1266,11 @@ function updateFingering(source) {
 function promptById(id) {
   return (typeof writingPrompts === 'undefined' ? [] : writingPrompts).find(p => p.id === id);
 }
+// The open score's prompt: a built-in prompt's id, or a teacher's assignment object. An object can come from a link,
+// a backup or storage, so it is checked every time it is used.
+function activePrompt(prompt = current?.prompt) {
+  return typeof prompt === 'string' ? promptById(prompt) : validPrompt(prompt) || undefined;
+}
 function renderPromptCards() {
   $('prompt-cards').innerHTML = writingPrompts
     .map(
@@ -1278,6 +1283,7 @@ function togglePrompts(open) {
   $('prompt-picker').hidden = !open;
   $('open-prompts').setAttribute('aria-expanded', open);
   if (open) {
+    if (typeof toggleAssignmentBuilder === 'function') toggleAssignmentBuilder(false);
     renderPromptCards();
     $('prompt-picker').scrollIntoView({block: 'nearest', behavior: 'smooth'});
   }
@@ -1309,18 +1315,19 @@ function startPrompt(prompt) {
 }
 function updatePromptCheck(shown) {
   const box = $('prompt-check'),
-    prompt = current?.prompt && promptById(current.prompt);
+    prompt = activePrompt();
   if (!box) return;
   if (!prompt) {
     box.hidden = true;
     box.innerHTML = '';
     return;
   }
+  // A teacher's assignment may have instructions and no goals; then there is no checklist.
   const goals = checkPrompt(prompt, melodyBars(shown)),
-    done = goals.every(g => g.ok);
+    done = goals.length > 0 && goals.every(g => g.ok);
   box.hidden = false;
   box.classList.toggle('done', done);
-  box.innerHTML = `<div class="prompt-check-head"><strong>Writing prompt · ${esc(prompt.title)}</strong><span class="small">${goals.filter(g => g.ok).length} of ${goals.length} goals</span></div><p>${esc(prompt.text)}</p><ul>${goals.map(g => `<li class="${g.ok ? 'met' : ''}"><span aria-hidden="true">${g.ok ? '✓' : '○'}</span> ${esc(g.label)}<span class="sr-only">${g.ok ? ' (done)' : ' (not yet)'}</span></li>`).join('')}</ul>${done ? '<p class="prompt-done">All goals met. Play it back, then save it or export it to hand in.</p>' : ''}`;
+  box.innerHTML = `<div class="prompt-check-head"><strong>${prompt.level === 'Custom' ? 'Assignment' : 'Writing prompt'} · ${esc(prompt.title)}</strong>${goals.length ? `<span class="small">${goals.filter(g => g.ok).length} of ${goals.length} goals</span>` : ''}</div>${prompt.text ? `<p class="prompt-text">${esc(prompt.text)}</p>` : ''}${goals.length ? `<ul>${goals.map(g => `<li class="${g.ok ? 'met' : ''}"><span aria-hidden="true">${g.ok ? '✓' : '○'}</span> ${esc(g.label)}<span class="sr-only">${g.ok ? ' (done)' : ' (not yet)'}</span></li>`).join('')}</ul>` : ''}${done ? '<p class="prompt-done">All goals met. Play it back, then save it or export it to hand in.</p>' : ''}`;
 }
 $('open-prompts').onclick = () => togglePrompts($('prompt-picker').hidden);
 $('close-prompts').onclick = () => togglePrompts(false);
@@ -1397,7 +1404,10 @@ async function shareLink() {
   const payload = {v: 1, a: $('abc').value, i: currentInstrument()};
   const source = shareSourceId();
   if (source) payload.s = source;
-  if (current?.prompt) payload.p = current.prompt;
+  // A built-in prompt travels by id (p); a teacher's assignment travels whole (q). Older apps ignore q.
+  const prompt = activePrompt();
+  if (prompt?.level === 'Custom') payload.q = prompt;
+  else if (prompt) payload.p = prompt.id;
   const url = `${location.origin}${location.pathname}#s=${await encodeShare(payload)}`;
   const panel = $('share-panel');
   panel.hidden = false;
@@ -1428,6 +1438,8 @@ async function openSharedLink(hash) {
   }
   const source = catalog.find(x => x.id === payload.s);
   const title = payload.a.match(/^T:(.*)$/m)?.[1]?.trim() || 'Shared score';
+  // A teacher's assignment opens only if it passes validPrompt; otherwise the score still opens, without it.
+  const assignment = 'q' in payload ? validPrompt(payload.q) : null;
   openScore({
     ...(source || {}),
     title,
@@ -1435,13 +1447,26 @@ async function openSharedLink(hash) {
     kind: 'shared',
     abc: payload.a,
     instrument: instruments[payload.i] ? payload.i : undefined,
-    prompt: payload.p
+    prompt: assignment || (typeof payload.p === 'string' && promptById(payload.p) ? payload.p : undefined)
   });
   // The link was the only copy and show() has replaced it in the address bar, so treat the score as unsaved work.
   dirty = true;
   cleanKey = '';
   $('save-status').textContent = 'Shared copy, not yet saved on this device. Save it to My scores to keep it.';
-  toast('Opened a shared score. Save it to My scores to keep a copy.');
+  // An assignment starts like a writing prompt: the first note or rest is selected, ready for typing.
+  const first = assignment && scoreNotes()[0];
+  if (first) {
+    selectEntry(first);
+    $('selection-status').textContent =
+      'The first note is selected. Type note letters (A–G) to write from there; 3–7 change the length.';
+  }
+  toast(
+    assignment
+      ? 'Opened an assignment. Its goals tick off as you write; save it to My scores to keep your work.'
+      : 'q' in payload
+        ? 'This link’s assignment could not be read, so only the score opened.'
+        : 'Opened a shared score. Save it to My scores to keep a copy.'
+  );
   return true;
 }
 $('share-link').onclick = () => shareLink().catch(e => toast('Could not make a link: ' + e.message));

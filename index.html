@@ -8,24 +8,25 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=bffa221202e1" />
-    <script defer src="vendor/abcjs-basic-min.js?v=bffa221202e1"></script>
-    <script defer src="catalog.js?v=bffa221202e1"></script>
-    <script defer src="catalog-expanded.js?v=bffa221202e1"></script>
-    <script defer src="score-tools.js?v=bffa221202e1"></script>
-    <script defer src="rights-tools.js?v=bffa221202e1"></script>
-    <script defer src="catalog-licensed.js?v=bffa221202e1"></script>
-    <script defer src="catalog-lieder.js?v=bffa221202e1"></script>
-    <script defer src="catalog-quartets.js?v=bffa221202e1"></script>
-    <script defer src="catalog-pgh.js?v=bffa221202e1"></script>
-    <script defer src="catalog-skills.js?v=bffa221202e1"></script>
-    <script defer src="prompts.js?v=bffa221202e1"></script>
-    <script defer src="shared.js?v=bffa221202e1"></script>
-    <script defer src="library.js?v=bffa221202e1"></script>
-    <script defer src="backup.js?v=bffa221202e1"></script>
-    <script defer src="editor.js?v=bffa221202e1"></script>
-    <script defer src="playback.js?v=bffa221202e1"></script>
-    <script defer src="app.js?v=bffa221202e1"></script>
+    <link rel="stylesheet" href="style.css?v=417fc3fd1805" />
+    <script defer src="vendor/abcjs-basic-min.js?v=417fc3fd1805"></script>
+    <script defer src="catalog.js?v=417fc3fd1805"></script>
+    <script defer src="catalog-expanded.js?v=417fc3fd1805"></script>
+    <script defer src="score-tools.js?v=417fc3fd1805"></script>
+    <script defer src="rights-tools.js?v=417fc3fd1805"></script>
+    <script defer src="catalog-licensed.js?v=417fc3fd1805"></script>
+    <script defer src="catalog-lieder.js?v=417fc3fd1805"></script>
+    <script defer src="catalog-quartets.js?v=417fc3fd1805"></script>
+    <script defer src="catalog-pgh.js?v=417fc3fd1805"></script>
+    <script defer src="catalog-skills.js?v=417fc3fd1805"></script>
+    <script defer src="prompts.js?v=417fc3fd1805"></script>
+    <script defer src="shared.js?v=417fc3fd1805"></script>
+    <script defer src="library.js?v=417fc3fd1805"></script>
+    <script defer src="backup.js?v=417fc3fd1805"></script>
+    <script defer src="editor.js?v=417fc3fd1805"></script>
+    <script defer src="playback.js?v=417fc3fd1805"></script>
+    <script defer src="assignments.js?v=417fc3fd1805"></script>
+    <script defer src="app.js?v=417fc3fd1805"></script>
   </head>
   <body>
     <header>
@@ -156,6 +157,13 @@
           </div>
           <div class="studio-actions">
             <button id="open-prompts" aria-expanded="false" aria-controls="prompt-picker">✎ Writing prompts</button
+            ><button
+              id="open-assignment"
+              aria-expanded="false"
+              aria-controls="assignment-builder"
+              title="Write instructions and goals for this score, then share it as an assignment"
+            >
+              ✎ Assignment</button
             ><label class="inline bars-label"
               >Bars
               <input
@@ -180,6 +188,46 @@
             <button id="close-prompts" aria-label="Close writing prompts">✕</button>
           </div>
           <div id="prompt-cards" class="prompt-cards"></div>
+        </section>
+        <section
+          id="assignment-builder"
+          class="prompt-picker assignment-builder"
+          aria-labelledby="assignment-heading"
+          hidden
+        >
+          <div class="prompt-picker-head">
+            <div>
+              <h2 id="assignment-heading">Assignment</h2>
+              <p class="small">
+                Write instructions and pick goals for this score. The music on the page is where students start. Share
+                the link through Google Classroom or your LMS: each student opens their own copy with your instructions
+                and a checklist that ticks off as they write.
+              </p>
+            </div>
+            <button id="close-assignment" type="button" aria-label="Close assignment">✕</button>
+          </div>
+          <form id="assignment-form" class="assignment-form" novalidate>
+            <label>Title<input id="assignment-title" maxlength="120" autocomplete="off" /></label
+            ><label
+              >Instructions<textarea
+                id="assignment-text"
+                rows="4"
+                maxlength="2000"
+                placeholder="What should students write? Plain words; they see this above the score and it prints."
+              ></textarea>
+            </label>
+            <fieldset class="assignment-goals">
+              <legend>Goals</legend>
+              <p id="assignment-basis" class="small"></p>
+              <div id="assignment-goals"></div>
+            </fieldset>
+            <div class="assignment-actions">
+              <button type="submit" class="primary">Use and copy link</button
+              ><button type="button" id="assignment-apply">Use without a link</button
+              ><button type="button" id="assignment-remove" hidden>Remove assignment</button>
+            </div>
+            <p id="assignment-status" class="small" role="status"></p>
+          </form>
         </section>
         <div class="workspace">
           <aside class="editor-panel">
@@ -445,9 +493,10 @@
         <p>
           All editing and saving happens on your device. There is no server. <strong>Share link</strong> puts the whole
           score inside the link itself, so a teacher can hand out an assignment, or a student can hand work back,
-          through whatever the school already uses; nothing is uploaded. Library scores and the notation engine ship
-          with the site, so the core experience makes no third-party requests. Local storage can be cleared by the
-          browser or school device policy; export work you want to keep.
+          through whatever the school already uses; nothing is uploaded. <strong>✎ Assignment</strong> adds a teacher’s
+          instructions and goals to the link, and each student’s copy shows them with a checklist that ticks off as they
+          write. Library scores and the notation engine ship with the site, so the core experience makes no third-party
+          requests. Local storage can be cleared by the browser or school device policy; export work you want to keep.
         </p>
         <p>
           A school can still block any website or disable browser audio/downloads. This design makes the educational

@@ -1,3 +1,12 @@
+# Assignments in a link · 2026-10-06
+
+- **✎ Assignment** in the studio turns the open score into an assignment: a title, instructions and goals chosen from the writing-prompt goal types (filled bars, note lengths, first and last note, the note that ends a bar, steps, range, staying in key, at least so many rests, eighth notes or leaps). Bar count, meter and written key come from the score, and the goal labels are written in plain words.
+- **Use and copy link** shares the score with the assignment inside the link. Each student who opens it gets their own copy, starting from the teacher's music, with the instructions above the score and a checklist that ticks off as they write. Saved copies keep the assignment through My scores and backup/restore.
+- The link adds an optional key `q`; payload version 1 is unchanged, built-in prompt links (`p`) work as before, and older copies of the app open the score without the checklist. Assignments from links and backups are checked field by field and shown escaped.
+- Printing a prompt or assignment now puts its title and instructions above the score; the checklist stays on screen.
+
+---
+
 # Backup and restore · 2026-10-06
 
 - **My scores → ⬇ Back up** writes every saved score, favorite, played mark and practice setting to one JSON file. Where the browser offers a Save As dialog (Chrome, Edge) the file can go in a synced folder and is remembered for one-click repeat backups; elsewhere it downloads.

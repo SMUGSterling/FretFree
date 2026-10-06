@@ -1121,7 +1121,6 @@ input[type='range'] {
   white-space: nowrap;
 }
 @media print {
-  .prompt-check,
   .prompt-picker {
     display: none !important;
   }
@@ -1286,4 +1285,115 @@ input[type='range'] {
   border-radius: 5px;
   background: var(--paper);
   color: var(--ink);
+}
+.assignment-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+.assignment-form textarea {
+  min-height: 0;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--paper);
+}
+.assignment-goals {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 14px 12px;
+  margin: 0;
+  min-width: 0;
+}
+.assignment-goals legend {
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--muted);
+}
+.assignment-goals > p {
+  margin: 0 0 8px;
+}
+.goal-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 5px 0;
+  font-size: 13px;
+  border-top: 1px solid var(--border);
+}
+.goal-row:first-child {
+  border-top: 0;
+}
+.goal-row > label {
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.goal-row input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+.goal-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.goal-controls select,
+.goal-controls input[type='number'] {
+  width: auto;
+  padding: 6px 8px;
+}
+.goal-controls input[type='number'] {
+  width: 4.2rem;
+}
+.goal-lengths {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.goal-lengths label {
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.goal-row > label:has(input:disabled) {
+  color: var(--muted);
+}
+.assignment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.assignment-actions button {
+  font-size: 12px;
+}
+.prompt-check .prompt-text {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+/* The instructions print above the score; the checklist and its counts stay on screen. */
+@media print {
+  .assignment-builder {
+    display: none !important;
+  }
+  .prompt-check:not([hidden]) {
+    display: block !important;
+    background: none;
+    border: 0;
+    padding: 0 0 8pt;
+    margin: 0;
+    color: black;
+    font-size: 11pt;
+  }
+  .prompt-check ul,
+  .prompt-check .small,
+  .prompt-check .prompt-done {
+    display: none !important;
+  }
 }

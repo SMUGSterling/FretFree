@@ -51,6 +51,7 @@ for (const file of [
   'backup.js',
   'editor.js',
   'playback.js',
+  'assignments.js',
   'app.js'
 ])
   run(fs.readFileSync(path.join(root, file), 'utf8'));
@@ -314,8 +315,113 @@ assert.equal(
   assert.ok($('rights').textContent.includes('CC0'), 'Credits travel with the link');
   assert.equal($('next-up').hidden, true, 'No suggestions for a shared copy');
   assert.equal(await run('openSharedLink("s=1garbage")'), false, 'A damaged link is refused');
+
+  // Teacher-written assignments: the builder takes its defaults from the score, three goals become a live checklist,
+  // the link carries the assignment as q (never p), and the student's copy keeps it through save, reopen and backup.
+  run(
+    'dirty = false; openScore({kind: "personal", abc: "X:1\\nT:Starter\\nM:3/4\\nL:1/4\\nQ:1/4=90\\nK:G\\nG A B | z3 | z3 | z3 |]"})'
+  );
+  $('open-assignment').click();
+  assert.equal($('assignment-builder').hidden, false);
+  assert.equal($('open-assignment').getAttribute('aria-expanded'), 'true');
+  assert.equal($('assignment-title').value, 'Starter', 'Title defaults to the score title');
+  assert.match($('assignment-basis').textContent, /4 bars · 3\/4 · key of G/);
+  assert.deepEqual(
+    [...$('assignment-goals').querySelectorAll('[data-goal]:checked')].map(b => b.dataset.goal),
+    ['bars', 'end', 'inKey'],
+    'Three goals are ticked by default'
+  );
+  assert.equal($('goal-inKey').parentElement.textContent.trim(), 'Stay in G major');
+  $('assignment-title').value = '';
+  $('assignment-apply').click();
+  assert.match($('assignment-status').textContent, /title/, 'A title is required');
+  $('assignment-title').value = 'Echo <img src=x onerror=alert(1)>';
+  $('assignment-text').value = 'Answer my phrase.\nEnd on G.';
+  $('goal-inKey').checked = false;
+  $('goal-start-degree').value = '0';
+  $('goal-start-degree').dispatchEvent(new w.Event('input', {bubbles: true}));
+  assert.equal($('goal-start').checked, true, 'Changing a goal setting ticks the goal');
+  $('assignment-apply').click();
+  assert.equal($('assignment-builder').hidden, true);
+  assert.equal(run('current.prompt.level'), 'Custom');
+  assert.equal(
+    run('current.prompt.goals.map(g => g.label).join(" / ")'),
+    'Fill all 4 bars with notes / Start on G / End on G'
+  );
+  assert.equal(run('dirty'), true, 'Adding an assignment is an unsaved change');
+  const check = $('prompt-check');
+  assert.equal(check.hidden, false);
+  assert.equal(check.querySelectorAll('li').length, 3, 'A checklist of the three goals');
+  assert.equal(check.querySelector('img'), null, 'The title is escaped');
+  assert.match(check.textContent, /Assignment · Echo <img src=x onerror=alert\(1\)>/);
+  assert.equal(check.querySelector('.prompt-text').textContent, 'Answer my phrase.\nEnd on G.');
+  assert.equal(check.querySelectorAll('li.met').length, 1, 'The starter music already starts on G');
+  // The share link carries the assignment whole as q, and payload v stays 1.
+  await run('shareLink()');
+  const assignmentLink = $('share-url').value.split('#')[1];
+  const payload = await run(`decodeShare(${JSON.stringify(assignmentLink.slice(2))})`);
+  assert.equal(payload.v, 1);
+  assert.equal(payload.p, undefined, 'A custom assignment is not sent as a built-in prompt id');
+  assert.equal(payload.q.id, run('current.prompt.id'));
+  // A student opens it: the instructions and the checklist arrive with the music.
+  run('dirty = false; newScore()');
+  assert.equal(check.hidden, true);
+  assert.equal(await run(`openSharedLink(${JSON.stringify(assignmentLink)})`), true);
+  assert.equal(run('current.kind'), 'shared');
+  assert.equal(run('current.prompt.title'), 'Echo <img src=x onerror=alert(1)>');
+  assert.equal($('prompt-check').querySelectorAll('li').length, 3);
+  assert.match($('toast').textContent, /Opened an assignment/);
+  assert.match($('abc').value, /G A B \| z3/, "The teacher's music is the starting point");
+  // Saved to My scores, reopened, backed up and restored: the assignment stays with the score.
+  $('save').click();
+  const id = run('savedId'),
+    find = `saved.find(x => x.id === ${JSON.stringify(id)})`;
+  assert.equal(run(`${find}.prompt.title`), 'Echo <img src=x onerror=alert(1)>');
+  run('dirty = false; newScore(); show("saved")');
+  assert.match($('saved-cards').textContent, /ASSIGNMENT/, 'My scores marks the assignment');
+  assert.equal($('saved-cards').querySelector('img'), null);
+  $('saved-cards').querySelector(`[data-saved="${id}"]`).click();
+  assert.equal($('prompt-check').querySelectorAll('li').length, 3, 'Reopened from My scores with its checklist');
+  const backup = JSON.parse(JSON.stringify(run('backupData()')));
+  run(`saved = saved.filter(x => x.id !== ${JSON.stringify(id)}); storage.set(KEYS.scores, saved)`);
+  assert.equal(run(`applyBackup(${JSON.stringify(backup)})`).added, 1);
+  run(`dirty = false; newScore(); openScore(${find}, ${JSON.stringify(id)})`);
+  assert.equal($('prompt-check').querySelectorAll('li').length, 3, 'Restored from a backup with its checklist');
+  // A tampered assignment in storage or a link is ignored; the music still opens.
+  run(`dirty = false; openScore({...${find}, prompt: {...${find}.prompt, goals: [{type: 'rm -rf', label: 'x'}]}})`);
+  assert.equal($('prompt-check').hidden, true, 'An invalid stored assignment shows no checklist');
+  const tampered = await run(`encodeShare({v: 1, a: $('abc').value, q: {...${find}.prompt, text: 'y'.repeat(5000)}})`);
+  run('dirty = false');
+  assert.equal(await run(`openSharedLink("s=${tampered}")`), true, 'The score still opens');
+  assert.equal(run('current.prompt'), undefined);
+  assert.equal($('prompt-check').hidden, true);
+  assert.match($('toast').textContent, /assignment could not be read/);
+  // Built-in prompt links (p) still work and still travel as p; an object smuggled in p is ignored.
+  const builtIn = await run(`encodeShare({v: 1, a: promptSource(promptById('first-melody')), p: 'first-melody'})`);
+  run('dirty = false');
+  await run(`openSharedLink("s=${builtIn}")`);
+  assert.equal(run('current.prompt'), 'first-melody');
+  assert.match($('prompt-check').textContent, /Writing prompt · My first melody/);
+  await run('shareLink()');
+  const again = await run(`decodeShare(${JSON.stringify($('share-url').value.split('#s=')[1])})`);
+  assert.deepEqual([again.p, again.q], ['first-melody', undefined], 'Built-in prompts still travel as p');
+  const smuggled = await run(`encodeShare({v: 1, a: $('abc').value, p: ${JSON.stringify(payload.q)}})`);
+  run('dirty = false');
+  await run(`openSharedLink("s=${smuggled}")`);
+  assert.equal(run('current.prompt'), undefined, 'p must name a built-in prompt');
+  // The builder reopens with the score's assignment, and Remove assignment takes it off.
+  run('dirty = false');
+  await run(`openSharedLink(${JSON.stringify(assignmentLink)})`);
+  $('open-assignment').click();
+  assert.equal($('assignment-remove').hidden, false);
+  assert.equal($('assignment-title').value, 'Echo <img src=x onerror=alert(1)>');
+  assert.deepEqual([$('goal-start').checked, $('goal-inKey').checked], [true, false]);
+  $('assignment-remove').click();
+  assert.equal(run('"prompt" in current'), false);
+  assert.equal($('prompt-check').hidden, true);
+  run('dirty = false');
   console.log(
-    'PASS (jsdom): backup and restore, blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
+    'PASS (jsdom): teacher-written assignments (builder defaults, escaping, q links, save, reopen, backup, tampered links), backup and restore, blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
   );
 })().catch(e => {
   console.error(e);

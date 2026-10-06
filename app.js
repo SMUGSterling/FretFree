@@ -159,7 +159,7 @@ $('instrument').onchange = () => {
   const before = instruments[instrumentShown]?.shift || 0,
     after = instruments[currentInstrument()].shift || 0,
     source = $('abc').value;
-  if (current?.prompt && promptById(current.prompt) && before !== after) {
+  if (activePrompt() && before !== after) {
     flushTyping();
     $('abc').value = ABCJS.strTranspose(source, ABCJS.parseOnly(source), before - after);
     selectedRange = null;

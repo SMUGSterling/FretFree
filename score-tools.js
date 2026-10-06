@@ -385,6 +385,152 @@ function promptSource(prompt, key = prompt.key, body = null) {
     rest = 'z' + lengthText(n / d / (un / ud));
   return `X:1\nT:${prompt.title}\nC:\nM:${prompt.meter}\nL:${prompt.unit}\nQ:1/4=${prompt.tempo}\nK:${key}\n${body ?? Array(prompt.bars).fill(rest).join(' | ')} |]`;
 }
+// Teacher-written assignments: a prompt object built from a score and carried in saves, backups and share links.
+// Keys are written pitch, as for the built-in prompts. Goals name notes by the key's own degrees (minor adds the
+// raised 7th); only major and minor keys have a scale for the inKey goal.
+const MODE_STEPS = {
+  major: [0, 2, 4, 5, 7, 9, 11],
+  minor: [0, 2, 3, 5, 7, 8, 10, 11],
+  dor: [0, 2, 3, 5, 7, 9, 10],
+  phr: [0, 1, 3, 5, 7, 8, 10],
+  lyd: [0, 2, 4, 6, 7, 9, 11],
+  mix: [0, 2, 4, 5, 7, 9, 10],
+  loc: [0, 1, 3, 5, 6, 8, 10]
+};
+function keyScale(key) {
+  const m = String(key).match(/^([A-G])([#b]?)(\S*)/),
+    mode = (m?.[3] || '').toLowerCase().slice(0, 3);
+  const name = /^(m|mi|min|aeo)$/.test(mode) ? 'minor' : /^(|ma|maj|ion)$/.test(mode) ? 'major' : mode;
+  return {
+    letter: m ? 'CDEFGAB'.indexOf(m[1]) : 0,
+    tonic: m ? promptTonic(key) : 0,
+    steps: MODE_STEPS[name] || MODE_STEPS.major,
+    scale: m && (name === 'major' || name === 'minor') ? name : null
+  };
+}
+function keyDegrees(key) {
+  const {letter, tonic, steps} = keyScale(key);
+  return steps.map((degree, i) => {
+    const l = (letter + Math.min(i, 6)) % 7,
+      alter = ((((tonic + degree - LETTER_SEMIS[l]) % 12) + 18) % 12) - 6;
+    return {degree, name: 'CDEFGAB'[l] + ({'-2': '𝄫', '-1': '♭', 1: '♯', 2: '𝄪'}[alter] || '')};
+  });
+}
+const degreeName = (key, degree) => keyDegrees(key).find(d => d.degree === degree)?.name || `${degree} semitones up`;
+// The lengths, ranges and countable kinds a teacher can pick, with the words goal labels use.
+const GOAL_LENGTHS = [
+    [1 / 16, 'sixteenth'],
+    [1 / 8, 'eighth'],
+    [1 / 4, 'quarter'],
+    [3 / 8, 'dotted quarter'],
+    [1 / 2, 'half'],
+    [3 / 4, 'dotted half'],
+    [1, 'whole']
+  ],
+  GOAL_RANGES = [
+    [7, 'a 5th'],
+    [9, 'a 6th'],
+    [12, 'one octave'],
+    [19, 'an octave and a 5th'],
+    [24, 'two octaves']
+  ],
+  GOAL_KINDS = {
+    rest: ['rest', 'rests'],
+    eighth: ['eighth note', 'eighth notes'],
+    'dotted-quarter': ['dotted quarter note', 'dotted quarter notes'],
+    'dotted-half': ['dotted half note', 'dotted half notes'],
+    leap: ['leap of a 4th or more', 'leaps of a 4th or more']
+  };
+const listWords = words => (words.length > 1 ? words.slice(0, -1).join(', ') + ' and ' + words.at(-1) : words[0]);
+function goalLabel(goal, prompt) {
+  const name = d => degreeName(prompt.key, d);
+  if (goal.type === 'bars') return `Fill all ${prompt.bars} bars with notes`;
+  if (goal.type === 'lengths') {
+    const words = GOAL_LENGTHS.filter(([v]) => goal.allowed.includes(v)).map(([, w]) => w);
+    return `Use only ${listWords(words.length ? words : ['the chosen'])} notes`;
+  }
+  if (goal.type === 'start') return `Start on ${name(goal.degree)}`;
+  if (goal.type === 'end') return `End on ${name(goal.degree)}`;
+  if (goal.type === 'endBar') return `Bar ${goal.bar} ends on ${name(goal.degree)}`;
+  if (goal.type === 'steps') return 'Move only by step or repeat a note';
+  if (goal.type === 'range')
+    return `Stay within ${GOAL_RANGES.find(([v]) => v === goal.max)?.[1] || goal.max + ' semitones'}`;
+  if (goal.type === 'inKey')
+    return `Stay in ${prompt.key
+      .match(/^[A-G][#b]?/)[0]
+      .replace('#', '♯')
+      .replace('b', '♭')} ${goal.scale}`;
+  if (goal.kind === 'degree')
+    return `Use ${name(goal.degree)} at least ${goal.count === 1 ? 'once' : goal.count + ' times'}`;
+  const [one, many] = GOAL_KINDS[goal.kind];
+  return `Use at least ${goal.count === 1 ? 'one ' + one : goal.count + ' ' + many}`;
+}
+// Build an assignment from the builder's choices. The id hashes the content, so the same assignment always has the
+// same id wherever it is opened.
+function makeAssignment({title, text, meter, unit, key, tempo, bars, goals}) {
+  const prompt = {title, text, level: 'Custom', meter, unit, key, tempo, bars};
+  prompt.goals = goals.map(g => ({...g, label: goalLabel(g, prompt)}));
+  return {id: 'custom-' + hashText(JSON.stringify(prompt)).toString(36), ...prompt};
+}
+// An assignment from a link, a backup or storage is untrusted. Copy only known fields of the right type and size, or
+// return null. Labels are rebuilt from the goal itself, so the checklist always says what is checked.
+const ASSIGNMENT_TEXT_MAX = 2000;
+const isInt = (n, lo, hi) => Number.isInteger(n) && n >= lo && n <= hi,
+  isDegree = d => isInt(d, 0, 11);
+const GOAL_FIELDS = {
+  bars: () => ({}),
+  steps: () => ({}),
+  lengths: g =>
+    Array.isArray(g.allowed) &&
+    g.allowed.length >= 1 &&
+    g.allowed.length <= 8 &&
+    g.allowed.every(a => typeof a === 'number' && Number.isFinite(a) && a > 0 && a <= 4)
+      ? {allowed: [...g.allowed]}
+      : null,
+  start: g => (isDegree(g.degree) ? {degree: g.degree} : null),
+  end: g => (isDegree(g.degree) ? {degree: g.degree} : null),
+  endBar: (g, bars) => (isInt(g.bar, 1, bars) && isDegree(g.degree) ? {bar: g.bar, degree: g.degree} : null),
+  range: g => (isInt(g.max, 0, 48) ? {max: g.max} : null),
+  inKey: g => (g.scale === 'major' || g.scale === 'minor' ? {scale: g.scale} : null),
+  atLeast: g =>
+    !isInt(g.count, 1, 256)
+      ? null
+      : g.kind === 'degree'
+        ? isDegree(g.degree)
+          ? {kind: 'degree', degree: g.degree, count: g.count}
+          : null
+        : typeof g.kind === 'string' && Object.hasOwn(GOAL_KINDS, g.kind)
+          ? {kind: g.kind, count: g.count}
+          : null
+};
+function validPrompt(q) {
+  const isObject = x => !!x && typeof x === 'object' && !Array.isArray(x),
+    isText = (s, max, empty = false) => typeof s === 'string' && s.length <= max && (empty || s.trim() !== '');
+  if (!isObject(q)) return null;
+  const {id, title, text, meter, unit, key, tempo, bars, goals} = q;
+  if (
+    !(typeof id === 'string' && /^custom-[a-z0-9]{1,13}$/.test(id)) ||
+    !isText(title, 120) ||
+    !isText(text, ASSIGNMENT_TEXT_MAX, true) ||
+    !(typeof meter === 'string' && /^[1-9]\d?\/[1-9]\d?$/.test(meter)) ||
+    !(typeof unit === 'string' && /^1\/[1-9]\d?$/.test(unit)) ||
+    !(typeof key === 'string' && /^[A-G][#b]?[A-Za-z]{0,7}$/.test(key)) ||
+    !(typeof tempo === 'number' && Number.isFinite(tempo) && tempo >= 20 && tempo <= 400) ||
+    !isInt(bars, 1, 999) ||
+    !Array.isArray(goals) ||
+    goals.length > 12
+  )
+    return null;
+  const prompt = {id, title, text, level: 'Custom', meter, unit, key, tempo, bars, goals: []};
+  for (const g of goals) {
+    const fields =
+      isObject(g) && typeof g.type === 'string' && Object.hasOwn(GOAL_FIELDS, g.type) && GOAL_FIELDS[g.type](g, bars);
+    if (!fields) return null;
+    const goal = {type: g.type, ...fields};
+    prompt.goals.push({...goal, label: goalLabel(goal, prompt)});
+  }
+  return prompt;
+}
 // Note-name labels for every voice, as written: letters (F♯) or movable-do solfège (do-based major,
 // la-based minor; notes raised against the key signature use sharp syllables, lowered ones flat syllables).
 // Each voice keeps its own key and bar accidentals.
@@ -716,7 +862,8 @@ function parseMidi(bytes) {
 }
 
 // Share links: the whole score rides in the URL hash (#s=…), so no server ever holds student work.
-// Payload {v, a: abc, i: instrument, s: library source id, p: prompt id}. The first character says how the rest
+// Payload {v, a: abc, i: instrument, s: library source id, p: built-in prompt id,
+// q: teacher-written assignment, checked by validPrompt}. The first character says how the rest
 // is packed: '1' deflate-raw + base64url, '0' plain base64url (for browsers without CompressionStream).
 const base64url = {
   // Built in chunks: spreading a large score into String.fromCharCode overflows the call stack.
