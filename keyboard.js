@@ -61,19 +61,22 @@ function showPianoSelection() {
   for (const midi of midis) pianoKey(midi)?.classList.add('held');
   if (midis.length) scrollPianoTo(Math.min(...midis));
 }
+// Returns false when the strip has no width to scroll (the editor is hidden).
 function scrollPianoTo(midi, center = false) {
   const strip = $('piano-scroll'),
     key = pianoKey(Math.max(PIANO_LOW, Math.min(PIANO_HIGH, midi)));
-  if (!strip || !key || !strip.clientWidth) return;
+  if (!strip || !key || !strip.clientWidth) return false;
   const left = key.offsetLeft,
     right = left + key.offsetWidth;
   if (center || left < strip.scrollLeft || right > strip.scrollLeft + strip.clientWidth)
     strip.scrollLeft = left - (strip.clientWidth - key.offsetWidth) / 2;
+  return true;
 }
 // The middle line of the instrument's staff, B4 in treble clef and D3 in bass, starts in the middle of the strip.
+// The instrument counts as faced only once the strip could scroll, so a strip set up while hidden faces it on showing.
 function scrollPianoToRange() {
-  pianoInstrument = currentInstrument();
-  scrollPianoTo(instruments[pianoInstrument]?.clef === 'bass' ? 50 : 71, true);
+  if (scrollPianoTo(instruments[currentInstrument()]?.clef === 'bass' ? 50 : 71, true))
+    pianoInstrument = currentInstrument();
 }
 // Playback lights: abcjs timing events name the drawn note (display offset); a key stays lit while any note on it sounds.
 function pianoFollow(at, on) {
@@ -116,15 +119,14 @@ function pianoCore(concert, at, voice, chord = null) {
     pitches = label ? (chord ? label.written : label.written.slice(0, 1)) : [];
   return pitches.includes(concert) ? core : midiToken(concert, key, true);
 }
-// Name of a key as the written key signature would spell it (flat names in flat keys).
-function pianoName(midi) {
-  const key = pianoDisplay?.lines?.[0]?.staff?.[0]?.key,
-    flat = (key?.accidentals || []).some(a => a.acc === 'flat');
+// Name of a key as the written key signature in force at a drawn note spells it (flat names in flat keys).
+function pianoName(midi, note, voice) {
+  const flat = (keyAt(pianoDisplay, note?.startChar ?? Infinity, voice)?.accidentals || []).some(a => a.acc === 'flat');
   return (flat ? PIANO_FLATS : PIANO_SHARPS)[midi % 12] + (Math.floor(midi / 12) - 1);
 }
 // A key press: written MIDI to concert (written − the instrument's transposition), then enter the note over the
-// selected rest or after the selected note, or add it to the selected note's chord. Each is one undo step and sounds
-// the result (Hear notes).
+// selected rest or after the selected note, or add it to the chord of the selected note or the note just entered.
+// Each is one undo step and sounds the result (Hear notes).
 function pianoPress(written, chord = false) {
   if (renderedSource !== $('abc').value) {
     clearTimeout(renderTimer);
@@ -132,9 +134,10 @@ function pianoPress(written, chord = false) {
   }
   const concert = written - (instruments[currentInstrument()].shift || 0),
     sel = selectedNote(),
-    voice = sel ? sel.entry.key.split(':').slice(0, 2).join(':') : '0:0',
-    name = pianoName(written);
-  const target = chord && chordTarget(sel);
+    target = chord && chordTarget(sel),
+    note = target || sel,
+    voice = note ? note.entry.key.split(':').slice(0, 2).join(':') : '0:0',
+    name = pianoName(written, note?.display, voice);
   if (target) {
     const {startChar, endChar} = target.entry.element,
       added = addToChord(sel, pianoCore(concert, startChar, voice, $('abc').value.slice(startChar, endChar)));
@@ -157,23 +160,39 @@ function setPiano(on, remember = true) {
   scrollPianoToRange();
   showPianoSelection();
 }
-// Pointer input. Entry happens on pointerdown, so a held key is known when the next one goes down (two fingers on a
-// tablet make a chord); the click that follows is skipped. Clicks with no pointerdown (assistive tech) still work.
-const pianoHeld = new Set();
-let pianoSkipClick = false;
+// Pointer input. A mouse press enters its note at once. A touch or pen press enters on lift, because a swipe that
+// starts on a key scrolls the strip or the page: it enters nothing when the browser takes it as a scroll
+// (pointercancel) or it moves more than a few pixels. Keys pressed while others are down make a chord: when one lifts,
+// every waiting key enters in the order it went down, the first as a note and the rest into its chord. The click
+// that follows a press is skipped; clicks with no press (assistive tech) still work.
+const pianoHeld = new Map(),
+  PIANO_SLOP = 10;
+let pianoChording = false,
+  pianoLiftedAt = -Infinity;
 function pianoRove(key) {
   $('piano-keys')
     .querySelectorAll('[tabindex="0"]')
     .forEach(k => (k.tabIndex = -1));
   key.tabIndex = 0;
 }
-function releasePiano(e) {
+// Enter every held key not yet entered. Once one has entered a note, the others go into its chord.
+function pianoEnter() {
+  for (const press of pianoHeld.values()) {
+    if (press.entered) continue;
+    press.entered = true;
+    pianoPress(+press.key.dataset.pianoMidi, press.shift || pianoChording);
+    pianoChording = true;
+    press.key.focus({preventScroll: true});
+  }
+}
+function pianoLift(e, enter) {
+  const press = pianoHeld.get(e.pointerId);
+  if (!press) return;
+  if (enter) pianoEnter();
   pianoHeld.delete(e.pointerId);
-  if (!pianoHeld.size)
-    $('piano-keys')
-      ?.querySelectorAll('.down')
-      .forEach(k => k.classList.remove('down'));
-  setTimeout(() => (pianoSkipClick = false));
+  press.key.classList.remove('down');
+  pianoLiftedAt = performance.now();
+  if (!pianoHeld.size) pianoChording = false;
 }
 if ($('piano-keys')) {
   buildPiano();
@@ -182,19 +201,30 @@ if ($('piano-keys')) {
     const key = e.target.closest('[data-piano-midi]');
     if (!key || e.button > 0) return;
     pianoHeld.delete(e.pointerId);
-    const chord = e.shiftKey || pianoHeld.size > 0;
-    pianoHeld.add(e.pointerId);
-    pianoSkipClick = true;
+    pianoHeld.set(e.pointerId, {key, x: e.clientX, y: e.clientY, shift: e.shiftKey, entered: false});
     key.classList.add('down');
     pianoRove(key);
-    pianoPress(+key.dataset.pianoMidi, chord);
+    if (e.pointerType === 'mouse') pianoEnter();
   });
-  window.addEventListener('pointerup', releasePiano);
-  window.addEventListener('pointercancel', releasePiano);
-  window.addEventListener('blur', () => pianoHeld.clear());
+  window.addEventListener(
+    'pointermove',
+    e => {
+      const press = pianoHeld.get(e.pointerId);
+      if (press && !press.entered && Math.hypot(e.clientX - press.x, e.clientY - press.y) > PIANO_SLOP)
+        pianoLift(e, false);
+    },
+    {passive: true}
+  );
+  window.addEventListener('pointerup', e => pianoLift(e, true));
+  window.addEventListener('pointercancel', e => pianoLift(e, false));
+  window.addEventListener('blur', () => {
+    for (const press of pianoHeld.values()) press.key.classList.remove('down');
+    pianoHeld.clear();
+    pianoChording = false;
+  });
   keys.addEventListener('click', e => {
     const key = e.target.closest('[data-piano-midi]');
-    if (!key || pianoSkipClick) return;
+    if (!key || pianoHeld.size || performance.now() - pianoLiftedAt < 600) return;
     pianoRove(key);
     pianoPress(+key.dataset.pianoMidi, e.shiftKey);
     key.focus({preventScroll: true});
@@ -232,5 +262,15 @@ if ($('piano-keys')) {
     if (e.key === ' ') e.preventDefault();
   });
   $('piano-toggle').onclick = () => setPiano($('piano').hidden);
+  // The strip has no width while the editor is hidden (the app opens on the library, and a score renders before its
+  // view shows), so it faces the instrument's range and the selection when it appears.
+  if (typeof ResizeObserver === 'function')
+    new ResizeObserver(() => {
+      if (!$('piano-scroll').clientWidth) pianoInstrument = null;
+      else if (pianoInstrument !== currentInstrument()) {
+        scrollPianoToRange();
+        showPianoSelection();
+      }
+    }).observe($('piano-scroll'));
   setPiano(storage.get(KEYS.piano, false) === true, false);
 }

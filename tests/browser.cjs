@@ -1064,9 +1064,11 @@ const {chromium} = require('playwright'),
       'Clicking a chord lights its keys'
     );
     await page.click('#play');
-    const lit = new Set();
-    for (let i = 0; i < 25; i++) {
-      await page.waitForTimeout(80);
+    // Sample until every key of the first bar has been seen lit, or playback has had plenty of time.
+    const lit = new Set(),
+      until = Date.now() + 8000;
+    while (!['65', '70', '72', '76'].every(k => lit.has(k)) && Date.now() < until) {
+      await page.waitForTimeout(40);
       for (const k of await page.evaluate(() =>
         [...document.querySelectorAll('#piano-keys .sounding')].map(k => k.dataset.pianoMidi)
       ))
@@ -1097,6 +1099,93 @@ const {chromium} = require('playwright'),
       'true,false'
     );
   }
+  // On-screen piano on a phone, with the setting saved as on: the strip faces the instrument's range when a score opens
+  // from the library. A key enters its note when the finger lifts, so swiping the strip or the page from a key enters
+  // nothing; a tap still enters, and a second finger while one is down makes a chord.
+  {
+    const phone = await browser.newPage({viewport: {width: 390, height: 844}, hasTouch: true, isMobile: true});
+    phone.on('pageerror', e => errors.push(e.message));
+    await phone.addInitScript(() => localStorage.setItem('fretfree-piano', 'true'));
+    await phone.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    const cdp = await phone.context().newCDPSession(phone),
+      touch = (type, touchPoints = []) => cdp.send('Input.dispatchTouchEvent', {type, touchPoints}),
+      body = () => phone.evaluate(() => $('abc').value.trim().split('\n').pop()),
+      shown = midi =>
+        phone
+          .waitForFunction(
+            midi => {
+              const strip = $('piano-scroll').getBoundingClientRect(),
+                key = document.querySelector(`[data-piano-midi="${midi}"]`).getBoundingClientRect();
+              return strip.width > 0 && key.left >= strip.left && key.right <= strip.right;
+            },
+            midi,
+            {timeout: 3000}
+          )
+          .then(
+            () => true,
+            () => false
+          ),
+      center = midi =>
+        phone.evaluate(midi => {
+          const r = document.querySelector(`[data-piano-midi="${midi}"]`).getBoundingClientRect();
+          return {x: r.left + r.width / 2, y: r.bottom - 15};
+        }, midi),
+      swipe = async (from, to) => {
+        await touch('touchStart', [from]);
+        for (let i = 1; i <= 10; i++) {
+          await touch('touchMove', [{x: from.x + ((to.x - from.x) * i) / 10, y: from.y + ((to.y - from.y) * i) / 10}]);
+          await phone.waitForTimeout(16);
+        }
+        await touch('touchEnd');
+        await phone.waitForTimeout(300);
+      };
+    assert.equal(await phone.evaluate(() => $('studio').hidden && !$('piano').hidden), true, 'Starts on the library');
+    await phone.evaluate(() => {
+      const bars = Array(40).fill('z4').join(' | ');
+      openScore({abc: 'X:1\nT:Touch\nM:4/4\nL:1/4\nK:C\n' + bars + ' |]', instrument: 'Flute'});
+    });
+    assert.ok(await shown(71), 'Opened from the library, the strip shows B4 for a flute');
+    await phone.waitForTimeout(500);
+    await phone.evaluate(() => {
+      selectEntry(scoreNotes()[0]);
+      $('piano').scrollIntoView({block: 'end', behavior: 'instant'});
+    });
+    const before = await phone.evaluate(() => [$('abc').value, $('piano-scroll').scrollLeft, scrollY]),
+      e4 = await center(64);
+    await swipe(e4, {x: e4.x - 250, y: e4.y});
+    const top = await phone.evaluate(() => $('piano-keys').getBoundingClientRect().top + 10);
+    await swipe({x: 200, y: top}, {x: 200, y: Math.min(top + 200, 835)});
+    const after = await phone.evaluate(() => [$('abc').value, $('piano-scroll').scrollLeft, scrollY]);
+    assert.ok(after[1] > before[1], 'A sideways swipe scrolls the strip');
+    assert.ok(after[2] < before[2], 'A swipe down from a key scrolls the page');
+    assert.equal(after[0], before[0], 'Swiping from a key enters nothing');
+    await phone.evaluate(() => scrollPianoTo(67, true));
+    await phone.tap('[data-piano-midi="67"]');
+    assert.equal(await body(), 'G z3 | ' + Array(39).fill('z4').join(' | ') + ' |]', 'A tap enters the note');
+    await phone.evaluate(() => {
+      scrollPianoTo(74, true);
+      $('piano').scrollIntoView({block: 'end', behavior: 'instant'});
+    });
+    const c = await center(72),
+      e = await center(76);
+    await touch('touchStart', [{...c, id: 1}]);
+    await touch('touchStart', [
+      {...c, id: 1},
+      {...e, id: 2}
+    ]);
+    await touch('touchEnd', [{...c, id: 1}]);
+    await touch('touchEnd');
+    await phone.waitForTimeout(300);
+    assert.match(await body(), /^G \[ce\] z2 \|/, 'Two fingers make a chord');
+    await phone.evaluate(() => {
+      dirty = false;
+      show('library');
+    });
+    await phone.waitForTimeout(100);
+    await phone.evaluate(() => openScore({abc: 'X:1\nT:Low\nM:4/4\nL:1/4\nK:C\nz4 |]', instrument: 'Cello'}));
+    assert.ok(await shown(50), 'A bass-clef score shows D3');
+    await phone.close();
+  }
   await page.evaluate(() => {
     dirty = false;
   });
@@ -1108,7 +1197,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile), legacy storage, mobile width, and no browser errors.'
+    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

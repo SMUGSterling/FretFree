@@ -270,6 +270,25 @@ for (const [text, edit, expected] of [
   assert.equal(add('[C2E2]', 'G'), '[C2E2G2]', 'Per-pitch chord lengths are copied');
   assert.equal(add('[CE]', 'E'), '[CE]', 'A pitch already there is not added');
   assert.equal(add('z2', 'E'), 'z2', 'Rests are left alone');
+  // keepLaterPitches: an accidental entered on one note writes out the accidental later notes in the bar had.
+  const keep = (body, from, to, text, select = null) => {
+    const source = 'X:1\nL:1/4\nK:C\n' + body,
+      at = source.length - body.length,
+      r = context.keepLaterPitches(source, at + from, at + to, text, select && select.map(x => at + x));
+    return [source.slice(at, at + from) + r.text + source.slice(r.end), r.select && r.select.map(x => x - at)];
+  };
+  assert.deepEqual(keep('z C D C | C', 0, 1, '^C', [3, 4]), ['^C =C D C | C', [3, 5]], 'Only the first later C');
+  assert.deepEqual(keep('z c [EC] C', 0, 1, '_C'), ['_C c [E=C] C', null], 'Other octaves keep theirs; chords too');
+  assert.deepEqual(keep('z | C', 0, 1, '^C'), ['^C | C', null], 'The next bar is not touched');
+  assert.equal(keep('z F G', 0, 1, '=F').join(), '=F F G,', 'A natural against the key: later F is natural anyway');
+  const g = (body, ...edit) => {
+    const source = 'X:1\nL:1/4\nK:G\n' + body,
+      at = source.length - body.length,
+      r = context.keepLaterPitches(source, at + edit[0], at + edit[1], edit[2], null);
+    return source.slice(at, at + edit[0]) + r.text + source.slice(r.end);
+  };
+  assert.equal(g('z !f!F2 F', 0, 1, '=F'), '=F !f!^F2 F', 'The key signature sharp is written after decorations');
+  assert.equal(g('z ^^G G', 0, 1, '_G'), '_G ^^G G', 'Notes with their own accidental are left alone');
 }
 // Writing prompts: every example meets all its goals, and the blank starting score does not.
 vm.runInContext(
@@ -300,5 +319,5 @@ for (const prompt of context.writingPrompts) {
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, slur and tuplet note edits, piano spelling and chord building, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, slur and tuplet note edits, piano spelling, chord building and later bar accidentals, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.'
 );

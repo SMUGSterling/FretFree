@@ -274,7 +274,8 @@ function barProblems(tune) {
 // The first voice as written, bar by bar: each note's MIDI pitch (null for rests) and sounding length. Accidentals
 // follow ABC rules: the key signature, inline key changes, and accidentals carried to the end of the bar.
 const LETTER_SEMIS = [0, 2, 4, 5, 7, 9, 11],
-  ALTER = {sharp: 1, flat: -1, natural: 0, dblsharp: 2, dblflat: -2};
+  ALTER = {sharp: 1, flat: -1, natural: 0, dblsharp: 2, dblflat: -2},
+  ALTER_SIGN = {'-2': '__', '-1': '_', 0: '=', 1: '^', 2: '^^'};
 function keyAlters(key) {
   const alters = {};
   for (const a of key?.accidentals || []) alters[a.note.toUpperCase()] = ALTER[a.acc] ?? 0;
@@ -286,9 +287,8 @@ function keyAlters(key) {
 function midiToken(midi, key, explicit = false) {
   const alters = keyAlters(key),
     pc = ((midi % 12) + 12) % 12,
-    sign = {'-2': '__', '-1': '_', 0: '=', 1: '^', 2: '^^'},
     token = (letter, alter, written) =>
-      (written ? sign[alter] : '') +
+      (written ? ALTER_SIGN[alter] : '') +
       pitchToken(letter + 7 * Math.round((midi - 60 - LETTER_SEMIS[letter] - alter) / 12));
   for (let letter = 0; letter < 7; letter++) {
     const alter = alters['CDEFGAB'[letter]] || 0;
@@ -312,6 +312,40 @@ function addChordPitch(text, core) {
     parts.core[0] === '[' ? (parts.core.match(/^\[(?:\^{1,2}|_{1,2}|=)?[A-Ga-g][,']*(\d*\/*\d*)/) || [])[1] : '';
   const inner = parts.core[0] === '[' ? parts.core.slice(1, -1) : parts.core;
   return parts.pre + '[' + inner + core + (each || '') + ']' + text.slice(parts.pre.length + parts.core.length);
+}
+// An accidental carries to later notes on the same line or space in the bar, so writing ^C before a plain C would
+// make that C sharp too. Widen an edit (replace source[start..end] with text) to write out the accidental each later
+// note had, so only the edited note changes: '^C' over the rest in 'z C' gives '^C =C'. select is a range in the edited
+// source, moved to match. Returns {end, text, select}.
+function keepLaterPitches(source, start, end, text, select) {
+  const later = (src, from) => noteLabels(ABCJS.parseOnly(src)[0], 'letters').filter(l => l.at >= from),
+    was = later(source, end),
+    base = start + text.length;
+  let tail = source.slice(end);
+  // One pass per changed note, earliest first: writing out its accidental puts back the pitch of those after it.
+  for (let pass = 0; pass < 8; pass++) {
+    const now = later(source.slice(0, start) + text + tail, base),
+      i = now.findIndex((l, j) => String(l.written) !== String(was[j]?.written));
+    if (i < 0 || now.length !== was.length) break;
+    const k = now[i].written.findIndex((m, j) => m !== was[i].written[j]),
+      parts = noteParts(tail.slice(now[i].at - base)),
+      pitch = parts && [...parts.core.matchAll(/(\^{1,2}|_{1,2}|=)?([A-Ga-g])([,']*)/g)][k];
+    if (!pitch || pitch[1]) break;
+    const step =
+        'CDEFGAB'.indexOf(pitch[2].toUpperCase()) +
+        (pitch[2] === pitch[2].toLowerCase() ? 7 : 0) +
+        [...pitch[3]].reduce((n, c) => n + (c === "'" ? 7 : -7), 0),
+      sign = ALTER_SIGN[was[i].written[k] - (60 + 12 * Math.floor(step / 7) + LETTER_SEMIS[((step % 7) + 7) % 7])],
+      at = now[i].at - base + parts.pre.length + pitch.index;
+    if (!sign) break;
+    tail = tail.slice(0, at) + sign + tail.slice(at);
+    select = select && select.map(x => (x > base + at ? x + sign.length : x));
+  }
+  // Replace only up to the last change: the rest of the source is as it was.
+  const old = source.slice(end);
+  let same = 0;
+  while (same < old.length && old[old.length - 1 - same] === tail[tail.length - 1 - same]) same++;
+  return {end: source.length - same, text: text + tail.slice(0, tail.length - same), select};
 }
 function melodyBars(tune) {
   const bars = [],

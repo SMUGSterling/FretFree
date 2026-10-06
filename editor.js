@@ -73,6 +73,8 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
   }
   const entry = noteSources.get(element.startChar);
   if (!entry) return;
+  // A note picked on the score takes chord pitches from now on, not the note entered last.
+  lastEntry = null;
   const area = $('abc'),
     start = entry.element.startChar,
     end = entry.element.endChar;
@@ -698,9 +700,21 @@ function showGhost(t) {
     `Draw: click to add ${pitchName(t.written)} (${lengthName(beatLength()) || 'one-beat'} note) · right-click a note to change it`;
 }
 // Pass hear (a source position in the new text) to sound that note (Hear notes).
-function applyNoteEdit(start, end, text, select = text ? [start, start + text.length] : null, hear = null) {
+// With keep, notes after the edit keep their pitch: an accidental it writes would otherwise carry to them.
+function applyNoteEdit(
+  start,
+  end,
+  text,
+  select = text ? [start, start + text.length] : null,
+  hear = null,
+  keep = false
+) {
   flushTyping();
   const area = $('abc');
+  if (keep)
+    try {
+      ({end, text, select} = keepLaterPitches(area.value, start, end, text, select));
+    } catch {}
   area.setRangeText(text, start, end, 'end');
   dirty = true;
   $('save-status').textContent = 'Unsaved changes';
@@ -1081,8 +1095,8 @@ function selectEntry(entry) {
   scoreClick(display, 0, [], {}, null);
   renderedTune?.engraver?.rangeHighlight?.(display.startChar, display.endChar);
 }
-// Insert a token at a source position with spacing, then select it (and sound it, with hear).
-function insertAt(at, token, select = true, hear = false) {
+// Insert a token at a source position with spacing, then select it (and sound it, with hear). Returns where it starts.
+function insertAt(at, token, select = true, hear = false, keep = false) {
   const v = $('abc').value,
     before = at > 0 && !/\s/.test(v[at - 1]) ? ' ' : '',
     after = v[at] && !/\s/.test(v[at]) ? ' ' : '';
@@ -1091,8 +1105,10 @@ function insertAt(at, token, select = true, hear = false) {
     at,
     before + token + after,
     select ? [at + before.length, at + before.length + token.length] : null,
-    hear ? at + before.length : null
+    hear ? at + before.length : null,
+    keep
   );
+  return at + before.length;
 }
 // Where a new note goes with nothing selected: before the closing bar line, or at the end of the music.
 function tuneEndPosition() {
@@ -1115,18 +1131,31 @@ function insertNote(letter, sel) {
   insertCore(letterToken(letter, entryPosition(sel)), sel);
 }
 // Enter a pitch (or z), without a length, at the input length: a selected rest keeps whatever time is left and
-// stays selected so the next note continues; otherwise the note goes after the selection and is selected.
+// stays selected so the next note continues; otherwise the note goes after the selection and is selected. An
+// accidental on the new note does not change later notes in the bar (see keepLaterPitches).
 function insertCore(core, sel) {
-  if (fillsRest(sel)) {
-    fillRest(sel.entry, core);
-    return;
-  }
-  const at = entryPosition(sel);
-  insertAt(at, core + lengthText((inputLength ?? beatLength()) / unitLengthAt(at)), true, core !== 'z');
+  const keep = /^[_^=]/.test(core),
+    at = entryPosition(sel),
+    start = fillsRest(sel)
+      ? fillRest(sel.entry, core, undefined, keep)
+      : insertAt(at, core + lengthText((inputLength ?? beatLength()) / unitLengthAt(at)), true, core !== 'z', keep);
+  rememberEntry(core === 'z' ? null : start);
 }
-// The note a chord pitch goes on: the selected note, or the note just before a selected rest. Entering a note over a
-// rest moves the selection on to what is left of the rest, so this is the note just entered.
+// The note the last entry wrote, while the source and selection are as that entry left them. Filling a rest
+// completely passes the selection on to the next note, so chord pitches still need to know the note just entered.
+let lastEntry = null;
+function rememberEntry(at) {
+  lastEntry = at == null ? null : {at, source: $('abc').value, range: String(selectedRange)};
+}
+// The note a chord pitch goes on: the note just entered, the selected note, or the note just before a selected rest.
+// Entering a note over a rest moves the selection on to what is left of the rest, so that is the note just entered.
 function chordTarget(sel) {
+  if (lastEntry && lastEntry.source === $('abc').value && lastEntry.range === String(selectedRange)) {
+    // abcjs can start a note at the space before it (after a bar line), so look for the note that holds the offset.
+    const {at} = lastEntry,
+      entry = scoreNotes().find(n => n.element.startChar <= at && at < n.element.endChar && n.element.pitches?.length);
+    if (entry) return entry === sel?.entry ? sel : {entry, display: displayOf(entry)};
+  }
   if (!sel || sel.entry.element.pitches?.length) return sel;
   const voice = sel.entry.key.split(':').slice(0, 2).join(':') + ':',
     notes = scoreNotes().filter(n => n.key.startsWith(voice)),
@@ -1147,7 +1176,8 @@ function addToChord(sel, core) {
     target === sel
       ? [start, start + text.length]
       : [sel.entry.element.startChar + delta, sel.entry.element.endChar + delta];
-  applyNoteEdit(start, end, text, select, start);
+  applyNoteEdit(start, end, text, select, start, /^[_^=]/.test(core));
+  rememberEntry(target === sel ? null : start);
   return true;
 }
 // Shift+A–G: the letter's pitch just above the chord's top note (in written pitch), as the key signature spells it.
@@ -1173,7 +1203,8 @@ function letterToken(letter, at) {
 }
 // Put a note (its pitch token, without a length) at the start of a rest, taking its length from the rest; the rest
 // keeps what is left, which stays selected so the next note continues. A filled rest passes the selection on.
-function fillRest(rest, core, wanted = inputLength ?? beatLength()) {
+// Returns where the note starts.
+function fillRest(rest, core, wanted = inputLength ?? beatLength(), keep = false) {
   const v = $('abc').value,
     start = rest.element.startChar,
     end = rest.element.endChar,
@@ -1189,8 +1220,8 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength()) {
     const remainder = 'z' + lengthText(left / unit),
       text = lead + token + ' ' + remainder + trail,
       at = start + lead.length + token.length + 1;
-    applyNoteEdit(start, end, text, [at, at + remainder.length], start + lead.length);
-    return;
+    applyNoteEdit(start, end, text, [at, at + remainder.length], start + lead.length, keep);
+    return start + lead.length;
   }
   const text = lead + token + trail,
     delta = text.length - (end - start),
@@ -1202,8 +1233,10 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength()) {
     next
       ? [next.element.startChar + delta, next.element.endChar + delta]
       : [start + lead.length, start + lead.length + token.length],
-    start + lead.length
+    start + lead.length,
+    keep
   );
+  return start + lead.length;
 }
 function scoreKey(e) {
   if (e.metaKey || e.altKey || (e.ctrlKey && !/^Arrow(Up|Down)$/.test(e.key)) || !$('note-menu').hidden) return false;

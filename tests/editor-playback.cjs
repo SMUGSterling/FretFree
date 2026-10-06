@@ -263,6 +263,47 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   tap(66);
   assert.equal(body(), 'D E F |]', 'With nothing selected the note goes at the end');
   assert.equal(run("$('warnings').textContent"), '');
+  // Filling a rest completely passes the selection on to the next note, but chord pitches still go on the note just
+  // entered, until the student picks a note on the score.
+  open('X:1\nM:4/4\nL:1/4\nK:C\nC D z F |]');
+  run('selectEntry(scoreNotes()[2])');
+  tap(64);
+  tap(67, true);
+  assert.equal(body(), 'C D [EG] F |]', 'A chord after a filled rest goes on the note just entered');
+  tap(72, true);
+  assert.equal(body(), 'C D [EGc] F |]', 'And it keeps growing');
+  run('stepHistory(-1);stepHistory(-1);stepHistory(-1);selectEntry(scoreNotes()[2])');
+  tap(64);
+  run("scoreKey({key:'G',shiftKey:true})");
+  assert.equal(body(), 'C D [EG] F |]', 'Shift+G after a filled rest adds to the note just entered');
+  run('selectEntry(scoreNotes()[3])');
+  tap(72, true);
+  assert.equal(body(), 'C D [EG] [Fc] |]', 'A note picked on the score takes the next chord pitch');
+  open('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | z G A B |]');
+  run('selectEntry(scoreNotes()[4])');
+  tap(64);
+  tap(67, true);
+  assert.equal(body(), 'C D E F | [EG] G A B |]', 'Also for a note just after a bar line');
+  // An accidental from the piano does not change later notes of that pitch in the bar: they get their own accidental.
+  const midis = () => run("parseMidi(midiBytes($('abc').value)).notes.map(n=>n.note).join()");
+  open('X:1\nM:4/4\nL:1/4\nK:C\nz C D C | C4 |]');
+  tap(61);
+  assert.equal(body(), '^C =C D C | C4 |]', 'The C after a new C sharp keeps its pitch');
+  assert.equal(midis(), '61,60,62,60,60');
+  run('stepHistory(-1)');
+  assert.equal(body(), 'z C D C | C4 |]', 'One undo step');
+  open('X:1\nM:4/4\nL:1/4\nK:G\nE z F2 |]');
+  tap(65, true);
+  assert.equal(body(), '[E=F] z ^F2 |]', 'A chord pitch with an accidental keeps later notes too');
+  run('selectEntry(scoreNotes()[1])');
+  tap(70);
+  assert.equal(body(), '[E=F] ^A ^F2 |]', 'Notes of other letters are left alone');
+  // The status line names the key as the key signature in force spells it.
+  open('X:1\nM:4/4\nL:1/4\nK:C\nC D [K:Bb] z2 |]');
+  run('selectEntry(scoreNotes()[2])');
+  tap(70);
+  assert.equal(body(), 'C D [K:Bb] B z |]');
+  assert.match(run("$('selection-status').textContent"), /^Added B♭4\./, 'Named for the key after an inline K:');
   w.localStorage.setItem('fretfree-piano', 'false');
   run('applyStoredSettings()');
   assert.equal(run("$('piano').hidden"), true, 'Restored settings apply the piano setting');
