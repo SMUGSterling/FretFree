@@ -8,30 +8,30 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <script src="theme.js?v=2186301c973a"></script>
-    <link rel="stylesheet" href="style.css?v=2186301c973a" />
-    <script defer src="vendor/abcjs-basic-min.js?v=2186301c973a"></script>
-    <script defer src="vendor/qrcode.js?v=2186301c973a"></script>
-    <script defer src="catalog.js?v=2186301c973a"></script>
-    <script defer src="catalog-expanded.js?v=2186301c973a"></script>
-    <script defer src="score-tools.js?v=2186301c973a"></script>
-    <script defer src="rights-tools.js?v=2186301c973a"></script>
-    <script defer src="musicxml.js?v=2186301c973a"></script>
-    <script defer src="catalog-licensed.js?v=2186301c973a"></script>
-    <script defer src="catalog-lieder.js?v=2186301c973a"></script>
-    <script defer src="catalog-quartets.js?v=2186301c973a"></script>
-    <script defer src="catalog-pgh.js?v=2186301c973a"></script>
-    <script defer src="catalog-skills.js?v=2186301c973a"></script>
-    <script defer src="prompts.js?v=2186301c973a"></script>
-    <script defer src="shared.js?v=2186301c973a"></script>
-    <script defer src="library.js?v=2186301c973a"></script>
-    <script defer src="backup.js?v=2186301c973a"></script>
-    <script defer src="editor.js?v=2186301c973a"></script>
-    <script defer src="palette.js?v=2186301c973a"></script>
-    <script defer src="playback.js?v=2186301c973a"></script>
-    <script defer src="keyboard.js?v=2186301c973a"></script>
-    <script defer src="assignments.js?v=2186301c973a"></script>
-    <script defer src="app.js?v=2186301c973a"></script>
+    <script src="theme.js?v=a6c853cbc92f"></script>
+    <link rel="stylesheet" href="style.css?v=a6c853cbc92f" />
+    <script defer src="vendor/abcjs-basic-min.js?v=a6c853cbc92f"></script>
+    <script defer src="vendor/qrcode.js?v=a6c853cbc92f"></script>
+    <script defer src="catalog.js?v=a6c853cbc92f"></script>
+    <script defer src="catalog-expanded.js?v=a6c853cbc92f"></script>
+    <script defer src="score-tools.js?v=a6c853cbc92f"></script>
+    <script defer src="rights-tools.js?v=a6c853cbc92f"></script>
+    <script defer src="musicxml.js?v=a6c853cbc92f"></script>
+    <script defer src="catalog-licensed.js?v=a6c853cbc92f"></script>
+    <script defer src="catalog-lieder.js?v=a6c853cbc92f"></script>
+    <script defer src="catalog-quartets.js?v=a6c853cbc92f"></script>
+    <script defer src="catalog-pgh.js?v=a6c853cbc92f"></script>
+    <script defer src="catalog-skills.js?v=a6c853cbc92f"></script>
+    <script defer src="prompts.js?v=a6c853cbc92f"></script>
+    <script defer src="shared.js?v=a6c853cbc92f"></script>
+    <script defer src="library.js?v=a6c853cbc92f"></script>
+    <script defer src="backup.js?v=a6c853cbc92f"></script>
+    <script defer src="editor.js?v=a6c853cbc92f"></script>
+    <script defer src="palette.js?v=a6c853cbc92f"></script>
+    <script defer src="playback.js?v=a6c853cbc92f"></script>
+    <script defer src="keyboard.js?v=a6c853cbc92f"></script>
+    <script defer src="assignments.js?v=a6c853cbc92f"></script>
+    <script defer src="app.js?v=a6c853cbc92f"></script>
   </head>
   <body>
     <header>
@@ -539,10 +539,10 @@
               ><kbd>→</kbd> select · <kbd>#</kbd> <kbd>-</kbd> <kbd>=</kbd> sharp, flat, natural · <kbd>+</kbd> tie ·
               <kbd>Z</kbd> respell (C♯ to D♭) · <kbd>;</kbd> <kbd>:</kbd> <kbd>&gt;</kbd> <kbd>"</kbd>
               <kbd>^</kbd> staccato, tenuto, accent, marcato, fermata · <kbd>K</kbd> chord symbol · <kbd>S</kbd> slur ·
-              <kbd>|</kbd> bar line · <kbd>Delete</kbd> · <kbd>Space</kbd> play from the note (or double-click it) ·
-              <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> or Shift+click select more · <kbd>Ctrl</kbd>+<kbd>A</kbd> all ·
-              <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd> <kbd>V</kbd> copy, cut, paste · <kbd>Ctrl</kbd>+<kbd>D</kbd>
-              duplicate · <kbd>[</kbd> <kbd>]</kbd> halve, double lengths
+              <kbd>T</kbd> triplet · <kbd>|</kbd> bar line · <kbd>Delete</kbd> · <kbd>Space</kbd> play from the note (or
+              double-click it) · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> or Shift+click select more ·
+              <kbd>Ctrl</kbd>+<kbd>A</kbd> all · <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd> <kbd>V</kbd> copy, cut, paste
+              · <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>[</kbd> <kbd>]</kbd> halve, double lengths
             </p>
             <div class="selection-tools" role="group" aria-label="Selected notes">
               <button id="select-left" aria-label="Select left" title="Move the end of the selection left (Shift+←)">
@@ -562,7 +562,8 @@
             <p class="small" id="selection-status" role="status">
               Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag
               up/down to change pitch; use the toolbar above the score or right-click a note for length, accidentals,
-              ties, articulations, dynamics and chord symbols. Playback speed leaves the score tempo unchanged.
+              ties, tuplets, grace notes, articulations, dynamics and chord symbols. Playback speed leaves the score
+              tempo unchanged.
             </p>
             <div id="prompt-check" class="prompt-check" aria-live="polite" hidden></div>
             <div id="bar-check" class="bar-check" aria-live="polite" hidden></div>
@@ -598,6 +599,37 @@
                 ><button data-palette="to-rest" title="Change the note to a rest of the same length">
                   <span class="glyph" aria-hidden="true">𝄽</span> Rest
                 </button>
+              </div>
+              <div role="group" aria-label="Tuplets">
+                <button
+                  data-palette="tuplet:3"
+                  aria-label="Triplet"
+                  aria-keyshortcuts="T"
+                  title="Triplet: three notes in the time of two (T)"
+                >
+                  <span class="glyph" aria-hidden="true">³</span> Triplet</button
+                ><button
+                  data-palette="tuplets"
+                  aria-expanded="false"
+                  aria-controls="palette-tuplets"
+                  title="Duplets, quintuplets, sextuplets and septuplets"
+                >
+                  Tuplet <span class="glyph" aria-hidden="true">▾</span>
+                </button>
+              </div>
+              <div id="palette-tuplets" class="palette-more" hidden>
+                <div role="group" aria-label="Other tuplets">
+                  <button data-palette="tuplet:2" title="Two notes in the time of three, on a dotted note">
+                    Duplet
+                  </button>
+                  <button data-palette="tuplet:5" title="Five notes in the time of four (three on a dotted note)">
+                    Quintuplet
+                  </button>
+                  <button data-palette="tuplet:6" title="Six notes in the time of four">Sextuplet</button>
+                  <button data-palette="tuplet:7" title="Seven notes in the time of four (six on a dotted note)">
+                    Septuplet
+                  </button>
+                </div>
               </div>
               <div role="group" aria-label="Accidental">
                 <button data-palette="acc:^" aria-label="Sharp" aria-keyshortcuts="#" title="Sharp (#)">♯</button
@@ -707,6 +739,15 @@
                   title="Trill line over the selected notes, or to the next note"
                 >
                   <span class="glyph trill-glyph" aria-hidden="true">tr</span> Trill line
+                </button>
+              </div>
+              <div role="group" aria-label="Grace notes">
+                <button data-palette="grace" title="Grace note one step above the note; press again to remove it">
+                  Grace</button
+                ><button data-palette="grace:slash" title="Slashed grace note (acciaccatura)">Slashed</button
+                ><button data-palette="grace:up" aria-label="Grace up" title="Move the grace note up">Grace ↑</button
+                ><button data-palette="grace:down" aria-label="Grace down" title="Move the grace note down">
+                  Grace ↓
                 </button>
               </div>
               <div role="group" aria-label="More marks">
@@ -982,18 +1023,19 @@
           Use ABC notation, the note buttons, the notation toolbar above the score, the on-screen piano keys, or a USB
           MIDI keyboard (in browsers with Web MIDI, such as Chrome and Edge) to write music and chords, with
           articulations, dynamics and ornaments; dynamics, accents and staccato change the playback. Select some notes
-          and press S for a slur, or add a crescendo, diminuendo or trill line from the toolbar. Press Z or Respell to
-          respell a note, such as C♯ as D♭. Add chord symbols to make a lead sheet; they play as an accompaniment, which
-          the Chords switch turns off. Hear each note as you enter it, play the score with built-in synthesized tones,
-          change tempo, play with a swing feel, loop playback, and export ABC, MIDI, SVG, or MusicXML (for MuseScore,
-          Noteflight, Finale, Sibelius or Dorico). Open MusicXML from those programs too, converted to ABC on your
-          device. Select a passage to copy, cut, paste or repeat it, or to move or lengthen every note in it at once.
-          Zoom in for larger notation, or choose how many measures go on each line. Use Print / PDF to produce a paper
-          score, in large print if you zoom in first. Transpose a score or a few measures by any interval or to a new
-          key. Choose a B♭ or E♭ instrument for written-pitch transposition with concert-pitch playback, and tick
-          Concert pitch to see the notes as they sound. Classroom colors and letters in noteheads help beginners read,
-          and both print. Theme in the header switches to a dark theme, or follows your device; the score stays black on
-          white unless you tick Dark paper, and prints stay black on white.
+          and press S for a slur, or add a crescendo, diminuendo or trill line from the toolbar. Press T to turn a note
+          into a triplet, or pick another tuplet from the toolbar, and type letters to fill it; add grace notes with
+          Grace. Press Z or Respell to respell a note, such as C♯ as D♭. Add chord symbols to make a lead sheet; they
+          play as an accompaniment, which the Chords switch turns off. Hear each note as you enter it, play the score
+          with built-in synthesized tones, change tempo, play with a swing feel, loop playback, and export ABC, MIDI,
+          SVG, or MusicXML (for MuseScore, Noteflight, Finale, Sibelius or Dorico). Open MusicXML from those programs
+          too, converted to ABC on your device. Select a passage to copy, cut, paste or repeat it, or to move or
+          lengthen every note in it at once. Zoom in for larger notation, or choose how many measures go on each line.
+          Use Print / PDF to produce a paper score, in large print if you zoom in first. Transpose a score or a few
+          measures by any interval or to a new key. Choose a B♭ or E♭ instrument for written-pitch transposition with
+          concert-pitch playback, and tick Concert pitch to see the notes as they sound. Classroom colors and letters in
+          noteheads help beginners read, and both print. Theme in the header switches to a dark theme, or follows your
+          device; the score stays black on white unless you tick Dark paper, and prints stay black on white.
         </p>
         <h2>Privacy and school access</h2>
         <p>

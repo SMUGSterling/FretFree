@@ -1,3 +1,12 @@
+# Tuplets and grace notes · 2026-10-06
+
+- With a note or rest selected, **T** or the notation toolbar's **Triplet** button splits it into a triplet, and the **Tuplet** menu next to it into a duplet, quintuplet, sextuplet or septuplet. The note becomes the first member and rests fill the others: a quarter in `L:1/4` becomes `(3C/2 z/2 z/2`, and a half note `(5:4:5C/2 z/2 z/2 z/2 z/2`. The first rest is selected, and each letter fills one rest at its own length and moves on, so typing D and E completes the triplet and the bar stays full. A rest split up keeps the tuplet opening when it is filled.
+- Plain notes split into 3, 5, 6 or 7 in the time of 2 or 4; dotted notes into 2 in the time of 3, 5 in the time of 3 or 7 in the time of 6. A count that would give ordinary note lengths (a duplet on a plain note, 3 or 6 on a dotted one) is marked unavailable and the status line says why, as it does for broken rhythm, multi-measure rests and range selections. The Triplet button and the menu light up while the note is in a tuplet; the same count again takes the tuplet off while its other members are rests, and another count splits it again.
+- **Grace** adds a grace note one step above the note (`{d}` before `c`), **Slashed** makes it a slashed grace note (`{/d}`), and **Grace ↑** and **Grace ↓** move only the grace note; ↑↓ still move the note itself. A lit Grace takes it off, and so does **Remove grace** in the note menu, which has the same tuplet counts and grace items. Grace notes go before slur and tuplet openings, and tuplet openings before a staccato dot, so abcjs reads every mark on the note.
+- Each change is one undo step. Tuplets and grace notes parse without warnings and play in time; a grace note takes its time from the start of its note, as abcjs plays it. `tupletRatio`, `makeTuplet`, `tupletMembers`, `tupletSpec`, `graceOf`, `setGrace` and `moveGrace` in score-tools.js do the editing.
+
+---
+
 # Slurs, hairpins and trill lines · 2026-10-06
 
 - Select notes and press **S** to slur them; **S** again takes the slur off. With one note selected the slur goes to the next note in the same voice, and **S** on that note again removes it.

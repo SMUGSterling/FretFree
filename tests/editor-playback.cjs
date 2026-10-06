@@ -801,17 +801,22 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.equal(run("$('palette').getAttribute('role')"), 'toolbar');
   pick(0);
   assert.equal(pressed(), 'len:0.25 dot tie acc:^', 'A dotted quarter G sharp tied to the next note');
-  assert.equal(disabled(), 'beam:join beam:break', 'A dotted quarter has no flag to beam');
+  assert.equal(
+    disabled(),
+    'tuplet:3 tuplet:6 beam:join beam:break grace:up grace:down',
+    'A dotted quarter has no flag to beam and already splits into 3'
+  );
   pick(2);
   assert.equal(pressed(), 'len:0.125 acc:', 'A plain eighth');
-  assert.equal(disabled(), 'beam:break', 'Break needs a beamed note');
+  assert.equal(disabled(), 'tuplet:2 beam:break grace:up grace:down', 'Break needs a beamed note');
   pick(7);
   assert.equal(pressed(), 'len:0.25 dot', 'A rest shows only its length (here a dotted quarter)');
   assert.equal(
     disabled(),
-    'tie to-rest acc:^ acc:_ acc:= acc: respell beam:join beam:break deco:staccato deco:tenuto deco:accent deco:marcato ' +
-      'line:slur line:trill deco:wedge deco:upbow deco:downbow deco:breath deco:trill deco:mordent deco:turn deco:arpeggio',
-    'A rest takes only a dynamic, a fermata or a hairpin'
+    'tie to-rest tuplet:3 tuplet:6 acc:^ acc:_ acc:= acc: respell beam:join beam:break deco:staccato deco:tenuto ' +
+      'deco:accent deco:marcato line:slur line:trill grace grace:slash grace:up grace:down deco:wedge deco:upbow ' +
+      'deco:downbow deco:breath deco:trill deco:mordent deco:turn deco:arpeggio',
+    'A rest takes only a dynamic, a fermata, a hairpin or a tuplet'
   );
   press('acc:^');
   assert.equal(body(), '^G3- G E F G A | B4 z3 z |]', 'Disabled buttons change nothing');
@@ -851,10 +856,11 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   run("scoreKey({key:'Escape'})");
   assert.equal(
     disabled(),
-    'dot tie to-rest acc:^ acc:_ acc:= acc: respell beam:join beam:break deco:staccato deco:tenuto deco:accent ' +
-      'deco:marcato deco:fermata dyn:ppp dyn:pp dyn:p dyn:mp dyn:mf dyn:f dyn:ff dyn:fff dyn:sfz chord line:slur ' +
-      'line:crescendo line:diminuendo line:trill deco:wedge ' +
-      'deco:upbow deco:downbow deco:breath deco:trill deco:mordent deco:turn deco:arpeggio delete'
+    'dot tie to-rest tuplet:3 tuplet:2 tuplet:5 tuplet:6 tuplet:7 acc:^ acc:_ acc:= acc: respell beam:join ' +
+      'beam:break deco:staccato deco:tenuto deco:accent deco:marcato deco:fermata dyn:ppp dyn:pp dyn:p dyn:mp dyn:mf ' +
+      'dyn:f dyn:ff dyn:fff dyn:sfz chord line:slur line:crescendo line:diminuendo line:trill grace grace:slash ' +
+      'grace:up grace:down deco:wedge deco:upbow deco:downbow deco:breath deco:trill deco:mordent deco:turn ' +
+      'deco:arpeggio delete'
   );
   assert.equal(pressed(), 'len:0.5', 'Shows the length new notes get: the last one chosen (key 6 above)');
   run('inputLength=null;updatePalette()');
@@ -898,7 +904,7 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
     beams = () => run("$('notation').querySelectorAll('.abcjs-beam-elem').length");
   open('G A B c|]');
   pick(0);
-  assert.equal(disabled(), 'beam:join beam:break', 'Quarter notes have no flags to beam');
+  assert.equal(disabled(), 'tuplet:2 beam:join beam:break grace:up grace:down', 'Quarter notes have no flags to beam');
   press('beam:join');
   assert.equal(body(), 'G A B c|]', 'Join leaves quarter notes apart');
   assert.equal(status(), 'Only eighth notes and shorter can be beamed.');
@@ -1037,9 +1043,10 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   pick(4);
   assert.equal(
     disabled(),
-    'tie to-rest acc:^ acc:_ acc:= acc: respell beam:join beam:break deco:staccato deco:tenuto deco:accent deco:marcato ' +
-      'line:slur line:trill deco:wedge deco:upbow deco:downbow deco:breath deco:trill deco:mordent deco:turn deco:arpeggio',
-    'A rest offers a dynamic, a fermata and a hairpin'
+    'tie to-rest tuplet:2 acc:^ acc:_ acc:= acc: respell beam:join beam:break deco:staccato deco:tenuto deco:accent ' +
+      'deco:marcato line:slur line:trill grace grace:slash grace:up grace:down deco:wedge deco:upbow deco:downbow ' +
+      'deco:breath deco:trill deco:mordent deco:turn deco:arpeggio',
+    'A rest offers a dynamic, a fermata, a hairpin and a tuplet'
   );
   run('dirty=false');
   key(';');
@@ -1143,7 +1150,8 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.equal(select(0, 2), 3);
   assert.equal(
     disabled(),
-    'to-rest acc: respell beam:join beam:break',
+    'to-rest tuplet:3 tuplet:2 tuplet:5 tuplet:6 tuplet:7 acc: respell beam:join beam:break grace grace:slash ' +
+      'grace:up grace:down',
     'Buttons that cannot act on every note are off'
   );
   press('to-rest');
@@ -1408,6 +1416,207 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
     assert.equal(pressed(), 'line:trill');
     assert.equal(run("$('warnings').textContent"), '');
   }
+}
+// Tuplets and grace notes: T and the toolbar's Triplet button split the selected note into a triplet with rests that
+// letters fill, the Tuplet menu into 2, 5, 6 or 7; the same count takes it off again. Grace, Slashed and Grace ↑↓
+// add, slash and move a grace note. Each is one undo step, from the keys, the toolbar and the note menu alike.
+{
+  const open = (music, head = 'M:4/4\nL:1/4') =>
+      run(`dirty=false;openScore({abc:${JSON.stringify(`X:1\n${head}\nK:C\n` + music)},instrument:'Flute'})`),
+    body = () => run("$('abc').value.split('\\n').slice(4).join('\\n').trim()"),
+    pick = i => run(`selectEntry(scoreNotes()[${i}])`),
+    key = k => run(`scoreKey({key:${JSON.stringify(k)}})`),
+    press = action => run(`document.querySelector('[data-palette="${action}"]').click()`),
+    group = prefix =>
+      run(
+        `[...document.querySelectorAll('#palette [data-palette^="${prefix}"][aria-pressed="true"]')].map(b=>b.dataset.palette).join(' ')`
+      ),
+    disabled = prefix =>
+      run(
+        `[...document.querySelectorAll('#palette [data-palette^="${prefix}"][aria-disabled="true"]')].map(b=>b.dataset.palette).join(' ')`
+      ),
+    status = () => run("$('selection-status').textContent"),
+    selected = () => run("$('abc').value.slice(...selectedRange).trim()"),
+    clean = () => {
+      assert.equal(run("$('warnings').textContent"), '', 'abcjs reads it without warnings');
+      assert.match(run("$('bar-check').textContent"), /Every bar has the right number of beats/);
+    };
+  open('C D E F | G4 |]');
+  pick(0);
+  assert.equal(key('T'), true, 'T is handled on the score');
+  assert.equal(body(), '(3C/2 z/2 z/2 D E F | G4 |]', 'Triplet on a quarter in L:1/4');
+  assert.equal(status(), 'Triplet: type letters to fill its rests.');
+  assert.equal(selected(), 'z/2', 'The first rest is selected');
+  assert.equal(group('tuplet:'), 'tuplet:3', 'Triplet is pressed on a member');
+  assert.equal(run("$('notation').querySelectorAll('.abcjs-triplet').length"), 1, 'abcjs draws the 3');
+  clean();
+  key('d');
+  assert.equal(body(), '(3C/2 D/2 z/2 D E F | G4 |]', 'D fills the first rest at its own length');
+  assert.equal(selected(), 'z/2', 'and the next rest is selected');
+  key('e');
+  assert.equal(body(), '(3C/2 D/2 E/2 D E F | G4 |]', 'E fills the last rest');
+  assert.equal(selected(), 'D', 'The note after the triplet is selected');
+  clean();
+  run('stepHistory(-1)');
+  run('stepHistory(-1)');
+  assert.equal(body(), '(3C/2 z/2 z/2 D E F | G4 |]');
+  run('stepHistory(-1)');
+  assert.equal(body(), 'C D E F | G4 |]', 'Making the triplet is one undo step');
+  run('stepHistory(1)');
+  run('stepHistory(1)');
+  // The same count takes it off while the other members are rests; once they hold notes it says what to do.
+  pick(1);
+  key('T');
+  assert.equal(body(), '(3C/2 D/2 z/2 D E F | G4 |]', 'Not taken off over a note');
+  assert.equal(status(), 'To change this triplet, turn its other notes into rests first.');
+  run('stepHistory(-1)');
+  pick(2);
+  key('t');
+  assert.equal(body(), 'C D E F | G4 |]', 'T on a member of an empty triplet puts the note back');
+  assert.equal(status(), 'Triplet removed.');
+  assert.equal(selected(), 'C');
+  // The Tuplet menu: five members totalling a half note, then a triplet in its place, from the toolbar.
+  open('C2 D2 | G4 |]');
+  pick(0);
+  assert.equal(run("$('palette-tuplets').hidden"), true, 'The Tuplet menu starts closed');
+  press('tuplets');
+  assert.equal(run("document.querySelector('[data-palette=\"tuplets\"]').getAttribute('aria-expanded')"), 'true');
+  press('tuplet:5');
+  assert.equal(body(), '(5:4:5C/2 z/2 z/2 z/2 z/2 D2 | G4 |]', 'Quintuplet on a half note: five eighths');
+  assert.equal(status(), 'Quintuplet: type letters to fill its rests.');
+  clean();
+  for (const k of 'defg') key(k);
+  assert.equal(body(), '(5:4:5C/2 D/2 E/2 F/2 G/2 D2 | G4 |]');
+  clean();
+  run('stepHistory(-1);stepHistory(-1);stepHistory(-1);stepHistory(-1)');
+  press('tuplets');
+  pick(0);
+  assert.equal(
+    run("document.querySelector('[data-palette=\"tuplets\"]').getAttribute('aria-label')"),
+    'Tuplet (this note is in a quintuplet)',
+    'The closed menu names the tuplet it holds'
+  );
+  pick(3);
+  press('tuplet:3');
+  assert.equal(body(), '(3C z z D2 | G4 |]', 'Triplet replaces the empty quintuplet');
+  assert.equal(group('tuplet:'), 'tuplet:3');
+  pick(0);
+  assert.equal(disabled('tuplet:'), 'tuplet:2', 'A duplet needs a dotted note');
+  press('tuplet:2');
+  assert.equal(status(), 'A duplet goes on a dotted note, such as a dotted quarter.');
+  assert.equal(body(), '(3C z z D2 | G4 |]');
+  // Duplets in 6/8, a rest split into a triplet (the opening stays on the first rest), marks and grace notes kept.
+  open('C3 D3 | z3 E3 |]', 'M:6/8\nL:1/8');
+  pick(0);
+  assert.equal(disabled('tuplet:'), 'tuplet:3 tuplet:6', 'A dotted note already splits into 3 and 6');
+  run(`(s=>editNote(s.entry,s.display,'tuplet:2'))(selectedNote())`);
+  assert.equal(body(), '(2C z D3 | z3 E3 |]', 'The note menu action matches');
+  key('e');
+  assert.equal(body(), '(2C E D3 | z3 E3 |]');
+  clean();
+  open('C D E F | z G3 |]');
+  pick(4);
+  key('T');
+  assert.equal(body(), 'C D E F | (3z/2 z/2 z/2 G3 |]');
+  assert.equal(selected(), '(3z/2', 'A rest split up is selected from its first member');
+  for (const k of 'gab') key(k);
+  assert.equal(body(), 'C D E F | (3G/2 A/2 B/2 G3 |]', 'Letters keep the opening');
+  clean();
+  open('"G"!f!.C D E F |]');
+  pick(0);
+  key('T');
+  assert.equal(body(), '"G"!f!(3.C/2 z/2 z/2 D E F |]', 'The opening goes before the staccato dot');
+  pick(0);
+  assert.equal(group('tuplet:'), 'tuplet:3', 'abcjs starts that note after the (3, and it still counts');
+  key('T');
+  assert.equal(body(), '"G"!f!.C D E F |]');
+  // Guards: broken rhythm, multi-measure rests, range selections, nothing selected.
+  open('C>D E F | Z |]');
+  pick(0);
+  key('T');
+  assert.equal(status(), 'Take off the broken rhythm (> or <) first.');
+  pick(1);
+  key('T');
+  assert.equal(status(), 'Take off the broken rhythm (> or <) first.', 'Either note of the pair');
+  pick(4);
+  key('T');
+  assert.equal(status(), 'A multi-measure rest cannot be split into a tuplet.');
+  run('selectNotesBetween(scoreNotes()[1],scoreNotes()[3])');
+  key('T');
+  assert.equal(status(), 'T makes one note a triplet. Select a single note for this.');
+  assert.equal(disabled('tuplet:'), 'tuplet:3 tuplet:2 tuplet:5 tuplet:6 tuplet:7');
+  run("scoreKey({key:'Escape'})");
+  run('dirty=false');
+  key('T');
+  assert.equal(status(), 'Select a note on the score first.');
+  assert.equal(run('dirty'), false, 'Nothing changed');
+  // Grace notes: Grace adds one a step above, Grace ↑↓ move only it, Slashed slashes it, a lit Grace removes it.
+  open('c D E F | G4 |]');
+  pick(0);
+  assert.equal(disabled('grace'), 'grace:up grace:down', 'Nothing to move yet');
+  press('grace');
+  assert.equal(body(), '{d}c D E F | G4 |]');
+  assert.equal(status(), 'Grace note added.');
+  assert.equal(group('grace'), 'grace');
+  assert.equal(selected(), '{d}c', 'The note stays selected');
+  clean();
+  press('grace:up');
+  assert.equal(body(), '{e}c D E F | G4 |]', 'Grace ↑ moves only the grace note');
+  press('grace:down');
+  press('grace:down');
+  assert.equal(body(), '{c}c D E F | G4 |]');
+  key('ArrowUp');
+  assert.equal(body(), '{c}d D E F | G4 |]', '↑ still moves the note, not its grace note');
+  key('ArrowDown');
+  press('grace:slash');
+  assert.equal(body(), '{/c}c D E F | G4 |]');
+  assert.equal(group('grace'), 'grace grace:slash');
+  press('grace:slash');
+  assert.equal(body(), '{c}c D E F | G4 |]', 'Slashed again takes the slash off');
+  press('grace');
+  assert.equal(body(), 'c D E F | G4 |]', 'A lit Grace removes it');
+  assert.equal(status(), 'Grace note removed.');
+  run('stepHistory(-1)');
+  assert.equal(body(), '{c}c D E F | G4 |]', 'Each press is one undo step');
+  // The note menu offers the same, with Remove grace once the note has one; a triplet keeps the grace note first.
+  pick(1);
+  run('openNoteMenu(selectedNote().entry, selectedNote().display, 10, 10)');
+  assert.equal(
+    run(
+      "[...$('note-menu').querySelectorAll('[data-edit^=tuplet],[data-edit^=grace]')].map(b=>b.dataset.edit).join(' ')"
+    ),
+    'tuplet:2 tuplet:3 tuplet:5 tuplet:6 tuplet:7 grace grace:slash'
+  );
+  run("$('note-menu').querySelector('[data-edit=\"grace:slash\"]').click()");
+  assert.equal(body(), '{c}c {/E}D E F | G4 |]');
+  assert.equal(status(), 'Slashed grace note added.');
+  pick(1);
+  run('openNoteMenu(selectedNote().entry, selectedNote().display, 10, 10)');
+  run("$('note-menu').querySelector('[data-edit=\"tuplet:3\"]').click()");
+  assert.equal(body(), '{c}c {/E}(3D/2 z/2 z/2 E F | G4 |]', 'The grace note goes before the triplet');
+  clean();
+  pick(1);
+  run('openNoteMenu(selectedNote().entry, selectedNote().display, 10, 10)');
+  assert.equal(
+    run("$('note-menu').querySelector('[data-edit=\"tuplet:3\"]').getAttribute('aria-checked')"),
+    'true',
+    'The note menu shows the triplet'
+  );
+  run("$('note-menu').querySelector('[data-edit=\"grace:remove\"]').click()");
+  assert.equal(body(), '{c}c (3D/2 z/2 z/2 E F | G4 |]');
+  pick(2);
+  assert.equal(disabled('grace'), 'grace grace:slash grace:up grace:down', 'Rests take no grace note');
+  press('grace');
+  assert.equal(status(), 'Grace notes go before notes, not rests.');
+  // Written pitch: on a B♭ clarinet letters fill the triplet in written pitch and the source stays concert.
+  run(
+    `dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nC D E F |]')},instrument:'Clarinet in B♭'})`
+  );
+  pick(0);
+  key('T');
+  key('e');
+  key('f');
+  assert.equal(body(), '(3C/2 D/2 E/2 D E F |]', 'Written E and F are concert D and E');
 }
 // Master bus and note audition: every note and click reaches the speakers through one gain node that follows the
 // Volume slider live; entering, selecting or moving a note sounds it once at concert pitch when Hear notes is on.
@@ -2338,7 +2547,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests, taking off and splitting again, duplets in 6/8, rests, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch), chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

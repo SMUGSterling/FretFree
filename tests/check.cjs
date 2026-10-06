@@ -257,6 +257,117 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     );
   }
 }
+// Tuplets: makeTuplet splits a note into p members lasting as long as it did, the note first and rests after; plain
+// notes go p in the time of the power of two below p, dotted notes p in the time of 3 or 6.
+{
+  assert.deepEqual(
+    [3, 5, 6, 7, 2, 4].map(p => context.tupletRatio(1 / 4, p)),
+    [2, 4, 4, 4, null, null],
+    'Plain quarter: 3:2, 5:4, 6:4, 7:4; 2 and 4 are ordinary lengths'
+  );
+  assert.deepEqual(
+    [2, 4, 5, 7, 3, 6].map(p => context.tupletRatio(3 / 8, p)),
+    [3, 3, 3, 6, null, null],
+    'Dotted quarter: 2:3, 4:3, 5:3, 7:6; 3 and 6 are ordinary lengths'
+  );
+  assert.equal(context.tupletRatio(1 / 3, 3), null, 'A tuplet member length is not split again');
+  for (const [text, p, unit, expected] of [
+    ['C', 3, 1 / 4, '(3C/2 z/2 z/2'],
+    ['C2 ', 5, 1 / 4, '(5:4:5C/2 z/2 z/2 z/2 z/2 '],
+    ['C', 6, 1 / 8, '(6:4:6C/4 z/4 z/4 z/4 z/4 z/4'],
+    ['C', 7, 1 / 8, '(7:4:7C/4 z/4 z/4 z/4 z/4 z/4 z/4'],
+    ['C3', 2, 1 / 8, '(2C z'],
+    ['C3', 5, 1 / 8, '(5:3:5C z z z z'],
+    ['C3', 7, 1 / 8, '(7:6:7C/2 z/2 z/2 z/2 z/2 z/2 z/2'],
+    ['"G"!f!.C-', 3, 1 / 4, '"G"!f!(3.C/2 z/2 z/2'],
+    ['{e}(C', 3, 1 / 4, '{e}((3C/2 z/2 z/2'],
+    ['C)', 3, 1 / 4, '(3C/2) z/2 z/2'],
+    ['[CE]2', 3, 1 / 8, '(3[CE] z z'],
+    ['[C2E2]', 3, 1 / 8, '(3[CE] z z'],
+    ['z', 3, 1 / 4, '(3z/2 z/2 z/2'],
+    ['C', 2, 1 / 4, null],
+    ['C3', 3, 1 / 8, null],
+    ['C/16', 3, 1 / 4, null],
+    ['C>', 3, 1 / 4, null],
+    ['(3C', 3, 1 / 4, null],
+    ['x', 3, 1 / 4, null],
+    ['Z', 3, 1 / 4, null]
+  ])
+    assert.equal(context.makeTuplet(text, p, unit), expected, `makeTuplet(${text}, ${p}, ${unit})`);
+  assert.deepEqual({...context.tupletSpec('"G"(3:2:3C')}, {index: 3, text: '(3:2:3', p: 3});
+  assert.equal(context.tupletSpec('(C'), null, 'A slur opening is not a tuplet');
+  // Every tuplet parses cleanly, has p members and lasts as long as the note, so the bar stays full.
+  for (const [note, unit, meter] of [
+    ['C', '1/4', '4/4'],
+    ['C2', '1/4', '4/4'],
+    ['C', '1/8', '2/4'],
+    ['"G"!f!.C', '1/4', '4/4'],
+    ['C3', '1/8', '6/8'],
+    ['z3', '1/8', '6/8']
+  ])
+    for (const p of [2, 3, 5, 6, 7]) {
+      const made = context.makeTuplet(note, p, 1 / +unit.slice(2));
+      if (!made) continue;
+      const abc = `X:1\nM:${meter}\nL:${unit}\nK:C\n${made} ${note}|]`,
+        tune = ABCJS.parseOnly(abc)[0],
+        notes = tune.lines[0].staff[0].voices[0].filter(e => e.el_type === 'note'),
+        lengths = context.effectiveDurations(context.scoreEvents(tune));
+      assert.ok(!tune.warnings?.length, `${made}: ${tune.warnings}`);
+      assert.equal(notes[0].startTriplet, p, `${made} starts a ${p}-tuplet`);
+      assert.ok(notes[p - 1].endTriplet && !notes[p].startTriplet, `${made} has ${p} members`);
+      const sum = notes.slice(0, p).reduce((s, n) => s + lengths.get(n), 0);
+      assert.ok(Math.abs(sum - lengths.get(notes[p])) < 1e-9, `${made} lasts as long as ${note}`);
+    }
+  // Filled in, the tuplets play at even fractions of the note: a triplet of eighths in a quarter beat, five eighths in
+  // a half note and a duplet across a dotted quarter.
+  const starts = abc =>
+    context
+      .parseMidi(context.midiBytes(abc))
+      .notes.map(n => +n.start.toFixed(3))
+      .join(' ');
+  assert.equal(starts('X:1\nM:4/4\nL:1/4\nQ:1/4=60\nK:C\n(3C/2 D/2 E/2 F G A|]'), '0 0.333 0.667 1 2 3');
+  assert.equal(starts('X:1\nM:4/4\nL:1/4\nQ:1/4=60\nK:C\n(5:4:5C/2 D/2 E/2 F/2 G/2 A2|]'), '0 0.4 0.8 1.2 1.6 2');
+  assert.equal(starts('X:1\nM:6/8\nL:1/8\nQ:3/8=60\nK:C\n(2C E F3|]'), '0 0.5 1');
+}
+// Grace notes: setGrace adds one a step above the note's top pitch, before slur and tuplet openings; it sets or
+// clears the slash, or removes the group. moveGrace moves only the grace notes.
+{
+  for (const [text, grace, expected] of [
+    ['c', {}, '{d}c'],
+    ['C', {slashed: true}, '{/D}C'],
+    ['B,2', {}, '{C}B,2'],
+    ['[CEg]', {}, '{a}[CEg]'],
+    ['"G"!f!(3C/2', {}, '"G"!f!{D}(3C/2'],
+    ['.C', {}, '.{D}C'],
+    ['{d}C', {slashed: true}, '{/d}C'],
+    ['{/ga}C', {slashed: false}, '{ga}C'],
+    ['{/d}C ', null, 'C '],
+    ['{d}z', null, 'z'],
+    ['z', {}, 'z'],
+    ['|', {}, '|']
+  ])
+    assert.equal(context.setGrace(text, grace), expected, `setGrace(${text}, ${JSON.stringify(grace)})`);
+  assert.equal(context.moveGrace('{d}C', 1), '{e}C');
+  assert.equal(context.moveGrace('"G"{/^ga}C2-', -1), '"G"{/^fg}C2-', 'Only the grace notes move');
+  assert.equal(context.moveGrace('C', 1), 'C');
+  assert.deepEqual({...context.graceOf('!f!{/d}C')}, {index: 3, text: '{/d}', slashed: true});
+  assert.equal(context.graceOf('C'), null);
+  for (const text of ['c', 'C', '"G"!f!(3C/2 z/2 z/2', '!f!(3.C/2 z/2 z/2']) {
+    for (const slashed of [false, true]) {
+      const abc = `X:1\nM:4/4\nL:1/4\nK:C\n${context.setGrace(text, {slashed})} D|]`,
+        tune = ABCJS.parseOnly(abc)[0],
+        [note] = tune.lines[0].staff[0].voices[0].filter(e => e.el_type === 'note');
+      assert.ok(!tune.warnings?.length, `${abc}: ${tune.warnings}`);
+      assert.equal(note.gracenotes?.length, 1, `${text}: the note has the grace note`);
+      assert.equal(!!note.gracenotes[0].acciaccatura, slashed, `${text}: slashed ${slashed}`);
+    }
+  }
+  // The grace note sounds first and takes its time from the start of the note; the beat after it is on time.
+  const played = context.parseMidi(context.midiBytes('X:1\nM:4/4\nL:1/4\nQ:1/4=60\nK:C\n{d}c {/d}c c c|]')).notes;
+  assert.equal(played.map(n => n.note).join(' '), '74 72 74 72 72 72', 'Each grace note sounds before its note');
+  assert.ok(played[0].start === 0 && played[1].start > 0 && played[1].start < 1, 'Grace then note in beat 1');
+  assert.ok(Math.abs(played[2].start - 1) < 1e-3 && Math.abs(played[4].start - 2) < 1e-3, 'Later beats on time');
+}
 // Slurs, hairpins and trill lines over a run of notes: toggleSlur and toggleSpan write ( … ) and the !<(! … !<)!,
 // !>(! … !>)! and !trill(! … !trill)! decorations, take them off again, replace the lines of the same family they
 // cover or cross (keeping a slur around them and lines that only meet them at an end note), and keep each note's text
@@ -2053,7 +2164,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, swing feel (tempo text kept with other text, a written-out beat that keeps the tempo, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits) and MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, swing feel (tempo text kept with other text, a written-out beat that keeps the tempo, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits) and MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files).'
     )
   )
   .catch(e => {

@@ -228,6 +228,107 @@ function setDynamic(text, dyn) {
   if (!placed) items.push(`!${dyn}!`);
   return items.join('') + parts.rest;
 }
+// Tuplets. makeTuplet splits one note or rest into p members that together last as long as it did: the note becomes
+// the first member and rests fill the others, so typing letters fills them. A plain note (whole, half, quarter …)
+// splits into p in the time of the power of two below p (3:2, 5:4, 6:4, 7:4); a dotted note into p in the time of
+// 3 or 6 (2:3, 4:3, 5:3, 7:6). A count that only gives ordinary lengths (2 on a plain note, 3 or 6 on a dotted
+// one) makes no tuplet, and neither does any other length. tupletRatio gives q for a length in whole notes.
+function tupletRatio(whole, p) {
+  const exact = k => Math.abs(k - Math.round(k)) < 1e-9,
+    base = exact(Math.log2(whole)) ? 1 : exact(Math.log2(whole / 3)) ? 3 : 0;
+  if (!base || !Number.isInteger(p) || p < 2 || p > 9) return null;
+  let q = base;
+  while (q * 2 < p) q *= 2;
+  return exact(Math.log2(p / q)) ? null : q;
+}
+// (3 and (2 are written short, as ABC reads them by default (3 in the time of 2, 2 in the time of 3); others in full.
+const TUPLET_DEFAULT_Q = {2: 3, 3: 2, 4: 3, 6: 2, 8: 3},
+  TUPLET_ITEM = /^\((\d+)(?::(\d*))?(?::(\d*))?$/;
+// The tuplet opening in a note's prefix ({index, text, p}), or null.
+function tupletSpec(text) {
+  const pre = noteParts(text)?.pre;
+  let index = 0;
+  for (const item of pre?.match(PRE_ITEM) || []) {
+    const m = TUPLET_ITEM.exec(item);
+    if (m) return {index, text: item, p: +m[1]};
+    index += item.length;
+  }
+  return null;
+}
+// A note's length in multiples of L: from noteParts. A chord's length can also be written on its pitches ([C2E2]);
+// the first pitch's counts, as abcjs reads it.
+function partsLength(parts) {
+  const inner = parts.core[0] === '[' ? parts.core.match(/[A-Ga-g][,']*(\d*\/*\d*)/)?.[1] : '';
+  return parts.length * (inner ? lengthValue(inner) : 1);
+}
+// The members of a p-tuplet made from a note or rest of L: unit (a whole-note fraction), first to last, or null when
+// it makes none (see tupletRatio), a member would be shorter than a 64th, or the note already starts a tuplet or is
+// half of a broken rhythm. The first member keeps the note's marks, chord symbol, grace notes and slurs, and loses
+// its tie; the opening goes just before its pitch, but before a staccato dot, since abcjs reads .( as a dotted slur.
+function tupletMembers(text, p, unit) {
+  const parts = noteParts(String(text).trimEnd());
+  if (!parts || parts.core === 'x' || /[<>]/.test(parts.post) || tupletSpec(text)) return null;
+  const length = partsLength(parts),
+    q = tupletRatio(length * unit, p),
+    member = length / (q || 1);
+  if (!q || member * unit < 1 / 64 - 1e-9) return null;
+  const first = editNoteText(String(text).trimEnd(), {length: member, tie: false}),
+    pre = noteParts(first).pre,
+    items = pre.match(PRE_ITEM) || [];
+  let at = items.length;
+  while (at > 0 && items[at - 1] === '.') at--;
+  items.splice(at, 0, TUPLET_DEFAULT_Q[p] === q ? `(${p}` : `(${p}:${q}:${p}`);
+  return [items.join('') + first.slice(pre.length), ...Array(p - 1).fill('z' + lengthText(member))];
+}
+// The tuplet as text, with the note's trailing space after its last member: (3C/2 z/2 z/2 for a quarter in L:1/4.
+function makeTuplet(text, p, unit) {
+  const members = tupletMembers(text, p, unit);
+  return members && members.join(' ') + String(text).match(/\s*$/)[0];
+}
+// Grace notes: the {…} group before a note ({index, text, slashed}), or null. setGrace adds one ({d} one step above
+// the note's top pitch, {/d} when slashed), sets or clears the slash of the group already there, or removes it
+// (grace null). A new group goes before slur and tuplet openings, since abcjs starts a note's text after any mark
+// that follows a (, and otherwise just before the pitch. Rests get none.
+function graceOf(text) {
+  const pre = noteParts(text)?.pre;
+  let index = 0;
+  for (const item of pre?.match(PRE_ITEM) || []) {
+    if (item[0] === '{') return {index, text: item, slashed: item[1] === '/'};
+    index += item.length;
+  }
+  return null;
+}
+function setGrace(text, grace) {
+  const parts = noteParts(text);
+  if (!parts) return text;
+  const items = parts.pre.match(PRE_ITEM) || [],
+    at = items.findIndex(i => i[0] === '{'),
+    rest = String(text).slice(parts.pre.length);
+  if (!grace) {
+    if (at >= 0) items.splice(at, 1);
+  } else if (at >= 0) items[at] = (grace.slashed ? '{/' : '{') + items[at].replace(/^\{\/?/, '');
+  else if (/^[zx]/.test(parts.core)) return text;
+  else {
+    const top = Math.max(
+        ...[...parts.core.matchAll(/([A-Ga-g])([,']*)/g)].map(
+          ([, letter, marks]) =>
+            'CDEFGAB'.indexOf(letter.toUpperCase()) +
+            (letter === letter.toLowerCase() ? 7 : 0) +
+            [...marks].reduce((n, c) => n + (c === "'" ? 7 : -7), 0)
+        )
+      ),
+      open = items.findIndex(i => i[0] === '(');
+    items.splice(open < 0 ? items.length : open, 0, `{${grace.slashed ? '/' : ''}${pitchToken(top + 1)}}`);
+  }
+  return items.join('') + rest;
+}
+// Move only the grace notes by diatonic steps, keeping their accidentals, lengths and slash.
+function moveGrace(text, steps) {
+  const g = graceOf(text);
+  if (!g) return text;
+  const s = String(text);
+  return s.slice(0, g.index) + '{' + moveNoteText(g.text.slice(1, -1), steps) + '}' + s.slice(g.index + g.text.length);
+}
 // Slurs, hairpins and trill lines over a run of notes in one voice. A slur is ( just before the first note's pitch
 // and ) after the last note's length and tie; a crescendo, diminuendo or trill line is a start decoration (!<(!,
 // !>(!, !trill(!) on its first note and an end one (!<)!, !>)!, !trill)!) on its last, before the pitch. abcjs

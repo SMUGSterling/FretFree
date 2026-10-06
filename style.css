@@ -1712,6 +1712,7 @@ input[type='range'] {
   display: contents;
 }
 .palette [data-palette='more'].in-use,
+.palette [data-palette='tuplets'].in-use,
 .palette [data-palette='chord'].in-use {
   border-color: var(--green);
   box-shadow: inset 0 -3px 0 var(--green);
