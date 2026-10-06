@@ -1326,6 +1326,52 @@ const {chromium} = require('playwright'),
     await page.mouse.click(x, y);
     assert.equal(await tbody(), 'K:F# C D G E F |]', "Drawn notes follow the written key's letters");
   }
+  // Concert pitch view on a B-flat clarinet: the checkbox (reached by keyboard) shows the source's key and pitches,
+  // and drawn and typed notes are the pitches shown. The ABC itself does not change.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nM:4/4\nL:1/4\nK:F\nF G A B |]', instrument: 'Clarinet in B♭'});
+    // openScore scrolls smoothly to the top; stop that, so the page holds still for the mouse below.
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  assert.ok(await page.locator('#concert-pitch-option').isVisible(), 'Concert pitch is offered for a B-flat clarinet');
+  // A note menu still open when the view changes from the keyboard (no mouse press closed it) closes too.
+  await rightClick(page.locator('#notation .abcjs-notehead').nth(1));
+  assert.ok(await page.locator('#note-menu').isVisible());
+  await page.locator('#concert-pitch').focus();
+  await page.keyboard.press('Space');
+  assert.ok(await page.locator('#note-menu').isHidden(), 'Changing the view closes the note menu');
+  assert.equal(await tbody(), 'K:F F G A B |]', 'Turning on Concert pitch leaves the ABC alone');
+  assert.match(await page.locator('#score-caption').textContent(), /Concert pitch shown/);
+  const signature = () =>
+    page.evaluate(() =>
+      [...$('notation').querySelectorAll('.abcjs-key-signature path')].map(p => p.dataset.name).join()
+    );
+  assert.equal(await signature(), 'accidentals.flat', 'The concert key, F major, is drawn');
+  {
+    const [x, y] = await page.evaluate(() => {
+      $('notation').scrollIntoView({block: 'center', behavior: 'instant'});
+      const svg = $('notation').querySelector('svg'),
+        st = renderedTune.engraver.staffgroups[0].staffs[0],
+        [a, b] = renderedTune.engraver.selectables.slice(1, 3).map(s => {
+          const r = s.svgEl.getBBox();
+          return r.x + r.width / 2;
+        });
+      const p = new DOMPoint((a + b) / 2, st.absoluteY - (6 * 93) / 24).matrixTransform(svg.getScreenCTM());
+      return [p.x, p.y];
+    });
+    await page.mouse.click(x, y);
+    assert.equal(await tbody(), 'K:F F G B A B |]', 'The middle line drawn in concert view is concert B-flat');
+  }
+  await page.click('#draw-mode');
+  await page.locator('#notation .abcjs-note .abcjs-notehead').nth(0).click();
+  await page.keyboard.press('c');
+  assert.equal(await tbody(), 'K:F F C G B A B |]', 'A typed C is concert C, the nearest C to concert F');
+  await page.locator('#concert-pitch-option').click();
+  assert.equal(await page.locator('#concert-pitch').isChecked(), false, 'A click on the label turns it off');
+  assert.equal(await signature(), 'accidentals.sharp', 'Off, the written key is G major');
+  assert.match(await page.locator('#score-caption').textContent(), /Written pitch shown/);
+  await page.click('#draw-mode');
   await page.click('#draw-mode');
   await page.evaluate(() => {
     dirty = false;
@@ -1712,6 +1758,124 @@ const {chromium} = require('playwright'),
   await page.evaluate(() => {
     dirty = false;
   });
+  // MIDI keyboards, with a mocked Web MIDI input: the toggle works by keyboard, notes 100 ms apart enter one after
+  // another, notes within 40 ms make a chord, held keys light the piano, Z respells; without Web MIDI there is no
+  // toggle, and a refusal says so.
+  {
+    const tab = await browser.newPage({viewport: {width: 1280, height: 900}});
+    tab.on('pageerror', e => errors.push(e.message));
+    tab.on('dialog', dialog => dialog.accept());
+    await tab.addInitScript(() => {
+      const input = {name: 'Practice Keys', state: 'connected', onmidimessage: null};
+      window.__midi = {input, asked: [], deny: false};
+      navigator.requestMIDIAccess = async options => {
+        __midi.asked.push(options);
+        if (__midi.deny) throw new DOMException('Permission denied', 'NotAllowedError');
+        return (__midi.access = {inputs: new Map([['in', input]]), onstatechange: null});
+      };
+      window.__note = (on, ...notes) =>
+        notes.forEach(note => input.onmidimessage?.({data: [on ? 0x90 : 0x80, note, on ? 100 : 0]}));
+    });
+    await tab.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    const body = () => tab.evaluate(() => $('abc').value.trim().split('\n').pop());
+    await tab.evaluate(() => {
+      openScore({abc: 'X:1\nT:MIDI\nM:4/4\nL:1/4\nK:C\nz4 | z4 |]', instrument: 'Flute'});
+      show('studio');
+      selectEntry(scoreNotes()[0]);
+    });
+    assert.equal(await tab.locator('#midi-toggle').isVisible(), true, 'The toggle shows with Web MIDI');
+    await tab.focus('#midi-toggle');
+    await tab.keyboard.press('Enter');
+    await tab.waitForFunction(() => $('midi-toggle').getAttribute('aria-pressed') === 'true');
+    assert.match(await tab.locator('#midi-status').textContent(), /^MIDI input from Practice Keys\./);
+    assert.deepEqual(await tab.evaluate(() => __midi.asked), [{sysex: false}], 'No SysEx is requested');
+    await tab.click('#piano-toggle');
+    const entered = text => tab.waitForFunction(text => $('abc').value.includes(text), text);
+    await tab.evaluate(() => ((window.__t = performance.now()), __note(true, 60)));
+    assert.equal(await tab.locator('[data-piano-midi="60"].down').count(), 1, 'A held MIDI key lights the piano');
+    // 64 comes 100 ms after 60 on the page's clock, after the 40 ms chord timer (due first, so it fires first).
+    await tab.evaluate(
+      () =>
+        new Promise(done =>
+          setTimeout(() => done((__note(false, 60), __note(true, 64))), __t + 100 - performance.now())
+        )
+    );
+    await entered('C E z2');
+    await tab.evaluate(() => __note(false, 64));
+    assert.equal(await body(), 'C E z2 | z4 |]', 'Note-on 60 then 64, 100 ms apart, enter C then E');
+    assert.equal(await tab.locator('#piano-keys .down').count(), 0, 'Released keys go dark');
+    await tab.evaluate(() => {
+      __note(true, 67);
+      setTimeout(() => __note(true, 60), 5);
+      setTimeout(() => __note(true, 64), 10);
+    });
+    await entered('[CEG]');
+    assert.deepEqual(
+      await tab.evaluate(() => [...document.querySelectorAll('#piano-keys .down')].map(k => +k.dataset.pianoMidi)),
+      [60, 64, 67],
+      "The held chord's keys are lit"
+    );
+    await tab.evaluate(() => __note(false, 60, 64, 67));
+    assert.equal(await body(), 'C E [CEG] z | z4 |]', '60, 64 and 67 within 40 ms enter [CEG]');
+    // Black keys come in as sharps in C major; Z respells the note just entered from the keyboard.
+    await tab.evaluate(() => __note(true, 61));
+    await entered('^C |');
+    await tab.evaluate(() => __note(false, 61));
+    assert.equal(await body(), 'C E [CEG] ^C | z4 |]');
+    await tab.evaluate(() => selectEntry(scoreNotes()[3]));
+    await tab.keyboard.press('z');
+    assert.equal(await body(), 'C E [CEG] _D | z4 |]', 'Z turns ^C into _D');
+    await tab.keyboard.press('z');
+    assert.equal(await body(), 'C E [CEG] ^C | z4 |]', 'and back');
+    await tab.click('#midi-toggle');
+    await tab.waitForFunction(() => $('midi-toggle').getAttribute('aria-pressed') === 'false');
+    assert.equal(await tab.evaluate(() => __midi.input.onmidimessage), null, 'Off stops listening');
+    // At phone width the toggle and status fit.
+    await tab.setViewportSize({width: 390, height: 844});
+    await tab.click('#midi-toggle');
+    await tab.waitForFunction(() => $('midi-toggle').getAttribute('aria-pressed') === 'true');
+    assert.equal(
+      await tab.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      true,
+      'No sideways scroll at 390 px'
+    );
+    await tab.close();
+    // Without a hardware keyboard (a phone or tablet), the palette's Respell button does what Z does.
+    const touch = await browser.newPage({viewport: {width: 390, height: 844}, hasTouch: true, isMobile: true});
+    touch.on('pageerror', e => errors.push(e.message));
+    await touch.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    await touch.evaluate(() => {
+      openScore({abc: 'X:1\nT:Respell\nM:4/4\nL:1/4\nK:C\n^C D E F |]', instrument: 'Flute'});
+      show('studio');
+      selectEntry(scoreNotes()[0]);
+    });
+    const touchBody = () => touch.evaluate(() => $('abc').value.trim().split('\n').pop());
+    await touch.tap('[data-palette="respell"]');
+    assert.equal(await touchBody(), '_D =D E F |]', 'Tapping Respell turns ^C into _D');
+    assert.match(await touch.locator('#selection-status').textContent(), /^Respelled as D♭\./);
+    await touch.tap('[data-palette="respell"]');
+    assert.equal(await touchBody(), '^C D E F |]', 'and back, with the natural gone again');
+    await touch.close();
+    const denied = await browser.newPage({viewport: {width: 1280, height: 900}});
+    denied.on('pageerror', e => errors.push(e.message));
+    await denied.addInitScript(() => {
+      navigator.requestMIDIAccess = async () => {
+        throw new DOMException('Permission denied', 'NotAllowedError');
+      };
+    });
+    await denied.goto((process.env.FRETFREE_URL || 'http://localhost:8000') + '#studio');
+    await denied.click('#midi-toggle');
+    await denied.waitForFunction(() => $('midi-status').textContent);
+    assert.match(await denied.locator('#midi-status').textContent(), /^MIDI access was blocked\./);
+    assert.equal(await denied.locator('#midi-toggle').getAttribute('aria-pressed'), 'false');
+    await denied.close();
+    const without = await browser.newPage({viewport: {width: 1280, height: 900}});
+    without.on('pageerror', e => errors.push(e.message));
+    await without.addInitScript(() => delete Navigator.prototype.requestMIDIAccess);
+    await without.goto((process.env.FRETFREE_URL || 'http://localhost:8000') + '#studio');
+    assert.equal(await without.locator('#midi-toggle').isHidden(), true, 'No toggle without Web MIDI');
+    await without.close();
+  }
   // Zoom and measures per line. Zoom only narrows the staff width, so at 70% and 200% a native click still selects the
   // note, a 40 px drag still moves it four staff steps, and the draw ghost and click land on the line under the
   // pointer. 200% about doubles the noteheads and still fits a phone; 4 per line engraves eight bars as two systems
@@ -2049,10 +2213,42 @@ const {chromium} = require('playwright'),
   const mxl = await page.evaluate(() => __downloads[0]);
   assert.match(mxl.name, /^Ode-to-Joy\.musicxml$/);
   assert.match(mxl.data, /<work-title>Ode to Joy<\/work-title>[\s\S]*<rights>[^<]*CC0-1\.0/);
+  // MusicXML import at phone width, from the keyboard: Enter on the open button picks a MuseScore .mxl, which the
+  // browser's own DecompressionStream unpacks; the parts are engraved and the page still fits the screen.
+  await page.evaluate(() => (dirty = false));
+  const importButton = page.locator('#import');
+  await importButton.scrollIntoViewIfNeeded();
+  const importBox = await importButton.boundingBox();
+  assert.ok(importBox && importBox.x >= 0 && importBox.x + importBox.width <= 390, 'Open button fits a phone screen');
+  // Other tabs were opened above, and headless Chromium shows a file chooser only from the tab in front. The tab can
+  // take a moment to come to the front under load, so Enter is pressed again if no chooser opened.
+  let chooser = null;
+  for (let attempt = 0; !chooser && attempt < 3; attempt++) {
+    await page.bringToFront();
+    await importButton.focus();
+    [chooser] = await Promise.all([
+      page.waitForEvent('filechooser', {timeout: 10000}).catch(() => null),
+      page.keyboard.press('Enter')
+    ]);
+  }
+  assert.ok(chooser, 'Enter on the open button opens the file chooser');
+  await chooser.setFiles(require('node:path').join(__dirname, 'fixtures/morning-walk.mxl'));
+  await page.waitForFunction(() => /^Imported from MusicXML/.test($('save-status').textContent));
+  assert.equal(
+    await page.locator('#save-status').textContent(),
+    'Imported from MusicXML (3 parts, 5 measures). Save or export to keep a copy.'
+  );
+  assert.equal(await page.inputValue('#title'), 'Morning Walk');
+  assert.match(await page.inputValue('#abc'), /^%%score 1 2 \{\(3 4\) \| 5\}$/m);
+  assert.equal(await page.locator('#notation .abcjs-staff').count(), 8, 'Two systems of four staves');
+  assert.ok(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    'An imported score fits a phone screen'
+  );
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
+    'PASS: zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

@@ -145,6 +145,7 @@ $('palette').addEventListener('click', e => {
   }
   if (blocked) $('selection-status').textContent = blocked;
   else if (action.startsWith('len:')) chooseLength(+action.slice(4), state.sel);
+  else if (action === 'respell') respellSelected(state.sel);
   else {
     const before = $('abc').value,
       toggled = {

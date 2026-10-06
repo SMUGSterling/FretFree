@@ -1,8 +1,8 @@
 'use strict';
-// On-screen piano: a keyboard under the score for entering notes and chords by tapping keys. Keys are written pitch,
-// as the staff shows them; the ABC source gets concert pitch, spelled for the key in force. Shift+tap, Shift+Enter,
-// or holding one key while tapping others adds the pitch to the selected note as a chord. The selected note's keys
-// are lit, and keys light while playback sounds them.
+// On-screen piano: a keyboard under the score for entering notes and chords by tapping keys. Keys are the pitches the
+// staff shows (written pitch, or concert in Concert pitch view); the ABC source gets concert pitch, spelled for the
+// key in force. Shift+tap, Shift+Enter, or holding one key while tapping others adds the pitch to the selected note
+// as a chord. The selected note's keys are lit, and keys light while playback sounds them.
 const PIANO_LOW = 36,
   PIANO_HIGH = 96,
   PIANO_SHARPS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'],
@@ -126,15 +126,20 @@ function pianoName(midi, note, voice) {
   );
   return (flat ? PIANO_FLATS : PIANO_SHARPS)[midi % 12] + (Math.floor(midi / 12) - 1);
 }
-// A key press: written MIDI to concert (written − the instrument's transposition), then enter the note over the
-// selected rest or after the selected note (after the last note of a range selection), or add it to the chord of
-// the selected note or the note just entered. Each is one undo step and sounds the result (Hear notes).
-function pianoPress(written, chord = false) {
+// A key press: the key's pitch as the staff shows it to concert (minus the display's transposition), then enter the
+// note over the selected rest or after the selected note (after the last note of a range selection), or add it to the
+// chord of the selected note or the note just entered. Each is one undo step and sounds the result (Hear notes). hint
+// follows the status message for a new note.
+function pianoPress(
+  written,
+  chord = false,
+  hint = 'Tap the next key to go on; Shift+tap or hold a key to add to the chord.'
+) {
   if (renderedSource !== $('abc').value) {
     clearTimeout(renderTimer);
     render();
   }
-  const concert = written - (instruments[currentInstrument()].shift || 0),
+  const concert = written - displayShift(),
     sel = entrySelection(),
     target = chord && chordTarget(sel),
     note = target || sel,
@@ -148,8 +153,7 @@ function pianoPress(written, chord = false) {
     return;
   }
   insertCore(pianoCore(concert, entryPosition(sel), voice), sel);
-  $('selection-status').textContent =
-    `Added ${name}. Tap the next key to go on; Shift+tap or hold a key to add to the chord.`;
+  $('selection-status').textContent = `Added ${name}. ${hint}`;
 }
 function setPiano(on, remember = true) {
   const piano = $('piano'),
@@ -275,4 +279,97 @@ if ($('piano-keys')) {
       }
     }).observe($('piano-scroll'));
   setPiano(storage.get(KEYS.piano, false) === true, false);
+}
+// MIDI keyboards (Web MIDI), where the browser has it: step entry from every connected input. Keys are the pitch the
+// staff shows, like the piano strip's, and go in through pianoPress at the current length. Notes that start within MIDI_CHORD_MS of
+// the first make a chord, entered lowest first. Only note-on and note-off are read; SysEx is never requested.
+const MIDI_CHORD_MS = 40;
+let midiAccess = null,
+  midiOn = false,
+  midiAsking = false,
+  midiPending = [],
+  midiTimer = null;
+const midiSupported = () => typeof navigator.requestMIDIAccess === 'function';
+function midiStatus(text) {
+  const status = $('midi-status');
+  if (!status) return;
+  status.textContent = text;
+  status.hidden = !text;
+}
+// Attach to every input, or detach and close the ports when off so that other apps can have the keyboard (setting
+// the handler opened them). Name the connected ones in the status line.
+function listenMidi() {
+  const inputs = midiAccess ? [...midiAccess.inputs.values()] : [];
+  for (const input of inputs) {
+    input.onmidimessage = midiOn ? midiMessage : null;
+    if (!midiOn) Promise.resolve(input.close?.()).catch(() => {});
+  }
+  if (!midiOn) return;
+  const names = inputs.filter(i => i.state !== 'disconnected').map(i => i.name || 'MIDI keyboard');
+  midiStatus(
+    names.length
+      ? `MIDI input from ${listWords(names)}. Play a note or chord to add it.`
+      : 'No MIDI keyboard found. Plug one in and it will show here.'
+  );
+}
+async function setMidi(on) {
+  const toggle = $('midi-toggle');
+  if (!toggle || midiAsking) return;
+  clearTimeout(midiTimer);
+  midiPending = [];
+  $('piano-keys')
+    ?.querySelectorAll('.midi-down')
+    .forEach(k => k.classList.remove('midi-down', 'down'));
+  if (on && !midiAccess) {
+    midiAsking = true;
+    midiStatus('Asking the browser for MIDI access…');
+    try {
+      midiAccess = await navigator.requestMIDIAccess({sysex: false});
+    } catch (e) {
+      midiStatus(
+        /Security|NotAllowed/.test(e?.name)
+          ? 'MIDI access was blocked. Allow MIDI devices for this site in the browser settings, then try again.'
+          : 'MIDI input could not start in this browser.'
+      );
+      on = false;
+    }
+    midiAsking = false;
+  }
+  midiOn = on;
+  toggle.setAttribute('aria-pressed', on);
+  if (midiAccess) midiAccess.onstatechange = on ? listenMidi : null;
+  listenMidi();
+  if (!on && midiAccess) midiStatus('');
+}
+// Channel 10 is for drums (the pads on many small keyboards), so its notes are not entered.
+function midiMessage(e) {
+  const [status, note, velocity] = e.data || [];
+  if (note == null || (status & 0x0f) === 9) return;
+  const type = status & 0xf0,
+    key = pianoKey(note);
+  if (type === 0x90 && velocity > 0) {
+    key?.classList.add('down', 'midi-down');
+    if (!midiPending.length) midiTimer = setTimeout(midiEnter, MIDI_CHORD_MS);
+    midiPending.push(note);
+  } else if (type === 0x80 || type === 0x90) key?.classList.remove('down', 'midi-down');
+}
+// Enter the waiting group: the lowest note as a note, the others into its chord. Playing along while the score
+// plays, or away from the Compose view, enters nothing.
+function midiEnter() {
+  const notes = [...new Set(midiPending)].sort((a, b) => a - b);
+  midiPending = [];
+  midiTimer = null;
+  if (!midiOn || !notes.length || $('studio')?.hidden) return;
+  if (playing) {
+    midiStatus('Stop playback to enter notes from the MIDI keyboard.');
+    return;
+  }
+  if (!$('note-menu').hidden) closeNoteMenu();
+  notes.forEach((note, i) => pianoPress(note, i > 0, 'Play the next note or chord to go on.'));
+  if (notes.length > 1) $('selection-status').textContent = 'Added a chord. Play the next note or chord to go on.';
+  listenMidi();
+}
+if ($('midi-toggle')) {
+  $('midi-toggle').hidden = !midiSupported();
+  $('midi-toggle').onclick = () => setMidi(!midiOn);
 }
