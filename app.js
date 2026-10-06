@@ -180,9 +180,11 @@ $('instrument').onchange = () => {
   instrumentShown = currentInstrument();
   changed();
 };
-// Concert pitch view is display only: the source, playback and the undo history stay as they are.
+// Concert pitch view is display only: the source, playback and the undo history stay as they are. An open note menu
+// points into the old drawing, so it closes first.
 $('concert-pitch').onchange = () => {
   storage.set(KEYS.concertPitch, $('concert-pitch').checked);
+  closeNoteMenu();
   clearTimeout(renderTimer);
   render();
 };

@@ -1098,7 +1098,7 @@ function brokenPair(entry) {
   return null;
 }
 function openNoteMenu(entry, display, x, y) {
-  menuEntry = {entry, display};
+  menuEntry = {entry, display, written: renderedWritten};
   const isRest = !entry.element.pitches?.length,
     text = transposing()
       ? writtenNote(display).text
@@ -1271,7 +1271,9 @@ $('note-menu').addEventListener('click', e => {
   if (!b || !picked) return;
   e.stopPropagation();
   closeNoteMenu();
-  if (renderedSource !== $('abc').value) {
+  // The menu's note offsets belong to the drawing it was opened on. A new instrument or Concert pitch view draws
+  // other text from the same source, so the source alone does not show that they are stale.
+  if (renderedSource !== $('abc').value || picked.written !== writtenABC()) {
     clearTimeout(renderTimer);
     render();
     toast('Score updated. Right-click the note again.');
@@ -2366,14 +2368,15 @@ function updatePromptCheck(shown) {
     return;
   }
   // Goals are written pitch (a B-flat clarinet asked for G major writes in G), so Concert pitch view checks a written
-  // copy of the score.
-  if (concertView()) shown = ABCJS.parseOnly(writtenABC(instrumentShift()))[0];
+  // copy of the score and says so above the checklist.
+  const concert = concertView();
+  if (concert) shown = ABCJS.parseOnly(writtenABC(instrumentShift()))[0];
   // A teacher's assignment may have instructions and no goals; then there is no checklist.
   const goals = checkPrompt(prompt, melodyBars(shown)),
     done = goals.length > 0 && goals.every(g => g.ok);
   box.hidden = false;
   box.classList.toggle('done', done);
-  box.innerHTML = `<div class="prompt-check-head"><strong>${prompt.level === 'Custom' ? 'Assignment' : 'Writing prompt'} · ${esc(prompt.title)}</strong>${goals.length ? `<span class="small">${goals.filter(g => g.ok).length} of ${goals.length} goals</span>` : ''}</div>${prompt.text ? `<p class="prompt-text">${esc(prompt.text)}</p>` : ''}${goals.length ? `<ul>${goals.map(g => `<li class="${g.ok ? 'met' : ''}"><span aria-hidden="true">${g.ok ? '✓' : '○'}</span> ${esc(g.label)}<span class="sr-only">${g.ok ? ' (done)' : ' (not yet)'}</span></li>`).join('')}</ul>` : ''}${done ? '<p class="prompt-done">All goals met. Play it back, then save it or export it to hand in.</p>' : ''}`;
+  box.innerHTML = `<div class="prompt-check-head"><strong>${prompt.level === 'Custom' ? 'Assignment' : 'Writing prompt'} · ${esc(prompt.title)}</strong>${goals.length ? `<span class="small">${goals.filter(g => g.ok).length} of ${goals.length} goals</span>` : ''}</div>${prompt.text ? `<p class="prompt-text">${esc(prompt.text)}</p>` : ''}${concert && goals.length ? '<p class="small">Goals are in written pitch; turn off Concert pitch to see the written part.</p>' : ''}${goals.length ? `<ul>${goals.map(g => `<li class="${g.ok ? 'met' : ''}"><span aria-hidden="true">${g.ok ? '✓' : '○'}</span> ${esc(g.label)}<span class="sr-only">${g.ok ? ' (done)' : ' (not yet)'}</span></li>`).join('')}</ul>` : ''}${done ? '<p class="prompt-done">All goals met. Play it back, then save it or export it to hand in.</p>' : ''}`;
 }
 $('open-prompts').onclick = () => togglePrompts($('prompt-picker').hidden);
 $('close-prompts').onclick = () => togglePrompts(false);

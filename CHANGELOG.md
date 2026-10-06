@@ -2,7 +2,9 @@
 
 - **Concert pitch** (a checkbox under Instrument) appears for Clarinet in B♭, Trumpet in B♭ and Alto sax in E♭. Ticked, the score shows the key and pitches of the ABC source, as the instrument sounds; unticked, it shows the written part as before. The caption under the score says which one is shown.
 - Typed letters, drawn notes, accidentals in the note menu and palette, Shift+letter chord notes and piano keys all enter the pitch shown, so on a B♭ clarinet the C key writes concert C in Concert pitch view and concert B♭ in the written view.
-- Playback, the ABC source and the undo history do not change when the view changes. Writing-prompt goals and new assignments still use written pitch, so a clarinet asked for G major is judged in G major in either view.
+- Note names, letters in noteheads and classroom colors follow the pitch shown.
+- Playback, the ABC source and the undo history do not change when the view changes. Writing-prompt goals and new assignments still use written pitch, so a clarinet asked for G major is judged in G major in either view; while Concert pitch is on, the checklist says its goals are in written pitch.
+- Changing the view closes an open note menu. A note menu left open while the score is redrawn for another instrument asks for a fresh right-click instead of editing the wrong note.
 - Display only, remembered in the browser (`fretfree-concert-pitch`) and included in backups. Prints and SVG exports show the score as it is on screen.
 
 ---

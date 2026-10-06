@@ -1370,6 +1370,21 @@ async function checkPlayback() {
       'and the source pitches'
     );
     assert.match(run("$('score-caption').textContent"), /Concert pitch shown/);
+    // A note menu points into the drawing it was opened on. One that outlives a redraw (here the view changes without
+    // its handler) asks for a fresh right-click instead of editing; changing the view with the checkbox closes it.
+    const menuOn = n => run(`(e => openNoteMenu(e, displayOf(e), 0, 0))(scoreNotes()[${n}])`),
+      pick = edit => run(`$('note-menu').querySelector('[data-edit="${edit}"]').click()`);
+    menuOn(1);
+    run("$('concert-pitch').checked=false;render()");
+    pick('acc:^');
+    assert.equal(run("$('abc').value"), fScore, 'A menu from the concert drawing does not edit the written one');
+    menuOn(1);
+    concertOn(true);
+    assert.equal(run("$('note-menu').hidden"), true, 'Changing the view closes the note menu');
+    menuOn(1);
+    pick('acc:^');
+    assert.equal(body(), 'F ^G A B |]', 'A menu opened on the concert drawing edits the concert note');
+    run('stepHistory(-1)');
     // Letters, accidentals and piano keys enter what is shown: concert pitch here, written pitch with the view off.
     assert.equal(run("letterToken('A', $('abc').value.length - 2)"), 'A', 'Typed A is concert A');
     assert.equal(run("(e => accidentalEdit(e, displayOf(e), '='))(scoreNotes()[3])"), '=B ', 'Natural on B-flat is B');
@@ -1396,8 +1411,14 @@ async function checkPlayback() {
     );
     const goals = () => run("$('prompt-check').querySelector('.small').textContent");
     assert.equal(goals(), '4 of 4 goals', 'Written view meets every goal');
+    assert.doesNotMatch(run("$('prompt-check').textContent"), /written pitch/, 'Written view needs no note');
     concertOn(true);
     assert.equal(goals(), '4 of 4 goals', 'Concert view judges the written part too');
+    assert.match(
+      run("$('prompt-check').textContent"),
+      /Goals are in written pitch; turn off Concert pitch to see the written part\./,
+      'and the checklist says so'
+    );
     assert.equal(run('assignmentBasis().key'), 'G', 'An assignment from concert view keeps the written key');
     concertOn(false);
   }
@@ -1407,7 +1428,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals and piano keys in the pitch shown, prompt goals and assignments in written pitch), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals and piano keys in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }
