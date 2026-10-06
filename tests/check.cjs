@@ -223,15 +223,38 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     for (const body of ['C', 'z', 'Z2', '"G"[CEG]']) check(body, t => context.setDynamic(t, name), name);
   check('z', t => context.toggleDecoration(t, 'fermata'), 'fermata');
 }
-// Playback follows the marks: louder dynamics and accents raise the MIDI velocity, staccato shortens the note.
+// Playback follows the marks: louder dynamics, accents, sfz and marcato raise the MIDI velocity, staccato shortens the
+// note at any tempo. On its own abcjs lets a staccato note ring on above about 95 bpm and loses a repeated note after
+// a tenuto or inside a slur; midiBytes mends both, so the exported file is right too.
 {
-  const notes = body => context.parseMidi(context.midiBytes(`X:1\nL:1/4\nQ:1/4=60\nK:C\n${body}|]`)).notes;
+  const notes = (body, tempo = 'Q:1/4=60\n') =>
+    context.parseMidi(context.midiBytes(`X:1\nL:1/4\n${tempo}K:C\n${body}|]`)).notes;
   const [soft, loud] = notes('!pp!C !ff!D');
   assert.ok(loud.velocity > soft.velocity, `ff (${loud.velocity}) is louder than pp (${soft.velocity})`);
   const [plain, accented] = notes('!mf!C !accent!C');
   assert.ok(accented.velocity > plain.velocity, 'An accent is louder');
-  const [held, short] = notes('C .C');
-  assert.ok(short.duration < held.duration * 0.8, 'Staccato is shorter');
+  for (const mark of ['!sfz!', '!marcato!']) {
+    const [before, marked, after] = notes(`!p!C ${mark}C C`);
+    assert.ok(marked.velocity > before.velocity, `${mark} is louder (${marked.velocity} > ${before.velocity})`);
+    assert.equal(after.velocity, before.velocity, `${mark} lasts one note`);
+  }
+  for (const tempo of ['Q:1/4=60\n', '', 'Q:1/4=120\n', 'Q:1/4=200\n']) {
+    const played = notes('C .C .C .C C', tempo),
+      beat = played[0].duration;
+    assert.equal(played.length, 5, `Every staccato note sounds at ${tempo || 'the default tempo'}`);
+    assert.ok(
+      played.slice(1, 4).every(n => n.duration < beat * 0.8 && n.duration > beat * 0.4),
+      `Staccato is shorter at ${tempo || 'the default tempo'}: ${played.map(n => n.duration.toFixed(3))}`
+    );
+  }
+  for (const body of ['!tenuto!C C C', '(C C C)', '(C !tenuto!C) C']) {
+    const played = notes(body, '');
+    assert.equal(played.length, 3, `${body}: every repeated note sounds`);
+    assert.ok(
+      played.every(n => Math.abs(n.duration - played[0].duration) < 0.01),
+      `${body}: at full length: ${played.map(n => n.duration.toFixed(3))}`
+    );
+  }
 }
 // FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
 // Share links: the payload round-trips through deflate+base64url, and through plain base64url where
@@ -592,5 +615,5 @@ for (const prompt of context.writingPrompts) {
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity and staccato playback), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, and source-file hashes.'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, and source-file hashes.'
 );

@@ -150,8 +150,9 @@ function editNoteText(text, {accidental, length, unbroken, tie, rest} = {}) {
   return pre + core + len + post;
 }
 // Articulations, ornaments and dynamics offered by the editor, as abcjs names them. Each one parses without warnings,
-// and dynamics, accents and staccato change playback. abcjs knows staccato only as '.' and has no fp or
-// !staccatissimo! (wedge is the staccatissimo mark).
+// and dynamics, accents, marcato and staccato change playback (see midiBytes); abcjs plays ornaments with fixed
+// neighbour notes, whatever the key. abcjs knows staccato only as '.' and has no fp or !staccatissimo! (wedge is the
+// staccatissimo mark).
 const NOTE_MARKS = [
   'staccato',
   'tenuto',
@@ -1256,9 +1257,31 @@ function hashText(text) {
 }
 
 // MIDI for playback and export. abcjs generates the file; parseMidi decodes its notes and tempo events.
+// Two abcjs slips are mended first. abcjs engraves sfz and marcato but plays them at the current volume, so they get
+// an accent (half as loud again). Its MIDI writer scales each note's gap by the tempo a second time, so above about
+// 95 bpm a staccato note-off comes before its note-on and the note rings on, and a tenuto or slurred note runs into
+// a repeat of its pitch, so one of the two is lost. Here staccato notes sound for 60% of their length (abcjs's
+// length at 60 bpm) and other notes for their full length.
 function midiBytes(source) {
-  const result = ABCJS.synth.getMidiFile(source, {midiOutputType: 'encoded'});
-  const uri = Array.isArray(result) ? result[0] : result;
+  const tune = ABCJS.parseOnly(source)[0];
+  for (const line of tune?.lines || [])
+    for (const staff of line.staff || [])
+      for (const e of (staff.voices || []).flat())
+        if (e.decoration?.some(d => /^(?:sfz|u?marcato)$/.test(d)) && !e.decoration.includes('accent'))
+          e.decoration.push('accent');
+  const setUpAudio = tune?.setUpAudio;
+  if (setUpAudio)
+    tune.setUpAudio = function (options) {
+      const sequence = setUpAudio.call(this, options);
+      for (const track of sequence.tracks)
+        for (const e of track)
+          if (e.cmd === 'note' && e.gap) {
+            if (e.gap > 0) e.duration *= 0.6;
+            e.gap = 0;
+          }
+      return sequence;
+    };
+  const uri = tune && ABCJS.synth.getMidiFile(tune, {midiOutputType: 'encoded'});
   if (typeof uri !== 'string' || !uri.startsWith('data:'))
     throw new Error('MIDI could not be generated. Check your notation.');
   const [meta, body] = uri.split(',');
