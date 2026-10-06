@@ -7,7 +7,9 @@ const fs = require('node:fs'),
 const {JSDOM} = require(process.env.JSDOM_PATH || 'jsdom');
 const root = path.resolve(__dirname, '..');
 const SCRIPTS = [
+  'theme.js',
   'vendor/abcjs-basic-min.js',
+  'vendor/qrcode.js',
   'catalog.js',
   'catalog-expanded.js',
   'score-tools.js',
@@ -40,7 +42,7 @@ function boot(seed = () => {}, url = 'http://localhost:8000') {
   w.scrollTo = () => {};
   w.Element.prototype.scrollIntoView = () => {};
   w.confirm = () => true;
-  seed(w.localStorage);
+  seed(w.localStorage, w);
   for (const file of SCRIPTS) vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), ctx);
   return {w, run: s => vm.runInContext(s, ctx), $: id => w.document.getElementById(id)};
 }
@@ -811,6 +813,267 @@ assert.equal(
   assert.equal($('next-up').hidden, true, 'No suggestions for a shared copy');
   assert.equal(await run('openSharedLink("s=1garbage")'), false, 'A damaged link is refused');
 
+  // Embed code and QR code. The Embed tab's snippet carries the link's own payload as #e=, with sizes kept in range and
+  // the title escaped; the tabs follow the ARIA pattern; the QR code draws the vendored encoder's modules exactly, and
+  // a link too long for a QR code gets a note instead.
+  {
+    run('dirty = false');
+    const nc = run('catalog.find(x => nonCommercial(x)).id');
+    run(`openScore(catalog.find(x => x.id === ${JSON.stringify(nc)}))`);
+    $('abc').value = $('abc').value.replace(/^T:.*$/m, 'T:Tom & "Jerry" <reel>');
+    run('changed(); clearTimeout(renderTimer); render()');
+    await run('shareLink()');
+    const url = $('share-url').value,
+      code = url.split('#s=')[1];
+    assert.deepEqual(
+      [$('share-tab-link').getAttribute('aria-selected'), $('share-pane-link').hidden, $('share-pane-embed').hidden],
+      ['true', false, true],
+      'The panel opens on the Link tab'
+    );
+    $('share-tab-embed').click();
+    assert.deepEqual(
+      [
+        $('share-pane-link').hidden,
+        $('share-pane-embed').hidden,
+        $('share-tab-embed').tabIndex,
+        $('share-tab-link').tabIndex
+      ],
+      [true, false, 0, -1],
+      'The Embed tab shows its pane and takes the tab stop'
+    );
+    assert.equal(
+      $('embed-code').value,
+      `<iframe src="http://localhost:8000/#e=${code}" width="100%" height="420" title="Score: Tom &amp; &quot;Jerry&quot; &lt;reel&gt;" loading="lazy"></iframe>`
+    );
+    // A value the snippet cannot use is replaced, and its field is marked invalid.
+    for (const [width, height, expected, invalid] of [
+      ['640', '300', 'width="640" height="300"', 'false false'],
+      ['640px', '2000', 'width="640" height="2000"', 'false false'],
+      [' 80% ', '50', 'width="80%" height="200"', 'false true'],
+      ['150%', '99999', 'width="100%" height="2000"', 'true true'],
+      ['wide', '', 'width="100%" height="420"', 'true true']
+    ]) {
+      $('embed-width').value = width;
+      $('embed-height').value = height;
+      $('embed-width').dispatchEvent(new w.Event('input'));
+      assert.ok(
+        $('embed-code').value.includes(expected),
+        `Size ${width} × ${height}: ${$('embed-code').value.slice(-90)}`
+      );
+      assert.equal(
+        `${$('embed-width').getAttribute('aria-invalid')} ${$('embed-height').getAttribute('aria-invalid')}`,
+        invalid,
+        `Size ${width} × ${height} marks the fields it replaces`
+      );
+    }
+    $('embed-width').value = '100%';
+    $('embed-height').value = '420';
+    // The snippet keeps the title of the score that was shared, even if the title is edited afterwards.
+    const sharedABC = $('abc').value;
+    $('abc').value = sharedABC.replace(/^T:.*$/m, 'T:Renamed later');
+    $('embed-height').dispatchEvent(new w.Event('input'));
+    assert.match($('embed-code').value, /title="Score: Tom &amp; &quot;Jerry&quot; &lt;reel&gt;"/);
+    $('abc').value = sharedABC;
+    const key = (id, k) => $(id).dispatchEvent(new w.KeyboardEvent('keydown', {key: k, bubbles: true}));
+    key('share-tab-embed', 'ArrowRight');
+    assert.equal(w.document.activeElement.id, 'share-tab-qr', 'ArrowRight moves to the QR code tab');
+    key('share-tab-qr', 'ArrowRight');
+    assert.equal(w.document.activeElement.id, 'share-tab-link', 'and wraps round to Link');
+    key('share-tab-link', 'End');
+    assert.equal($('share-pane-qr').hidden, false, 'End opens the last tab');
+    const svg = $('share-qr').querySelector('svg');
+    assert.ok(svg && !$('share-qr').hidden, 'A typical tune gets a QR code');
+    assert.equal(svg.getAttribute('role'), 'img');
+    assert.match(svg.getAttribute('aria-label'), /^QR code of the link to Tom & "Jerry"/);
+    const dark = run(`(() => {
+      const q = qrcode(0, 'M');
+      q.addData(${JSON.stringify(url)});
+      q.make();
+      const cells = [];
+      for (let y = 0; y < q.getModuleCount(); y++)
+        for (let x = 0; x < q.getModuleCount(); x++) if (q.isDark(y, x)) cells.push((x + 4) + ',' + (y + 4));
+      return {count: q.getModuleCount(), cells: cells.join(' ')};
+    })()`);
+    assert.equal(svg.getAttribute('viewBox'), `0 0 ${dark.count + 8} ${dark.count + 8}`, 'Four modules of quiet zone');
+    const drawn = [];
+    for (const [, x, y, run] of svg
+      .querySelector('path')
+      .getAttribute('d')
+      .matchAll(/M(\d+) (\d+)h(\d+)v1h-\3z/g))
+      for (let i = 0; i < +run; i++) drawn.push(+x + i + ',' + y);
+    assert.equal(
+      drawn.sort().join(' '),
+      dark.cells.split(' ').sort().join(' '),
+      'Every dark module is drawn, and nothing else'
+    );
+    assert.match($('qr-note').textContent, /^Scan it/);
+    assert.equal(/dense code/.test($('qr-note').textContent), url.length > run('QR_DENSE_BYTES'));
+    // The code is drawn at 3px per module, at least 280px: a typical tune's code at 280px, a dense one larger.
+    assert.equal(svg.getAttribute('width'), String(Math.max(280, 3 * (dark.count + 8))));
+    assert.equal(svg.getAttribute('height'), svg.getAttribute('width'));
+    const modules = n =>
+      run(`(() => { const q = qrcode(0, 'M'); q.addData('x'.repeat(${n})); q.make(); return q.getModuleCount(); })()`);
+    assert.deepEqual(
+      [modules('QR_DENSE_BYTES'), modules('QR_DENSE_BYTES + 1')],
+      [117, 121],
+      'QR_DENSE_BYTES is the most a version 25 code holds'
+    );
+    for (const [length, size, dense] of [
+      [run('QR_DENSE_BYTES'), (117 + 8) * 3, false],
+      [run('QR_MAX_BYTES'), (177 + 8) * 3, true]
+    ]) {
+      const long = 'http://localhost:8000/#s=' + 'x'.repeat(length - 25);
+      run(`updateShareQR(${JSON.stringify(long)})`);
+      assert.equal(
+        $('share-qr').querySelector('svg').getAttribute('width'),
+        String(size),
+        `A ${length}-character link's code is ${size}px`
+      );
+      assert.equal(/dense code/.test($('qr-note').textContent), dense, $('qr-note').textContent);
+    }
+    assert.match(
+      $('qr-note').textContent,
+      /This long link makes a dense code: if a camera can’t read it, share the link/
+    );
+    run(`updateShareQR(${JSON.stringify(url)})`);
+    $('abc').value = $('abc').value.replace(/^K:.*$/m, line => line + '\n% ' + 'a'.repeat(2400));
+    run('changed(); clearTimeout(renderTimer); render()');
+    await run('shareLink()');
+    assert.equal($('share-qr').hidden, true, 'No QR code for a link longer than one holds');
+    assert.match($('qr-note').textContent, /too long for a QR code: [\d,]+ characters/);
+    assert.equal(run('qrSVG("x".repeat(QR_MAX_BYTES + 1), "")'), null, 'The encoder refuses what does not fit');
+    assert.ok(run('qrSVG("x".repeat(QR_MAX_BYTES), "")'), 'The longest link that fits is drawn');
+    $('share-close').click();
+    run('dirty = false');
+    // Opening another score closes the panel, so its link, embed code and QR code never describe a different score.
+    run('openScore(catalog[0])');
+    await run('shareLink()');
+    assert.equal($('share-panel').hidden, false);
+    run('openScore(catalog[5])');
+    assert.deepEqual(
+      [$('share-panel').hidden, run('shareCode'), $('share-url').value, $('embed-code').value, $('share-qr').innerHTML],
+      [true, '', '', '', ''],
+      'Opening another score closes and clears the share panel'
+    );
+    $('embed-width').value = '600';
+    $('embed-width').dispatchEvent(new w.Event('input'));
+    assert.equal($('embed-code').value, '', 'A closed panel makes no embed code');
+    await run('shareLink()');
+    const second = await run(`decodeShare(${JSON.stringify($('share-url').value.split('#s=')[1])})`);
+    assert.equal(second.a, run('catalog[5].abc'), 'Sharing again carries the open score');
+    assert.ok(
+      $('embed-code').value.includes(`#e=${$('share-url').value.split('#s=')[1]}" width="600"`) &&
+        $('embed-code').value.includes(`title="${run('esc("Score: " + field("T"))')}"`),
+      'The embed code and its title come from the same score'
+    );
+    $('embed-width').value = '100%';
+    // A link still being made when another score opens is dropped rather than shown for the new score.
+    const pending = run('shareLink()');
+    run('openScore(catalog[0])');
+    await pending;
+    assert.deepEqual(
+      [$('share-panel').hidden, run('shareCode')],
+      [true, ''],
+      'A share overtaken by another score is dropped'
+    );
+
+    // The embed route (#e=): the score alone, read-only, with its credits and NC label, a link that opens an editable
+    // copy, and no storage read or written. A damaged embed says so.
+    const before = storage => {
+      storage.setItem(
+        'commonnote-scores-v1',
+        JSON.stringify([{id: 'mine', title: 'Mine', abc: 'X:1\nT:Mine\nK:C\nC4 |]', updated: 1}])
+      );
+      storage.setItem('fretfree-played', '["ode"]');
+    };
+    const page = boot(before, 'http://localhost:8000/index.html#e=' + code),
+      snapshot = () => JSON.stringify({...page.w.localStorage});
+    for (let i = 0; i < 100 && page.run('current?.kind') !== 'shared'; i++) await new Promise(r => setTimeout(r, 20));
+    const stored = snapshot();
+    assert.deepEqual(
+      [
+        page.w.document.body.classList.contains('embed'),
+        page.$('studio').hidden,
+        page.$('library').hidden,
+        page.$('embed-bar').hidden,
+        page.$('embed-title').textContent,
+        page.w.document.title,
+        page.w.location.hash.startsWith('#e='),
+        page.$('embed-open').href,
+        page.$('embed-open').target,
+        page.$('notation').hasAttribute('tabindex'),
+        page.$('cards').children.length
+      ],
+      [
+        true,
+        false,
+        true,
+        false,
+        'Tom & "Jerry" <reel>',
+        'Tom & "Jerry" <reel> · FretFree',
+        true,
+        'http://localhost:8000/index.html#s=' + code,
+        '_blank',
+        false,
+        0
+      ],
+      'The embed shows the score alone, keeps its address and links to an editable copy'
+    );
+    assert.match(page.$('rights').textContent, /NON-COMMERCIAL EDITION/, 'The embed shows the NC label');
+    assert.match(page.$('rights').textContent, /Non-commercial edition: free to use/);
+    assert.ok(page.$('notation').querySelector('svg'), 'The score is engraved');
+    assert.deepEqual(
+      [page.run('engraveOptions().selectTypes'), page.run('engraveOptions().clickListener'), page.run('dirty')],
+      [false, undefined, false],
+      'Nothing on the embedded score can be selected or dragged, and it is not unsaved work'
+    );
+    assert.deepEqual(
+      [page.run('saved.length'), page.run('played.size'), page.$('draft-banner').hidden],
+      [0, 0, true],
+      'The embed reads no saved scores, played marks or drafts'
+    );
+    page.run('render(); flushDraft()');
+    page.w.dispatchEvent(new page.w.Event('pagehide'));
+    page.$('speed').value = 80;
+    page.$('speed').oninput();
+    assert.equal(snapshot(), stored, 'The embed writes nothing to storage');
+    // A transposing instrument's part is drawn in written pitch, so the embed names the part and how it sounds.
+    const clarinetCode = await run(`encodeShare({v: 1, a: catalog[0].abc, i: 'Clarinet in B♭', s: catalog[0].id})`),
+      clarinet = boot(() => {}, 'http://localhost:8000/#e=' + clarinetCode);
+    for (let i = 0; i < 100 && clarinet.run('current?.kind') !== 'shared'; i++)
+      await new Promise(r => setTimeout(r, 20));
+    assert.deepEqual(
+      [
+        clarinet.$('embed-part').hidden,
+        clarinet.$('embed-part').textContent,
+        clarinet.$('notation').getAttribute('aria-label'),
+        clarinet.run('writtenABC()').match(/^K:(\S+)/m)[1]
+      ],
+      [
+        false,
+        'Clarinet in B♭ part, in written pitch: it sounds a major 2nd lower.',
+        'Score: Ode to Joy. Clarinet in B♭ part, in written pitch: it sounds a major 2nd lower. Read-only; press Play to hear it.',
+        'D'
+      ],
+      'The embed names a transposing part'
+    );
+    assert.equal(
+      clarinet.run(`embedPart('Alto sax in E♭')`),
+      'Alto sax in E♭ part, in written pitch: it sounds a major 6th lower.'
+    );
+    assert.deepEqual(
+      ['Flute', 'Cello', 'Piano', 'Guitar'].map(name => clarinet.run(`embedPart(${JSON.stringify(name)})`)),
+      ['', '', '', ''],
+      'Parts that sound as written are not labeled'
+    );
+    const damaged = boot(() => {}, 'http://localhost:8000/#e=1garbage');
+    for (let i = 0; i < 100 && !damaged.w.document.body.classList.contains('embed-unreadable'); i++)
+      await new Promise(r => setTimeout(r, 20));
+    assert.equal(damaged.$('embed-title').textContent, 'This embedded score could not be read.');
+    assert.equal(damaged.$('embed-open').hidden, true);
+    assert.equal(damaged.$('library').hidden, true, 'A damaged embed does not fall back to the library');
+  }
+
   // Teacher-written assignments: the builder takes its defaults from the score, three goals become a live checklist,
   // the link carries the assignment as q (never p), and the student's copy keeps it through save, reopen and backup.
   run(
@@ -1243,6 +1506,135 @@ assert.equal(
     );
     assert.equal(page.run('current.kind'), 'shared', 'Discard leaves the open score alone');
   }
+  // Theme: Auto, Light or Dark goes on <html> as the scripts start, persists, is backed up and restored. Dark paper
+  // shows only in the dark theme, and Auto follows the device as it switches.
+  {
+    const page = boot(storage => storage.setItem('fretfree-theme', '"purple"')),
+      html = page.w.document.documentElement;
+    assert.equal(page.$('theme').value, 'auto', 'A damaged theme falls back to Auto');
+    assert.equal(html.hasAttribute('data-theme'), false, 'Auto leaves the choice to the device');
+    assert.equal(page.$('dark-paper-option').hidden, true, 'No matchMedia: Auto is light, so Dark paper is hidden');
+    page.$('theme').value = 'dark';
+    page.$('theme').dispatchEvent(new page.w.Event('change'));
+    assert.equal(html.dataset.theme, 'dark');
+    assert.equal(page.run("storage.get('fretfree-theme')"), 'dark', 'The theme is remembered');
+    assert.equal(page.$('dark-paper-option').hidden, false, 'Dark paper is offered in the dark theme');
+    page.$('dark-paper').checked = true;
+    page.$('dark-paper').dispatchEvent(new page.w.Event('change'));
+    assert.equal(html.dataset.paper, 'dark');
+    assert.equal(page.run("storage.get('fretfree-dark-paper')"), true);
+    const settings = page.run('backupData().settings');
+    assert.equal(settings['fretfree-theme'], 'dark', 'The theme is backed up');
+    assert.equal(settings['fretfree-dark-paper'], true, 'Dark paper is backed up');
+    const before = page.$('notation').innerHTML;
+    page.$('theme').value = 'light';
+    page.$('theme').dispatchEvent(new page.w.Event('change'));
+    assert.equal(html.dataset.theme, 'light');
+    assert.equal(page.$('dark-paper-option').hidden, true, 'Dark paper is hidden in the light theme');
+    assert.equal(page.$('notation').innerHTML, before, 'A theme change does not redraw the score');
+    // Restoring a backup applies its theme straight away.
+    page.run(
+      `applyBackup(${JSON.stringify({app: 'FretFree', format: 1, scores: [], settings: {'fretfree-theme': 'dark', 'fretfree-dark-paper': false}})})`
+    );
+    page.run('applyStoredSettings()');
+    assert.deepEqual(
+      [html.dataset.theme, html.hasAttribute('data-paper'), page.$('theme').value, page.$('dark-paper').checked],
+      ['dark', false, 'dark', false],
+      'A restored theme applies at once'
+    );
+    // A device in dark mode: Auto is dark and offers Dark paper; switching the device back to light hides it.
+    let listeners = [],
+      deviceDark = true;
+    const darkDevice = win => {
+        listeners = [];
+        deviceDark = true;
+        win.matchMedia = query => ({
+          media: query,
+          get matches() {
+            return /dark/.test(query) && deviceDark;
+          },
+          addEventListener: (type, fn) => listeners.push(fn)
+        });
+      },
+      switchDevice = dark => {
+        deviceDark = dark;
+        listeners.forEach(fn => fn({matches: dark}));
+      };
+    const device = boot((storage, win) => {
+      darkDevice(win);
+      storage.setItem('fretfree-dark-paper', 'true');
+    });
+    assert.equal(device.$('theme').value, 'auto');
+    assert.equal(device.w.document.documentElement.dataset.paper, 'dark', 'Dark paper is applied at start-up');
+    assert.equal(device.$('dark-paper-option').hidden, false, 'Auto on a dark device offers Dark paper');
+    assert.equal(device.$('dark-paper').checked, true);
+    switchDevice(false);
+    assert.equal(device.$('dark-paper-option').hidden, true, 'Auto follows the device back to light');
+    // Storage full or blocked: Theme and Dark paper still apply for the session, and a device switch keeps them.
+    const full = boot((storage, win) => {
+        darkDevice(win);
+        win.Storage.prototype.setItem = () => {
+          throw new win.DOMException('Storage is full', 'QuotaExceededError');
+        };
+      }),
+      fullRoot = full.w.document.documentElement,
+      choose = (id, value) => {
+        if (id === 'theme') full.$(id).value = value;
+        else full.$(id).checked = value;
+        full.$(id).dispatchEvent(new full.w.Event('change'));
+      },
+      shown = () => [
+        full.$('theme').value,
+        fullRoot.getAttribute('data-theme'),
+        full.$('dark-paper').checked,
+        fullRoot.getAttribute('data-paper'),
+        full.$('dark-paper-option').hidden
+      ];
+    choose('theme', 'dark');
+    assert.deepEqual(shown(), ['dark', 'dark', false, null, false], 'Dark applies although it cannot be saved');
+    assert.equal(full.run('storage.get(KEYS.theme)'), undefined, 'and nothing was saved');
+    choose('dark-paper', true);
+    assert.deepEqual(shown(), ['dark', 'dark', true, 'dark', false], 'Dark paper applies although it cannot be saved');
+    switchDevice(false);
+    assert.deepEqual(shown(), ['dark', 'dark', true, 'dark', false], 'A device switch keeps the unsaved choice');
+    choose('theme', 'auto');
+    assert.deepEqual(shown(), ['auto', null, true, 'dark', true], 'Auto on a light device hides Dark paper');
+    switchDevice(true);
+    assert.deepEqual(shown(), ['auto', null, true, 'dark', false], 'and the device going dark shows it, still ticked');
+  }
+  // theme.js runs first, without defer and ahead of the stylesheet, so the stored theme is on <html> before the first
+  // paint instead of after the catalogs download. It reads the KEYS names before KEYS exists and skips damaged values.
+  {
+    const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8'),
+      tag = html.match(/<script[^>]*\ssrc="theme\.js[^"]*"[^>]*>/);
+    assert.ok(tag, 'index.html loads theme.js');
+    assert.doesNotMatch(tag[0], /\s(defer|async)\b/, 'theme.js is not deferred');
+    assert.ok(
+      tag.index < html.indexOf('<link rel="stylesheet"') && tag.index < html.indexOf('<script defer'),
+      'theme.js comes before the stylesheet and the deferred scripts'
+    );
+    const keys = run('[KEYS.theme, KEYS.darkPaper]'),
+      early = (theme, paper, blocked, hash = '') => {
+        const dom = new JSDOM(html, {runScripts: 'outside-only', url: 'http://localhost:8000/' + hash});
+        if (theme !== undefined) dom.window.localStorage.setItem(keys[0], theme);
+        if (paper !== undefined) dom.window.localStorage.setItem(keys[1], paper);
+        if (blocked)
+          dom.window.Storage.prototype.getItem = () => {
+            throw new dom.window.DOMException('Blocked', 'SecurityError');
+          };
+        vm.runInContext(fs.readFileSync(path.join(root, 'theme.js'), 'utf8'), dom.getInternalVMContext());
+        const el = dom.window.document.documentElement;
+        return [el.getAttribute('data-theme'), el.getAttribute('data-paper')];
+      };
+    assert.deepEqual(early('"dark"', 'true'), ['dark', 'dark'], 'Stored Dark and Dark paper apply before shared.js');
+    assert.deepEqual(early('"light"', 'false'), ['light', null]);
+    assert.deepEqual(early('"auto"'), [null, null], 'Auto leaves the choice to the device');
+    assert.deepEqual(early('"purple"', '"yes"'), [null, null], 'Damaged values are ignored');
+    assert.deepEqual(early('{broken', 'true'), [null, 'dark']);
+    assert.deepEqual(early('"dark"', 'true', true), [null, null], 'Blocked storage does not stop the page');
+    assert.deepEqual(early('"dark"', 'true', false, '#e=abc'), [null, null], 'An embed reads no stored theme');
+    assert.deepEqual(early('"dark"', 'true', false, '#s=abc'), ['dark', 'dark'], 'A share link still does');
+  }
   // Opening MusicXML: .mxl and .musicxml files become an editable personal copy, with a report of what was left out,
   // a guessed instrument, and a FretFree export's rights metadata restored. Damaged and oversized files say so.
   {
@@ -1383,7 +1775,7 @@ assert.equal(
     assert.match($('toast').textContent, /^FretFree is installed/);
   }
   console.log(
-    'PASS (jsdom): version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors, zoom and the Chords switch), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files), and the offline notice and Install app.'
+    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore (with classroom colors, zoom and the Chords switch), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files), and the offline notice and Install app.'
   );
 })().catch(e => {
   console.error(e);

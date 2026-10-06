@@ -11,7 +11,8 @@ function show(view) {
   if (view !== 'studio') stop();
   // A preview stops when its view goes: card previews live in the library, History previews in My scores.
   if (view !== (previewId === 'history' ? 'saved' : 'library')) stopPreview();
-  history.replaceState(null, '', '#' + view);
+  // An embedded score keeps its #e= address, so reloading the frame shows the same score.
+  if (!embedView) history.replaceState(null, '', '#' + view);
   window.scrollTo({top: 0, behavior: 'smooth'});
 }
 function allowReplace() {
@@ -19,8 +20,9 @@ function allowReplace() {
 }
 function openScore(item, id = null) {
   if (!allowReplace()) return;
-  // The assignment builder describes the score it was opened on, so it closes with it.
+  // The assignment builder and the share panel describe the score they were opened on, so they close with it.
   toggleAssignmentBuilder(false);
+  closeShare();
   stop();
   stopPreview();
   current = item;
@@ -253,9 +255,18 @@ for (const [id, header] of [
     noteTyping(id);
     setHeader(header, id === 'bpm' ? '1/4=' + $(id).value : $(id).value);
     $('bpm-value').textContent = $('bpm').value;
+    if (id === 'meter') syncFeel();
     changed();
   });
 $('key').addEventListener('input', () => chooseKey($('key').value));
+// Feel writes the swing tempo text and %%MIDI swing into the ABC, so it prints, saves and shares with the score.
+$('feel').addEventListener('input', () => {
+  noteTyping('feel');
+  $('abc').value = setSwing($('abc').value, +$('feel').value);
+  // The Tempo slider follows the beat that swing writes out for a score with no Q:.
+  syncFields();
+  changed();
+});
 // On a prompt score the assignment is in written pitch, so a new instrument transposes the concert source to keep
 // every written note, and the written key, exactly where the student put them.
 $('instrument').onchange = () => {
@@ -397,6 +408,7 @@ function applyStoredSettings() {
   $('audition').checked = storage.get(KEYS.audition, true) !== false;
   if (typeof setPiano === 'function') setPiano(storage.get(KEYS.piano, false) === true, false);
   applyStoredLayout();
+  applyTheme();
   prepareTrainer();
 }
 // Zoom, measures per line and Concert pitch view are read before the first render, so the start-up score is drawn
@@ -406,6 +418,16 @@ function applyStoredLayout() {
   showZoom(storage.get(KEYS.zoom, 100));
   $('measures-per-line').value = String(validMeasuresPerLine(storage.get(KEYS.measuresPerLine, 0)));
 }
+// Theme and Dark paper only change colors in style.css, so the score is not redrawn. Each choice applies even when
+// it cannot be saved.
+$('theme').onchange = () => {
+  storage.set(KEYS.theme, $('theme').value);
+  applyTheme($('theme').value, $('dark-paper').checked);
+};
+$('dark-paper').onchange = () => {
+  storage.set(KEYS.darkPaper, $('dark-paper').checked);
+  applyTheme($('theme').value, $('dark-paper').checked);
+};
 $('zoom-out').onclick = () => stepZoom(-1);
 $('zoom-in').onclick = () => stepZoom(1);
 $('zoom-reset').onclick = () => stepZoom(0);
@@ -518,8 +540,10 @@ window.addEventListener('pageshow', keepDraft);
 $('draft-restore').onclick = restoreDraft;
 $('draft-discard').onclick = discardDraft;
 // Offline use. sw.js keeps the app and the library in this browser after one visit. Browsers allow a service worker
-// only on https or localhost; elsewhere, or without the API, the site works online as before.
+// only on https or localhost; elsewhere, or without the API, the site works online as before. An embedded score keeps
+// nothing on the visitor's device, so it registers no worker.
 const offlineCapable = () =>
+  !embedView &&
   !!navigator.serviceWorker &&
   (location.protocol === 'https:' || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname));
 function showOnline() {
@@ -528,7 +552,7 @@ function showOnline() {
 window.addEventListener('online', showOnline);
 window.addEventListener('offline', () => {
   showOnline();
-  toast('You are offline. FretFree keeps working; a PDF opens only if you opened it before.');
+  if (!embedView) toast('You are offline. FretFree keeps working; a PDF opens only if you opened it before.');
 });
 showOnline();
 $('offline-ready').textContent = offlineCapable()
@@ -597,12 +621,15 @@ ABCJS.renderAbc('hero-notation', catalog[0].abc, {
   paddingtop: 25,
   paddingbottom: 30
 });
-renderCards();
+// An embedded score opens on its own: no library cards, no blank sheet first, no draft offer and no storage
+// (storage.get gives every default there, so the layout starts at 100% and written pitch).
+if (!embedView) renderCards();
 applyStoredLayout();
 // Unsaved work from an earlier visit is offered once the start-up score is open; a share link opens first.
 loadDrafts();
-newScore();
-if (initialView.startsWith('s=')) {
+if (!embedView) newScore();
+if (embedView) openEmbed(initialView);
+else if (initialView.startsWith('s=')) {
   show('studio');
   openSharedLink(initialView).then(ok => {
     if (!ok) show('library');
