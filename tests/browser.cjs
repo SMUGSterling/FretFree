@@ -2870,7 +2870,7 @@ const {chromium} = require('playwright'),
           .then(t => t === text),
       [origin + pdf, corrected]
     );
-    // At phone width, with the offline notice showing, Install app fits beside the logo and works from the keyboard.
+    // At phone width, with the offline notice showing, Install app fits above the nav and works from the keyboard.
     // Headless Chromium never offers installing, so the browser's offer is stood in for.
     await tab.setViewportSize({width: 390, height: 844});
     await context.setOffline(true);
@@ -2894,7 +2894,8 @@ const {chromium} = require('playwright'),
       corrected,
       'The corrected PDF offline'
     );
-    // At iPad and narrow laptop widths the notice and Install app move to a row below the nav when they do not fit
+    // The notice and Install app sit with the theme choice. At iPad widths (820px and below) they share the first row
+    // with the logo, above the nav; at narrow laptop widths they move to a row below the nav when they do not fit
     // beside it, rather than squeezing the nav labels onto several lines.
     for (const width of [768, 820, 1024, 1150]) {
       await tab.setViewportSize({width, height: 1024});
@@ -2909,13 +2910,18 @@ const {chromium} = require('playwright'),
           status = document.querySelector('.header-tools').getBoundingClientRect();
         return {
           lines: buttons.map(lines),
+          above: status.bottom <= Math.min(...nav.map(r => r.top)),
           beside: status.left >= Math.max(...nav.map(r => r.right)),
           below: status.top >= Math.max(...nav.map(r => r.bottom)),
           fits: status.right <= innerWidth && document.documentElement.scrollWidth <= innerWidth + 1
         };
       });
       assert.deepEqual(header.lines, [1, 1, 1, 1], `Nav labels stay on one line at ${width}px`);
-      assert.ok((header.beside || header.below) && header.fits, `The notice fits at ${width}px`);
+      assert.ok(
+        width > 820 ? header.beside || header.below : header.above,
+        `The notice sits clear of the nav at ${width}px`
+      );
+      assert.ok(header.fits, `The notice fits at ${width}px`);
     }
     await tab.setViewportSize({width: 390, height: 844});
     await install.focus();
