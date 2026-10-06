@@ -587,6 +587,8 @@ footer .brand {
   border-radius: 7px;
   display: none;
   z-index: 10;
+  /* A message never blocks a click on the score beneath it. */
+  pointer-events: none;
 }
 svg {
   max-width: 100%;
@@ -1486,6 +1488,22 @@ input[type='range'] {
   .prompt-check ul,
   .prompt-check .small,
   .prompt-check .prompt-done {
+    display: none !important;
+  }
+}
+/* Copy, cut, paste and duplicate for the selected notes; the same commands as Ctrl+C, X, V and D, for touch screens. */
+.selection-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 6px 0;
+}
+.selection-tools button {
+  padding: 7px 10px;
+  font-size: 11px;
+}
+@media print {
+  .selection-tools {
     display: none !important;
   }
 }

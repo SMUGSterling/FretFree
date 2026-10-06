@@ -1,3 +1,14 @@
+# Select, copy, paste and duplicate · 2026-10-06
+
+- **Shift+←→** and **Shift+click** select a run of notes in one voice; **Ctrl/Cmd+A** selects the whole voice. Shift+click still sets the practice range, as before.
+- **Ctrl/Cmd+C** copies the selection, **Ctrl/Cmd+X** copies it and leaves rests of the same length, **Ctrl/Cmd+V** pastes after the selection or over a selected rest that is long enough, and **Ctrl/Cmd+D** repeats the selection right after itself and selects the copy. Whole measures copy with their bar line. Pasting into another score respells lengths and accidentals for its unit length and key, so the notes sound the same. The clip stays in memory, and is offered to the system clipboard as ABC where the browser allows.
+- ↑↓ (Ctrl: octave), sharp/flat/natural, dot, tie, length keys and Delete act on every selected note, and the new **[** and **]** keys halve or double every length (a single note too). Deleting whole measures takes one bar line with them.
+- **◂ Select, Select ▸, Copy, Cut, Paste and Duplicate** buttons under the keyboard help do the same on touch screens. Every edit is one undo step; pasting does not re-bar, and the bar check reports any overflow.
+- **Selection only** in the Transpose panel now covers every measure of a range selection.
+- Messages at the bottom of the window no longer block clicks on the notes beneath them.
+
+---
+
 # Transpose and key changes · 2026-10-06
 
 - **Transpose…** in Score settings moves the notes, key signatures and chord symbols by an interval up or down, or to a chosen key the nearer way round, as one undo step. Spelling follows the interval (an augmented 4th up from C is F♯ major, a diminished 5th is G♭). **Selection only** transposes the selected note's measure, or the practice range, and keeps the key signature.

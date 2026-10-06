@@ -182,6 +182,191 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   key('=');
   assert.equal(body(), '(3:2:3^CDE (=F G) A2 B2 |]', 'Written-pitch accidentals on tuplet- and slur-start notes');
 }
+// Range selection and the clipboard: Shift+arrows and Shift+click extend the selection in one voice; Ctrl+C/X/V/D copy,
+// cut to rests, paste and duplicate (in memory, as jsdom has no navigator.clipboard); arrows, accidentals, [ ] and
+// Delete act on every selected note. Each edit is one undo step.
+{
+  const body = () => run("$('abc').value.trim().split('\\n').pop()"),
+    pick = i => run(`selectEntry(scoreNotes()[${i}])`),
+    key = (k, mods = {}) => run(`scoreKey(${JSON.stringify({key: k, ...mods})})`),
+    ctrl = k => key(k, {ctrlKey: true}),
+    shown = () => run("$('abc').value.slice($('abc').selectionStart,$('abc').selectionEnd)").trim(),
+    lit = () =>
+      run(
+        "new Set(renderedTune.engraver.selected.filter(x=>x.abcelem.el_type==='note').map(x=>x.abcelem.startChar)).size"
+      ),
+    open = abc => run(`openScore({abc:${JSON.stringify(abc)},instrument:'Flute'})`);
+  assert.equal(run('typeof navigator.clipboard'), 'undefined', 'jsdom has no system clipboard');
+  open('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | G A B c | z4 |]');
+  pick(0);
+  for (let i = 0; i < 3; i++) assert.equal(key('ArrowRight', {shiftKey: true}), true);
+  assert.equal(run('selectedNotes().length'), 4, 'Shift+→ three times selects four notes');
+  assert.equal(shown(), 'C D E F', 'The ABC selection spans them');
+  assert.equal(lit(), 4, 'All four are highlighted');
+  assert.match(run("$('selection-status').textContent"), /^4 notes selected in measure 1/);
+  key('ArrowRight', {shiftKey: true});
+  assert.equal(run('selectedNotes().length'), 5, 'Shift+→ crosses the bar line');
+  key('ArrowLeft', {shiftKey: true});
+  ctrl('c');
+  assert.equal(run('clip.notes'), 'C D E F');
+  assert.equal(run('clip.bar'), true, 'A whole measure copies with its bar line');
+  pick(7);
+  ctrl('v');
+  assert.equal(body(), 'C D E F | G A B c | C D E F | z4 |]', 'Ctrl+V inserts an exact copy after the measure');
+  assert.equal(shown(), 'C D E F', 'The pasted notes are selected');
+  assert.equal(lit(), 4);
+  run('stepHistory(-1)');
+  assert.equal(body(), 'C D E F | G A B c | z4 |]', 'One undo removes the paste');
+  pick(5);
+  ctrl('v');
+  assert.equal(body(), 'C D E F | G A C D E F B c | z4 |]', 'Mid-measure, the copy goes right after the note');
+  assert.equal(run('barIssues.length'), 1, 'Pasting does not re-bar; the bar check reports the overflow');
+  run('stepHistory(-1)');
+  // A selected rest at least as long as the clip is written over from its start.
+  run('selectEntry(scoreNotes()[8])');
+  ctrl('v');
+  assert.equal(body(), 'C D E F | G A B c | C D E F |]', 'Paste over a whole-bar rest');
+  assert.equal(run('barIssues.length'), 0);
+  open('X:1\nM:4/4\nL:1/4\nK:C\nz4 | z4 |]');
+  run(`clip={notes:'C D',bar:false,count:2,length:0.5,unit:0.25,key:'C'}`);
+  pick(1);
+  ctrl('v');
+  assert.equal(body(), 'z4 | C D z2 |]', 'A longer rest keeps what is left');
+  // Ctrl+D twice on a one-bar selection: three copies in a row, the newest selected.
+  open('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | G4 |]');
+  pick(0);
+  ctrl('a');
+  assert.equal(run('selectedNotes().length'), 5, 'Ctrl+A selects every note of the voice');
+  pick(3);
+  for (let i = 0; i < 3; i++) key('ArrowLeft', {shiftKey: true});
+  assert.equal(run('selectionAnchor'), 'last', 'Selecting leftward keeps the anchor at the end');
+  ctrl('d');
+  ctrl('d');
+  assert.equal(body(), 'C D E F | C D E F | C D E F | G4 |]', 'Ctrl+D twice makes three copies');
+  assert.equal(run('selectedNotes().map(n=>n.measure).join()'), '3,3,3,3', 'The newest copy is selected');
+  assert.equal(run('barIssues.length'), 0, 'Duplicated measures keep the bar check clean');
+  run('stepHistory(-1)');
+  assert.equal(body(), 'C D E F | C D E F | G4 |]', 'Each duplicate is one undo step');
+  // Before a closing or repeat bar line, the copy goes inside it.
+  open('X:1\nM:4/4\nL:1/4\nK:C\n|: C D E F :|');
+  pick(0);
+  ctrl('a');
+  ctrl('d');
+  assert.equal(body(), '|: C D E F | C D E F :|', 'Duplicate before a repeat bar line');
+  // Ctrl+X on two quarter notes leaves two quarter rests.
+  open('X:1\nM:4/4\nL:1/4\nK:C\nC (D !accent!E- E) | G4 |]');
+  pick(1);
+  key('ArrowRight', {shiftKey: true});
+  ctrl('x');
+  assert.equal(body(), 'C (z z E) | G4 |]', 'Cut keeps slurs, drops ties and decorations');
+  assert.equal(run('barIssues.length'), 0, 'The bar check stays clean after a cut');
+  assert.equal(run('clip.notes'), '(D !accent!E-');
+  assert.equal(run("$('warnings').textContent"), '');
+  // Multi-note edits: arrows, accidentals, [ ] and dots act on every note; rests are left alone by pitch edits.
+  open('X:1\nM:4/4\nL:1/8\nK:C\nC2 D2 z2 [EG]2 | A8 |]');
+  pick(0);
+  for (let i = 0; i < 3; i++) key('ArrowRight', {shiftKey: true});
+  key('ArrowUp');
+  assert.equal(body(), 'D2 E2 z2 [FA]2 | A8 |]', '↑ moves every selected note a step');
+  key('#');
+  assert.equal(body(), '^D2 ^E2 z2 [^F^A]2 | A8 |]', '# sharpens every selected note');
+  key('ArrowDown', {ctrlKey: true});
+  assert.equal(body(), '^D,2 ^E,2 z2 [^F,^A,]2 | A8 |]', 'Ctrl+↓ drops an octave');
+  key(']');
+  assert.equal(body(), '^D,4 ^E,4 z4 [^F,^A,]4 | A8 |]', '] doubles every length, rests too');
+  assert.equal(run('selectedNotes().length'), 4, 'The selection follows the edit');
+  key('[');
+  key('[');
+  assert.equal(body(), '^D, ^E, z [^F,^A,] | A8 |]', '[ halves every length');
+  key('.');
+  assert.equal(body(), '^D,3/2 ^E,3/2 z3/2 [^F,^A,]3/2 | A8 |]', '. dots every note');
+  run('stepHistory(-1)');
+  assert.equal(body(), '^D, ^E, z [^F,^A,] | A8 |]', 'One undo per multi-note edit');
+  pick(0);
+  for (let i = 0; i < 3; i++) key('ArrowRight', {shiftKey: true});
+  key('5');
+  assert.equal(body(), '^D,2 ^E,2 z [^F,^A,]2 | A8 |]', 'A length key sets every note, not rests');
+  // Broken rhythm: a partner outside the selection keeps its length.
+  open('X:1\nM:4/4\nL:1/8\nK:C\nC>D E F G2 A2 |]');
+  pick(1);
+  key('ArrowRight', {shiftKey: true});
+  key(']');
+  assert.equal(body(), 'C3/2D E2 F G2 A2 |]', 'A broken-rhythm partner outside the selection keeps its length');
+  // Delete removes whole measures with a bar line, so no empty measure is left.
+  open('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | G A B c | d4 |]');
+  pick(4);
+  ctrl('a');
+  pick(4);
+  for (let i = 0; i < 3; i++) key('ArrowRight', {shiftKey: true});
+  key('Delete');
+  assert.equal(body(), 'C D E F | d4 |]', 'Deleting a measure takes its bar line');
+  assert.equal(shown(), 'F', 'The note before stays selected');
+  pick(4);
+  key('ArrowLeft', {shiftKey: true});
+  key('Delete');
+  assert.equal(body(), 'C D E |]', 'Deleting across a bar line joins the measures');
+  // Shift+click extends the selection and still sets the practice range.
+  open('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | G A B c | d4 |]');
+  const el = i => `scoreEvents(renderedTune).filter(e=>e.element.el_type==='note')[${i}].element`;
+  run(`scoreClick(${el(1)},0,[],{},null,{})`);
+  run(`scoreClick(${el(5)},0,[],{},null,{shiftKey:true})`);
+  assert.equal(shown(), 'D E F | G A', 'Shift+click selects the notes between');
+  assert.equal(run("$('start-measure').value+'-'+$('end-measure').value"), '1-2', 'and sets the range');
+  run(`scoreClick(${el(2)},0,[],{},null,{shiftKey:true})`);
+  assert.equal(shown(), 'D E', 'Shift+click again moves the end, keeping the anchor');
+  assert.equal(run("$('start-measure').value+'-'+$('end-measure').value"), '1-1');
+  run("toggleTranspose(true);$('transpose-selection').checked=true");
+  run(`scoreClick(${el(1)},0,[],{},null,{})`);
+  run('extendSelection(1);extendSelection(1);extendSelection(1);extendSelection(1)');
+  run("setRange(1,+$('end-measure').max);refreshTranspose()");
+  assert.equal(run("$('transpose-selection-label').textContent"), 'Selection only: measures 1–2');
+  run('toggleTranspose(false)');
+  key('ArrowRight');
+  assert.equal(shown(), 'B', '→ leaves a range from its last note');
+  // Typing after a range adds the note after its last note.
+  pick(0);
+  key('ArrowRight', {shiftKey: true});
+  key('g');
+  assert.equal(body(), 'C D G E F | G A B c | d4 |]');
+  // Pasting into another score respells for its unit length and key, so the notes keep their lengths and pitches.
+  open('X:1\nM:4/4\nL:1/8\nK:G\nG2 F2 E>D C2 |]');
+  pick(0);
+  ctrl('a');
+  ctrl('c');
+  open('X:1\nM:4/4\nL:1/4\nK:F\nz4 |]');
+  pick(0);
+  ctrl('v');
+  assert.equal(body(), 'G ^F E3/4D/4 C |]', 'Paste in L:1/4 and F major keeps rhythm and pitch');
+  assert.equal(run("$('warnings').textContent"), '');
+  // The buttons do the same for touch screens.
+  open('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | z4 |]');
+  pick(0);
+  run("$('select-right').onclick();$('select-right').onclick()");
+  assert.equal(run('selectedNotes().length'), 3);
+  run("$('copy-notes').onclick()");
+  run("selectEntry(scoreNotes().at(-1));$('paste-notes').onclick()");
+  assert.equal(body(), 'C D E F | C D E z |]');
+  run('selectEntry(scoreNotes()[0])');
+  run("$('duplicate-notes').onclick()");
+  assert.equal(body(), 'C C D E F | C D E z |]');
+  // A selection stays in one voice.
+  open('X:1\nM:4/4\nL:1/4\nK:C\nV:1\nC D E F |]\nV:2\nC, D, E, F, |]');
+  pick(2);
+  ctrl('a');
+  assert.equal(shown(), 'C D E F', 'Ctrl+A selects the voice, not the whole score');
+  key('ArrowRight', {shiftKey: true});
+  assert.equal(run('selectedNotes().length'), 4, 'Shift+→ stops at the end of the voice');
+  ctrl('d');
+  assert.equal(run("$('abc').value.split('\\n').slice(-3).join('|')"), 'C D E F | C D E F |]|V:2|C, D, E, F, |]');
+  // Accidentals on a transposing instrument are set in written pitch, note by note.
+  run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nC D E F |]')},instrument:'Clarinet in B♭'})`);
+  pick(0);
+  key('ArrowRight', {shiftKey: true});
+  key('-');
+  assert.equal(body(), '_C _D E F |]', 'Written flats on a B-flat clarinet');
+  key('=');
+  assert.equal(body(), '=C =D E F |]', 'Written naturals in written D major');
+}
 // Master bus and note audition: every note and click reaches the speakers through one gain node that follows the
 // Volume slider live; entering, selecting or moving a note sounds it once at concert pitch when Hear notes is on.
 async function checkAudio() {
@@ -529,7 +714,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice), copy, cut, paste and duplicate with one undo each, multi-note pitch, accidental and length edits, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, and legacy storage.'
   );
   w.close();
 }

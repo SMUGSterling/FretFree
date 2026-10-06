@@ -429,6 +429,53 @@ const {chromium} = require('playwright'),
   await page.keyboard.press('#');
   await page.keyboard.press('.');
   assert.equal(await kbody(), '(C2 D E F) (3^G3/2AB c2 |]', 'Slur- and tuplet-start notes are editable');
+  // Range selection and the clipboard with real keys and clicks: Shift+→ selects and highlights a run, Ctrl+C/V/D/X
+  // copy, paste, duplicate and cut (one undo each), and the buttons do the same.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:R\nM:4/4\nL:1/4\nK:G\nG A B c | d4 | z4 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  const rbody = () => page.evaluate(() => $('abc').value.trim().split('\n').pop()),
+    rsel = () => page.evaluate(() => $('abc').value.slice($('abc').selectionStart, $('abc').selectionEnd).trim()),
+    lit = () => page.evaluate(() => document.querySelectorAll('#notation .abcjs-note[fill="#317761"]').length);
+  await page.locator('#notation .abcjs-notehead').nth(0).click({force: true});
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Shift+ArrowRight');
+  assert.equal(await rsel(), 'G A B c', 'Shift+→ three times selects four notes in the ABC text');
+  assert.equal(await lit(), 4, 'and highlights all four');
+  await page.keyboard.press('Control+c');
+  await page.locator('#notation .abcjs-rest').first().click({force: true});
+  await page.keyboard.press('Control+v');
+  assert.equal(await rbody(), 'G A B c | d4 | G A B c |]', 'Ctrl+V writes the copy over a whole-bar rest');
+  assert.equal(await lit(), 4, 'The pasted notes are selected');
+  await page.keyboard.press('Control+d');
+  await page.keyboard.press('Control+d');
+  assert.equal(await rbody(), 'G A B c | d4 | G A B c | G A B c | G A B c |]', 'Ctrl+D twice: three copies');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('#');
+  assert.equal(await rbody(), 'G A B c | d4 | G A B c | G A B c | ^A ^B ^c ^d |]', '↑ and # change every note');
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('Control+z');
+  assert.equal(await rbody(), 'G A B c | d4 | G A B c | G A B c |]', 'One undo per edit');
+  await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.keyboard.press('Control+x');
+  assert.equal(await rbody(), 'G z z c | d4 | G A B c | G A B c |]', 'Ctrl+X leaves rests of the same length');
+  assert.equal(await page.locator('#bar-check').getAttribute('class'), 'bar-check ok', 'The bar check stays clean');
+  await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+  await page
+    .locator('#notation .abcjs-notehead')
+    .nth(2)
+    .click({force: true, modifiers: ['Shift']});
+  assert.equal(await rsel(), 'c | d4', 'Shift+click selects across a bar line');
+  await page.click('#duplicate-notes');
+  assert.equal(await rbody(), 'G z z c | d4 c | d4 | G A B c | G A B c |]', 'The Duplicate button');
+  assert.equal(
+    await page.evaluate(() => document.activeElement.id),
+    'notation',
+    'Focus goes back to the score, ready for keys'
+  );
   // Writing prompts: blank bars of rests, typing writes over them, goals tick off live; keys follow written pitch.
   await page.evaluate(() => {
     dirty = false;
@@ -1262,7 +1309,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), legacy storage, mobile width, and no browser errors.'
+    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), legacy storage, mobile width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);
