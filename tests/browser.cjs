@@ -604,6 +604,101 @@ const {chromium} = require('playwright'),
   await page.click('#draw-mode');
   await page.click('#add-bars');
   assert.equal(await page.evaluate(() => $('measure-count').textContent), 'of 12', 'Add 4 bars extends the sheet');
+  // Backup and restore: Back up falls back to a download when no Save As dialog exists; Restore merges a file.
+  await page.evaluate(() => {
+    dirty = false;
+    window.showSaveFilePicker = undefined;
+    window.__downloads = [];
+    download = (data, name, type) => __downloads.push({data, name, type});
+    show('saved');
+  });
+  await page.click('#backup');
+  await page.waitForFunction(() => __downloads.length === 1);
+  const backup = await page.evaluate(() => JSON.parse(__downloads[0].data));
+  assert.equal(backup.app, 'FretFree', 'Backup is a FretFree file');
+  assert.match(
+    await page.locator('#backup-status').textContent(),
+    /Last backed up .* Everything saved is in that backup\./
+  );
+  await page.locator('#restore-file').setInputFiles({
+    name: 'fretfree-backup.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(
+      JSON.stringify({
+        app: 'FretFree',
+        format: 1,
+        scores: [
+          {id: 'from-backup', title: 'From backup', abc: 'X:1\nT:From backup\nM:4/4\nL:1/4\nK:G\nG4 |]', updated: 1}
+        ],
+        favorites: ['ode']
+      })
+    )
+  });
+  await page.waitForFunction(() => saved.some(x => x.id === 'from-backup'));
+  assert.ok(
+    await page
+      .locator('#saved-cards')
+      .textContent()
+      .then(t => t.includes('From backup')),
+    'Restored score listed'
+  );
+  assert.ok(await page.evaluate(() => favorites.includes('ode')), 'Restored favorite merged');
+  assert.match(await page.locator('#toast').textContent(), /Restored: 1 score added/);
+  assert.match(
+    await page.locator('#backup-status').textContent(),
+    /1 score changed since/,
+    'A restored score counts as not yet backed up'
+  );
+  // The Save As path: a mocked picker writes the file, a remembered handle is reused without asking again, a
+  // cancelled picker changes nothing, and a handle that fails to write falls back to a download.
+  await page.evaluate(() => {
+    window.__writes = [];
+    window.__pickerCalls = 0;
+    window.__handle = {
+      name: 'chosen.json',
+      queryPermission: async () => 'granted',
+      requestPermission: async () => 'granted',
+      createWritable: async () => ({write: async t => __writes.push(t), close: async () => {}})
+    };
+    window.__stored = null;
+    loadBackupHandle = async () => __stored;
+    saveBackupHandle = async h => (__stored = h);
+    forgetBackupHandle = async () => (__stored = null);
+    window.showSaveFilePicker = async () => {
+      __pickerCalls++;
+      if (window.__cancel) {
+        const e = new Error('cancelled');
+        e.name = 'AbortError';
+        throw e;
+      }
+      return __handle;
+    };
+  });
+  await page.click('#backup');
+  await page.waitForFunction(() => __writes.length === 1);
+  assert.equal(await page.evaluate(() => __pickerCalls), 1, 'Picker asked once');
+  assert.match(await page.locator('#backup-status').textContent(), /to chosen\.json/);
+  await page.click('#backup');
+  await page.waitForFunction(() => __writes.length === 2);
+  assert.equal(await page.evaluate(() => __pickerCalls), 1, 'Remembered handle reused without a second dialog');
+  await page.evaluate(() => {
+    __stored = null;
+    __cancel = true;
+    __downloads.length = 0;
+  });
+  const statusBefore = await page.locator('#backup-status').textContent();
+  await page.click('#backup');
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => __writes.length + __downloads.length), 2, 'Cancelling writes nothing');
+  assert.equal(await page.locator('#backup-status').textContent(), statusBefore, 'Cancelling leaves the status alone');
+  await page.evaluate(() => {
+    __cancel = false;
+    __stored = {...__handle, createWritable: async () => Promise.reject(new Error('disk'))};
+  });
+  await page.click('#backup');
+  await page.waitForFunction(() => __downloads.length === 1);
+  assert.equal(await page.evaluate(() => __stored), null, 'A handle that fails to write is forgotten');
+  assert.match(await page.locator('#backup-status').textContent(), /to fretfree-backup-/, 'Fell back to a download');
   // Share by link: the link carries the edited score, instrument and the library edition's credits; opening it shows the copy.
   await page.evaluate(() => {
     dirty = false;
@@ -754,7 +849,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.'
+    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

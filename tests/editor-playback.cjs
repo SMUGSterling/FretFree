@@ -63,6 +63,7 @@ for (const f of [
   'catalog-pgh.js',
   'shared.js',
   'library.js',
+  'backup.js',
   'editor.js',
   'playback.js',
   'app.js'

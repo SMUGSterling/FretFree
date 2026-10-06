@@ -4,7 +4,10 @@
 function show(view) {
   document.querySelectorAll('.view').forEach(el => (el.hidden = el.id !== view));
   document.querySelectorAll('.nav').forEach(el => el.classList.toggle('active', el.dataset.view === view));
-  if (view === 'saved') renderSaved();
+  if (view === 'saved') {
+    renderSaved();
+    renderBackupStatus();
+  }
   if (view !== 'studio') stop();
   if (view !== 'library') stopPreview();
   history.replaceState(null, '', '#' + view);
@@ -190,7 +193,8 @@ $('save').onclick = () => {
     savedId = id;
     dirty = false;
     markClean();
-    $('save-status').textContent = 'Saved on this device. Export ABC for a lasting backup.';
+    $('save-status').textContent = 'Saved on this device. Back up from My scores to keep it safe.';
+    renderBackupStatus();
     toast('Score saved');
     render();
   } else {
@@ -234,7 +238,14 @@ for (const id of ['start-measure', 'end-measure'])
     const {from, to} = measureRange();
     setRange(from, to);
   };
-// Practice toggles are per-browser conveniences.
+// Practice toggles are per-browser conveniences; applyStoredSettings() also runs after a backup is restored.
+function applyStoredSettings() {
+  for (const id of ['loop', 'metronome', 'count-in', 'trainer'])
+    $(id).checked = !!storage.get(KEYS.practice(id), false);
+  $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
+  $('note-names').value = storage.get(KEYS.noteNames, 'off');
+  prepareTrainer();
+}
 for (const id of ['loop', 'metronome', 'count-in', 'trainer']) {
   $(id).checked = !!storage.get(KEYS.practice(id), false);
   $(id).addEventListener('change', () => {

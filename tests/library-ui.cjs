@@ -48,6 +48,7 @@ for (const file of [
   'prompts.js',
   'shared.js',
   'library.js',
+  'backup.js',
   'editor.js',
   'playback.js',
   'app.js'
@@ -201,6 +202,86 @@ assert.equal($('selection-status').textContent, 'before', 'Cancelled new score k
 run('dirty = false');
 $('new-bars').value = '8';
 
+// Backup and restore: the file holds everything on the device; restoring merges, newer copy wins, nothing deleted.
+{
+  const data = run('backupData()');
+  assert.equal(data.app, 'FretFree');
+  assert.equal(data.scores.length, run('saved.length'));
+  assert.ok(Array.isArray(data.favorites) && Array.isArray(data.played) && typeof data.settings === 'object');
+  const mine = run('saved[0]');
+  const incoming = {
+    app: 'FretFree',
+    format: 1,
+    scores: [
+      {...mine, abc: mine.abc + '\n% older', updated: (mine.updated || 1) - 1},
+      {id: 'restored-1', title: 'Restored tune', abc: 'X:1\nT:Restored tune\nM:4/4\nL:1/4\nK:D\nD4 |]', updated: 5}
+    ],
+    favorites: ['elise', 'elise'],
+    played: ['ode'],
+    settings: {'fretfree-practice-loop': true, 'fretfree-note-names': 'letters'}
+  };
+  const before = run('saved.length');
+  const summary = run(`applyBackup(${JSON.stringify(incoming)})`);
+  assert.equal(summary.added, 1, 'New score added');
+  assert.equal(summary.updated, 0, 'An older copy does not replace mine');
+  assert.equal(summary.unchanged, 1);
+  assert.equal(run('saved.length'), before + 1);
+  assert.equal(run('saved.find(x => x.id === saved[0].id).abc').includes('% older'), false, 'My newer copy kept');
+  assert.ok(run("favorites.includes('elise')") && run("played.has('ode')"), 'Favorites and played marks merged');
+  assert.equal(run("storage.get('fretfree-note-names')"), 'letters', 'Settings restored');
+  const newer = {
+    app: 'FretFree',
+    format: 1,
+    scores: [{...mine, title: 'Renamed elsewhere', updated: Date.now() + 1000}]
+  };
+  assert.equal(run(`applyBackup(${JSON.stringify(newer)})`).updated, 1, 'A newer copy replaces mine');
+  assert.equal(
+    run(`saved.find(x => x.id === ${JSON.stringify(mine.id)}).title`),
+    'Renamed elsewhere',
+    'Newer title restored'
+  );
+  assert.throws(() => run('applyBackup({app: "Other", scores: []})'), /not a FretFree backup/);
+  assert.throws(() => run('applyBackup({app: "FretFree", format: 99, scores: []})'), /newer FretFree/);
+  // A damaged file is refused whole rather than partly restored.
+  const countBefore = run('saved.length');
+  assert.throws(
+    () =>
+      run(
+        'applyBackup({app: "FretFree", format: 1, scores: [{id: "ok", title: "t", abc: "X:1\\nK:C\\nC4|]"}, {id: "bad"}]})'
+      ),
+    /damaged/
+  );
+  assert.equal(run('saved.length'), countBefore, 'Nothing restored from a damaged file');
+  // A storage failure rolls back and reports instead of leaving memory and storage out of step.
+  run('window.__realSet = storage.set; storage.set = () => false');
+  assert.throws(
+    () =>
+      run('applyBackup({app: "FretFree", format: 1, scores: [{id: "fail-1", title: "t", abc: "X:1\\nK:C\\nC4|]"}]})'),
+    /could not store/
+  );
+  run('storage.set = window.__realSet');
+  assert.equal(run('saved.length'), countBefore, 'Memory unchanged after a failed restore');
+  assert.equal(run('storedList(KEYS.scores).length'), countBefore, 'Storage unchanged after a failed restore');
+  // The status compares against what the backup actually holds, not just timestamps.
+  run(
+    "storage.set('fretfree-last-backup', {at: Date.now(), name: 'old.json', scores: Object.fromEntries(saved.map(x => [x.id, x.updated || 0]))})"
+  );
+  run('renderBackupStatus()');
+  assert.match($('backup-status').textContent, /Everything saved is in that backup/);
+  run(
+    "applyBackup({app: 'FretFree', format: 1, scores: [{id: 'restored-2', title: 'Old but new here', abc: 'X:1\\nK:C\\nC4|]', updated: 1}]})"
+  );
+  run('renderBackupStatus()');
+  assert.match(
+    $('backup-status').textContent,
+    /1 score changed since/,
+    'A restored score with an old timestamp still counts as not backed up'
+  );
+  run("saved = saved.filter(x => x.id !== 'restored-2'); storage.set(KEYS.scores, saved)");
+  // Leave the saved list as the later tests expect it.
+  run("saved = saved.filter(x => x.id !== 'restored-1'); storage.set(KEYS.scores, saved)");
+}
+
 // Source editions and saving.
 run('openScore(catalog.find(x=>x.pdf))');
 assert.equal($('source-edition').hidden, false);
@@ -234,7 +315,7 @@ assert.equal(
   assert.equal($('next-up').hidden, true, 'No suggestions for a shared copy');
   assert.equal(await run('openSharedLink("s=1garbage")'), false, 'A damaged link is refused');
   console.log(
-    'PASS (jsdom): blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
+    'PASS (jsdom): backup and restore, blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
   );
 })().catch(e => {
   console.error(e);
