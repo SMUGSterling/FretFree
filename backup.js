@@ -53,9 +53,15 @@ function handleStore(mode, action) {
     };
   });
 }
-const loadBackupHandle = () => handleStore('readonly', store => store.get('backup')),
-  saveBackupHandle = handle => handleStore('readwrite', store => store.put(handle, 'backup')),
-  forgetBackupHandle = () => handleStore('readwrite', store => store.delete('backup'));
+function loadBackupHandle() {
+  return handleStore('readonly', store => store.get('backup'));
+}
+function saveBackupHandle(handle) {
+  return handleStore('readwrite', store => store.put(handle, 'backup'));
+}
+function forgetBackupHandle() {
+  return handleStore('readwrite', store => store.delete('backup'));
+}
 async function writableHandle(handle) {
   if (!handle?.createWritable) return null;
   try {
@@ -91,20 +97,33 @@ async function backUp() {
       download(text, name, 'application/json');
     }
   } else download(text, name, 'application/json');
-  storage.set(LAST_BACKUP_KEY, {at: Date.now(), name});
+  storage.set(LAST_BACKUP_KEY, {
+    at: Date.now(),
+    name,
+    scores: Object.fromEntries(data.scores.map(x => [x.id, x.updated || 0]))
+  });
   renderBackupStatus();
   toast(`Backed up ${count} score${count === 1 ? '' : 's'} to ${where} (${name}).`);
 }
-// Merge a backup into this browser. Returns a summary; throws on anything that is not a FretFree backup.
+// Merge a backup into this browser. Returns a summary; throws on anything that is not a sound FretFree backup, and
+// changes nothing unless every write succeeds.
 function applyBackup(data) {
   if (!data || typeof data !== 'object' || data.app !== 'FretFree' || !Array.isArray(data.scores))
     throw new Error('This is not a FretFree backup file.');
   if (typeof data.format !== 'number' || data.format > BACKUP_FORMAT)
     throw new Error('This backup comes from a newer FretFree. Update the app first.');
-  const incoming = data.scores.filter(
-    x =>
-      x && typeof x === 'object' && typeof x.id === 'string' && typeof x.abc === 'string' && typeof x.title === 'string'
-  );
+  const incoming = data.scores;
+  if (
+    !incoming.every(
+      x =>
+        x &&
+        typeof x === 'object' &&
+        typeof x.id === 'string' &&
+        typeof x.abc === 'string' &&
+        typeof x.title === 'string'
+    )
+  )
+    throw new Error('This backup file is damaged: a score entry is incomplete. Nothing was restored.');
   const byId = new Map(saved.map(x => [x.id, x]));
   let added = 0,
     updated = 0;
@@ -124,23 +143,31 @@ function applyBackup(data) {
     ),
     nextPlayed = [...new Set([...played, ...(Array.isArray(data.played) ? data.played : [])])].filter(
       x => typeof x === 'string'
-    );
-  if (!storage.set(KEYS.scores, nextSaved)) throw new Error('This browser could not store the restored scores.');
-  storage.set(KEYS.favorites, nextFavorites);
-  storage.set(KEYS.played, nextPlayed);
+    ),
+    settings = data.settings && typeof data.settings === 'object' ? data.settings : {},
+    settingKeys = BACKUP_SETTING_KEYS().filter(key => key in settings);
+  // Every write must land before memory changes; on any failure put the previous values back and report.
+  const previous = [
+    [KEYS.scores, saved],
+    [KEYS.favorites, favorites],
+    [KEYS.played, [...played]],
+    ...settingKeys.map(key => [key, storage.get(key, null)])
+  ];
+  const writes = [
+    [KEYS.scores, nextSaved],
+    [KEYS.favorites, nextFavorites],
+    [KEYS.played, nextPlayed],
+    ...settingKeys.map(key => [key, settings[key]])
+  ];
+  if (!writes.every(([key, value]) => storage.set(key, value))) {
+    for (const [key, value] of previous) if (value !== null) storage.set(key, value);
+    throw new Error('This browser could not store the restored data (storage may be full). Nothing was changed.');
+  }
   const favoritesAdded = nextFavorites.length - favorites.length;
   saved = nextSaved;
   favorites = nextFavorites;
   played = new Set(nextPlayed);
-  const settings = data.settings && typeof data.settings === 'object' ? data.settings : {};
-  for (const key of BACKUP_SETTING_KEYS()) if (key in settings) storage.set(key, settings[key]);
-  return {
-    added,
-    updated,
-    unchanged: incoming.length - added - updated,
-    favoritesAdded,
-    settings: Object.keys(settings).length
-  };
+  return {added, updated, unchanged: incoming.length - added - updated, favoritesAdded, settings: settingKeys.length};
 }
 function restoreSummary(s) {
   const parts = [];
@@ -173,7 +200,11 @@ function renderBackupStatus() {
       : 'Nothing backed up yet.';
     return;
   }
-  const changed = saved.filter(x => (x.updated || 0) > last.at).length;
+  // A score counts as not backed up when the backup lacks it or holds another revision of it.
+  const snapshot = last.scores && typeof last.scores === 'object' ? last.scores : null;
+  const changed = saved.filter(x =>
+    snapshot ? snapshot[x.id] === undefined || snapshot[x.id] !== (x.updated || 0) : (x.updated || 0) > last.at
+  ).length;
   el.textContent =
     `Last backed up ${new Date(last.at).toLocaleString()} to ${last.name}.` +
     (changed ? ` ${changed} score${changed === 1 ? '' : 's'} changed since.` : ' Everything saved is in that backup.');

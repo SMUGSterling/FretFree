@@ -644,6 +644,61 @@ const {chromium} = require('playwright'),
   );
   assert.ok(await page.evaluate(() => favorites.includes('ode')), 'Restored favorite merged');
   assert.match(await page.locator('#toast').textContent(), /Restored: 1 score added/);
+  assert.match(
+    await page.locator('#backup-status').textContent(),
+    /1 score changed since/,
+    'A restored score counts as not yet backed up'
+  );
+  // The Save As path: a mocked picker writes the file, a remembered handle is reused without asking again, a
+  // cancelled picker changes nothing, and a handle that fails to write falls back to a download.
+  await page.evaluate(() => {
+    window.__writes = [];
+    window.__pickerCalls = 0;
+    window.__handle = {
+      name: 'chosen.json',
+      queryPermission: async () => 'granted',
+      requestPermission: async () => 'granted',
+      createWritable: async () => ({write: async t => __writes.push(t), close: async () => {}})
+    };
+    window.__stored = null;
+    loadBackupHandle = async () => __stored;
+    saveBackupHandle = async h => (__stored = h);
+    forgetBackupHandle = async () => (__stored = null);
+    window.showSaveFilePicker = async () => {
+      __pickerCalls++;
+      if (window.__cancel) {
+        const e = new Error('cancelled');
+        e.name = 'AbortError';
+        throw e;
+      }
+      return __handle;
+    };
+  });
+  await page.click('#backup');
+  await page.waitForFunction(() => __writes.length === 1);
+  assert.equal(await page.evaluate(() => __pickerCalls), 1, 'Picker asked once');
+  assert.match(await page.locator('#backup-status').textContent(), /to chosen\.json/);
+  await page.click('#backup');
+  await page.waitForFunction(() => __writes.length === 2);
+  assert.equal(await page.evaluate(() => __pickerCalls), 1, 'Remembered handle reused without a second dialog');
+  await page.evaluate(() => {
+    __stored = null;
+    __cancel = true;
+    __downloads.length = 0;
+  });
+  const statusBefore = await page.locator('#backup-status').textContent();
+  await page.click('#backup');
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => __writes.length + __downloads.length), 2, 'Cancelling writes nothing');
+  assert.equal(await page.locator('#backup-status').textContent(), statusBefore, 'Cancelling leaves the status alone');
+  await page.evaluate(() => {
+    __cancel = false;
+    __stored = {...__handle, createWritable: async () => Promise.reject(new Error('disk'))};
+  });
+  await page.click('#backup');
+  await page.waitForFunction(() => __downloads.length === 1);
+  assert.equal(await page.evaluate(() => __stored), null, 'A handle that fails to write is forgotten');
+  assert.match(await page.locator('#backup-status').textContent(), /to fretfree-backup-/, 'Fell back to a download');
   // Share by link: the link carries the edited score, instrument and the library edition's credits; opening it shows the copy.
   await page.evaluate(() => {
     dirty = false;

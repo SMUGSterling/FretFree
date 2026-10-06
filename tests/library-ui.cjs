@@ -235,12 +235,49 @@ $('new-bars').value = '8';
     scores: [{...mine, title: 'Renamed elsewhere', updated: Date.now() + 1000}]
   };
   assert.equal(run(`applyBackup(${JSON.stringify(newer)})`).updated, 1, 'A newer copy replaces mine');
-  assert.equal(run('saved.find(x => x.id === saved[0].id || true).title !== undefined'), true);
+  assert.equal(
+    run(`saved.find(x => x.id === ${JSON.stringify(mine.id)}).title`),
+    'Renamed elsewhere',
+    'Newer title restored'
+  );
   assert.throws(() => run('applyBackup({app: "Other", scores: []})'), /not a FretFree backup/);
   assert.throws(() => run('applyBackup({app: "FretFree", format: 99, scores: []})'), /newer FretFree/);
-  run("storage.set('fretfree-last-backup', {at: 1, name: 'old.json'})");
+  // A damaged file is refused whole rather than partly restored.
+  const countBefore = run('saved.length');
+  assert.throws(
+    () =>
+      run(
+        'applyBackup({app: "FretFree", format: 1, scores: [{id: "ok", title: "t", abc: "X:1\\nK:C\\nC4|]"}, {id: "bad"}]})'
+      ),
+    /damaged/
+  );
+  assert.equal(run('saved.length'), countBefore, 'Nothing restored from a damaged file');
+  // A storage failure rolls back and reports instead of leaving memory and storage out of step.
+  run('window.__realSet = storage.set; storage.set = () => false');
+  assert.throws(
+    () =>
+      run('applyBackup({app: "FretFree", format: 1, scores: [{id: "fail-1", title: "t", abc: "X:1\\nK:C\\nC4|]"}]})'),
+    /could not store/
+  );
+  run('storage.set = window.__realSet');
+  assert.equal(run('saved.length'), countBefore, 'Memory unchanged after a failed restore');
+  assert.equal(run('storedList(KEYS.scores).length'), countBefore, 'Storage unchanged after a failed restore');
+  // The status compares against what the backup actually holds, not just timestamps.
+  run(
+    "storage.set('fretfree-last-backup', {at: Date.now(), name: 'old.json', scores: Object.fromEntries(saved.map(x => [x.id, x.updated || 0]))})"
+  );
   run('renderBackupStatus()');
-  assert.match($('backup-status').textContent, /Last backed up .* to old.json\. \d+ scores? changed since\./);
+  assert.match($('backup-status').textContent, /Everything saved is in that backup/);
+  run(
+    "applyBackup({app: 'FretFree', format: 1, scores: [{id: 'restored-2', title: 'Old but new here', abc: 'X:1\\nK:C\\nC4|]', updated: 1}]})"
+  );
+  run('renderBackupStatus()');
+  assert.match(
+    $('backup-status').textContent,
+    /1 score changed since/,
+    'A restored score with an old timestamp still counts as not backed up'
+  );
+  run("saved = saved.filter(x => x.id !== 'restored-2'); storage.set(KEYS.scores, saved)");
   // Leave the saved list as the later tests expect it.
   run("saved = saved.filter(x => x.id !== 'restored-1'); storage.set(KEYS.scores, saved)");
 }
