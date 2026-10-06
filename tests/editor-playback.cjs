@@ -65,6 +65,7 @@ for (const f of [
   'library.js',
   'backup.js',
   'editor.js',
+  'palette.js',
   'playback.js',
   'app.js'
 ])
@@ -166,6 +167,88 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   key('=');
   assert.equal(body(), '(3:2:3^CDE (=F G) A2 B2 |]', 'Written-pitch accidentals on tuplet- and slur-start notes');
 }
+// Notation palette: buttons show the selected note's state and make the same edit as the menu or key, one undo step each.
+{
+  const abc = 'X:1\nM:4/4\nL:1/8\nK:C\n^G3- G E F G A | B4 z3 z |]';
+  run(`openScore({abc:${JSON.stringify(abc)},instrument:'Flute'})`);
+  const body = () => run("$('abc').value.trim().split('\\n').pop()"),
+    pick = i => run(`selectEntry(scoreNotes()[${i}])`),
+    press = action => run(`document.querySelector('[data-palette="${action}"]').click()`),
+    pressed = () =>
+      run(`[...document.querySelectorAll('#palette [aria-pressed="true"]')].map(b=>b.dataset.palette).join(' ')`),
+    disabled = () =>
+      run(`[...document.querySelectorAll('#palette [aria-disabled="true"]')].map(b=>b.dataset.palette).join(' ')`),
+    status = () => run("$('selection-status').textContent");
+  assert.equal(run("$('palette').getAttribute('role')"), 'toolbar');
+  pick(0);
+  assert.equal(pressed(), 'len:0.25 dot tie acc:^', 'A dotted quarter G sharp tied to the next note');
+  assert.equal(disabled(), 'beam:break', 'Break needs a beamed note');
+  pick(2);
+  assert.equal(pressed(), 'len:0.125 acc:', 'A plain eighth');
+  pick(7);
+  assert.equal(pressed(), 'len:0.25 dot', 'A rest shows only its length (here a dotted quarter)');
+  assert.equal(disabled(), 'tie to-rest acc:^ acc:_ acc:= acc: beam:join beam:break');
+  press('acc:^');
+  assert.equal(body(), '^G3- G E F G A | B4 z3 z |]', 'Disabled buttons change nothing');
+  assert.equal(status(), 'Rests have no accidental, tie or beam.');
+  // Each button matches the note menu and the keys, as one undo step.
+  const same = (i, action, key) => {
+    pick(i);
+    press(action);
+    const viaPalette = body();
+    run('stepHistory(-1)');
+    pick(i);
+    if (key) run(`scoreKey({key:${JSON.stringify(key)}})`);
+    else run(`(s=>editNote(s.entry,s.display,${JSON.stringify(action)}))(selectedNote())`);
+    assert.equal(body(), viaPalette, `${action} matches ${key ? 'the ' + key + ' key' : 'the note menu'}`);
+    run('stepHistory(-1)');
+    assert.equal(body(), '^G3- G E F G A | B4 z3 z |]', `${action} is one undo step`);
+    return viaPalette;
+  };
+  assert.equal(same(2, 'len:0.5', '6'), '^G3- G E4 F G A | B4 z3 z |]');
+  assert.equal(same(0, 'dot', '.'), '^G2- G E F G A | B4 z3 z |]');
+  assert.equal(same(0, 'tie', '+'), '^G3 G E F G A | B4 z3 z |]');
+  assert.equal(same(2, 'acc:_', '-'), '^G3- G _E F G A | B4 z3 z |]');
+  assert.equal(same(0, 'acc:'), 'G3- G E F G A | B4 z3 z |]');
+  assert.equal(same(2, 'delete', 'Delete'), '^G3- G F G A | B4 z3 z |]');
+  assert.equal(same(0, 'to-rest'), 'z3 G E F G A | B4 z3 z |]', 'Rest keeps the length and drops the tie');
+  assert.equal(same(2, 'beam:join'), '^G3- G EF G A | B4 z3 z |]', 'Join removes the space');
+  pick(2);
+  press('beam:join');
+  assert.equal(pressed(), 'len:0.125 acc: beam:join', 'Joined notes show Join pressed');
+  assert.equal(status(), 'Beamed to the next note.');
+  press('beam:break');
+  assert.equal(body(), '^G3- G E F G A | B4 z3 z |]', 'Break puts the space back');
+  pick(5);
+  assert.ok(disabled().includes('beam:join'), 'No beam across a bar line');
+  // With nothing selected a length button sets the length of new notes, like keys 3–7.
+  run("scoreKey({key:'Escape'})");
+  assert.equal(disabled(), 'dot tie to-rest acc:^ acc:_ acc:= acc: beam:join beam:break delete');
+  assert.equal(pressed(), 'len:0.5', 'Shows the length new notes get: the last one chosen (key 6 above)');
+  run('inputLength=null;updatePalette()');
+  assert.equal(pressed(), 'len:0.25', 'New notes default to one beat');
+  press('len:0.0625');
+  assert.equal(run('inputLength'), 0.0625);
+  assert.equal(status(), 'New notes will be sixteenth notes.');
+  assert.equal(pressed(), 'len:0.0625');
+  run("scoreKey({key:'c'})");
+  assert.equal(body(), '^G3- G E F G A | B4 z3 z c/2 |]', 'The next note takes the palette length');
+  // A selected rest keeps its length; the next letter writes a note of the chosen length over it.
+  pick(7);
+  press('len:0.125');
+  assert.equal(status(), 'New notes will be eighth notes. Type a letter to write one over the rest.');
+  // An unknown editNote action changes nothing (it used to write NaN).
+  pick(1);
+  const before = run("$('abc').value");
+  for (const action of ['bogus', 'len:', 'len:x', 'len:-1'])
+    run(`(s=>editNote(s.entry,s.display,${JSON.stringify(action)}))(selectedNote())`);
+  assert.equal(run("$('abc').value"), before, 'Unknown actions are ignored');
+  // Accidentals show in written pitch for transposing instruments, like the note menu.
+  run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\n^F c d e |]')},instrument:'Clarinet in B♭'})`);
+  pick(0);
+  assert.equal(pressed(), 'len:0.25 acc:^', 'Concert F sharp is a written G sharp');
+  assert.equal(run("$('warnings').textContent"), '');
+}
 async function checkPlayback() {
   run(`openScore({abc:${JSON.stringify(source)},instrument:'Flute'});$('start-measure').value=3;$('speed').value=50`);
   assert.equal(run('measureStarts.get(3)'), 9.6, 'Measure after repeated section uses performed timing');
@@ -264,7 +347,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, bar checks, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, notation palette state and edits, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, bar checks, and legacy storage.'
   );
   w.close();
 }

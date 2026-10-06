@@ -128,7 +128,8 @@ function noteParts(text) {
 }
 // Set the accidental ('^', '_', '=', or '' for none) and/or length (multiple of L:) on every pitch of a note or chord.
 // A new length replaces any per-pitch chord lengths; unbroken drops a trailing > or < broken-rhythm marker; tie adds or removes the tie (-).
-function editNoteText(text, {accidental, length, unbroken, tie} = {}) {
+// rest replaces the note or chord with a rest of the same length, keeping decorations, slurs and tuplet marks.
+function editNoteText(text, {accidental, length, unbroken, tie, rest} = {}) {
   const m = String(text).match(NOTE_PARTS);
   if (!m) return text;
   let [, pre, core, len, post] = m;
@@ -136,6 +137,12 @@ function editNoteText(text, {accidental, length, unbroken, tie} = {}) {
   if (length != null) {
     len = lengthText(length);
     if (core[0] === '[') core = core.replace(/([A-Ga-g][,']*)\d*\/*\d*/g, '$1');
+  }
+  if (rest) {
+    const inner = core[0] === '[' ? core.match(/[A-Ga-g][,']*(\d*\/*\d*)/)?.[1] : '';
+    if (inner) len = lengthText(lengthValue(inner) * lengthValue(len));
+    core = 'z';
+    post = post.replace(/^-/, '');
   }
   if (unbroken) post = post.replace(/[<>]+/g, '');
   if (tie === true && !/^-/.test(post)) post = '-' + post;

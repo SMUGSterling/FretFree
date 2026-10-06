@@ -1,3 +1,13 @@
+# Notation palette · 2026-10-06
+
+- A **notation toolbar** above the score: Length (whole to 16th), Dot, Tie, Rest, Accidental (♯ ♭ ♮ None), Beam (Join, Break) and Delete. It lights up to show the selected note's length, dot, tie, accidental and beam, and gives every edit a touch target, so Chromebook and iPad users no longer need the right-click menu or the keyboard.
+- Each button makes the same ABC edit as the matching key or note-menu item, as one undo step. **Rest** is new: it turns a note or chord into a rest of the same length and keeps decorations, slurs and tuplet marks. **Join** removes the space before the next note so they share a beam; **Break** puts it back.
+- With nothing selected, or a rest selected, a length button sets the length of the next notes, like keys 3–7, and the status line says so. On a blank sheet, pick a length and type letters to write over the rest.
+- The toolbar is one Tab stop with arrow keys inside it, its buttons are at least 40 px, it wraps on phones and it is left out of prints.
+- `editNote` ignores actions it does not know instead of writing `NaN` into the score.
+
+---
+
 # Edit notes that start a slur or tuplet · 2026-10-06
 
 - The note menu and the keyboard now edit notes written with a slur opening or a tuplet in front, such as `(C`, `(3C` or `(3:2:3C`. Before, length, dot, accidental and tie edits on these notes did nothing. The `(` or `(3` stays in place, and a slur end `C)` keeps its `)`.

@@ -50,6 +50,7 @@ for (const file of [
   'library.js',
   'backup.js',
   'editor.js',
+  'palette.js',
   'playback.js',
   'app.js'
 ])
@@ -182,6 +183,24 @@ assert.equal(
   'z4 | z4 | z4 | z4 | z4 | z4 | z4 |]',
   'Add 4 bars appends rests before the final barline'
 );
+// Notation palette on a blank sheet: it shows the selected rest's length; a length button keeps the rest and sets
+// the length that typing writes over it.
+{
+  const pressed = () =>
+    [...w.document.querySelectorAll('#palette [aria-pressed="true"]')].map(b => b.dataset.palette).join(' ');
+  $('new-score').click();
+  assert.equal(pressed(), 'len:1', 'The selected whole-bar rest shows Whole');
+  w.document.querySelector('[data-palette="len:0.5"]').click();
+  assert.equal($('abc').value.trim().split('\n').pop(), 'z4 | z4 | z4 |]', 'A length button leaves the rest alone');
+  run("scoreKey({key:'c'})");
+  assert.equal(
+    $('abc').value.trim().split('\n').pop(),
+    'c2 z2 | z4 | z4 |]',
+    'Typing writes a half note over the rest'
+  );
+  assert.equal(pressed(), 'len:0.5', 'The rest that is left is selected and shows its length');
+  run('inputLength = null');
+}
 // Appended bars take the meter and unit length in force at the end, and an open last measure is closed first.
 run(`$('abc').value = 'X:1\\nT:t\\nM:4/4\\nL:1/8\\nK:C\\nC2 D2 [M:3/4] [L:1/16] E4 F4 G4\\n'; syncFields(); render();`);
 $('add-bars').click();
@@ -315,7 +334,7 @@ assert.equal(
   assert.equal($('next-up').hidden, true, 'No suggestions for a shared copy');
   assert.equal(await run('openSharedLink("s=1garbage")'), false, 'A damaged link is refused');
   console.log(
-    'PASS (jsdom): backup and restore, blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
+    'PASS (jsdom): backup and restore, blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
   );
 })().catch(e => {
   console.error(e);

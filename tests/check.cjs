@@ -147,7 +147,11 @@ for (const [text, edit, expected] of [
   ['C)', {length: 2}, 'C2)'],
   ['C2-)', {tie: false}, 'C2)'],
   ['([CE]2', {length: 1, accidental: '='}, '([=C=E]'],
-  ['(C>', {length: 1.5, unbroken: true}, '(C3/2']
+  ['(C>', {length: 1.5, unbroken: true}, '(C3/2'],
+  ['"G"!f!(^C3/2- ', {rest: true}, '"G"!f!(z3/2 '],
+  ['(3[CE]2)', {rest: true}, '(3z2)'],
+  ['[C2E2]3', {rest: true}, 'z6'],
+  ['z2', {rest: true}, 'z2']
 ])
   assert.equal(context.editNoteText(text, edit), expected, `editNoteText(${text}, ${JSON.stringify(edit)})`);
 // FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
@@ -279,5 +283,5 @@ for (const prompt of context.writingPrompts) {
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, slur and tuplet note edits, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, slur and tuplet note edits, note-to-rest edits, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.'
 );
