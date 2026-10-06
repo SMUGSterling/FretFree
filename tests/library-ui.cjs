@@ -6,35 +6,7 @@ const fs = require('node:fs'),
   assert = require('node:assert/strict');
 const {JSDOM} = require(process.env.JSDOM_PATH || 'jsdom');
 const root = path.resolve(__dirname, '..');
-const dom = new JSDOM(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), {
-  runScripts: 'outside-only',
-  url: 'http://localhost:8000'
-});
-const w = dom.window,
-  ctx = dom.getInternalVMContext(),
-  run = s => vm.runInContext(s, ctx),
-  $ = id => w.document.getElementById(id);
-w.SVGElement.prototype.getBBox = function () {
-  return {x: 0, y: 0, width: Math.max(1, (this.textContent || '').length * 7), height: 14};
-};
-w.scrollTo = () => {};
-w.Element.prototype.scrollIntoView = () => {};
-w.confirm = () => true;
-// Storage written by the app's previous name must still load; a damaged played list must not stop start-up.
-w.localStorage.setItem(
-  'commonnote-scores-v1',
-  JSON.stringify([
-    {
-      id: 'legacy-score',
-      title: 'Existing saved tune',
-      abc: 'X:1\nT:Existing saved tune\nM:4/4\nL:1/4\nK:C\nC4 |]',
-      updated: 1
-    }
-  ])
-);
-w.localStorage.setItem('commonnote-favorites-v1', '["ode"]');
-w.localStorage.setItem('fretfree-played', '{"unexpected":true}');
-for (const file of [
+const SCRIPTS = [
   'vendor/abcjs-basic-min.js',
   'catalog.js',
   'catalog-expanded.js',
@@ -52,9 +24,40 @@ for (const file of [
   'backup.js',
   'editor.js',
   'playback.js',
+  'assignments.js',
   'app.js'
-])
-  run(fs.readFileSync(path.join(root, file), 'utf8'));
+];
+// A fresh page load: `seed` fills localStorage before the scripts run, as a previous visit would have left it.
+function boot(seed = () => {}, url = 'http://localhost:8000') {
+  const dom = new JSDOM(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), {runScripts: 'outside-only', url});
+  const w = dom.window,
+    ctx = dom.getInternalVMContext();
+  w.SVGElement.prototype.getBBox = function () {
+    return {x: 0, y: 0, width: Math.max(1, (this.textContent || '').length * 7), height: 14};
+  };
+  w.scrollTo = () => {};
+  w.Element.prototype.scrollIntoView = () => {};
+  w.confirm = () => true;
+  seed(w.localStorage);
+  for (const file of SCRIPTS) vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), ctx);
+  return {w, run: s => vm.runInContext(s, ctx), $: id => w.document.getElementById(id)};
+}
+// Storage written by the app's previous name must still load; a damaged played list must not stop start-up.
+const {w, run, $} = boot(storage => {
+  storage.setItem(
+    'commonnote-scores-v1',
+    JSON.stringify([
+      {
+        id: 'legacy-score',
+        title: 'Existing saved tune',
+        abc: 'X:1\nT:Existing saved tune\nM:4/4\nL:1/4\nK:C\nC4 |]',
+        updated: 1
+      }
+    ])
+  );
+  storage.setItem('commonnote-favorites-v1', '["ode"]');
+  storage.setItem('fretfree-played', '{"unexpected":true}');
+});
 const cards = () => $('cards').innerHTML,
   setFilter = (id, value) => {
     $(id).value = value;
@@ -347,8 +350,441 @@ assert.equal(
   assert.ok($('rights').textContent.includes('CC0'), 'Credits travel with the link');
   assert.equal($('next-up').hidden, true, 'No suggestions for a shared copy');
   assert.equal(await run('openSharedLink("s=1garbage")'), false, 'A damaged link is refused');
+
+  // Teacher-written assignments: the builder takes its defaults from the score, three goals become a live checklist,
+  // the link carries the assignment as q (never p), and the student's copy keeps it through save, reopen and backup.
+  run(
+    'dirty = false; openScore({kind: "personal", abc: "X:1\\nT:Starter\\nM:3/4\\nL:1/4\\nQ:1/4=90\\nK:G\\nG A B | z3 | z3 | z3 |]"})'
+  );
+  $('open-assignment').click();
+  assert.equal($('assignment-builder').hidden, false);
+  assert.equal($('open-assignment').getAttribute('aria-expanded'), 'true');
+  assert.equal($('assignment-title').value, 'Starter', 'Title defaults to the score title');
+  assert.match($('assignment-basis').textContent, /4 bars · 3\/4 · key of G/);
+  assert.deepEqual(
+    [...$('assignment-goals').querySelectorAll('[data-goal]:checked')].map(b => b.dataset.goal),
+    ['bars', 'end', 'inKey'],
+    'Three goals are ticked by default'
+  );
+  assert.equal($('goal-inKey').parentElement.textContent.trim(), 'Stay in G major');
+  $('assignment-title').value = '';
+  $('assignment-apply').click();
+  assert.match($('assignment-status').textContent, /title/, 'A title is required');
+  $('assignment-title').value = 'Echo <img src=x onerror=alert(1)>';
+  $('assignment-text').value = 'Answer my phrase.\nEnd on G.';
+  $('goal-inKey').checked = false;
+  $('goal-start-degree').value = '0';
+  $('goal-start-degree').dispatchEvent(new w.Event('input', {bubbles: true}));
+  assert.equal($('goal-start').checked, true, 'Changing a goal setting ticks the goal');
+  $('assignment-apply').click();
+  assert.equal($('assignment-builder').hidden, true);
+  assert.equal(run('current.prompt.level'), 'Custom');
+  assert.equal(
+    run('current.prompt.goals.map(g => g.label).join(" / ")'),
+    'Fill all 4 bars with notes / Start on G / End on G'
+  );
+  assert.equal(run('dirty'), true, 'Adding an assignment is an unsaved change');
+  const check = $('prompt-check');
+  assert.equal(check.hidden, false);
+  assert.equal(check.querySelectorAll('li').length, 3, 'A checklist of the three goals');
+  assert.equal(check.querySelector('img'), null, 'The title is escaped');
+  assert.match(check.textContent, /Assignment · Echo <img src=x onerror=alert\(1\)>/);
+  assert.equal(check.querySelector('.prompt-text').textContent, 'Answer my phrase.\nEnd on G.');
+  assert.equal(check.querySelectorAll('li.met').length, 1, 'The starter music already starts on G');
+  // The share link carries the assignment whole as q, and payload v stays 1.
+  await run('shareLink()');
+  const assignmentLink = $('share-url').value.split('#')[1];
+  const payload = await run(`decodeShare(${JSON.stringify(assignmentLink.slice(2))})`);
+  assert.equal(payload.v, 1);
+  assert.equal(payload.p, undefined, 'A custom assignment is not sent as a built-in prompt id');
+  assert.equal(payload.q.id, run('current.prompt.id'));
+  // A student opens it: the instructions and the checklist arrive with the music.
+  run('dirty = false; newScore()');
+  assert.equal(check.hidden, true);
+  assert.equal(await run(`openSharedLink(${JSON.stringify(assignmentLink)})`), true);
+  assert.equal(run('current.kind'), 'shared');
+  assert.equal(run('current.prompt.title'), 'Echo <img src=x onerror=alert(1)>');
+  assert.equal($('prompt-check').querySelectorAll('li').length, 3);
+  assert.match($('toast').textContent, /Opened an assignment/);
+  assert.match($('abc').value, /G A B \| z3/, "The teacher's music is the starting point");
+  // Saved to My scores, reopened, backed up and restored: the assignment stays with the score.
+  $('save').click();
+  const id = run('savedId'),
+    find = `saved.find(x => x.id === ${JSON.stringify(id)})`;
+  assert.equal(run(`${find}.prompt.title`), 'Echo <img src=x onerror=alert(1)>');
+  run('dirty = false; newScore(); show("saved")');
+  assert.match($('saved-cards').textContent, /ASSIGNMENT/, 'My scores marks the assignment');
+  assert.equal($('saved-cards').querySelector('img'), null);
+  $('saved-cards').querySelector(`[data-saved="${id}"]`).click();
+  assert.equal($('prompt-check').querySelectorAll('li').length, 3, 'Reopened from My scores with its checklist');
+  const backup = JSON.parse(JSON.stringify(run('backupData()')));
+  run(`saved = saved.filter(x => x.id !== ${JSON.stringify(id)}); storage.set(KEYS.scores, saved)`);
+  assert.equal(run(`applyBackup(${JSON.stringify(backup)})`).added, 1);
+  run(`dirty = false; newScore(); openScore(${find}, ${JSON.stringify(id)})`);
+  assert.equal($('prompt-check').querySelectorAll('li').length, 3, 'Restored from a backup with its checklist');
+  // A tampered assignment in storage or a link is ignored; the music still opens.
+  run(`dirty = false; openScore({...${find}, prompt: {...${find}.prompt, goals: [{type: 'rm -rf', label: 'x'}]}})`);
+  assert.equal($('prompt-check').hidden, true, 'An invalid stored assignment shows no checklist');
+  const tampered = await run(`encodeShare({v: 1, a: $('abc').value, q: {...${find}.prompt, text: 'y'.repeat(5000)}})`);
+  run('dirty = false');
+  assert.equal(await run(`openSharedLink("s=${tampered}")`), true, 'The score still opens');
+  assert.equal(run('current.prompt'), undefined);
+  assert.equal($('prompt-check').hidden, true);
+  assert.match($('toast').textContent, /assignment could not be read/);
+  // Built-in prompt links (p) still work and still travel as p; an object smuggled in p is ignored.
+  const builtIn = await run(`encodeShare({v: 1, a: promptSource(promptById('first-melody')), p: 'first-melody'})`);
+  run('dirty = false');
+  await run(`openSharedLink("s=${builtIn}")`);
+  assert.equal(run('current.prompt'), 'first-melody');
+  assert.match($('prompt-check').textContent, /Writing prompt · My first melody/);
+  await run('shareLink()');
+  const again = await run(`decodeShare(${JSON.stringify($('share-url').value.split('#s=')[1])})`);
+  assert.deepEqual([again.p, again.q], ['first-melody', undefined], 'Built-in prompts still travel as p');
+  const smuggled = await run(`encodeShare({v: 1, a: $('abc').value, p: ${JSON.stringify(payload.q)}})`);
+  run('dirty = false');
+  await run(`openSharedLink("s=${smuggled}")`);
+  assert.equal(run('current.prompt'), undefined, 'p must name a built-in prompt');
+  // The builder reopens with the score's assignment, and Remove assignment takes it off.
+  run('dirty = false');
+  await run(`openSharedLink(${JSON.stringify(assignmentLink)})`);
+  $('open-assignment').click();
+  assert.equal($('assignment-remove').hidden, false);
+  assert.equal($('assignment-title').value, 'Echo <img src=x onerror=alert(1)>');
+  assert.deepEqual([$('goal-start').checked, $('goal-inKey').checked], [true, false]);
+  $('assignment-remove').click();
+  assert.equal(run('"prompt" in current'), false);
+  assert.equal($('prompt-check').hidden, true);
+  // The builder describes the score it was opened on: opening another score closes it, so its title, bar count and
+  // note names are never read back against a different score.
+  const checkedGoals = () =>
+    [...$('assignment-goals').querySelectorAll('[data-goal]:checked')].map(b => b.dataset.goal);
+  run('dirty = false; openScore({kind: "personal", abc: "X:1\\nT:First\\nM:4/4\\nL:1/4\\nK:G\\nG A B c | d4 |]"})');
+  $('open-assignment').click();
+  $('goal-end-degree').value = '7';
+  run('dirty = false; openScore(catalog.find(x => x.id === "elise"))');
+  assert.equal($('assignment-builder').hidden, true, 'Opening another score closes the builder');
+  assert.equal($('open-assignment').getAttribute('aria-expanded'), 'false');
+  // Für Elise starts with a pickup, which is never a full bar, so the bars goal could not be met: it is not offered.
+  $('open-assignment').click();
+  assert.equal($('assignment-title').value, run('field("T")'), 'Reopened with the new score');
+  assert.match($('assignment-basis').textContent, /9 bars · 3\/4 · key of A minor/);
+  assert.deepEqual([$('goal-bars').checked, $('goal-bars').disabled], [false, true], 'No bars goal over a pickup');
+  assert.match($('goal-bars').parentElement.textContent, /Fill all 9 bars with notes \(only scores whose bars are all/);
+  assert.deepEqual(checkedGoals(), ['end', 'inKey']);
+  assert.equal($('goal-end-degree').selectedOptions[0].textContent, 'A (home note)');
+  // The builder follows edits while it is open: with the pickup and the short last bar made whole, the goal returns.
+  run(
+    'dirty = false; openScore({kind: "personal", abc: "X:1\\nT:Pickup\\nM:4/4\\nL:1/4\\nK:D\\nA | d2 f2 | a4 | f2 d2 | d3 |]"})'
+  );
+  $('open-assignment').click();
+  assert.match($('assignment-basis').textContent, /5 bars · 4\/4 · key of D/);
+  assert.equal($('goal-bars').disabled, true, 'A short pickup and closing bar rule out the bars goal');
+  $('abc').value = $('abc').value.replace('A | d2 f2', 'z3 A | d2 f2').replace('d3 |]', 'd4 |]');
+  run('render()');
+  assert.equal($('goal-bars').disabled, false);
+  assert.equal($('goal-bars').parentElement.textContent.trim(), 'Fill all 5 bars with notes');
+  // An instrument change while it is open redraws the note names in the new written key. A note choice keeps its
+  // place above the key note, so concert A chosen on flute is the clarinet's written B.
+  $('goal-end-degree').value = '7';
+  $('goal-bars').checked = true;
+  $('instrument').value = 'Clarinet in B♭';
+  $('instrument').dispatchEvent(new w.Event('change'));
+  await new Promise(r => setTimeout(r, 300));
+  assert.match($('assignment-basis').textContent, /key of E \(written\)/);
+  assert.equal($('goal-end-degree').selectedOptions[0].textContent, 'B');
+  assert.equal($('goal-inKey').parentElement.textContent.trim(), 'Stay in E major');
+  $('assignment-apply').click();
+  assert.equal(run('current.prompt.key'), 'E', 'The assignment is in the written key');
+  assert.equal(
+    run('current.prompt.goals.map(g => g.label).join(" / ")'),
+    'Fill all 5 bars with notes / End on B / Stay in E major'
+  );
+  assert.equal($('prompt-check').querySelectorAll('li.met').length, 2, 'The teacher’s own music meets them');
+  // A key written with a spaced mode is read with its mode, on every instrument.
+  run(
+    'dirty = false; openScore({kind: "personal", instrument: "Flute", abc: "X:1\\nT:Minor\\nM:4/4\\nL:1/4\\nK:A minor\\nA B c d | e4 |]"})'
+  );
+  $('open-assignment').click();
+  assert.match($('assignment-basis').textContent, /key of A minor/);
+  assert.equal($('goal-inKey').parentElement.textContent.trim(), 'Stay in A minor');
+  const names = () => [...$('goal-end-degree').options].map(o => o.textContent.replace(' (home note)', '')).join(' ');
+  assert.equal(names(), 'A B C D E F G G♯');
+  $('instrument').value = 'Clarinet in B♭';
+  run('render()');
+  assert.equal($('goal-inKey').parentElement.textContent.trim(), 'Stay in B minor');
+  assert.equal(names(), 'B C♯ D E F♯ G A A♯');
+  $('assignment-apply').click();
+  assert.equal(run('current.prompt.key'), 'Bm');
+  assert.match(run('current.prompt.goals.map(g => g.label).join(" / ")'), /End on B \/ Stay in B minor/);
+  // One bar is "the bar"; a score with no bars has none to fill.
+  run(
+    'dirty = false; openScore({kind: "personal", instrument: "Flute", abc: "X:1\\nT:One\\nM:4/4\\nL:1/4\\nK:G\\nG4 |]"})'
+  );
+  $('open-assignment').click();
+  assert.equal($('goal-bars').parentElement.textContent.trim(), 'Fill the bar with notes');
+  run(
+    'dirty = false; openScore({kind: "personal", instrument: "Flute", abc: "X:1\\nT:Empty\\nM:4/4\\nL:1/4\\nK:G\\n"})'
+  );
+  $('open-assignment').click();
+  assert.equal($('goal-bars').disabled, true, 'An empty score has no bars to fill');
+  // After Use and copy link, focus returns to ✎ Assignment when the link was copied, or goes to the link when not.
+  Object.defineProperty(w.navigator, 'clipboard', {configurable: true, value: {writeText: async () => {}}});
+  run('dirty = false; newScore(4)');
+  $('open-assignment').click();
+  $('assignment-form').querySelector('[type="submit"]').focus();
+  $('assignment-form').requestSubmit();
+  for (let i = 0; i < 100 && !$('toast').textContent.includes('Link copied'); i++)
+    await new Promise(r => setTimeout(r, 20));
+  assert.match($('toast').textContent, /Link copied/);
+  assert.equal(w.document.activeElement.id, 'open-assignment', 'Focus returns to the button');
+  delete w.navigator.clipboard;
+  $('open-assignment').click();
+  $('assignment-form').requestSubmit();
+  for (let i = 0; i < 100 && w.document.activeElement.id !== 'share-url'; i++)
+    await new Promise(r => setTimeout(r, 20));
+  assert.equal(w.document.activeElement.id, 'share-url', 'Without a clipboard the link is selected to copy by hand');
+  run('dirty = false');
+
+  // Unsaved-work recovery: an edit leaves this tab's draft in the local list; undoing to the opened text or saving
+  // removes it.
+  const drafts = () => JSON.parse(w.localStorage.getItem('fretfree-draft')) || [],
+    draft = () => drafts().find(d => d.tab === run('draftTab')) ?? null,
+    tabs = () => drafts().map(d => (d.tab === run('draftTab') ? 'this' : d.tab));
+  const change = js => run(`${js}; changed(); clearTimeout(renderTimer); render()`),
+    edit = js => {
+      change(js);
+      run('flushDraft()');
+    };
+  run('dirty = false; openScore(catalog.find(x => x.id === "ode"))');
+  assert.equal(draft(), null, 'Opening a score leaves no draft');
+  $('instrument').value = 'Violin';
+  edit("$('abc').value = $('abc').value.replace('E E F G', 'G G F G')");
+  assert.deepEqual(
+    (({abc, instrument, title, sourceId, kind}) => ({
+      edited: abc.includes('G G F G'),
+      instrument,
+      title,
+      sourceId,
+      kind
+    }))(draft()),
+    {edited: true, instrument: 'Violin', title: 'Ode to Joy', sourceId: 'ode', kind: 'historic'},
+    'The draft holds the text, instrument, title and the edition id'
+  );
+  assert.ok(Math.abs(draft().at - Date.now()) < 60000, 'The draft is timed');
+  $('undo').click();
+  assert.equal(w.localStorage.getItem('fretfree-draft'), null, 'Undoing back to the opened text clears the draft');
+  $('redo').click();
+  run('flushDraft()');
+  assert.ok(draft(), 'Redoing the edit writes the draft again');
+  $('save').click();
+  assert.equal(w.localStorage.getItem('fretfree-draft'), null, 'Saving clears the draft');
+  edit("$('abc').value += '\\n%' + 'x'.repeat(600000)");
+  assert.equal(draft(), null, 'Drafts over 500 KB are skipped');
+  {
+    const setItem = w.Storage.prototype.setItem;
+    w.Storage.prototype.setItem = () => {
+      throw new w.DOMException('full', 'QuotaExceededError');
+    };
+    assert.doesNotThrow(
+      () => edit("$('abc').value = $('abc').value.replace(/\\n%x+$/, '')"),
+      'A full quota is ignored'
+    );
+    w.Storage.prototype.setItem = setItem;
+    assert.equal(draft(), null);
+  }
+  // A hidden tab (Chromebooks discard these) or a closing page writes the waiting draft at once, before the timer.
+  change("$('abc').value = $('abc').value.replace('G G F G', 'A G F G')");
+  assert.equal(draft(), null, 'The draft waits for the timer');
+  assert.equal(w.document.hidden, true);
+  w.document.dispatchEvent(new w.Event('visibilitychange'));
+  assert.ok(draft()?.abc.includes('A G F G'), 'Hiding the tab writes the draft');
+  run("$('abc').value = $('abc').value.replace('A G F G', 'B G F G'); changed()");
+  w.dispatchEvent(new w.Event('pagehide'));
+  assert.ok(draft()?.abc.includes('B G F G'), 'Leaving the page writes the draft, even before the edit has rendered');
+  run('clearTimeout(renderTimer); render()');
+  // Each tab keeps its own entry. When another tab's banner restores or discards this tab's draft, the work here is
+  // still unsaved, so it goes straight back; a full list is left alone so open tabs never take turns pushing each
+  // other out, and the next edit here drops the oldest draft instead.
+  const other = n => ({abc: 'X:1\nT:Other\nK:C\nC4 |]', title: 'Other', tab: 'other' + n, at: Date.now() - n * 1000});
+  const otherTab = list => {
+    w.localStorage.setItem('fretfree-draft', JSON.stringify(list));
+    w.dispatchEvent(new w.StorageEvent('storage', {key: 'fretfree-draft'}));
+  };
+  otherTab([other(1)]);
+  assert.deepEqual(tabs(), ['this', 'other1'], "This tab's draft goes back, next to the other tab's");
+  assert.ok(draft().abc.includes('B G F G'));
+  otherTab([other(1), other(2), other(3)]);
+  assert.deepEqual(tabs(), ['other1', 'other2', 'other3'], 'A full list is left alone');
+  edit("$('abc').value = $('abc').value.replace('B G F G', 'C G F G')");
+  assert.deepEqual(tabs(), ['this', 'other1', 'other2'], 'An edit here drops the oldest draft');
+  $('save').click();
+  assert.deepEqual(tabs(), ['other1', 'other2'], "Saving removes only this tab's draft");
+  // Damaged drafts are not offered, nor one that matches the saved score it came from. A saved score from before
+  // instruments were saved opens with a default instrument, so a draft with only a new instrument is kept.
+  for (const value of ['[1]', '{"abc": "X:1\\nK:C\\nC|]"}', '[{"abc": " "}]']) {
+    w.localStorage.setItem('fretfree-draft', value);
+    assert.equal(run('loadDrafts().length'), 0, 'A damaged draft is ignored: ' + value);
+  }
+  w.localStorage.setItem(
+    'fretfree-draft',
+    JSON.stringify([
+      {
+        abc: run('saved.at(-1).abc'),
+        instrument: run('saved.at(-1).instrument'),
+        savedId: run('saved.at(-1).id'),
+        at: 2
+      },
+      {abc: run('saved[0].abc'), instrument: 'Violin', savedId: run('saved[0].id'), tab: 'legacy', at: 1}
+    ])
+  );
+  assert.equal(run('saved[0].instrument'), undefined, 'The first saved score is from before instruments were saved');
+  assert.equal(
+    run('loadDrafts().map(d => d.tab).join()'),
+    'legacy',
+    'A draft that matches its saved score is not offered'
+  );
+  assert.deepEqual(tabs(), ['legacy'], 'and is cleared');
+  run('pendingDrafts = []; dirty = false');
+  w.localStorage.removeItem('fretfree-draft');
+
+  // Reloading with a draft of a library edition: the banner offers it; Restore brings back the exact text,
+  // instrument and credits, marked unsaved; the legacy keys are untouched.
+  const odeAbc = run('catalog.find(x => x.id === "ode").abc').replace('E E F G', 'G G F G'),
+    legacy = storage => {
+      storage.setItem('commonnote-scores-v1', '[]');
+      storage.setItem('commonnote-favorites-v1', '["ode"]');
+    };
+  {
+    const at = new Date(2026, 9, 6, 15, 42).getTime();
+    const page = boot(storage => {
+      legacy(storage);
+      storage.setItem(
+        'fretfree-draft',
+        JSON.stringify([
+          {abc: odeAbc, instrument: 'Violin', title: 'Ode to Joy', sourceId: 'ode', kind: 'historic', tab: 'gone', at}
+        ])
+      );
+    });
+    assert.equal(page.$('draft-banner').hidden, false, 'Start-up offers the draft');
+    assert.match(page.$('draft-text').textContent, /^Unsaved work from .*3:42.*: Ode to Joy\.$/);
+    assert.equal(page.$('library').hidden, false, 'The start view is unchanged');
+    page.$('draft-restore').click();
+    assert.deepEqual(
+      [
+        ...page.run(`[$('abc').value, $('instrument').value, current.rights === catalog.find(x => x.id === 'ode').rights,
+        dirty, $('studio').hidden, $('draft-banner').hidden]`)
+      ],
+      [odeAbc, 'Violin', true, true, false, true],
+      'Restore brings back the exact text, instrument and credits, marked unsaved'
+    );
+    assert.ok(page.$('rights').textContent.includes('CC0'), 'Library credits are shown');
+    assert.match(page.$('save-status').textContent, /Restored unsaved work/);
+    assert.deepEqual(
+      JSON.parse(page.w.localStorage.getItem('fretfree-draft')).map(d => [d.tab === page.run('draftTab'), d.abc]),
+      [[true, odeAbc]],
+      "The restored work becomes this tab's draft, in place of the old one"
+    );
+    assert.deepEqual(
+      [page.w.localStorage.getItem('commonnote-scores-v1'), page.w.localStorage.getItem('commonnote-favorites-v1')],
+      ['[]', '["ode"]'],
+      'Legacy keys are untouched'
+    );
+  }
+  // A draft of a saved prompt score restores its prompt and saved entry, so saving updates that entry.
+  {
+    const prompt = run('writingPrompts[0].id'),
+      base = run(`promptSource(writingPrompts[0])`);
+    const page = boot(storage => {
+      storage.setItem(
+        'commonnote-scores-v1',
+        JSON.stringify([{id: 'mine', title: 'My first melody', abc: base, instrument: 'Flute', prompt, updated: 1}])
+      );
+      storage.setItem(
+        'fretfree-draft',
+        JSON.stringify([
+          {
+            abc: base.replace('z4', 'C D E F'),
+            instrument: 'Flute',
+            title: 'My first melody',
+            prompt,
+            savedId: 'mine',
+            kind: 'personal',
+            tab: 'gone',
+            at: Date.now()
+          }
+        ])
+      );
+    });
+    page.$('draft-restore').click();
+    assert.deepEqual(
+      [...page.run('[savedId, current.prompt, $("prompt-check").hidden, $("abc").value.includes("C D E F")]')],
+      ['mine', prompt, false, true],
+      'Prompt and saved entry come back'
+    );
+    page.$('save').click();
+    assert.equal(page.run('saved.length'), 1, 'Saving updates the saved entry');
+    assert.equal(page.w.localStorage.getItem('fretfree-draft'), null, 'Saving clears the draft');
+  }
+  // A share link opened at start-up opens first and the banner follows. The shared copy is unsaved, so it becomes this
+  // tab's own draft beside the earlier one, never in its place, and undoing an edit to it updates only its own entry.
+  {
+    const link = await run('encodeShare({v: 1, a: catalog.find(x => x.id === "mozart").abc, i: "Flute"})'),
+      earlier = {abc: odeAbc, title: 'Ode to Joy', kind: 'personal', tab: 'gone', at: 1};
+    const page = boot(storage => {
+      legacy(storage);
+      storage.setItem('fretfree-draft', JSON.stringify([earlier]));
+    }, 'http://localhost:8000/#s=' + link);
+    for (let i = 0; i < 100 && page.run('current?.kind') !== 'shared'; i++) await new Promise(r => setTimeout(r, 20));
+    assert.equal(page.run('current.kind'), 'shared', 'The shared score opens');
+    assert.equal(page.$('studio').hidden, false);
+    assert.equal(page.$('draft-banner').hidden, false, 'The banner follows the shared score');
+    assert.match(page.$('draft-text').textContent, /: Ode to Joy\.$/);
+    const stored = () => JSON.parse(page.w.localStorage.getItem('fretfree-draft')),
+      opened = page.run("$('abc').value"),
+      own = () => stored().find(d => d.tab === page.run('draftTab'));
+    page.run('flushDraft()');
+    assert.equal(own().abc, opened, 'The unedited shared copy is drafted');
+    page.run("$('abc').value = $('abc').value.replace(/^T:.*$/m, 'T:Edited'); changed(); clearTimeout(renderTimer)");
+    page.run('render(); flushDraft()');
+    assert.match(own().abc, /T:Edited/);
+    page.$('undo').click();
+    page.run('flushDraft()');
+    assert.deepEqual(
+      [page.run('dirty'), own().abc === opened, stored().find(d => d.tab === 'gone')],
+      [true, true, earlier],
+      'After undo the shared copy is still unsaved; its draft follows the undo and the earlier draft is kept'
+    );
+    // The next visit offers both, newest first; Discard moves on to the next, and Restore leaves the rest stored.
+    const next = boot(storage => storage.setItem('fretfree-draft', page.w.localStorage.getItem('fretfree-draft')));
+    const title = page.run('current.title');
+    assert.equal(
+      next.$('draft-text').textContent.endsWith(`: ${title} (1 of 2).`),
+      true,
+      'The newest is offered first'
+    );
+    next.$('draft-discard').click();
+    assert.match(next.$('draft-text').textContent, /: Ode to Joy \(2 of 2\)\.$/, 'Discard offers the next draft');
+    assert.equal(next.$('draft-banner').hidden, false);
+    assert.equal(next.w.document.activeElement.id, 'draft-restore', 'Restore keeps the focus');
+    assert.deepEqual(
+      JSON.parse(next.w.localStorage.getItem('fretfree-draft')).map(d => d.tab),
+      ['gone'],
+      'Discard removes only the offered draft'
+    );
+    next.$('draft-discard').click();
+    assert.equal(next.$('draft-banner').hidden, true, 'Discarding the last draft hides the banner');
+    assert.equal(next.w.localStorage.getItem('fretfree-draft'), null, 'and no draft is left');
+    page.$('draft-discard').click();
+    assert.equal(page.$('draft-banner').hidden, true, 'Discard hides the banner');
+    assert.deepEqual(
+      stored().map(d => d.tab),
+      [page.run('draftTab')],
+      "Discard removes the earlier draft and keeps this tab's own"
+    );
+    assert.equal(page.run('current.kind'), 'shared', 'Discard leaves the open score alone');
+  }
   console.log(
-    'PASS (jsdom): backup and restore, blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
+    'PASS (jsdom): unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore, blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
   );
 })().catch(e => {
   console.error(e);

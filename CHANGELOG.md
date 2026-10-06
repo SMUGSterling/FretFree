@@ -8,6 +8,51 @@
 
 ---
 
+# Transpose and key changes · 2026-10-06
+
+- **Transpose…** in Score settings moves the notes, key signatures and chord symbols by an interval up or down, or to a chosen key the nearer way round, as one undo step. Spelling follows the interval (an augmented 4th up from C is F♯ major, a diminished 5th is G♭). **Selection only** transposes the selected note's measure, or the practice range, and keeps the key signature.
+- The **Key** menu lists all 30 major and minor keys and the Dorian, Phrygian, Lydian, Mixolydian and Locrian modes, with their signatures. Picking a key asks **Transpose notes** or **Keep notes**; either way `clef=` and other modifiers on the K: line are kept (before, the key menu dropped them and never moved the notes).
+- The **Time signature** menu adds 2/2, 3/8, 5/4, 6/4, 7/8, 9/8, 12/8, C, C| and none.
+- Written pitch for B♭ and E♭ instruments now keeps `clef=` on the key line instead of garbling the key, and spells keys by the instrument's interval: concert E shows F♯ major on a B♭ clarinet, not G♭. Where a key has to fall back to another spelling (concert F♯ major is written in A♭ major on a B♭ clarinet), typed letters, drawn notes and accidentals from the note menu follow the written key, so typing A shows an A.
+- Transposing moves every note by the chosen interval in every listed key, including the cases where abcjs's own transposition slips an octave (F♯ major up an octave, B♭ major down a major 7th). On a cello or trombone, C♭ major and A♭ minor no longer show an octave too high. A tune with no K: line is read in C major and gains a K: line when transposed.
+- Ctrl/Cmd+Z and redo now also work while a menu, slider or checkbox has focus, such as the Key menu right after a key change. Text fields other than the ABC box keep their own undo.
+
+---
+
+# Unsaved-work recovery · 2026-10-06
+
+- While a score has unsaved changes, FretFree keeps a draft copy in the browser, two seconds after each edit and straight away when the tab is hidden. If the tab is closed or a Chromebook discards it, the next visit offers **Unsaved work from 3:42 PM: Title. Restore / Discard**.
+- **Restore** brings back the exact ABC, instrument, writing prompt and library credits, marked unsaved, and saving updates the same saved score. Saving, Discard, replacing the score, or undoing back to the opened text clears the draft. A share link opened at start-up opens first and the offer follows.
+- Each open tab keeps its own draft, so a second tab never replaces or clears the first tab's work. When more than one is waiting, they are offered newest first, and Discard moves on to the next.
+- Drafts are kept under `fretfree-draft`: up to three, 500 KB in all, and the oldest is dropped first. A full storage quota is ignored, and drafts stay out of backups.
+
+---
+
+# Assignments in a link · 2026-10-06
+
+- **✎ Assignment** in the studio turns the open score into an assignment: a title, instructions and goals chosen from the writing-prompt goal types (filled bars, note lengths, first and last note, the note that ends a bar, steps, range, staying in key, at least so many rests, eighth notes or leaps). Bar count, meter and written key (minor and modal keys too) come from the score, and the goal labels are written in plain words. The filled-bars goal needs every bar to be a full bar of the meter, so it is not offered on a score with a pickup, a short closing bar or a meter change. The builder keeps up with edits and instrument changes while it is open, and closes when another score opens.
+- **Use and copy link** shares the score with the assignment inside the link. Each student who opens it gets their own copy, starting from the teacher's music, with the instructions above the score and a checklist that ticks off as they write. Saved copies keep the assignment through My scores and backup/restore.
+- The link adds an optional key `q`; payload version 1 is unchanged, built-in prompt links (`p`) work as before, and older copies of the app open the score without the checklist. Assignments from links and backups are checked field by field and shown escaped.
+- Printing a prompt or assignment now puts its title and instructions above the score; the checklist stays on screen.
+
+---
+
+# Hear notes and live volume · 2026-10-06
+
+- **Hear notes** (on by default, next to Draw notes): clicking, typing, drawing or moving a note plays it once, as does changing its accidental or stepping to it with ←→. Chords play every pitch. It uses the chosen instrument's sound at concert pitch with playback's octave rule, stays silent during playback, and is remembered and backed up (`fretfree-audition`).
+- **Volume** no longer stops playback: it changes loudness live. All notes and metronome clicks now pass through one master gain and, where the browser supports it, a limiter, so chords and accompaniment do not clip. This bus is the base for a later mixer, audio export and recording.
+- Note names and audition now apply bar accidentals from every pitch of a chord, not only the first, and a note tied across a bar line keeps the accidental it was tied from.
+- Audition follows the same pitch rules as playback: octave clefs (`clef=treble-8`, `bass-8`, `treble+8`), `transpose=` on K: and V: lines, and `%%MIDI transpose`. The note sounds before the score redraws, so long scores do not delay it.
+
+---
+
+# Edit notes that start a slur or tuplet · 2026-10-06
+
+- The note menu and the keyboard now edit notes written with a slur opening or a tuplet in front, such as `(C`, `(3C` or `(3:2:3C`. Before, length, dot, accidental and tie edits on these notes did nothing. The `(` or `(3` stays in place, and a slur end `C)` keeps its `)`.
+- `noteParts` and `editNoteText` in score-tools.js accept slur openings and tuplet specs in the prefix, in any order with decorations and chord symbols. Later notation tools (palette, articulations, slurs, tuplets) build on this.
+
+---
+
 # Backup and restore · 2026-10-06
 
 - **My scores → ⬇ Back up** writes every saved score, favorite, played mark and practice setting to one JSON file. Where the browser offers a Save As dialog (Chrome, Edge) the file can go in a synced folder and is remembered for one-click repeat backups; elsewhere it downloads.

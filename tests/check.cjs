@@ -119,6 +119,38 @@ for (const score of context.library) {
 }
 const chords = context.parseMidi(context.midiBytes(context.library.find(x => x.id === 'chords').abc));
 assert.ok(chords.notes.filter(x => x.start === 0).length === 3, 'chord playback is polyphonic');
+// Note edits keep slur openings and tuplet specs in the prefix, mixed in any order with decorations and annotations.
+for (const [text, pre, core] of [
+  ['(C', '(', 'C'],
+  ['(3C/2', '(3', 'C'],
+  ['(3:2:3C', '(3:2:3', 'C'],
+  ['(3::2 G ', '(3::2 ', 'G'],
+  ['"G"(C', '"G"(', 'C'],
+  ['!f!(C', '!f!(', 'C'],
+  ['"G"!f!(C', '"G"!f!(', 'C'],
+  ['.(c ', '.(', 'c'],
+  ['("G"C', '("G"', 'C'],
+  ['([CE]', '(', '[CE]'],
+  ['(3(z', '(3(', 'z']
+]) {
+  const parts = context.noteParts(text);
+  assert.ok(parts, 'noteParts reads ' + text);
+  assert.equal(parts.pre + '|' + parts.core, pre + '|' + core, 'noteParts prefix of ' + text);
+}
+assert.equal(context.noteParts('(3C/2').length, 0.5);
+assert.equal(context.noteParts('C)').post, ')');
+assert.equal(context.noteParts('3C'), null, 'A bare digit is not a prefix');
+for (const [text, edit, expected] of [
+  ['(C', {length: 2}, '(C2'],
+  ['(3C/2', {length: 1.5, accidental: '^'}, '(3^C3/2'],
+  ['(3:2:3C', {tie: true}, '(3:2:3C-'],
+  ['"G"!f!(C2- ', {accidental: '_', tie: false}, '"G"!f!(_C2 '],
+  ['C)', {length: 2}, 'C2)'],
+  ['C2-)', {tie: false}, 'C2)'],
+  ['([CE]2', {length: 1, accidental: '='}, '([=C=E]'],
+  ['(C>', {length: 1.5, unbroken: true}, '(C3/2']
+])
+  assert.equal(context.editNoteText(text, edit), expected, `editNoteText(${text}, ${JSON.stringify(edit)})`);
 // FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
 // Share links: the payload round-trips through deflate+base64url, and through plain base64url where
 // CompressionStream is missing; damaged links decode to null.
@@ -219,6 +251,131 @@ assert.ok(chords.notes.filter(x => x.start === 0).length === 3, 'chord playback 
     .map(x => x.id);
   assert.equal(own.join(', '), '', 'FretFree teaching scores have correct bar lengths');
 }
+// Keys and transposition: key names and signatures, the key menu, intervals, whole-tune and slice transposition.
+{
+  const parts = v => {
+    const k = context.keyParts(v);
+    return [k.tonic, k.mode, k.key, k.rest].join('|');
+  };
+  assert.equal(parts('F clef=bass'), 'F||F| clef=bass', 'Modifiers after the key are kept apart');
+  assert.equal(parts('D dorian clef=bass'), 'D|Dor|D dorian| clef=bass');
+  assert.equal(parts('Bbm % flat'), 'Bb|m|Bbm| % flat');
+  assert.equal(parts('G treble'), 'G||G| treble', 'A clef name is not a mode');
+  assert.equal(parts('clef=bass'), '|||clef=bass', 'A clef-only field names no key');
+  assert.deepEqual(
+    ['C', 'G', 'F#', 'Cb', 'Am', 'Ebm', 'DDor', 'Dmix', 'BLoc', 'FLyd', 'none', 'HP'].map(context.keyFifths),
+    [0, 1, 6, -7, 0, -6, 0, 1, 0, 0, 0, null]
+  );
+  assert.deepEqual(['A minor', 'D dorian clef=bass', 'Gmaj', 'clef=bass'].map(context.canonicalKey), [
+    'Am',
+    'DDor',
+    'G',
+    'C'
+  ]);
+  assert.equal(context.keyLabel('Bb'), 'B♭ major (2♭)');
+  assert.equal(context.keyLabel('F#m'), 'F♯ minor (3♯)');
+  const keyList = vm.runInContext('KEY_LIST', context),
+    groups = name => keyList.filter(k => k.group === name).map(k => k.value);
+  assert.equal(groups('Major').length, 15, '15 major keys');
+  assert.equal(groups('Minor').length, 15, '15 minor keys');
+  assert.ok(groups('Major').includes('C#') && groups('Major').includes('Cb') && groups('Minor').includes('A#m'));
+  for (const [mode, value] of [
+    ['Dorian', 'DDor'],
+    ['Phrygian', 'EPhr'],
+    ['Lydian', 'FLyd'],
+    ['Mixolydian', 'GMix'],
+    ['Locrian', 'BLoc']
+  ])
+    assert.ok(groups(mode).includes(value), `${mode} mode listed`);
+  for (const k of keyList)
+    assert.ok(!ABCJS.parseOnly(`X:1\nK:${k.value}\nC|]`)[0].warnings?.length, `${k.value} parses`);
+  const move = (a, b) => JSON.stringify(context.keyInterval(a, b));
+  assert.equal(move('C', 'F#'), '{"semitones":6,"letters":3}', 'C to F# is an augmented 4th');
+  assert.equal(move('C', 'Gb'), '{"semitones":6,"letters":4}', 'C to Gb is a diminished 5th');
+  assert.equal(move('C', 'G'), '{"semitones":-5,"letters":-3}', 'The nearer way: down a 4th');
+  assert.equal(move('C', 'Em'), move('C', 'G'), 'A minor key moves by its signature');
+  const T = (abc, ...a) => context.transposeABC(abc, ...a);
+  assert.equal(
+    T('X:1\nL:1/4\nK:F\n"F"F "Bb"G|]', 2),
+    'X:1\nL:1/4\nK:G\n"G"G "C"A|]',
+    'Key, notes and chord symbols move'
+  );
+  assert.equal(
+    T('X:1\nL:1/4\nK:F clef=bass\nE F B c|]', 2),
+    'X:1\nL:1/4\nK:G clef=bass\nF G c d|]',
+    'clef= survives (strTranspose alone garbles the key)'
+  );
+  assert.equal(
+    T('X:1\nL:1/4\nK:clef=bass\nE F B c|]', 2),
+    'X:1\nL:1/4\nK:D clef=bass\nF G c d|]',
+    'A clef-only header key is C'
+  );
+  assert.equal(
+    T('X:1\nL:1/4\nK:C\n"C"C ^F "Am"=c {^g}G|]', 6, 3),
+    'X:1\nL:1/4\nK:F#\n"F#"F ^B "D#m"^f {^^c\'}c|]',
+    'Up an augmented 4th spells in F#'
+  );
+  assert.equal(
+    T('X:1\nL:1/4\nK:C\n"C"C ^F "Am"=c {^g}G|]', 6, 4),
+    'X:1\nL:1/4\nK:Gb\n"Gb"G =c "Ebm"_g {=d\'}d|]',
+    'Up a diminished 5th spells in Gb'
+  );
+  assert.equal(T('X:1\nK:B\nB|]', 2), 'X:1\nK:Db\nd|]', 'Seven sharps fall back to five flats');
+  assert.equal(T('X:1\nK:B\nB|]', 2, 1, 7), 'X:1\nK:C#\nc|]', 'unless seven are allowed');
+  assert.equal(
+    T('X:1\nL:1/4\nK:G\nG A|[K:clef=bass] B, C|[K:D] D E|]', -3),
+    'X:1\nL:1/4\nK:E\nE F|[K:clef=bass] G, A,|[K:B] B, C|]',
+    'Inline key changes move; clef-only fields stay'
+  );
+  assert.throws(() => T('X:1\nK:HP\nA|]', 2), /Bagpipe/);
+  assert.equal(
+    T('X:1\nL:1/8\nK:A\n!c2B-A GABG | A4 |]', 9),
+    'X:1\nL:1/8\nK:F#\n!a2g-f efge | f4 |]',
+    'A lone ! (the old line break) is not a decoration: the note after it moves with the key'
+  );
+  assert.equal(T('X:1\nT:t\nL:1/4\nC D E F|]', 2), 'X:1\nT:t\nL:1/4\nK:D\nD E F G|]', 'No K: line means C major');
+  // strTranspose moves some keys an octave off; every note lands where the interval says.
+  assert.equal(T('X:1\nL:1/4\nK:F#\nC D|]', 12), 'X:1\nL:1/4\nK:F#\nc d|]', 'F# major up an octave');
+  assert.equal(T('X:1\nL:1/4\nK:Bb\nC D|]', -11), 'X:1\nL:1/4\nK:B\nC, D,|]', 'Bb major down a major 7th');
+  assert.equal(T('X:1\nL:1/4\nK:Cb\nC D|]', -12), 'X:1\nL:1/4\nK:Cb\nC, D,|]', 'Cb major down an octave');
+  assert.equal(T('X:1\nL:1/4\nK:Cb\nC D|]', 0, 6, 7), 'X:1\nL:1/4\nK:B\nB, C|]', 'Cb major respelled as B major');
+  {
+    const midi = abc => context.melodyNotes(context.parseMidi(context.midiBytes(abc)).notes).map(n => n.note),
+      body = 'C D E F G A B c | ^C _D =E ^F | _G ^A _B c\' | "Am"A "C#m"c "Gb"G2|]',
+      wrong = [];
+    for (const k of keyList)
+      for (let s = -12; s <= 12; s++) {
+        const abc = `X:1\nL:1/4\nK:${k.value}\n${body}`,
+          from = midi(abc),
+          to = midi(T(abc, s));
+        if (to.length !== from.length || from.some((p, i) => to[i] - p !== s)) wrong.push(`${k.value} ${s}`);
+      }
+    assert.deepEqual(wrong, [], 'Every listed key moves every note by the interval, -12 to 12 semitones');
+  }
+  const W = (abc, s) => context.writtenSteps(abc, abc.length - 3, s);
+  assert.deepEqual(
+    [W('X:1\nK:E\nC|]', 2), W('X:1\nK:F#\nC|]', 2), W('X:1\nK:C#\nC|]', 9), W('X:1\nK:C\nC|]', -12)],
+    [1, 2, 6, -7],
+    'Written letters follow the written key: F# major on a B-flat instrument is written in Ab'
+  );
+  assert.equal(context.writtenSteps('X:1\nK:C\nC D|[K:F#] C D|]', 13, 2), 1, 'Each key change has its own letters');
+  const S = (...a) => context.transposeSlice(...a);
+  assert.equal(S('"F"F G A B|', 'F', '1/4', -3), '"D"D E ^F G|', 'A slice keeps its key signature');
+  assert.equal(S('E F ^F F|G', 'G', '1/4', 2), 'F ^G ^G G|A', 'Accidentals carry to the bar line');
+  assert.equal(S('c d e f', 'F', '1/4', -3, -2), 'A =B ^c d', 'Signature notes get naturals');
+  assert.throws(() => S('C [K:G] D', 'C', '1/4', 2), /changes key/);
+  const spans = abc =>
+    context
+      .measureSpans(ABCJS.parseOnly(abc)[0], 2, 2)
+      .map(s => abc.slice(s.start, s.end))
+      .join(' / ');
+  assert.equal(spans('X:1\nL:1/4\nK:C\nC D | E F | G A |]'), ' E F ', 'One measure, without its bar lines');
+  assert.equal(
+    spans('X:1\nL:1/4\nK:C\nV:1\nC D | E F | G A |]\nV:2\nc d | e f | g a |]'),
+    ' E F  /  e f ',
+    'One stretch per voice'
+  );
+}
 // Writing prompts: every example meets all its goals, and the blank starting score does not.
 vm.runInContext(
   fs
@@ -244,6 +401,111 @@ for (const prompt of context.writingPrompts) {
     false,
     `Prompt ${prompt.id}: changing the meter must not satisfy the bars goal`
   );
+}
+// Teacher-written assignments: goals name notes spelled in the written key, every built-in prompt rebuilt as an
+// assignment survives validPrompt and still passes on its example, and anything malformed from a link is refused.
+{
+  const names = key =>
+    context
+      .keyDegrees(key)
+      .map(d => d.name)
+      .join(' ');
+  assert.equal(names('G'), 'G A B C D E F♯');
+  assert.equal(names('Bb'), 'B♭ C D E♭ F G A');
+  assert.equal(names('F#m'), 'F♯ G♯ A B C♯ D E E♯', 'Minor adds the raised 7th');
+  assert.equal(names('Edor'), 'E F♯ G A B C♯ D', 'Modal keys use their own degrees');
+  assert.equal(context.keyScale('Edor').scale, null, 'Only major and minor keys have an inKey scale');
+  assert.deepEqual(
+    ['G', 'F#m', 'Bbmin', 'Edor', 'Amix'].map(k => context.keyInWords(k)),
+    ['G', 'F♯ minor', 'B♭ minor', 'E dorian', 'A mixolydian']
+  );
+  const json = x => JSON.stringify(x);
+  for (const prompt of context.writingPrompts) {
+    const goals = prompt.goals.map(({label, ...g}) => g),
+      made = context.makeAssignment({...prompt, goals});
+    assert.match(made.id, /^custom-[a-z0-9]+$/);
+    assert.equal(made.level, 'Custom');
+    assert.equal(json(context.validPrompt(JSON.parse(json(made)))), json(made), `${prompt.id}: round trip`);
+    const result = context.checkPrompt(
+      made,
+      context.melodyBars(ABCJS.parseOnly(context.promptSource(prompt, prompt.key, prompt.example))[0])
+    );
+    assert.ok(
+      result.every(g => g.ok),
+      `${prompt.id} as an assignment: ${result
+        .filter(g => !g.ok)
+        .map(g => g.label)
+        .join('; ')}`
+    );
+  }
+  const base = context.makeAssignment({
+    title: 'Echo',
+    text: 'Answer the phrase.',
+    meter: '3/4',
+    unit: '1/8',
+    key: 'D',
+    tempo: 96,
+    bars: 8,
+    goals: [
+      {type: 'bars'},
+      {type: 'lengths', allowed: [0.25, 0.5, 0.75]},
+      {type: 'endBar', bar: 4, degree: 7},
+      {type: 'range', max: 12},
+      {type: 'inKey', scale: 'major'},
+      {type: 'atLeast', kind: 'rest', count: 1}
+    ]
+  });
+  assert.equal(
+    base.goals.map(g => g.label).join(' / '),
+    'Fill all 8 bars with notes / Use only quarter, half and dotted half notes / Bar 4 ends on A / Stay within one octave / Stay in D major / Use at least one rest'
+  );
+  assert.equal(
+    context.makeAssignment({...base, bars: 1, goals: [{type: 'bars'}]}).goals[0].label,
+    'Fill the bar with notes',
+    'One bar is not "all 1 bars"'
+  );
+  assert.equal(
+    context.makeAssignment({...base, goals: base.goals}).id,
+    context.makeAssignment({...base, goals: base.goals}).id,
+    'The same assignment always gets the same id'
+  );
+  const plain = JSON.parse(json(base)),
+    refused = {
+      'unknown goal type': {...plain, goals: [{type: 'compose-for-me', label: 'x'}]},
+      'inherited goal type': {...plain, goals: [{type: 'constructor', label: 'x'}]},
+      'inherited atLeast kind': {...plain, goals: [{type: 'atLeast', kind: 'toString', count: 1, label: 'x'}]},
+      'string bars': {...plain, bars: '8'},
+      'fractional bars': {...plain, bars: 2.5},
+      'infinite tempo': {...plain, tempo: Infinity},
+      'oversized text': {...plain, text: 'x'.repeat(2001)},
+      'oversized title': {...plain, title: 'x'.repeat(121)},
+      'empty title': {...plain, title: '  '},
+      'bar past the end': {...plain, goals: [{type: 'endBar', bar: 9, degree: 0, label: 'x'}]},
+      'degree out of range': {...plain, goals: [{type: 'end', degree: 12, label: 'x'}]},
+      'null length': {...plain, goals: [{type: 'lengths', allowed: [null], label: 'x'}]},
+      'NaN length': {...plain, goals: [{type: 'lengths', allowed: [NaN], label: 'x'}]},
+      'NaN degree': {...plain, goals: [{type: 'start', degree: NaN, label: 'x'}]},
+      'bad id': {...plain, id: 'first-melody'},
+      'bad key': {...plain, key: 'K:C\nX:2'},
+      'bad meter': {...plain, meter: 'C'},
+      'too many goals': {...plain, goals: Array(13).fill({type: 'steps', label: 'x'})},
+      'array instead of object': [plain]
+    };
+  for (const [why, q] of Object.entries(refused)) assert.equal(context.validPrompt(q), null, `Refuses ${why}`);
+  assert.equal(context.validPrompt(null), null);
+  const cleaned = context.validPrompt({
+    ...plain,
+    text: 'x'.repeat(2000),
+    onload: 'alert(1)',
+    goals: [{type: 'steps', label: 'Anything you like', extra: '<img src=x onerror=alert(1)>'}]
+  });
+  assert.equal(
+    json(cleaned.goals),
+    json([{type: 'steps', label: 'Move only by step or repeat a note'}]),
+    'Unknown fields are dropped and labels are rebuilt from the goal'
+  );
+  assert.ok(!('onload' in cleaned), 'Unknown top-level fields are dropped');
+  assert.equal(cleaned.text.length, 2000, '2,000 characters of instructions are allowed');
 }
 // MusicXML export. The notes of every voice must match the parse: count, sounding length in divisions, and pitch as
 // abcjs plays it (midiPitches, or for a tied-over note the pitch its tie started on), after the part's <transpose>.
@@ -607,5 +869,5 @@ for (const prompt of context.writingPrompts) {
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
 );
