@@ -1,3 +1,10 @@
+# Paul Hardy’s Annex and Possible tunebooks · 2026-10-06
+
+- The non-commercial collection is now **Paul Hardy’s Tunebooks**: the Session Tunebook (2016) plus the Annex (2015) and Possible (2015) books, 554 tunes in all under CC BY-NC-SA 3.0. The two smaller books mostly feed the Session edition, so duplicates across books are skipped, as are blocks without the per-tune licence credit and traditional tunes carrying a named arranger’s undated variations; the net gain is 21 tunes. `scripts/import-pgh.py` now takes several tunebooks at once.
+- Every other non-commercial source surveyed (Traditional Tune Archive, Richard Robinson’s Tunebook, the Dottes books, kern2abc) is unreachable from the build environment; see the README for how to supply a downloaded copy.
+
+---
+
 # Non-commercial editions and Paul Hardy’s Session Tunebook · 2026-10-05
 
 - **Policy.** Creative Commons NonCommercial editions (CC BY-NC, CC BY-NC-SA) are now admitted as a distinct class. They are labelled **NON-COMMERCIAL EDITION** on cards and in the rights box, and every export and share link carries the restriction in plain words. No-derivatives and informal “free for non-commercial use” statements stay excluded.

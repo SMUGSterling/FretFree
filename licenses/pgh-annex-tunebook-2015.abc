@@ -1,0 +1,748 @@
+%abc
+%%abc-alias Paul Hardy's Annex Tunebook
+%%abc-creator ABCexplorer 1.6.1 [02/04/2016]
+%%vskip 2cm
+%%textfont * 36
+%%center Paul Hardy's Annex Tunebook 2015
+%%vskip 1cm
+%%textfont * 24
+%%center Introduction
+%%vskip 1cm
+%%textfont * 14
+%%begintext justify
+%%This tunebook contains tunes waiting to be incorporated into Paul Hardy's Session Tunebook,
+%%because they are new (to me) or been substantially improved since the 2015 edition.
+%%They are tunes that I have learned to play on my English concertina,
+%%that are played at folk music sessions, particularly around Cambridge, England and
+%%Redlands, California. They should also be playable on other folk melody instruments such as fiddle,
+%%whistle, flute, mandolin or dulcimer.
+%%endtext
+%%text
+%%begintext justify
+%%Most are traditional tunes from the British Isles, many of Celtic origin, including many Irish,
+%%English and Scottish dance tunes, but others are from an eclectic mix of sources.
+%%Some have been adapted from Internet resources, in abc, midi or visual score formats.
+%%Others have been learned by ear or handouts from various sessions in the UK and US.
+%%All are believed free of current copyright (unless noted explicitly), or else appear to have been
+%%placed in the public domain as part of the ongoing live folk music tradition. Please let me know
+%%if you are the owner of any that are under access restrictions and I'll remove them.
+%%endtext
+%%text
+%%begintext justify
+%%I have tried to present simple versions of most tunes, without much decoration and interpretation,
+%%so add your own triplets, grace notes and variations. I have included guitar chords,
+%%often based on computer generated ones - use these as guidance, not definitive!
+%%Tunes in 4/4 time that have the rhythm indication "Hornpipe" should usually be 'swung' - lengthen
+%%the first and shorten the second in every pair of quavers - as in "Thursday". Elsewhere these
+%%are sometimes written as 'dotted quaver, semiquaver', but that ratio of 3:1 seems too high - perhaps
+%%try for around 2:1.
+%%endtext
+%%text
+%%begintext justify
+%%This tunebook has been prepared using the abcm2ps software, with help from abc2midi, abcmus, Melody Assistant,
+%%ABCexplorer, and EasyABC. A big thank you goes to those creative and dedicated people who give their time to
+%%create and maintain low-cost or free and open source software for abc music editing and output.
+%%endtext
+%%text
+%%begintext justify
+%%The current version of this and the full session tunebook, in ABC and in PDF forms, is downloadable for free from
+%%Paul's web site at www.paulhardy.net, or you can order there a printed and bound copy of the full tunebook from Lulu.com.
+%%See there also the previous Annex Tunebook versions which update the Session Tunebook 2013 to include the 2014 content, etc.
+%%endtext
+%%text
+%%center Copyright Paul Hardy (paul@paulhardy.net) 2004-2015.
+%%center This work is licenced under a Creative Commons "Attribution Non-Commercial Share Alike" cc by-nc-sa licence.
+%%center See http://creativecommons.org/licenses/by-nc-sa/3.0/ - Contact Paul Hardy for commercial licensing terms.
+%%vskip 1cm
+%%center Original Annex 2015 version February 2015, this version of 3 April 2016.
+%%vskip 1cm
+%%multicol start
+%%leftmargin 7cm
+%%EPS ..\concertina_bw256.eps
+%%multicol end
+%%newpage
+% --------------------------------- The Start ---------------------------------------
+
+X:1601
+T:Ap Shenkin
+T:Tempest, The
+R:March
+C:Trad.
+O:Wales
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+P:AABA
+M:6/8
+L:1/8
+Q:3/8=100
+K:G
+P:A
+dc|"G"B2B Bgf|"C"e2e efg|"G"ded "Em"dcB|"Am"cBc "D7"Adc|
+"G"B2B Bgf|"C"e2e efg|"G"ded "D7"cBA|"G"GAG G +fine+||
+P:B
+ga|"G"b2g "D"a2f|"G"gfe "D"dcB|"C" cde "G"dBG|"D7"FAA Aga|
+"G"b2g "D7"a2f|"G"gfe "D"agf|"G"bag "Em"fge|"D"dgf "Em"e|]
+
+X:2601
+T:Barber's Pole, The
+R:Hornpipe
+C:James Hill 1850
+O:England, Tyneside
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/8
+Q:1/4=140
+K:G
+DF|"G"GABc "D"d2 ef|"G"gdba g2 df|gdBg "A"ecAG|"D"FAd^c ed=cA|
+"G"GABc "D"d2 ef|"G"gdba g2 df|gdBg "Am"ecEF|"G"A2 G2 G2:|
+|:df|"G"gdBd gbag|"D"fg "Am"ef "G"d2 cB|"Am"ceac "G"BdgB|"A7"AGFE "D"D2 EF|
+"G"GABc "D"d2 ef|"G"gdba g2 df|gdBg "Am"ecEF|"G"A2 G2 G2:|
+
+X:2602
+T:Because He Was a Bonny Lad
+R:Reel
+C:Trad.
+O:Scotland
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/8
+Q:1/4=100
+K:Amix
+e|"A"c>B Aa "D"fa "A"e>c|"Bm"df "A"ec "E"B/B/B B>e|"A"c>B Aa "D"fa "A"e>c|"D"d<f "E"ec "A"A/A/A A:|
+e|"A"c>B Ac "D"de f<d|"A"cA ec "E"B/B/B B>d|"A"c>B Ac "D"de f>g|"E"a/g/f/e/ ac "A"A/A/A A||
+e|"A"cA eA "D"f>A eA|"A"c<A ec "E"B/B/B B>g|"A"af "G"ge "D"fd "A"ec|"D"d<f "E"ec "A"A/A/A A|]
+
+X:3603
+T:Carolan's Fourth Untitled
+C:Turlough O'Carolan (1670-1738)
+O:Ireland
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:6/8
+L:1/8
+Q:3/8=70
+K:C
+G|"C"ECC "Em"EFG|"Am"cA/2B/2c/2A/2 "G"GAF|"C"ECE "G"GEG|"F"AFA "G"BGB|
+"C"cBc "Dm"def|"C"eag "Dm"fed|"C"edc "G"GcB|"C"c3 c2:|
+|:e/2f/2|"C"gec gec|"F"f/2e/2f/2g/2a "C"gec|"G"dBG dBG|"C"c/2B/2c/2d/2e "G"dBG|"C"cBc "G"GAF|
+"C"ECE "G"GEG|"F"AFA "G"BGB|"C"cBc "Dm"def|"C"edc "G"GcB|"C"c3 c2:|
+
+X:4601
+T:Dribbles of Brandy
+T:Brothers in York
+R:Jig
+C:Trad. Airds 1788
+O:England
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:6/8
+L:1/8
+Q:3/8=100
+K:Em
+"Em"EGE G2A|"G"B2e dBG|"Am"A2B cBA|"Em"BAG "Bm"FED|
+"Em"EGE G2A|"G"B2e dBG|"Am"A2B cBA|"Em"BGE E2z:|
+|:"Em"e2f g2e|"D"fag "Bm"fed|"Em"e2f g2e|"Bm"fed "Em"e3|
+"Em"e2f g2e|"D"fag "Bm"fed|"Em"e2B "Bm7"B2A|"Em"BGE E2z:|
+
+X:7601
+T:Full Rigged Ship, The
+T:Da Full Rigged Ship
+R:Jig
+C:Trad
+O:Scotland, Shetland
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:6/8
+L:1/8
+Q:3/8=100
+K:ADor
+"Am"e2a aea|aea aba|"Em"e2f g2g|gag "D"f2d|
+"Am"e2a aea|aea aba|"Em"g2e "G"edB|"Am"A3 E3:|
+[K:Am]
+|:"Am"efe "Em"edB|"Am"A2B "D7"c3|"G"BGG BGG|"Bm"Bcd "Em"E3|
+"Am"efe "Em"edB|"Am"A2B "D7"c2d|"Am"efe "G"dBG|"Am"A3 A3:|
+[K:Am]
+|:"C"EGE EGE|"Am"EGE c3|"C"EGE E2D|"Am"E2F GEC|
+"C"EGE EGE|"Am"EGE c2d|efe "G"dBG|"Am"A3 A3:|
+
+X:7602
+T:Flower of the Quern, The
+R:Air
+C:James Scott Skinner, 1884
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/4
+Q:1/4=120
+K:G
+D|"G"G G "D"F E/2D/2|"C"c "D7"c "G"B d|"G"d B/2A/2 "Em"G A/2B/2|"Am"A3 "D"D|
+"G"G G "D"F E/2D/2|"C"c "D7"c "G"B d|"Am"d/2c/2 E/2A/2 "D"G F|"G"G3 G||
+|:"C"c c/2>c/2 c e/2>e/2|"G"d d/2>B/2 d g/2>d/2|d B/2>A/2 "Em"G A/2B/2|"Am"A3 "D"D|
+"G"G G "D"F E/2D/2|"C"c "D7"c "G"B d|"Am"d/2c/2 E/2A/2 "D"G/2F/2 B/2>A/2|"G"G3:|]
+
+X:8601
+T:Harliquin Air
+T:Harlequin Air
+R:March
+C:Trad. - Cooke 1770
+O:England
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:2/2
+L:1/4
+Q:1/2=100
+K:D
+"D"d A A d|"A"c/d/e/c/ A2|"G" B G G E|"A"F/G/A/F/ "D"D2|d A A d|"A"c/d/e/c/ A g|"D"f e/d/ c d|"A"e2-e2:|
+|:"A"e a a e|"D"f/g/a/f/ d2|"G"B g g B|"A"c/d/e/c/ A2|A a a g|"D"f/e/d/c/ d G|F d "A"E c|"D"d2-d2:|
+
+X:8503
+T:Hector the Hero
+R:Waltz
+C:James Skinner 1903
+O:Scotland
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:3/4
+L:1/4
+Q:1/4=100
+K:D
+D/E/|"D"F3/2E/D|"G"B2A/F/|"D"A2 A/F/|A2D/E/|"Bm"F2E/D/|"G"B2A/F/|"Em"E3|"A"E2F/A/|
+"Bm"F3/2E/D|"G"B2A/F/|"D"A2D|"G"d2B|"D"A2D/F/|"A"E2D|"D"D3-|"D"D2:|
+|:F/A/|"G"B2G/B/|"G"d2c/B/|"D"A2-A/B/|A2F/A/|"Bm"B2A/F/|"Bm"A2D/F/|"Em"E2-E/F/|"A"E2F/A/|
+"Bm"B2G/B/|"G"d2c/B/|"D"A2G/F/|"G"d2G|"D"F2D/F/|"A7"E2D|"D"D3-|D2:|
+
+X:8602
+T:Hesleyside Reel
+R:Reel
+C:Trad.
+O:England, Northumbria
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/8
+Q:1/4=130
+K:G
+GA|"G"B2 dB AGAB|GABc "D"d2 ef|"C"gfge "G"dBGB|"Am"e2 A2 "D"A2 GA|
+"G"B2 dB AGAB|GABc "D"d2 ef|"C"gfge "G"dBGA|"D"B2 G2 "G"G2:|
+|:Bd|"C"edef gfge|"G"dBGB d2 Bd|"C"edef gfge|"G"dBGB "D"A2 GA|
+"G"B2 dB AGAB|GABc "D"d2 ef|"C"gfge "G"dBGA|"D"B2 G2 "G"G2:|
+
+X:7503
+T:Gypsies Hornpipe
+R:Hornpipe
+C:Trad.
+O:England
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/8
+Q:1/4=160
+K:G
+ef|"Em"gf ed ed Bd|"C"ed (3efg "G"B2 BA|GF GA BA Bd|"Am"e2A2 A2ef|
+"Em"gf ed ed Bd|"C"ed (3efg "G"B2 "D7"BA|"G"GF GA "B7"Bc BA|"Em"G2 E2 E2:|
+|:gf|"Em"e2B2 B2 gf|(3efe B2B2 gf|ed ef "C"gf ga|"Em"b2e2 e2 ga|
+"G"bg "D"af "Em"g2gf|"C"ed (3efg "G"B2 "D7"BA|"G"GF GA "B7"Bc BA|"Em"G2 E2 E2:|
+
+X:8605
+T:Home Ruler
+R:Hornpipe
+C:Trad.
+O:Ireland
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/8
+Q:1/4=140
+K:D
+FE|"D"D2FA D2FA|dfed "G"BcdB|"D"A3B AFDE|"Bm"FD "A7"ED "Bm"B,D "A7"A,B,|
+"D"D2FA D2FA|dfed "G"BcdB|"D"A3B AFDE|F2D2 D2:|
+|:AB|"D"d3c defg|"D"af"G"bf "D"afed|"Em"efed BA (3Bcd|"D"fded "A7"BdAB|
+"D"d3c defg|"D"af"G"bf "D"afed|"Em"efed BA (3dcB|"A7"AFEF "D"D2:|
+
+X:11601
+T:Kempshott Hunt
+R:Reel
+C:Trad. - J Clare 1834
+O:England, Northamptonshire
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:2/2
+L:1/8
+Q:1/2=60
+K:G
+"G"d2Bd (B/2A/2)G Bd|(B/2A/2)G Bd "Am"cA A2|"G"Bd (B/2A/2)G Bdd2|Bd "C"ce "G"dGG2:|
+|:("G"G/2A/2)G dB "C"ec dB|("G"G/2A/2)G dB "Am"cAA2|("G"G/2A/2)G dB "C"ec dB|"G"Bd "C"ce "G"dGG2:|
+|:"G"g2dB g2dB|g2dB "Am"cAA2|"G"g2dB g2dB|Bd "C"ce "G"dGG2:|
+
+X:12601
+T:Lemmy Brazil's No.1
+R:Hornpipe
+C:Trad.
+O:England
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/8
+Q:1/4=130
+K:G
+ef|"G"gdBA GBdg|"C"edcd e2fe|"G"dgfe "D"dB (3cBA|"G"GBde "D"d2ef|
+"G"gdBA GBdg|"C"edcd e2fe|"G"dgfe "D"dB (3cBA|"G"G2g2g2:|
+|:B2|"G"(3BdB G2B4|"C"c2A2 cdef|"G"ggfe dBGd|"C"e2dB "D"A4|
+"G"(3BdB G2B4|"C"c2A2cdef|"G"ggfe dB (3GAB|"D"A2F2"G"G2:|
+
+X:12602
+T:Lemmy Brazil's No 2
+R:Hornpipe
+C:Trad.
+O:England
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/8
+Q:1/4=130
+K:D
+AG|"D"F2A2 "A"(3BcB A2|"D"defd "A"(3BcB AG|"D"FAdA "G"Bcdf|"Em"e2e2e2"A"AG|
+"D"F2A2 "A"(3BcB A2|"D"defd "A"(3BcB AG|"D"FAdA "G"Bcdf|"A7"e2e2"D"d2:|
+|:fg|"D"afdf afdf|defd "A"(3BcB AG|"D"FAdA "G"Bcdf|"Em"e2e2e2"A"fg|
+"D"afdf afdf|defd "A"(3BcB AG|"D"FAdA "G"Bcdf|"A7"e2e2"D"d2:|
+
+X:12603
+T:Lollipop Man
+T:My Ain Kind Dearie
+R:Reel
+C:Trad.
+O:England, Ducklington, after Scotland
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/8
+Q:1/4=120
+K:G
+BA|"G"GB D2 "D"D2 DE|"G"G2 GF G3 A|B2 GA BAGA|"Em"BEED E2 BA|
+"G" GB D2 "D"D2 DE|"G"G2 GF G3 d|"D"edef "C"gedc|"D"BAGF "G"G2:|
+|:d2|"D"d4 "Em"gfeg|"Bm"B2 de d3 B|"Am"A3 B cBAG|"Em"BEED E2 BA|
+"G" GB D2 "D"D2 DE|"G"G2 GF G3 d|"D"edef "C"gedc|"D"BAGF "G"G2:|
+
+X:13601
+T:Madame Bonaparte
+R:Hornpipe
+C:Trad.
+O:England
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/8
+Q:1/4=120
+K:G
+|:"D"dc|"G"B2BA BdBG|"C"c2cB cecA|"G"GBdf "Em"gfge|"D"d3e dcBA|
+"G"B2BA BdBG|"C"cBcd "Am"efge|"G"dBGB "D"cAFA|"G"G2"D"GF "G"G2:|
+|:"D"BA|"G"GBdf "Em"gfge|"D"d3e dcBA|"G"GBdf "Em"gfge|"D"d3e dcBA|
+"G"BdGd BdGd|"C"ceAe ceAe|"G"BdGd "Em"BdGd|"D"FADA FADA|
+"G"BdGd BdGd|"C"cBcd "Am"efge|"G"dBGB "D"cAFA|"G"G2"D"GF "G"G2:|
+
+X:13602
+T:Midnight on the Water
+R:Waltz
+C:Lewis Thomasson (1874 - 1924)
+O:USA, Texas
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:3/4
+L:1/8
+Q:1/4=120
+K:D
+DE|"D"F2 F2 FE|F2 F2 FE|F A3 AB|AF ED DE|"D"F2 d2 "G"B2|"D" A3 F DE|"A" F2 AF EF|"D" D4:|
+(3ABc||"D"d6|"Bm"dc BA Bc|"D" d3 B AF|"D" D4 d2|"Em"e e3 f2|"Em7" e2 d2 e2|"Bm"f a3 f2|"F#m7"gfed Bc|
+"G"d3 cde|dc BA Bc|"D" d3 B AF|D4 DE|"D"F2 d2 "G"B2|"D" A3 F DE|"A" F2 AF EF|"D" D4|]
+
+X:13603
+T:Miss Thompson
+R:Hornpipe
+C:Trad.
+O:England
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/8
+Q:1/4=140
+K:D
+(3ABc|"D"d2df edcB|"A"A2AB AGFE|"D"DFAF "G"DGBG|"D"DFAF "G"GFED|
+"D"d2df edcB|"A"A2AB AGFE|"D"DFAd "A7"fedc|"D"d2dc d2:|
+|:cd|"A"ecec Acec|"D"fdfd Adfd|"G"gege "D"fdfd|"E7"edcB "A"AGFE|
+"G"BGBG DGBd|"D"AFAF DFAd|FAde "A7"fedc|"D"d2dc d2:|
+
+X:14602
+T:Nancy Clough
+R:Reel
+C:Tom Clough (1881-1964)
+O:England, Northumberland
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/8
+Q:1/4=160
+K:D
+|:(3ABc|"D"d2D2 F2A2|d2fe d2A2|d2ef "G"gfed|"A"c2e2 A2Bc|
+"D"d2D2 F2A2|d2fe d2A2|"G"B2g2 "A"fedc|"D"d6:|
+|:fg|"D"a3b a2gf|"G"g3a "A7"g2fe|"D"f2d2 "G"gfed|"A"c2e2 A2Bc|
+"D"d2D2 F2A2|d2fe d2A2|"G"B2g2 "A7"fedc|"D"d6:|
+|:(3ABc|"D"dcBA GFED|F2A2 d2A2|"D"dcde "G"gfed|"A"cdec A2Bc|
+"D"dcBA GFED|F2A2 d2A2|"G"B2g2 "A7"fedc|"D"d6:|
+|:fg|"D"aAaA a2gf|"G"gGgG "A7"g2fe|"D"fdfd "G"gfed|"A"cdec A2Bc|
+"D"dcBA GFED|F2A2 d2A2|"G"B2g2 "A7"fedc|"D"d6:|
+
+X:14601
+T:New Anything
+R:March
+C:Trad. Playford
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:2/2
+L:1/8
+Q:1/4=160
+K:D
+FG|"D"A2d2 A2d2|A3G F2d2|"A"ABAG FdcB|AGFE "D"D2 FG|
+"D"A2d2 A2d2|A3G F2d2|"A"AdcB AGFE|"D"D6:|
+|:cd|"A"e2c2 A2 cd|efed c2A2|"D"a2f2 d2fg|abag f2 ed|
+"A"cdef "G"gBcd|"A"efed c2A2|"D"afdf "A7"e2c2|"D"d6:|
+
+X:16602
+T:Paddy Carey
+R:Jig
+C:Trad.
+O:England
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:6/8
+L:1/8
+Q:3/8=100
+K:D
+"D"A2d dcd|f2d dcd|"Em"B2e e2f|"G"gfe dcB|
+"D"A2d dcd|f2d dcd|"A7"ecA ABc|"D"def e2d:|
+|:"D"d2f "G"g2b|"D"a2b afd|d2f "G"g2b|"A7"afd e2d|
+"D"d2f "G"g2b|"D"a2b afd|"A7"ecA ABc|"D"def e2d:|
+|:"Em"g2e ede|"D"f2d dcd|"A"ecA ABc|"D"def e2d|
+"Em"g2e ede|"D"f2d dcd|"A"ecA ABc|"D"def e2d:|
+
+X:16601
+T:Portobello Hornpipe
+R:Hornpipe
+C:Trad.
+O:England
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/8
+Q:1/4=150
+K:G
+(3DEF|"G"G2 GA G2 de|dc BA GA BG|"Am"A2 A2 A2 GA|"Em"BA BG E2(3DEF|
+"G"G2 GA G2 de|dc BA GA Bc|"Bm"dB GB "D"cA FG|"G"A2 G2 G2:|
+|:Bc|"G"d2 de d2 ef|"Em"gf ed e4|"C"ed cB cB AG|"D"FG AF D2 B2|
+"C"c2 ec "G"B2 dB|"Am"AB (3cBA "G"GA Bc|dB GB "D7"cA FG|"G"A2 G2 G2:|
+
+X:17601
+T:Queen's Jig, The
+R:Jig
+C:Trad. Playford 1701
+O:England
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:6/8
+L:1/8
+Q:3/8=100
+K:D
+A|"D"d2e fdf|"G"g3 "D"f2 g/a/|fgf e2d|"A"e3 "D"A2A|
+"D"d2e fdf|"G"g3 "D"f2 a|fgf "A"e2d|("D"d3 d2):|
+|:a|"D"aba "G"g2f|"Em"g3 "D"f2 g/a/|fgf "A7"e2d|e3 A2a|
+"D"aba "G"g2f|"Em"g3 "D"f2 a|fgf "A7"e2d|("D"d3 d2):|
+
+X:18601
+T:Recruiting Officer, The
+R:Jig
+C:Trad. Playford 1701
+O:England
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:6/8
+L:1/8
+Q:3/8=100
+K:D
+A|"D"def "A"edc|"D"d3 A2F|"G"GAB "D"AGF|"A"E3A,3|
+"D"def "A"edc|"G"BgB "D"A2G|FdF "A"Edc|"D"d3-d2:|
+|:g|"D"fga "A"ecA|"G"g3 "D"f3|"G"Bcd "Em"efd|"A"c3 Aag|
+"D"fed "A"cac|"G"BgB "D"A2G|FdF "A"Edc|"D"d3-d2:|
+
+X:18602
+T:Red Lark, The
+T:Little Red Lark
+R:Waltz
+C:Trad. (O'Neills)
+O:Ireland
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:3/4
+L:1/4
+Q:1/4=120
+K:G
+D|"G"G2A|"Em"GEF|"G"G2A|"Em"Bge|"G"d>BG|BAG|"Em"E3|"D"D2D|
+"G"G2A|"Em".G.E.F|"G"G2A|"Em"Bge|"G"d>BG|"D"BA>G|"G"G3|-G2:|
+|:d|"G"g>fg|"Em"edB|"G"g>fg|"Em"ege|"G"d>BG|BAG|"Em"E3|"D"D2D|
+"G"G2A|"Em".G.E.F|"G"G2A|"Em"Bge|"G"d>BG|"D"BA>G|"G"G3|-G2:|
+
+X:19605
+T:Sally Sloane's Jig
+T:Trip to Cottingham
+R:Jig
+C:Trad.
+O:England via Australia
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:6/8
+L:1/8
+Q:3/8=100
+K:D
+A|"D"FAd FAd|"G"GBd GBd|"D"FAd dcd|"A"f2e e2A|"D"FAd FAd|"G"GBd GBd|"D"FAd dcd|"A"e2c "D"d2:|
+|:e|"D"f3 def|"Em"f2e e2f|"G"g2e cde|"A"efe d2e|"D"f3 def|"Em"f2e e2f|"G"g2e cde|"A"efe "D"d2:|
+|:F|"D"A3 F2G|A3 F2G|AFA dAd|"A"fed cBA|"Em"G3 E2F|G3 E2F|"A"GBA GFE|"D"D3 D2:|
+
+X:19021
+T:She's Sweetest When She's Naked
+R:Minuet
+C:Trad.
+O:Scotland, Perth 1768
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:3/4
+L:1/8
+Q:1/4=120
+K:Em
+|:"Em"E2 B2 B2|BA GA B2|"C"E2 G2 G2|"G"DB, A,B, D2|"Em"E2 G2 G2|"D"AG AB de|"B7"B3 A GA|"Em"B2 E4:|
+"Am"E2 A2 A2|A4 G2|"G"B2 d2 d2|d4 e2|dB AB de|dB AB dA|"Em"B2 e2 e2|e4 d2|
+"G"B2 dB AG|"D"A2 B2 d2|"Bm"F2 GF ED|B,2 D2 D2|"Em"E2 G2 G2|"D"AG AB de|"B7"B3 A GA|"Em"B2 E4|]
+
+X:19604
+T:Stool of Repentance, The
+R:Jig
+C:Trad.
+O:Scotland
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:6/8
+L:1/8
+Q:3/8=90
+K:G
+"G"g2d B2d|gfe dcB|"C"gee "G"e2d|"Am7"egf "D7"e2d|
+"G"g2d B2d|gfe dcB|"C"c2d "G"e2d|"Am"e<gB "D7"A2G:|
+|:"G"BGG dGG|BGG dcB|"Am"cAA eAA|cAA "D7"edc|
+"G"BGG dGG|BGG dcB|"C"c2d "G"e2d|"Am"e<gB "D7"A2G:|
+
+X:20601
+T:Three Jolly Sheepskins
+R:Polka
+C:Trad.
+O:England
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/8
+Q:1/4=140
+K:G
+cB|"D"A2 D2 A2 D2|"Am"c2c2 "Bm"BcdB|"D"A2D2A2D2|"G"DcBA G2:|
+|:BA|"G"GABc "D"dedB|"Am"cdcA "Bm"BcBA|"G"GABc "D"dcdg|"Am"ecAF "G"G2:|G2|]
+
+X:22601
+T:Varsoviana
+R:Mazurka
+C:Trad.
+O:Poland, Warsaw
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:3/4
+L:1/8
+Q:1/4=120
+K:G
+B>c|"G"d2g2f2|"Am"c4A>B|"C"c2e2"D"d2|"G"B6|G3FG2|"Am"A3Bc2|"Em"e2"D"d2"C"c2|"G"B4||
+B>c|"G"d2g2f2|"Am"c4AB|"C"c4ed|"G"B6|G3FG2|"Am"A2B2c2|"Bm"e2d2"D7"F2|"G"G4||
+G>A|"G"B>GD2G>A|B>GD2G>A|B2"C"c2"G"B2|"D"A4F>G|A>FD2F>G|A>FD2F>G|"D7"A2c2B2|"G"G4||
+GA|"G"BGD2GA|BGD2GA|B2"C"c2"G"B2|"D"A4FG|AFD2FG|AFD2FG|"D7"A2c2B2|"G"G4|]
+
+X:23601
+T:Will You Patch My Pants For Me?
+T:Hedgehog Skin, The
+T:Igelkottaskinnet
+R:Polka
+C:Trad.
+O:Sweden, via USA
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:2/2
+L:1/8
+Q:1/2=70
+K:D
+A|"D"A2 d2 "Bm"d2 ed|"G"d2 cB "A"cB A2|ce e2 e2 ag|"D"f3e "Bm"fe dc|
+"G"B2 B2 BdcB|B2 AG "D"F3A|"A"A2 ce "A7"gece|"D"d2 fe d3:|
+|:f|"D"a2 a2 a2 ba|"A"a2 gf gfef|"G"g2 g2 g2 ag|"D"f3e "Bm"fedc|
+"G"B2 B2 BdcB|B2 AG "D"F3A|"A"A2 ce "A7"gece|"D"d2 d2 d3:|
+
+X:23602
+T:Wren, The
+R:An Dro
+C:Trad.
+O:France, via USA
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/8
+Q:1/4=140
+K:Bm
+"Bm"B2f2f2 ef|"Em"g2e2 edcd|"A"eAce efed|"F#m"c2c2 dcBA|
+"Bm"B2f2f2 ef|"Em"g2e2 edcd|"A"eAce efed|"Bm"c2B2 B2A2:|
+|:"Bm"B3A Bcdc|B2 B2 c2d2|"A"eAce efed|"F#m"c2 c2 dcBA|
+"Bm"B3A Bcdc|B2 B2 c2d2|"A"eAce efed|"Bm"c2B2B2A2:|
+%%newpage
+%%vskip 1cm
+%%textfont * 24
+%%center Modified from Session Tunebook 2015
+%%vskip 1cm
+
+X:10003
+T:Jimmy Allen
+T:Jamie Allen
+R:Reel
+C:Trad.
+O:England, Northumberland
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/8
+Q:1/4=200
+K:G
+GA|"G"B2G2 G2A2|B4 G2AB|"Am"c2A2 A2B2|c3c "D7"B2A2|"G"G2g2"C"g2e2|"G"d4 B3c|"Am"d2d2"D7"cB A2|"G"G6|
+GA|"G"B2G2 G2A2|BcBA G2AB|"Am"c2A2 A2B2|cdcB "D7"A2 BA|"G"G2g2"C"g2e2|"G"d4 B3c|"Am"d2d2"D7"cB A2|"G"G6||
+|:BA|"G"G2g2 g3f|"Em"e2d2"C"c2B2|"A7"A2a2 a3g|"D"f2d2 e2f2|"G"g3a "C"g2e2|"G"d4 B3c|"Am"d2d2"D7"cB A2|"G"G6:|
+
+X:18002
+T:Rakes Of Mallow, The
+R:Polka
+C:Trad.
+O:Ireland
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/4
+Q:1/4=200
+K:G
+z|"G"GB GB|GB "C"c/B/A/G/|"D"FA FA|FA "D7"d/c/B/A/|"G"GB GB|GB dB|"Am"c/B/A/G/ "D7"F/G/A/c/|"G"BG G:|
+|:d|"G"gf/e/dc|Bc dB|gf/e/dc|"D"Bd Ad|"G"gf/e/dc|Bc dB|"Am"c/B/A/G/ "D7"F/G/A/c/|"G"BG G:|
+
+X:2020
+T:Brighton Camp
+T:The Girl I Left Behind Me
+R:March
+C:Trad.
+O:England
+Z:Paul Hardy's Annex Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:4/4
+L:1/4
+Q:1/4=200
+K:G
+g/f/|"G"ed/c/ BA|"C"BG E>D|"G"GG G/A/B/c/|"D7"d2 Bg/f/|"G"ed/c/ BA|"C"BG E>G|"D7"F/G/A/F/ DE/F/|"G"G2 G:|
+|:d/c/|"G"Bd "Em"ef|"G"gd "D7"B/A/G|"G"B/c/d "Em"ef|"C"g2 "D7"fg/f/|"G"ed/c/ BA|"C"BG E>G|"D7"F/G/A/F/ DE/F/|"G"G2 G:|
+
+X:99999
+T:Errata - Minor corrections to tunes
+K:G
+DEADBEEF|
+W:The following minor corrections have been noted to be made to tunes in the 2015 Session Tunebook (25 Feb 2015 edition).
+W:They are mainly chord improvements. They have been applied to the 11 October 2015 Lulu print edition:
+W:
+W:American Patrol - Delete D chord in 5th line. Change G chord to D in third line, and add G chord at start of next bar.
+W:
+W:Bonnie Kate - In first line, Em chord should be on 3rd beat not 4th, and D7 on 3rd beat rather than 2nd.
+W:Change first D chord to C. In second line change Bm chord to D.
+W:
+W:Bonny Green Garters - End first line, 2nd time bar, add G chord on last note.
+W:Second line, second bar, D chord should be on second note. Add D chord on 2nd note of last bar of line.
+W:
+W:Cushie Butterfield - Delete first note of anacrucis, and make other two (AG) as quavers. Same at end second line.
+W:
+W:Drowsy Maggie - Last note of bars 2 and 6 should be F# rather than E. Delete both Bm chords.
+W:
+W:Fête du Village - Tune is out of sequence - is between Friendly Visit and Gairsay on P55.
+W:
+W:Foxhunters Jig - Add A chord to 3rd line bar 2 beat 7 like in 1st line.
+W:
+W:The Flight - Move A7 chord in bar 2 to 4th beat (middle of bar). Similarly in line 2 bar 2.
+W:
+W:Girl With the Blue Dress On - Delete D7 chord in bar 4 (and G in bar 5).
+W:
+W:March of Men of Devon. In lines 1 and 3, change chords Bm->D in bar 3, D->A in bar 4, G->A7,
+W:add G chord half way in bar 3.
+W:
+W:Miss Menager's Hornpipe - Line 1 change first C chord to D. Line 3 change first chord G to D7, add G chord at start of bar 2,
+W:add another G chord half way through bar 3. In bar 4 change G chord to D, and change D to D7.
+W:
+W:One More Dance and Then - Add D chord to last note of 1st line.
+W:
+W:Plane Tree - Line 3 change Bm chord in bar 1 to D, add G chord at start of second bar. Same on line 4.
+W:
+W:Redwing - Change title to Red Wing. Change composer to Kerry Mills, 1907
+W:
+W:Saucy Little Bird on Nellie's Hat - Line 1 bar 2 - move G chord to start of bar 3. Same on line 3.
+W:Line 2 bar 2 - delete G chord.
+W:
+W:Scan Testers No 2 - Add apostrophe to title. First line bar 2 Move Am chord to first note. Bar 3 change D chord to A7.
+W:Bars 4 and 5 change Bm chord to D. Bar 7 add A7 to note 1, delete Bm. Last bar change G to D.
+W:Line 2 bars 1 and 5 add Em to note 3. Bars 3 and 7 change G to D7.
+W:
+W:Shove the Pig's Foot - Tempo crotchet = 190, not 160.
+W:
+W:Spootiskerry - Delete D chord in bar 2.
+W:
+W:Star of the County Down - Delete last note.
+W:
+W:Trumpet Hornpipe - Line 4 bar 1 change chord Bm to G7. bar 2 change chord Em to C. Bar 3 delete C chord.
+W:
+W:Weshing Day - Bar 7 should be D7 chord rather than G. In bar 8 add G chord. Same on line 2.
+W:
+W:Wheatsheaf Tavern - Bar 8 change Am chord to D7. Line 4 2nd time bar change Bm chord to D7.
+W:
+W:Winster Gallop - Second line bar 2 add C chord. Bar 3 add G chord.
+W:
+W:Woodland Flowers - Lines 1 and 2 delete redundant Dm chords. Line 5 bar 1 add D7 chord. Line 6 bar 3 add D7 chord.
+W:
+W:-------------------------------------------------------------------------------------------------------
+W:The following minor corrections have been noted to be made to tunes in the 2015 Session Tunebook (25 Feb 2015 edition).
+W:They are mainly chord improvements. They have not been applied to the 11 October 2015 Lulu print edition:
+W:
+W:American Patrol - Line 2 change Am to A7, delete Bm chord.
+W:Line 3 delete Bm chord. Line 5 change Bm to D chord.
+W:
+W:Ash Grove - remove repeat from second part.
+W:
+W:Bluebell Polka - Delete A chord at start. Line 7 bar 4 delete C chord.
+W:
+W:Burning of the Piper's Hut - Line 2 last bar chords should be Em Am like last bar of tune.
+W:
+W:Captain Maguire - Line 2 add FINE at end. Line 3 delete Em and G chords (so all line is A).
+W:
+W:Cotillion - Line 3 - change both Bm to D chords
+W:
+W:Cushie Butterfield - Change Bm chord to E7.
+W:
+W:Hobart's Transformation - Line 4 bar 3 add Em chord halfway. Last bar add Am.
+W:
+W:Irish Washerwoman - Line 1 bar 3 change D chord to Am.
+W:
+W:Jamaica - add repeats to line 2.
+W:
+W:Keel Row - Add D chord halfway through last bar of each line.
+W:
+W:Kerfunten - Line 3 full bar 2 add G at start, bar 3 add D, bar 4 change D to A7 chord.
+W:Line 4 bar 2 add G, bar 4 add A, out bar add D chords.
+W:
+W:King of the Fairies - Line 3 remove extra Bm chord. Line 4 bar 3 add Bm halfway. Last bar add Em chord.
+W:
+W:Lincolnshire Poacher - Line 2, Bar 4 move D chord to start of bar 5.
+W:
+W:La Mourisque - Bar 4 change Am7 to D. Line 2 change Am to D.
+W:
+W:Mairie's Wedding - Line 2 bar 4 change D7 to G chord.
+W:
+W:Pretty Maggie Morrisey - Line 2 delete second G chord, change note under it from G to F#.
+W:last line bar 3 add D chord on 7th note.
+W:
+W:Sally Gardens Reel - Line 1 bar 4 D7 throughout. Line 3 bar 4 Am throughout.
+W:
+W:Shove the Pig's Foot - Line 2 bars 2 and 6 change C to Em chord.
+W:
+W:Swallowtail Jig - Change both Bm chords to D, and delete following D chords.
+W:
+W:Teahan's Fling - Change all Bm to D chords.
+W:
+W:Tenpenny Bit - Line 1 bar 4 G chord. Line 2 bar 3 G chord. Bar 4 Em then Am. Line 3 bar 4 same. Line 4 same as Line 2.
+W:
+W:Tenneessee Waltz - Line 3 add opening repeat.
+W:
+W:Three around Three - last line delete Em chord, change first C chord to Em.
+W:
+W:Three Rusty Swords - Line 1 bar 4 delete D and G chords, add D chord on beat 3 (A note). Line 2 bar 2 change G to D chord.
+W:Line 3 add opening repeat. Bar 4 as line 1. Line 4 bar 2 change Am to D7 and delete D. Bar 3 change Bm to D.
+W: Add Rustey Gully and Geld him Lasses as alternative titles, delete Dusty Miller
+W:
+W:Theme Vannitaise - Line 1 last bar change Bm to D, Line 2 bar 3 change Bm to D. Delete extra Em and D chords.
+W:
+W:Walls of Liscarrol - Lines 2 and 4 last bars change Dm to C, add Dm on last note
+W:
+W:Whitchurch Hornpipe - Bar 3 change D to Am, delete C chord. Line 6 bar 3 change C to D chord.
+W:
+
+
+

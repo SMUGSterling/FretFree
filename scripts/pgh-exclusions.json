@@ -1,218 +1,541 @@
 {
- "edition": "2016",
- "sha256": "5b39a17fd676481f39fd8d62cdd48fa69168e38cda36afa683729c439f2c1de7",
- "tunes": 569,
- "accepted": 534,
+ "books": [
+  {
+   "name": "Session Tunebook",
+   "slug": "session",
+   "year": "2016",
+   "span": "2004–2016",
+   "file": "pgh_session_tunebook.abc",
+   "sha256": "5b39a17fd676481f39fd8d62cdd48fa69168e38cda36afa683729c439f2c1de7",
+   "tunes": 569,
+   "candidates": 533
+  },
+  {
+   "name": "Annex Tunebook",
+   "slug": "annex",
+   "year": "2015",
+   "span": "2004–2015",
+   "file": "pgh_annex_tunebook.abc",
+   "sha256": "9fc4b8c06acc63ab5e7e31f3e7a95e4425c42da5c98cc18754440f43ffc7ed8a",
+   "tunes": 37,
+   "candidates": 0
+  },
+  {
+   "name": "Possible Tunebook",
+   "slug": "possible",
+   "year": "2015",
+   "span": "2004–2014",
+   "file": "pgh_possible_tunebook.abc",
+   "sha256": "75e7ceef4a69f0d595625809c7713f8be3e9b60b122feebdc9121d6375edbb37",
+   "tunes": 32,
+   "candidates": 21
+  }
+ ],
+ "accepted": 554,
  "excluded": [
   {
-   "file": "X:1017",
+   "file": "Session Tunebook X:1017",
    "title": "Archie's Fancy",
    "composer": "Billy Pigg 1902-1968",
    "reason": "Composer credit \"Billy Pigg 1902-1968\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:1008",
+   "file": "Session Tunebook X:1008",
    "title": "Ashokan Farewell",
    "composer": "Jay Ungar 1983",
    "reason": "Composer credit \"Jay Ungar 1983\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:4005",
+   "file": "Session Tunebook X:4005",
    "title": "Da Slockit Light",
    "composer": "Tom Anderson, 1969",
    "reason": "Composer credit \"Tom Anderson, 1969\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:4003",
+   "file": "Session Tunebook X:4003",
    "title": "Dark Island, The",
    "composer": "Ian MacLachlan 1958, or Allan MacCormack 1930?",
    "reason": "Composer credit \"Ian MacLachlan 1958, or Allan MacCormack 1930?\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:5007",
+   "file": "Session Tunebook X:5007",
    "title": "Eric's Waltz",
    "composer": "Eric Elsener",
    "reason": "Composer credit \"Eric Elsener\" has no dates; composition status cannot be established"
   },
   {
-   "file": "X:6003",
+   "file": "Session Tunebook X:6003",
    "title": "Father Kelly's Reel",
    "composer": "P J Kelly",
    "reason": "Composer credit \"P J Kelly\" has no dates; composition status cannot be established"
   },
   {
-   "file": "X:6011",
+   "file": "Session Tunebook X:6011",
    "title": "Four Up",
    "composer": "Barry Goodman, 2001",
    "reason": "Composer credit \"Barry Goodman, 2001\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:7021",
+   "file": "Session Tunebook X:7021",
    "title": "Glen Aln",
    "composer": "Will Atkinson (1908-2003)",
    "reason": "Composer credit \"Will Atkinson (1908-2003)\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:7011",
+   "file": "Session Tunebook X:7011",
    "title": "Great North Run, The",
    "composer": "Robert Whitehead, 1986",
    "reason": "Composer credit \"Robert Whitehead, 1986\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:8016",
+   "file": "Session Tunebook X:8016",
    "title": "Halsway Schottische",
    "composer": "Nigel Eaton 2011",
    "reason": "Composer credit \"Nigel Eaton 2011\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:9004",
+   "file": "Session Tunebook X:9004",
    "title": "Inisheer",
    "composer": "Thomas Walsh",
    "reason": "Composer credit \"Thomas Walsh\" has no dates; composition status cannot be established"
   },
   {
-   "file": "X:10004",
+   "file": "Session Tunebook X:10004",
    "title": "Jump at the Sun",
    "composer": "John Kirkpatrick",
    "reason": "Composer credit \"John Kirkpatrick\" has no dates; composition status cannot be established"
   },
   {
-   "file": "X:11001",
+   "file": "Session Tunebook X:11001",
    "title": "Katyusha",
    "composer": "Matvei Blanter 1938, after earlier trad.",
    "reason": "Composer credit \"Matvei Blanter 1938, after earlier trad.\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:11021",
+   "file": "Session Tunebook X:11021",
    "title": "Kelso Accordion And Fiddle Club",
    "composer": "Bob Liddle, 1983",
    "reason": "Composer credit \"Bob Liddle, 1983\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:11004",
+   "file": "Session Tunebook X:11004",
    "title": "Kerfunten, The",
    "composer": "Colin Hammy Hamilton, abt 1980",
    "reason": "Composer credit \"Colin Hammy Hamilton, abt 1980\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:12004",
+   "file": "Session Tunebook X:12004",
    "title": "Lily Marlene",
    "composer": "Norbert Schultze 1938",
    "reason": "Composer credit \"Norbert Schultze 1938\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:12031",
+   "file": "Session Tunebook X:12031",
    "title": "Lunch in the Pub",
    "composer": "Pete Lockwood 1986",
    "reason": "Composer credit \"Pete Lockwood 1986\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:13003",
+   "file": "Session Tunebook X:13003",
    "title": "Mairi's Wedding",
    "composer": "Trad.",
    "reason": "Known later composition despite the traditional credit: Mairi’s Wedding: composed by Johnny Bannerman, 1934"
   },
   {
-   "file": "X:13035",
+   "file": "Session Tunebook X:13035",
    "title": "March of the Concertinas",
    "composer": "Alan Day, 2014",
    "reason": "Composer credit \"Alan Day, 2014\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:13008",
+   "file": "Session Tunebook X:13008",
    "title": "Margaret's Waltz",
    "composer": "Pat Shaw",
    "reason": "Composer credit \"Pat Shaw\" has no dates; composition status cannot be established"
   },
   {
-   "file": "X:13033",
+   "file": "Session Tunebook X:13033",
    "title": "Mrs Saggs",
    "composer": "Chris Wood 1990",
    "reason": "Composer credit \"Chris Wood 1990\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:14015",
+   "file": "Session Tunebook X:14015",
    "title": "Nancy Clough",
    "composer": "Tom Clough (1881-1964)",
    "reason": "Composer credit \"Tom Clough (1881-1964)\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:16012",
+   "file": "Session Tunebook X:15017",
+   "title": "Old Lancashire Hornpipe",
+   "composer": "Trad.",
+   "reason": "No Paul Hardy cc by-nc-sa Z: credit on this block; not imported as a tune"
+  },
+  {
+   "file": "Session Tunebook X:16012",
    "title": "Plane Tree, The",
    "composer": "U Hornby after J-F Heintzen",
    "reason": "Composer credit \"U Hornby after J-F Heintzen\" has no dates; composition status cannot be established"
   },
   {
-   "file": "X:19006",
+   "file": "Session Tunebook X:19006",
    "title": "Scan Tester's No 1",
    "composer": "Scan Tester",
    "reason": "Composer credit \"Scan Tester\" has no dates; composition status cannot be established"
   },
   {
-   "file": "X:19007",
+   "file": "Session Tunebook X:19007",
    "title": "Scan Tester's No 2",
    "composer": "Scan Tester",
    "reason": "Composer credit \"Scan Tester\" has no dates; composition status cannot be established"
   },
   {
-   "file": "X:19057",
+   "file": "Session Tunebook X:19057",
    "title": "South Downs",
    "composer": "Jim Harding, 1984",
    "reason": "Composer credit \"Jim Harding, 1984\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:19049",
+   "file": "Session Tunebook X:19049",
    "title": "Spootiskerry",
    "composer": "Ian Burns, 1980",
    "reason": "Composer credit \"Ian Burns, 1980\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:19050",
+   "file": "Session Tunebook X:19050",
    "title": "Stop The Cavalry",
    "composer": "Trad.",
    "reason": "Known later composition despite the traditional credit: Stop the Cavalry: melody composed by Jona Lewie, 1980"
   },
   {
-   "file": "X:19062",
+   "file": "Session Tunebook X:19062",
    "title": "Streamers and Confetti",
    "composer": "Mats Edén",
    "reason": "Composer credit \"Mats Edén\" has no dates; composition status cannot be established"
   },
   {
-   "file": "X:20006",
+   "file": "Session Tunebook X:20006",
    "title": "Tennessee Waltz, The",
    "composer": "King & Stewart 1948",
    "reason": "Composer credit \"King & Stewart 1948\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:20009",
+   "file": "Session Tunebook X:20009",
    "title": "Timothy March",
    "composer": "Judi Morningstar 1985",
    "reason": "Composer credit \"Judi Morningstar 1985\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:22003",
+   "file": "Session Tunebook X:22003",
    "title": "Valiant, The",
    "composer": "Simon Ritchie abt1998",
    "reason": "Composer credit \"Simon Ritchie abt1998\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:23006",
+   "file": "Session Tunebook X:23006",
    "title": "Wild Mountain Thyme",
    "composer": "Trad.",
    "reason": "Known later composition despite the traditional credit: Wild Mountain Thyme: the version played is Francis McPeake’s, 1957 (after the traditional Braes o’ Balquhidder)"
   },
   {
-   "file": "X:23028",
+   "file": "Session Tunebook X:23028",
    "title": "Will's Way",
    "composer": "Will Ward 1979?",
    "reason": "Composer credit \"Will Ward 1979?\" carries a date of 1930 or later; composition may still be in copyright"
   },
   {
-   "file": "X:23023",
+   "file": "Session Tunebook X:23023",
    "title": "William Taylor's Tabletop Hornpipe",
    "composer": "Dave Shepherd 1984",
    "reason": "Composer credit \"Dave Shepherd 1984\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "Annex Tunebook X:1601",
+   "title": "Ap Shenkin",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-1022 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:2601",
+   "title": "Barber's Pole, The",
+   "composer": "James Hill 1850",
+   "reason": "Duplicate of pgh-2049 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:2602",
+   "title": "Because He Was a Bonny Lad",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-2047 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:3603",
+   "title": "Carolan's Fourth Untitled",
+   "composer": "Turlough O'Carolan (1670-1738)",
+   "reason": "Duplicate of pgh-3033 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:4601",
+   "title": "Dribbles of Brandy",
+   "composer": "Trad. Airds 1788",
+   "reason": "Duplicate of pgh-4030 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:7601",
+   "title": "Full Rigged Ship, The",
+   "composer": "Trad",
+   "reason": "Duplicate of pgh-6024 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:7602",
+   "title": "Flower of the Quern, The",
+   "composer": "James Scott Skinner, 1884",
+   "reason": "Duplicate of pgh-6025 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:8601",
+   "title": "Harliquin Air",
+   "composer": "Trad. - Cooke 1770",
+   "reason": "Duplicate of pgh-8018 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:8503",
+   "title": "Hector the Hero",
+   "composer": "James Skinner 1903",
+   "reason": "Duplicate of pgh-8019 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:8602",
+   "title": "Hesleyside Reel",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-8020 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:7503",
+   "title": "Gypsies Hornpipe",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-7025 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:8605",
+   "title": "Home Ruler",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-8021 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:11601",
+   "title": "Kempshott Hunt",
+   "composer": "Trad. - J Clare 1834",
+   "reason": "Duplicate of pgh-11022 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:12601",
+   "title": "Lemmy Brazil's No.1",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-12033 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:12602",
+   "title": "Lemmy Brazil's No 2",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-12034 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:12603",
+   "title": "Lollipop Man",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-12035 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:13601",
+   "title": "Madame Bonaparte",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-13049 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:13602",
+   "title": "Midnight on the Water",
+   "composer": "Lewis Thomasson (1874 - 1924)",
+   "reason": "Duplicate of pgh-13051 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:13603",
+   "title": "Miss Thompson",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-13052 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:14602",
+   "title": "Nancy Clough",
+   "composer": "Tom Clough (1881-1964)",
+   "reason": "Composer credit \"Tom Clough (1881-1964)\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "Annex Tunebook X:14601",
+   "title": "New Anything",
+   "composer": "Trad. Playford",
+   "reason": "Duplicate of pgh-14014 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:16602",
+   "title": "Paddy Carey",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-16018 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:16601",
+   "title": "Portobello Hornpipe",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-16019 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:17601",
+   "title": "Queen's Jig, The",
+   "composer": "Trad. Playford 1701",
+   "reason": "Duplicate of pgh-17004 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:18601",
+   "title": "Recruiting Officer, The",
+   "composer": "Trad. Playford 1701",
+   "reason": "Duplicate of pgh-18034 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:18602",
+   "title": "Red Lark, The",
+   "composer": "Trad. (O'Neills)",
+   "reason": "Duplicate of pgh-18035 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:19605",
+   "title": "Sally Sloane's Jig",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-19069 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:19021",
+   "title": "She's Sweetest When She's Naked",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-19068 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:19604",
+   "title": "Stool of Repentance, The",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-19070 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:20601",
+   "title": "Three Jolly Sheepskins",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-20026 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:22601",
+   "title": "Varsoviana",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-22004 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:23601",
+   "title": "Will You Patch My Pants For Me?",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-23030 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:23602",
+   "title": "Wren, The",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-23029 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:10003",
+   "title": "Jimmy Allen",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-10003 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:18002",
+   "title": "Rakes Of Mallow, The",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-18002 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:2020",
+   "title": "Brighton Camp",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-2020 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Annex Tunebook X:99999",
+   "title": "Errata - Minor corrections to tunes",
+   "composer": "",
+   "reason": "No Paul Hardy cc by-nc-sa Z: credit on this block; not imported as a tune"
+  },
+  {
+   "file": "Possible Tunebook X:2601",
+   "title": "Barber's Pole, The",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-2049 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Possible Tunebook X:2062",
+   "title": "Blenheim House",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-2048 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Possible Tunebook X:2002",
+   "title": "Brafferton Village",
+   "composer": "Kathryn Tickell, 1987",
+   "reason": "Composer credit \"Kathryn Tickell, 1987\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "Possible Tunebook X:3500",
+   "title": "Cliffs of Moher",
+   "composer": "",
+   "reason": "Duplicate of pgh-3036 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Possible Tunebook X:5001",
+   "title": "Eddystone light, The",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-5012 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Possible Tunebook X:7003",
+   "title": "Gardener's Delight",
+   "composer": "Chris Drinkwater, 2011",
+   "reason": "Composer credit \"Chris Drinkwater, 2011\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "Possible Tunebook X:7502",
+   "title": "The Gravel Walks",
+   "composer": "",
+   "reason": "No Paul Hardy cc by-nc-sa Z: credit on this block; not imported as a tune"
+  },
+  {
+   "file": "Possible Tunebook X:13033",
+   "title": "Miss Drummond of Perth's Favourite Scotch Measure",
+   "composer": "Niel Gow",
+   "reason": "Composer credit \"Niel Gow\" has no dates; composition status cannot be established"
+  },
+  {
+   "file": "Possible Tunebook X:14006",
+   "title": "New York Girls",
+   "composer": "Trad.",
+   "reason": "Duplicate of pgh-14006 (the same tune in an earlier book)"
+  },
+  {
+   "file": "Possible Tunebook X:14001",
+   "title": "Ninety-three Not Out",
+   "composer": "Will Atkinson (1908-2003)",
+   "reason": "Composer credit \"Will Atkinson (1908-2003)\" carries a date of 1930 or later; composition may still be in copyright"
+  },
+  {
+   "file": "Possible Tunebook X:15002",
+   "title": "Oh! Dear! What can the matter be?",
+   "composer": "Trad. - Variations by Tom Clough",
+   "reason": "Traditional tune with a named arranger’s contribution (\"Trad. - Variations by Tom Clough\") and no pre-1930 dates; the arrangement may still be in copyright"
   }
  ]
 }
