@@ -764,7 +764,7 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
 // Road-map playback: marks read from decorations and text, the order of play through jumps, and fermata holds.
 {
   const head = 'X:1\nM:4/4\nL:1/4\nK:C\n',
-    marks = abc => context.roadMarks(context.scoreEvents(ABCJS.parseOnly(head + abc)[0])),
+    marks = abc => context.roadMarks(context.scoreEvents(ABCJS.parseOnly(head + abc)[0]), head + abc),
     // The measures heard, given abcjs's timeline as a list of measures (repeats played out); a jump shows as (D.C.).
     heard = (abc, plays) =>
       (context.performanceOrder(plays, marks(abc)) || []).map(o => o.measure + (o.jump ? `(${o.jump})` : '')).join(' ');
@@ -819,6 +819,60 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
   );
   assert.equal(heard('C4|D4|E4 !D.S.!|]', [1, 2, 3]), '', 'A D.S. with no segno is not taken');
   assert.equal(heard('C4|D4 !D.C.alfine!|]', [1, 2]), '1 2 1(D.C.) 2', 'D.C. al Fine with no Fine plays to the end');
+  // Older scores end a D.C. at a fermata over a double, final or repeat bar line: on the bar line, on the last note or
+  // rest, or on an invisible rest (O'Neill's Hx), whose fermata abcjs drops.
+  assert.equal(
+    plain('C D E HF||G4|A4 !D.C.!|]'),
+    '{"1":{"fermataEnd":true},"3":{"jump":{"to":"D.C.","al":null}}}',
+    'A fermata on the last note before a double bar'
+  );
+  assert.equal(plain('C4 H||D4|]'), '{"1":{"fermataEnd":true}}', 'A fermata on the bar line');
+  assert.equal(plain('C2 z Hx:|D4|]'), '{"1":{"fermataEnd":true}}', 'A fermata on an invisible rest');
+  assert.equal(plain('C2 z !fermata!x[|D4|]'), '{"1":{"fermataEnd":true}}');
+  assert.equal(
+    plain('C2 z "^H"x||HC D2 z|D4 H|E4|]'),
+    '{}',
+    'Not text, a held note before others, or a plain bar line'
+  );
+  assert.equal(heard('C D E HF||G4|A4 !D.C.!|]', [1, 2, 3]), '1 2 3 1(D.C.)', 'A plain D.C. stops at the fermata');
+  assert.equal(
+    heard('C D E HF||G4|A4 !D.C.alfine!|]', [1, 2, 3]),
+    '1 2 3 1(D.C.)',
+    'So does D.C. al Fine with no Fine'
+  );
+  assert.equal(
+    heard('C D E HF||!fine!G4|A4 !D.C.!|]', [1, 2, 3]),
+    '1 2 3 1(D.C.) 2',
+    'A Fine comes before the fermata'
+  );
+  assert.equal(
+    heard('C D E HF||!segno!G4|A4|B4 !D.S.!|]', [1, 2, 3, 4]),
+    '1 2 3 4 2(D.S.) 3 4',
+    'A fermata before the segno is not where a D.S. stops'
+  );
+  assert.equal(heard('C4|D4 H|]', [1, 2]), '', 'A final fermata alone is no jump');
+  assert.equal(
+    heard('C4|D4|HE4 !D.C.!|]', [1, 2, 3]),
+    '1 2 3 1(D.C.) 2 3',
+    'A fermata in the jump measure is only held'
+  );
+  // A multi-measure rest (Z3) is one measure of its staff but three bars, so marks and plays are counted in bars.
+  {
+    const abc = head + 'V:1\nC4|D4|E4|F4 !D.C.!|]\nV:2\nZ3|F,4 !D.C.!|]',
+      events = context.scoreEvents(ABCJS.parseOnly(abc)[0]),
+      bars = context.roadBars(events);
+    assert.equal(
+      JSON.stringify(Object.fromEntries(context.roadMarks(events))),
+      '{"4":{"jump":{"to":"D.C.","al":null}}}',
+      'The D.C. after Z3 is in bar 4, on both staves'
+    );
+    assert.deepEqual([bars.bar('1:0', 1), bars.bar('1:0', 1, true), bars.bar('1:0', 2), bars.measure(4)], [1, 3, 4, 4]);
+    const one = context.roadBars(context.scoreEvents(ABCJS.parseOnly(head + 'C4|Z2|!segno!F4|]')[0]));
+    assert.deepEqual([one.bar('0:0', 3), one.measure(4), one.measure(3)], [4, 3, 2], 'Bars back to measures');
+    assert.equal(plain('C4|Z2|!segno!F4|G4 !D.S.!|]'), '{"4":{"segno":true},"5":{"jump":{"to":"D.S.","al":null}}}');
+    const plainBars = context.roadBars(context.scoreEvents(ABCJS.parseOnly(head + 'C4|D4|]')[0]));
+    assert.deepEqual([plainBars.bar('0:0', 2, true), plainBars.measure(2)], [2, 2], 'No Z: bars are measures');
+  }
   // Times: two plays of 2 s each, D.C. (plays 0 and 1 again), a fermata on a 0.5 s note 1 s into play 1.
   const order = context.performanceOrder([1, 2], marks('C4|D4!D.C.!|]')),
     plan = context.performancePlan(order, [0, 2, 4], [{play: 1, offset: 1, length: 0.5}]);
@@ -871,15 +925,22 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     '[[0,4]]',
     'Fermatas alone keep the written order'
   );
-  // Library tunes write their road maps as text: O'Neill's "D.C." and "fine" in chord position.
-  let jumps = 0;
+  // Library tunes write their road maps as text: O'Neill's "D.C." and "fine" in chord position, and many end the D.C.
+  // at a fermata on an invisible rest before the double bar (Hx||). Each measure is played once here; the order through
+  // real repeats is checked with library tunes in tests/editor-playback.cjs.
+  let jumps = 0,
+    stops = 0;
   for (const score of context.library) {
     if (!/D\.\s?[CS]|!(?:D\.|fine|segno|coda)/.test(score.abc)) continue;
     const events = context.scoreEvents(ABCJS.parseOnly(score.abc)[0]),
-      measures = [...new Set(events.map(e => e.measure))];
-    if (context.performanceOrder(measures, context.roadMarks(events))) jumps++;
+      measures = [...new Set(events.map(e => e.measure))],
+      marks = context.roadMarks(events, score.abc),
+      order = context.performanceOrder(measures, marks);
+    if (order) jumps++;
+    if (order && marks.get(order.at(-1).measure)?.fermataEnd && !marks.get(order.at(-1).measure).fine) stops++;
   }
   assert.ok(jumps >= 70, `Library tunes with a road map playback follows (${jumps})`);
+  assert.ok(stops >= 18, `Library tunes whose D.C. or D.S. stops at a fermata over a double bar line (${stops})`);
 }
 // FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
 // Share links: the payload round-trips through deflate+base64url, and through plain base64url where
@@ -3403,7 +3464,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), road-map playback (marks from decorations and text, the order of play through D.C., D.S., Fine, coda signs and To Coda, repeats after a jump, fermata holds, notes and timing events in the order of play, library tunes that follow their road map), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), road-map playback (marks from decorations and text, the order of play through D.C., D.S., Fine, coda signs and To Coda, repeats after a jump, a fermata over a double bar line ending a D.C., multi-measure rests counted in bars, fermata holds, notes and timing events in the order of play, library tunes that follow their road map), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {

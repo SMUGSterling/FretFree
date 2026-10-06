@@ -2885,7 +2885,20 @@ async function checkInstrumentSounds() {
 // Road-map playback: D.C., D.S., coda, Fine and fermatas, through the score's real timeline (repeats played out).
 async function checkRoadMap() {
   const head = 'X:1\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\n',
-    NAMES = {48: 'C,', 50: 'D,', 52: 'E,', 60: 'C', 62: 'D', 64: 'E', 65: 'F', 67: 'G', 69: 'A', 71: 'B', 72: 'c'},
+    NAMES = {
+      48: 'C,',
+      50: 'D,',
+      52: 'E,',
+      53: 'F,',
+      60: 'C',
+      62: 'D',
+      64: 'E',
+      65: 'F',
+      67: 'G',
+      69: 'A',
+      71: 'B',
+      72: 'c'
+    },
     open = abc => {
       run(`openScore({abc:${JSON.stringify(head + abc)},instrument:'Piano'})`);
       run("$('metronome').checked=false;$('count-in').checked=false;$('loop').checked=false;$('speed').value=100");
@@ -2937,6 +2950,24 @@ async function checkRoadMap() {
   open('C4|D4|E4 !D.S.!|]');
   assert.equal(await heard(), 'C D E', 'A D.S. with no segno plays straight');
   assert.equal(run(`formPlaybackNote($('abc').value,'D.S.')`), ' Add a segno where playback should go back to.');
+  // Measure tools asks for a second coda sign only when the score does not already have a coda that plays.
+  const codaNote = abc =>
+    run(
+      `formPlaybackNote(${JSON.stringify(head + abc)},'coda')+'|'+formPlaybackNote(${JSON.stringify(head + abc)},'D.S.alcoda')`
+    );
+  assert.equal(codaNote('C4|!segno!D4|E4 "^To Coda"|F4 !D.S.alcoda!|!coda!G4|A4|]'), '|', 'To Coda and one sign');
+  assert.equal(codaNote('C4|!segno!D4|!coda!E4|F4 !D.S.alcoda!|!coda!G4|]'), '|', 'Two coda signs');
+  assert.equal(codaNote('C4|!segno!D4|!coda!E4|F4 !D.S.alcoda!|"^Coda"G4|]'), '|', 'A sign and a heading');
+  assert.equal(
+    codaNote('C4|!segno!D4|E4 "^To Coda"|F4 !D.S.alcoda!|G4|]'),
+    ' Add a coda sign where the coda starts.| Add a coda sign where the coda starts.',
+    'A To Coda with no sign'
+  );
+  assert.equal(
+    codaNote('C4|!segno!D4|!coda!E4|F4 !D.S.alcoda!|G4|]').split('|')[0],
+    ' After a jump, playback leaves at the first coda sign and goes on at the second, so add two.',
+    'One coda sign alone'
+  );
   // D.S. al Coda as Measure tools writes it: the segno and the coda signs on a measure's first note.
   open('C4|!segno!D4|!coda!E4|F4 !D.S.alcoda!|!coda!G4|A4|]');
   assert.equal(
@@ -2955,6 +2986,22 @@ async function checkRoadMap() {
     `openScore({abc:${JSON.stringify(head + 'V:1\nC4|D4|E4 !D.C.!|]\nV:2 clef=bass\nC,4|D,4|E,4|]')},instrument:'Piano'})`
   );
   assert.equal(await heard(), 'C, C D, D E, E C, C D, D E, E');
+  // A multi-measure rest is one measure of its staff but three bars: the D.C. written on both staves is one jump.
+  run(
+    `openScore({abc:${JSON.stringify(head + 'V:1\nC4|D4|E4|F4 !D.C.!|]\nV:2\nZ3|F,4 !D.C.!|]')},instrument:'Piano'})`
+  );
+  assert.equal(await heard(), 'C D E F, F C D E F, F', 'A D.C. after a multi-measure rest is in its own bar');
+  run(
+    `openScore({abc:${JSON.stringify(head + 'V:1\nZ3|F4 !D.C.!|]\nV:2\nC,4|D,4|E,4|F,4 !D.C.!|]')},instrument:'Piano'})`
+  );
+  assert.equal(await heard(), 'C, D, E, F, F C, D, E, F, F', 'and so is one on the first staff');
+  // Older scores mark where a D.C. stops with a fermata at a double bar line, or on an invisible rest before it.
+  open('C D E HF||G4|A4 !D.C.!|]');
+  assert.equal(await heard(), 'C D E F G A C D E F', 'A D.C. with no Fine stops at a fermata over a double bar');
+  open('C D E Hx||G4|A4 "D.C."|]');
+  assert.equal(await heard(), 'C D E G A C D E', 'The fermata may be on an invisible rest (Hx)');
+  open('C D E HF|G4|A4 !D.C.!|]');
+  assert.equal(await heard(), 'C D E F G A C D E F G A', 'One before a plain bar line is only held');
   // Metronome clicks follow the jump: four beats in each of the six measures heard.
   open('C4|D4 !fine!|E4|F4 !D.C.alfine!|]');
   assert.equal(run('clickTimes(0,99,12).length'), 24, 'The metronome clicks through the jump');
@@ -2973,6 +3020,18 @@ async function checkRoadMap() {
   assert.equal(+(spans[2][1] - spans[1][1]).toFixed(3), 0.5, 'The fermata note sounds for twice its length');
   assert.equal(run('JSON.stringify([...measureStarts])'), '[[1,0],[2,2.5]]');
   assert.equal(run('clickTimes(0,99,4.5).map(c=>c.time).join()'), '0,0.5,1,2,2.5,3,3.5,4', 'Clicks wait for it');
+  // The count-in keeps the written beat when the first beat has a fermata.
+  open('HC D E F|G4|]');
+  run("$('count-in').checked=true");
+  oscillators.length = 0;
+  await run('play()');
+  const counts = oscillators.filter(o => o.type === 'square').map(o => o.startAt);
+  run("stop();$('count-in').checked=false");
+  assert.deepEqual(
+    counts.slice(1).map((t, i) => +(t - counts[i]).toFixed(3)),
+    [0.5, 0.5, 0.5],
+    'Count-in at the written tempo, not stretched by the fermata'
+  );
   // Fermatas on both staves hold together, and a fermata in a D.C. is held each time.
   run(`openScore({abc:${JSON.stringify(head + 'V:1\nC2 HD2|E4 !D.C.!|]\nV:2\nC,2 HD,2|E,4|]')},instrument:'Piano'})`);
   oscillators.length = 0;
@@ -2997,6 +3056,32 @@ async function checkRoadMap() {
       'Every note at its MIDI time'
     );
   }
+  // Library tunes through their real timelines, repeats and endings played out: the measures heard, in order.
+  const road = id => {
+    run(`openScore(catalog.find(x=>x.id===${JSON.stringify(id)}))`);
+    return run(`playRoad.order.map(o=>o.measure+(o.jump?'('+o.jump+')':'')).join(' ')`);
+  };
+  assert.equal(
+    road('oneill-1850-1208'),
+    '1 2 3 4 1 2 3 5 6 7 8 9 10 11 12 13 1(D.C.) 2 3 5 6 7 8 9 10 11 12 13',
+    'After a D.C., the repeat is not taken and the 2nd ending plays'
+  );
+  assert.equal(
+    road('oneill-1850-1310'),
+    '1 2 3 4 5 1 2 3 6 7 2(D.S.) 3 6 7 8 9 10 11 12 13 14 15 16 2(D.S.) 3 6 7 8 9 10 11 12 13 14 15 16',
+    'A D.S. in a 2nd ending, then another at the end: each is taken once'
+  );
+  assert.equal(
+    road('oneill-1850-0552'),
+    '1 2 3 4 5 1 2 3 4 5 6 7 8 9 10 11 12 13 14 1(D.C.) 2 3 4 5',
+    'The D.C. stops at the fermata (Hx) over the repeat sign'
+  );
+  assert.equal(
+    road('oneill-1850-1720'),
+    '1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 1(D.S.) 2 3 4 5 6 7 8 9',
+    'The D.S. stops at the held note before the double bar'
+  );
+  run('stop();dirty=false');
   assert.equal(
     run(`Array.from(midiBytes(${JSON.stringify(head + 'C4|D4 !fine!|E4|F4 !D.C.alfine!|]')})).join()`),
     run(`Array.from(midiBytes(${JSON.stringify(head + 'C4|D4|E4|F4|]')})).join()`),
@@ -3753,7 +3838,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, screen-reader note descriptions (selection, arrow keys, edits, typing over rests, pickups, compound and free meters, triplets, written and concert pitch), the shortcut sheet (? and the button, groups, focus trap, search, Enter running a command as one undo step, hints, Escape, tuplet and Measure panel commands), measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), road-map playback (D.C., D.C. al Fine, D.S. al Coda, To Coda and Coda text, jumps after repeats and on several staves, the highlight, measure starts, practice ranges and play from a note through jumps, metronome clicks, fermatas held on every staff and pass, no plan and the same notes without jumps, MIDI export in written order, Measure tools hints), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, WAV export (the notes, times, speed, clicks and chords Play has, its own full-level bus, INFO title, scaling, no offline audio, a summary that follows Speed and the instrument, a busy or filling progress bar, a closed panel cutting the render off, too long with its length and MIDI as the way out, a D.C. al Fine with its clicks), instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, screen-reader note descriptions (selection, arrow keys, edits, typing over rests, pickups, compound and free meters, triplets, written and concert pitch), the shortcut sheet (? and the button, groups, focus trap, search, Enter running a command as one undo step, hints, Escape, tuplet and Measure panel commands), measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), road-map playback (D.C., D.C. al Fine, D.S. al Coda, To Coda and Coda text, jumps after repeats and on several staves, a multi-measure rest on one staff, a D.C. ending at a fermata over a double bar line, library tunes through their real repeats, the highlight, measure starts, practice ranges and play from a note through jumps, metronome clicks, the count-in under a fermata, fermatas held on every staff and pass, no plan and the same notes without jumps, MIDI export in written order, Measure tools hints for segno, Fine and coda), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, WAV export (the notes, times, speed, clicks and chords Play has, its own full-level bus, INFO title, scaling, no offline audio, a summary that follows Speed and the instrument, a busy or filling progress bar, a closed panel cutting the render off, too long with its length and MIDI as the way out, a D.C. al Fine with its clicks), instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

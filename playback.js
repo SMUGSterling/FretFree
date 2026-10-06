@@ -65,7 +65,7 @@ function measureLengths() {
 }
 // Metronome clicks in score seconds. Each bar's clicks are spaced from that bar's real start and end, so they follow
 // repeats, jumps and tempo changes at barlines; a pickup bar is aligned to its end. With a road map the bars are
-// spaced before holds, and a fermata then stretches the clicks under it.
+// spaced before holds (each click keeps that time as unheld), and a fermata then stretches the clicks under it.
 function clickTimes(from, until, end = until) {
   const beats = beatsPerBar(),
     bar = renderedTune?.getBarLength?.() || 1,
@@ -84,8 +84,9 @@ function clickTimes(from, until, end = until) {
     for (let k = 0; k < beats; k++) {
       const p = pickup ? length - (beats - k) * beat : k * beat;
       if (p < -1e-9 || p >= length - 1e-9) continue;
-      const c = toPlayed(t + p * secondsPerWhole);
-      if (c >= from - 1e-6 && c < until - 1e-6) out.push({time: c, down: k === 0 && !pickup});
+      const unheld = t + p * secondsPerWhole,
+        c = toPlayed(unheld);
+      if (c >= from - 1e-6 && c < until - 1e-6) out.push({time: c, down: k === 0 && !pickup, unheld});
     }
   }
   return out;
@@ -162,9 +163,15 @@ function updateRoadMap() {
     starts = timings.filter(e => e.type === 'event' && e.measureStart),
     end = timings.find(e => e.type === 'end');
   if (!starts.length || !end) return;
+  // Plays and marks are counted in bars, so a multi-measure rest on one staff does not put the staves out of step.
   const times = [...starts.map(e => e.milliseconds / 1000), end.milliseconds / 1000],
-    measureOf = e => (e.startCharArray || []).map(c => noteSources.get(c)?.measure).find(Boolean),
-    order = performanceOrder(starts.map(measureOf), roadMarks([...noteSources.values()].filter(Boolean))),
+    events = [...noteSources.values()].filter(Boolean),
+    bars = roadBars(events),
+    barOf = e => {
+      const entry = (e.startCharArray || []).map(c => noteSources.get(c)).find(Boolean);
+      return entry && bars.bar(entry.key, entry.measure);
+    },
+    order = performanceOrder(starts.map(barOf), roadMarks(events, renderedSource || '')),
     bar = renderedTune.getBarLength?.() || 1,
     holds = [];
   // A fermata holds its note (or chord, or rest) twice its length, so it sounds for its length again.
@@ -184,6 +191,7 @@ function updateRoadMap() {
   playRoad = {order, holds};
   playPlan = performancePlan(order, times, holds);
   playPlan.events = planEvents(playPlan, timings);
+  for (const piece of playPlan.pieces) piece.measure = bars.measure(piece.measure);
 }
 // The note timing events as heard, and a time before holds as heard.
 const playEvents = () => playPlan?.events || renderedTune?.noteTimings || [],
@@ -417,11 +425,12 @@ async function play(resumeFrom = null, {countIn = false} = {}) {
     let base = audio.currentTime + 0.07;
     // Count-in: one bar of clicks at the starting tempo when starting fresh or from a chosen note, not on a speed change.
     if ((resumeFrom == null || countIn) && $('count-in').checked) {
-      // Beat length at the start: the spacing of the first full-bar clicks from the starting measure onward.
+      // Beat length at the start: the spacing of the first full-bar clicks from the starting measure onward, before
+      // any fermata there stretches them.
       const beats = beatsPerBar(),
         grid = clickTimes(from, full.duration, full.duration),
         down = grid.findIndex((c, i) => c.down && grid[i + 1]);
-      const step = (down >= 0 ? grid[down + 1].time - grid[down].time : 0.5) / (percent / 100);
+      const step = (down >= 0 ? grid[down + 1].unheld - grid[down].unheld : 0.5) / (percent / 100);
       for (let k = 0; k < beats; k++) click(base + k * step, k === 0);
       $('play-status').textContent = 'Count-in…';
       base += beats * step;

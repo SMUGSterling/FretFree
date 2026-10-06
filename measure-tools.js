@@ -20,13 +20,19 @@ const FORM_WORDS = {
 // Playback follows the road map (roadMarks and performanceOrder in score-tools.js); this says what a new mark still
 // needs for that, when the score does not have it yet.
 function formPlaybackNote(source, value) {
-  const marks = [...roadMarks(scoreEvents(sourceTune(source) || {lines: []})).values()],
-    count = name => marks.filter(m => name.some(n => m[n])).length;
+  const marks = [...roadMarks(scoreEvents(sourceTune(source) || {lines: []}), source).values()],
+    count = names => marks.reduce((n, m) => n + names.filter(name => m[name]).length, 0);
   if (value.startsWith('D.S.') && !count(['segno'])) return ' Add a segno where playback should go back to.';
   if (value === 'D.C.alfine' && !count(['fine'])) return ' Add a Fine where playback should stop.';
-  if ((value === 'coda' || value === 'D.S.alcoda') && count(['codaBefore', 'codaAfter']) < 2 && !count(['heading']))
-    return ' After a jump, playback leaves at the first coda sign and goes on at the second, so add two.';
-  return '';
+  if (value !== 'coda' && value !== 'D.S.alcoda') return '';
+  // The coda plays as performanceOrder finds it: two coda signs, one with a To Coda, or a Coda heading with either.
+  const signs = count(['codaBefore', 'codaAfter']),
+    texts = count(['toCodaBefore', 'toCodaAfter']),
+    heading = count(['heading']);
+  if (signs > 1 || (signs && texts) || (heading && signs + texts)) return '';
+  if (texts) return ' Add a coda sign where the coda starts.';
+  if (heading) return ' Add a coda sign where playback leaves for the coda.';
+  return ' After a jump, playback leaves at the first coda sign and goes on at the second, so add two.';
 }
 const ordinalWord = n => n + ({1: 'st', 2: 'nd', 3: 'rd'}[n] || 'th');
 // The source parsed once per text: the palette asks for the state after every selection change.

@@ -3252,22 +3252,81 @@ function roadItem(item, text) {
       : null;
   return to && {kind: 'jump', to, al: /\bal\s*fine\b/i.test(t) ? 'fine' : /\bal\s*coda\b/i.test(t) ? 'coda' : null};
 }
-// The road-map marks of a score from its scoreEvents, by measure: where a segno or a Coda heading starts, coda signs
-// and To Coda before or after a measure, Fine after one, and the jump after one (D.C. or D.S., al Fine or al Coda).
+// Bars of the score, for the road map. scoreEvents counts a multi-measure rest (Z3) as one measure of its voice, so a
+// voice with one numbers its later measures lower than the other voices do; here the rest takes every bar it lasts.
+// bar(key, measure, last) is the first bar of a voice's measure (key is an event key, or a voice 's:v'), or its last
+// bar with `last`. measure(bar) turns a bar back into a measure number of the first voice with no multi-measure rest
+// (or of the first voice), as Measure tools and the practice range count. With no multi-measure rests both keep the
+// number they are given.
+function roadBars(events) {
+  const sizes = new Map(),
+    firsts = new Map(),
+    voiceOf = key => key.split(':').slice(0, 2).join(':');
+  for (const {element, key, measure} of events) {
+    const list = sizes.get(voiceOf(key)) || sizes.set(voiceOf(key), []).get(voiceOf(key));
+    list[measure] = Math.max(list[measure] || 1, element.rest?.type === 'multimeasure' ? +element.rest.text || 1 : 1);
+  }
+  if ([...sizes.values()].every(list => list.every(n => n === 1))) return {bar: (key, m) => m, measure: bar => bar};
+  for (const [voice, list] of sizes) {
+    const first = [];
+    for (let m = 1, bar = 1; m < list.length; bar += list[m++] || 1) first[m] = bar;
+    firsts.set(voice, first);
+  }
+  const voices = [...sizes.keys()],
+    ref = voices.find(v => sizes.get(v).every(n => n === 1)) ?? voices[0];
+  return {
+    bar(key, m, last = false) {
+      const list = sizes.get(voiceOf(key)),
+        first = firsts.get(voiceOf(key));
+      if (!list) return m;
+      // A measure past the voice's last one (after its closing bar line) follows on from it.
+      const n = Math.min(m, list.length - 1),
+        end = first[n] + (list[n] || 1) - 1;
+      return m > n ? end + m - n : last ? end : first[n];
+    },
+    measure(bar) {
+      const list = sizes.get(ref),
+        first = firsts.get(ref);
+      for (let m = list.length - 1; m >= 1; m--)
+        if (first[m] <= bar) return bar < first[m] + list[m] ? m : m + bar - (first[m] + list[m] - 1);
+      return bar;
+    }
+  };
+}
+// The road-map marks of a score from its scoreEvents, by bar (roadBars): where a segno or a Coda heading starts, coda
+// signs and To Coda before or after a bar, Fine after one, and the jump after one (D.C. or D.S., al Fine or al Coda).
 // A mark on a measure's first note or on a bar line counts as before the measure that follows; a segno or a heading
 // starts the measure it is in. Fine and jumps end the measure they are in, or the one before an opening bar line.
-function roadMarks(events) {
+// fermataEnd marks a measure that ends at a double, final or repeat bar line under a fermata, on the bar line or on
+// the last note or rest before it, as older scores mark where a D.C. stops. abcjs drops a fermata on an invisible rest
+// (O'Neill's `Hx||`), so that one is read from the source text when it is given.
+function roadMarks(events, source = '') {
   const marks = new Map(),
     open = new Map(),
-    at = measure => marks.get(measure) || marks.set(measure, {}).get(measure);
+    held = new Map(),
+    bars = roadBars(events),
+    at = bar => marks.get(bar) || marks.set(bar, {}).get(bar),
+    fermata = element => {
+      if ((element.decoration || []).some(d => /^(?:inverted)?fermata$/.test(d))) return true;
+      if (element.rest?.type !== 'invisible') return false;
+      const text = source.slice(element.startChar, element.endChar).replace(/"[^"]*"/g, '');
+      return /[!+](?:inverted)?fermata[!+]/.test(text) || /H/.test(text.replace(/([!+])[^!+]*\1/g, ''));
+    };
   for (const {element, key, measure} of events) {
     const voice = key.split(':').slice(0, 2).join(':'),
       bar = element.el_type === 'bar',
       inside = open.get(voice);
     open.set(voice, !bar);
-    const start = bar && inside ? measure + 1 : measure,
+    const start = bars.bar(voice, bar && inside ? measure + 1 : measure),
       before = bar || !inside,
-      ends = bar && !inside ? Math.max(1, measure - 1) : measure;
+      ends = bars.bar(voice, bar && !inside ? Math.max(1, measure - 1) : measure, true);
+    if (!bar) held.set(voice, fermata(element));
+    else if (
+      inside &&
+      (held.get(voice) || fermata(element)) &&
+      /repeat|thin_thin|thin_thick|thick_thin/.test(element.type)
+    )
+      at(ends).fermataEnd = true;
     const items = [
       ...(element.decoration || []).map(d => roadItem(d, false)),
       ...(element.chord || []).map(c => roadItem(String(c.name || ''), true))
@@ -3276,21 +3335,22 @@ function roadMarks(events) {
       if (item.kind === 'segno') at(start).segno = true;
       else if (item.kind === 'heading') at(start).heading = true;
       else if (item.kind === 'coda' || item.kind === 'toCoda')
-        at(before ? start : measure)[item.kind + (before ? 'Before' : 'After')] = true;
+        at(before ? start : ends)[item.kind + (before ? 'Before' : 'After')] = true;
       else if (item.kind === 'fine') at(ends).fine = true;
       else at(ends).jump ||= {to: item.to, al: item.al};
     }
   }
   return marks;
 }
-// The order of play through the road map. plays lists the measure of each play in abcjs's timeline; the result lists
+// The order of play through the road map. plays lists the bar of each play in abcjs's timeline; the result lists
 // the plays in the order they are heard, {play, measure, jump}, where jump names the mark that led to that play
 // ('D.C.', 'D.S.' or 'To Coda'), or null when no jump is taken (the score plays straight).
 // A jump is taken on the last pass through its measure, once. After it, repeats are not taken again: each measure is
 // played in its last pass (so the last ending), up to Fine, or up to the To Coda and then from the coda. A plain D.C.
-// or D.S. stops at a Fine and takes a coda if the score has them. With two or more coda signs the last starts the
-// coda and the others are To Coda; one coda sign starts the coda when there is a To Coda, or is the To Coda when
-// there is a Coda heading. A D.S. with no segno is not taken.
+// or D.S. stops at a Fine and takes a coda if the score has them. With neither, it stops at the first fermataEnd
+// between where it goes back to and the jump, the older way to mark the end. With two or more coda signs the last
+// starts the coda and the others are To Coda; one coda sign starts the coda when there is a To Coda, or is the To
+// Coda when there is a Coda heading. A D.S. with no segno is not taken.
 function performanceOrder(plays, marks) {
   const last = new Map(plays.map((m, i) => [m, i])),
     measures = [...marks.keys()].sort((a, b) => a - b),
@@ -3313,6 +3373,7 @@ function performanceOrder(plays, marks) {
   }
   if (!last.has(coda)) coda = null;
   const fine = new Set(find('fine')),
+    ends = find('fermataEnd'),
     out = [],
     taken = new Set();
   let i = 0,
@@ -3328,7 +3389,7 @@ function performanceOrder(plays, marks) {
     out.push({play: i, measure: m, jump});
     jump = null;
     const mark = marks.get(m) || {};
-    if (mode?.fine && fine.has(m)) break;
+    if (mode?.stop?.has(m)) break;
     if (mode?.coda && leaveAfter.has(m)) {
       mode.coda = false;
       [i, jump] = [last.get(coda), 'To Coda'];
@@ -3337,10 +3398,10 @@ function performanceOrder(plays, marks) {
     const target = mark.jump && (mark.jump.to === 'D.C.' ? plays[0] : segno);
     if (target != null && last.has(target) && !taken.has(m) && last.get(m) === i) {
       taken.add(m);
-      mode = {
-        fine: mark.jump.al !== 'coda' && fine.size > 0,
-        coda: mark.jump.al !== 'fine' && coda != null && leaveBefore.size + leaveAfter.size > 0
-      };
+      const al = mark.jump.al,
+        toCoda = al !== 'fine' && coda != null && leaveBefore.size + leaveAfter.size > 0,
+        hold = al === 'coda' || fine.size || toCoda ? null : ends.find(e => e >= target && e < m);
+      mode = {stop: al !== 'coda' && fine.size ? fine : hold != null ? new Set([hold]) : null, coda: toCoda};
       [i, jump] = [last.get(target), mark.jump.to];
       continue;
     }
