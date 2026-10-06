@@ -1261,6 +1261,8 @@ const {chromium} = require('playwright'),
   );
   // MusicXML export at phone width, from the keyboard: the button is on screen and Enter downloads the file.
   await page.evaluate(() => {
+    dirty = false;
+    openScore(catalog.find(x => x.id === 'ode'));
     window.__downloads = [];
     download = (data, name, type) => __downloads.push({data, name, type});
   });
