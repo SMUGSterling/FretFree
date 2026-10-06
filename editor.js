@@ -3642,6 +3642,8 @@ function draftData() {
     submission: current?.submission,
     sourceId: shareSourceId(),
     savedId,
+    // Which recorded takes belong to the work (record.js).
+    takes: typeof recordKey === 'function' ? recordKey() : undefined,
     kind: current?.kind,
     tab: draftTab,
     at: Date.now()
@@ -3734,7 +3736,8 @@ function offerDraft() {
   $('draft-restore').focus({preventScroll: true});
 }
 // Restoring rebuilds the score as a shared link does: the library edition's credits, the saved entry it belongs to,
-// and the draft's own text, instrument and prompt, marked unsaved. Other waiting drafts stay stored for the next visit.
+// and the draft's own text, instrument, prompt and recorded takes, marked unsaved. Other waiting drafts stay stored for
+// the next visit.
 function restoreDraft() {
   const draft = pendingDrafts[0];
   if (!draft || !allowReplace()) return;
@@ -3761,6 +3764,7 @@ function restoreDraft() {
     },
     entry ? entry.id : null
   );
+  if (typeof takesRestored === 'function') takesRestored(draft.takes);
   dirty = true;
   cleanKey = '';
   updateRights();

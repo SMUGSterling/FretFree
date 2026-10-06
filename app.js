@@ -29,6 +29,7 @@ function openScore(item, id = null) {
   stopPreview();
   current = item;
   savedId = id;
+  if (typeof takesOpened === 'function') takesOpened(item);
   dirty = false;
   selectedRange = null;
   toggleTranspose(false);
@@ -202,6 +203,14 @@ $('next-page').onclick = () => {
   renderCards();
   $('library-top').scrollIntoView({behavior: 'smooth'});
 };
+// What deleting a saved score deletes with it: its history and its recorded takes.
+function deletedAlong(id) {
+  const takes = typeof takeCount === 'function' ? takeCount('saved:' + id) : 0,
+    along = [versionsOf(id).length && 'its history', takes && (takes === 1 ? 'its take' : `its ${takes} takes`)].filter(
+      Boolean
+    );
+  return along.length ? ' and ' + along.join(' and ') : '';
+}
 document.addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
@@ -228,16 +237,14 @@ document.addEventListener('click', e => {
     } else toast('This browser could not save favorites.');
   }
   if (b.dataset.history) openHistory(b.dataset.history);
-  if (
-    b.dataset.delete &&
-    confirm(`Delete this locally saved score${versionsOf(b.dataset.delete).length ? ' and its history' : ''}?`)
-  ) {
+  if (b.dataset.delete && confirm(`Delete this locally saved score${deletedAlong(b.dataset.delete)}?`)) {
     const next = saved.filter(x => x.id !== b.dataset.delete);
     if (storeScores(next)) {
       saved = next;
       removeVersions(b.dataset.delete);
       renderSaved();
       if (savedId === b.dataset.delete) savedId = null;
+      if (typeof deleteTakesOf === 'function') deleteTakesOf(['saved:' + b.dataset.delete]);
     } else toast('Deletion could not be saved.');
   }
   if (b.dataset.token) insertToken(b.dataset.token);

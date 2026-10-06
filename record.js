@@ -74,7 +74,7 @@ async function removeTake(id) {
     await takesRequest('readwrite', s => s.delete(id));
   } catch {}
 }
-// A score's takes follow it when it is first saved, as its key changes from the opened text to its saved id.
+// A score's takes follow it when it is first saved, as its key changes to its saved id.
 async function rekeyTakes(from, to) {
   if (!from || from === to) return;
   for (const take of await listTakes(from)) {
@@ -83,12 +83,71 @@ async function rekeyTakes(from, to) {
   }
   updateTakes(true);
 }
-// Which score the takes belong to: a saved score by its id, a library score by its id, anything else (a new or
-// imported score, a shared link) by the text it was opened with, so editing it keeps its takes.
+// Deleting a saved score deletes its takes (app.js), and the panel can delete takes no score can reach any more.
+async function deleteTakesOf(keys) {
+  let count = 0;
+  for (const key of keys)
+    for (const take of await listTakes(key)) {
+      await removeTake(take.id);
+      decodedTakes.delete(take.id);
+      count++;
+    }
+  await updateTakes(true);
+  return count;
+}
+// Which score the takes belong to: a saved score by its id, a library score by its id. Anything else (a new, imported
+// or shared score) gets an id of its own when it opens, which its unsaved-work draft keeps, so two blank sheets never
+// share takes and recovered work gets its takes back.
+let openedKey = null;
+const newTakesKey = () =>
+  'new:' + (globalThis.crypto?.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2));
 function recordKey() {
   if (savedId) return 'saved:' + savedId;
-  if (current?.id && typeof catalog !== 'undefined' && catalog.includes(current)) return 'library:' + current.id;
-  return 'abc:' + hashText(current?.abc ?? $('abc').value).toString(36);
+  return (openedKey ||= newTakesKey());
+}
+// openScore calls takesOpened with the score that opens, and restoreDraft calls takesRestored with its draft's key.
+function takesOpened(item) {
+  openedKey = item?.id && typeof catalog !== 'undefined' && catalog.includes(item) ? 'library:' + item.id : null;
+}
+function takesRestored(key) {
+  if (typeof key !== 'string' || key.length > 200 || !/^(new|library):./.test(key)) return;
+  openedKey = key;
+  updateTakes(true);
+}
+// The score of every stored take, read without the recordings: how many takes a saved score has, so deleting it can
+// say so, and which takes no score here can reach (their saved score deleted, or their unsaved work closed or
+// discarded and not kept in any draft).
+let storedTakeKeys = [];
+async function indexTakes() {
+  const keys = [...memoryTakes.values()].map(t => t.scoreKey),
+    db = await openTakes();
+  if (db)
+    await new Promise(resolve => {
+      try {
+        const tx = db.transaction('takes'),
+          cursor = tx.objectStore('takes').index('scoreKey').openKeyCursor();
+        cursor.onsuccess = () => {
+          if (!cursor.result) return;
+          keys.push(cursor.result.key);
+          cursor.result.continue();
+        };
+        tx.oncomplete = tx.onerror = tx.onabort = resolve;
+      } catch {
+        resolve();
+      }
+    });
+  storedTakeKeys = keys;
+}
+const takeCount = key => storedTakeKeys.filter(k => k === key).length;
+let libraryKeys = null;
+function strayTakeKeys() {
+  libraryKeys ||= new Set(typeof catalog === 'undefined' ? [] : catalog.map(x => 'library:' + x.id));
+  const live = new Set([
+    recordKey(),
+    ...(typeof saved === 'undefined' ? [] : saved.map(x => 'saved:' + x.id)),
+    ...(typeof storedDrafts === 'function' ? storedDrafts().map(d => d.takes) : [])
+  ]);
+  return storedTakeKeys.filter(k => !live.has(k) && !libraryKeys.has(k));
 }
 
 // Latency: the calibrated value, or the browser's own estimate of its output delay until then.
@@ -229,10 +288,11 @@ async function startRecording() {
   // Playback could not start (no notes in the range); play() has said why.
   if (session.state !== 'live') discardRecording(session);
 }
+// While the take is being saved (the tail after playback ends), another press does nothing, so a double press or a
+// press just after the range ends keeps the take.
 function stopRecording() {
-  if (!rec) return;
-  if (rec.state === 'live') stop();
-  else discardRecording(rec);
+  if (rec?.state === 'live') stop();
+  else if (rec?.state === 'starting') discardRecording(rec);
 }
 function discardRecording(session) {
   session.cancelled = true;
@@ -252,6 +312,7 @@ function takeStopped() {
   session.state = 'stopping';
   session.end = audio.currentTime + RECORD_TAIL_MS / 1000;
   recordStatus('Saving the take…');
+  showRecording();
   setTimeout(() => closeRecorder(session), RECORD_TAIL_MS);
 }
 async function finishTake(session) {
@@ -282,14 +343,22 @@ async function finishTake(session) {
   const kept = await putTake(take);
   recordStatus(
     `Take ${take.n} saved (${clockText(take.duration)}).` +
-      (kept ? '' : ' This browser can’t keep it after the tab closes, so download it to keep it.')
+      (!kept
+        ? ' This browser can’t keep it after the tab closes, so download it to keep it.'
+        : take.scoreKey.startsWith('new:')
+          ? ' Save the score to keep its takes with it.'
+          : '')
   );
   updateTakes(true);
 }
+// While the take is saved, Start recording is marked unavailable with aria-disabled, which keeps keyboard focus on it.
 function showRecording() {
-  const live = !!rec;
-  $('record-start').textContent = live ? '■ Stop recording' : '● Start recording';
+  const live = !!rec,
+    saving = rec?.state === 'stopping';
+  $('record-start').textContent = saving ? '● Saving…' : live ? '■ Stop recording' : '● Start recording';
   $('record-start').classList.toggle('recording', live);
+  if (saving) $('record-start').setAttribute('aria-disabled', 'true');
+  else $('record-start').removeAttribute('aria-disabled');
   $('record').classList.toggle('recording', live);
   $('record').textContent = live ? '● Recording' : '● Record';
   $('record-start').disabled = calibrating;
@@ -363,19 +432,24 @@ async function playTake(id, withScore) {
     onStart: ({clock}) => begin(clock, takeOffset(take, takeLatency(take)))
   });
 }
+// A library edition's credits go with a recording of it, as a text file: '' for a score without credits. A GPL
+// edition's licence goes in full, as in every other export.
+function takeCredits(take, item) {
+  const credit = exportCredit(item);
+  if (!credit) return '';
+  const gpl = scoreLicense(item).startsWith('GPL-') && typeof GPL_LICENSE === 'string';
+  return (
+    `Recording: ${takeFileName(take.title, take.n, takeExtension(take.mime))}, made in FretFree on ` +
+    `${new Date(take.at).toLocaleDateString()}. It is a performance of this edition:\n\n${credit}\n` +
+    (gpl ? '\n' + GPL_LICENSE : '')
+  );
+}
 function downloadTake(id) {
   const take = shownTakes.find(t => t.id === id);
   if (!take) return;
   download(take.blob, takeFileName(take.title, take.n, takeExtension(take.mime)), take.mime);
-  // A library edition's credits go with the recording of it.
-  const credit = exportCredit(current);
-  if (credit)
-    download(
-      `Recording: ${takeFileName(take.title, take.n, takeExtension(take.mime))}, made in FretFree on ` +
-        `${new Date(take.at).toLocaleDateString()}. It is a performance of this edition:\n\n${credit}\n`,
-      takeFileName(take.title, take.n, 'txt', ' credits'),
-      'text/plain'
-    );
+  const credits = takeCredits(take, current);
+  if (credits) download(credits, takeFileName(take.title, take.n, 'txt', ' credits'), 'text/plain');
 }
 async function deleteTake(id) {
   const take = shownTakes.find(t => t.id === id);
@@ -424,7 +498,8 @@ async function updateTakes(force = false) {
     ? `Record yourself along with the score (${takes.length} ${takes.length === 1 ? 'take' : 'takes'})`
     : 'Record yourself along with the score';
   markTakes();
-  showStorageUse();
+  await indexTakes();
+  if (key === shownKey) showStorageUse();
 }
 // The playing take's button turns into its Stop button.
 function markTakes() {
@@ -447,6 +522,25 @@ async function showStorageUse() {
       text += ` FretFree is using ${(usage / 1048576).toFixed(usage < 10485760 ? 1 : 0)} MB of storage here.`;
   } catch {}
   $('record-storage').textContent = text;
+  const stray = strayTakeKeys().length;
+  $('takes-stray').hidden = !stray;
+  $('takes-stray-text').textContent =
+    stray === 1
+      ? '1 take here belongs to a score that was deleted or never saved.'
+      : `${stray} takes here belong to scores that were deleted or never saved.`;
+}
+async function deleteStrayTakes() {
+  const keys = strayTakeKeys();
+  if (
+    !keys.length ||
+    !confirm(
+      `Delete ${keys.length === 1 ? 'the take' : `the ${keys.length} takes`} of scores that were deleted or never saved? They can’t be brought back.`
+    )
+  )
+    return;
+  const count = await deleteTakesOf(new Set(keys));
+  recordStatus(`${count} ${count === 1 ? 'take' : 'takes'} deleted.`);
+  $('record-start').focus();
 }
 
 // Calibration: eight clicks through the speakers, recorded the way a take is. The delay between when each click was
@@ -523,6 +617,7 @@ $('record-close').onclick = () => {
 };
 $('record-start').onclick = () => startRecording();
 $('record-calibrate').onclick = () => calibrate();
+$('takes-stray-delete').onclick = () => deleteStrayTakes();
 $('record-count-in').onchange = () => storage.set(KEYS.recordCountIn, +$('record-count-in').value === 2 ? 2 : 1);
 $('take-list').onclick = e => {
   const button = e.target.closest('button');

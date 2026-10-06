@@ -45,10 +45,12 @@ const {chromium} = require('playwright'),
           url: '',
           abc: $('abc').value
         })
-      ).abc
+      ).abc,
+      takeCredits: takeCredits({title: 'Practice', n: 1, at: Date.now(), mime: 'audio/webm'}, current)
     }));
     assert.ok(exported.abc.includes(license));
     assert.ok(exported.turnIn.includes(license), 'The turn-in file carries the credits');
+    assert.ok(exported.takeCredits.includes(license), 'A recorded take’s credits file carries the licence');
     assert.equal(
       await page.evaluate(abc => creditedABC(abc, current), exported.abc),
       exported.abc,
@@ -83,6 +85,7 @@ const {chromium} = require('playwright'),
       assert.ok(Buffer.from(exported.midi).toString().includes('GNU GENERAL PUBLIC LICENSE'));
       assert.ok(exported.musicxml.includes('GNU GENERAL PUBLIC LICENSE'));
       assert.ok(exported.turnIn.includes('GNU GENERAL PUBLIC LICENSE'));
+      assert.ok(exported.takeCredits.includes('GNU GENERAL PUBLIC LICENSE'));
     }
     await page.evaluate(() => {
       window.print = () => {};
@@ -127,7 +130,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: every catalog score engraves; collection/exact-license filters; ABC, MIDI, SVG, MusicXML, turn-in file and print credits; GPL license/source embedding (MusicXML too); exported MIDI preserves playback.'
+    'PASS: every catalog score engraves; collection/exact-license filters; ABC, MIDI, SVG, MusicXML, turn-in file, recorded-take and print credits; GPL license/source embedding (MusicXML too); exported MIDI preserves playback.'
   );
 })().catch(e => {
   console.error(e);

@@ -2472,6 +2472,10 @@ header {
   border-color: var(--danger);
   color: var(--on-green);
 }
+#record-start[aria-disabled='true'] {
+  cursor: wait;
+  opacity: 0.6;
+}
 .record-row {
   display: flex;
   flex-wrap: wrap;
