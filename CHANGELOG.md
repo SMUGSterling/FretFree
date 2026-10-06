@@ -1,3 +1,11 @@
+# Hear notes and live volume · 2026-10-06
+
+- **Hear notes** (on by default, next to Draw notes): clicking, typing, drawing or moving a note plays it once, as does changing its accidental or stepping to it with ←→. Chords play every pitch. It uses the chosen instrument's sound at concert pitch with playback's octave rule, stays silent during playback, and is remembered and backed up (`fretfree-audition`).
+- **Volume** no longer stops playback: it changes loudness live. All notes and metronome clicks now pass through one master gain and, where the browser supports it, a limiter, so chords and accompaniment do not clip. This bus is the base for a later mixer, audio export and recording.
+- Note names and audition now apply bar accidentals from every pitch of a chord, not only the first.
+
+---
+
 # Backup and restore · 2026-10-06
 
 - **My scores → ⬇ Back up** writes every saved score, favorite, played mark and practice setting to one JSON file. Where the browser offers a Save As dialog (Chrome, Edge) the file can go in a synced folder and is remembered for one-click repeat backups; elsewhere it downloads.

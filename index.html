@@ -8,24 +8,24 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=bffa221202e1" />
-    <script defer src="vendor/abcjs-basic-min.js?v=bffa221202e1"></script>
-    <script defer src="catalog.js?v=bffa221202e1"></script>
-    <script defer src="catalog-expanded.js?v=bffa221202e1"></script>
-    <script defer src="score-tools.js?v=bffa221202e1"></script>
-    <script defer src="rights-tools.js?v=bffa221202e1"></script>
-    <script defer src="catalog-licensed.js?v=bffa221202e1"></script>
-    <script defer src="catalog-lieder.js?v=bffa221202e1"></script>
-    <script defer src="catalog-quartets.js?v=bffa221202e1"></script>
-    <script defer src="catalog-pgh.js?v=bffa221202e1"></script>
-    <script defer src="catalog-skills.js?v=bffa221202e1"></script>
-    <script defer src="prompts.js?v=bffa221202e1"></script>
-    <script defer src="shared.js?v=bffa221202e1"></script>
-    <script defer src="library.js?v=bffa221202e1"></script>
-    <script defer src="backup.js?v=bffa221202e1"></script>
-    <script defer src="editor.js?v=bffa221202e1"></script>
-    <script defer src="playback.js?v=bffa221202e1"></script>
-    <script defer src="app.js?v=bffa221202e1"></script>
+    <link rel="stylesheet" href="style.css?v=f8d61c7a865d" />
+    <script defer src="vendor/abcjs-basic-min.js?v=f8d61c7a865d"></script>
+    <script defer src="catalog.js?v=f8d61c7a865d"></script>
+    <script defer src="catalog-expanded.js?v=f8d61c7a865d"></script>
+    <script defer src="score-tools.js?v=f8d61c7a865d"></script>
+    <script defer src="rights-tools.js?v=f8d61c7a865d"></script>
+    <script defer src="catalog-licensed.js?v=f8d61c7a865d"></script>
+    <script defer src="catalog-lieder.js?v=f8d61c7a865d"></script>
+    <script defer src="catalog-quartets.js?v=f8d61c7a865d"></script>
+    <script defer src="catalog-pgh.js?v=f8d61c7a865d"></script>
+    <script defer src="catalog-skills.js?v=f8d61c7a865d"></script>
+    <script defer src="prompts.js?v=f8d61c7a865d"></script>
+    <script defer src="shared.js?v=f8d61c7a865d"></script>
+    <script defer src="library.js?v=f8d61c7a865d"></script>
+    <script defer src="backup.js?v=f8d61c7a865d"></script>
+    <script defer src="editor.js?v=f8d61c7a865d"></script>
+    <script defer src="playback.js?v=f8d61c7a865d"></script>
+    <script defer src="app.js?v=f8d61c7a865d"></script>
   </head>
   <body>
     <header>
@@ -333,7 +333,10 @@
               <span class="history-buttons"
                 ><button id="undo" title="Undo (Ctrl+Z)" disabled>↶ Undo</button
                 ><button id="redo" title="Redo (Ctrl+Shift+Z)" disabled>↷ Redo</button></span
-              ><button id="draw-mode" aria-pressed="false" title="Click the staff to add notes">✎ Draw notes</button>
+              ><button id="draw-mode" aria-pressed="false" title="Click the staff to add notes">✎ Draw notes</button
+              ><label class="inline view-option" title="Play each note as you enter, select or move it"
+                ><input type="checkbox" id="audition" checked /> Hear notes</label
+              >
             </div>
             <p class="small keyboard-help">
               <strong>Keyboard:</strong> click a note, then <kbd>A</kbd>–<kbd>G</kbd> add notes · <kbd>R</kbd> rest ·
@@ -437,9 +440,10 @@
         </p>
         <h2>Write, practice, and take it with you.</h2>
         <p>
-          Use ABC notation or the note buttons to write music. Hear it with built-in synthesized tones, change tempo,
-          loop playback, and export ABC, MIDI, or SVG. Use Print / PDF to produce a paper score. Choose a B♭ or E♭
-          instrument for written-pitch transposition with concert-pitch playback.
+          Use ABC notation or the note buttons to write music. Hear each note as you enter it, play the score with
+          built-in synthesized tones, change tempo, loop playback, and export ABC, MIDI, or SVG. Use Print / PDF to
+          produce a paper score. Choose a B♭ or E♭ instrument for written-pitch transposition with concert-pitch
+          playback.
         </p>
         <h2>Privacy and school access</h2>
         <p>

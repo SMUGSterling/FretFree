@@ -10,6 +10,7 @@ const KEYS = {
   played: 'fretfree-played',
   fingering: 'fretfree-fingering',
   noteNames: 'fretfree-note-names',
+  audition: 'fretfree-audition',
   practice: id => 'fretfree-practice-' + id
 };
 let storageOK = true;

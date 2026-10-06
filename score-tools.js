@@ -418,19 +418,23 @@ function noteLabels(tune, mode) {
             continue;
           }
           if (e.el_type !== 'note' || !e.pitches?.length || e.rest) continue;
-          const p = e.pitches[0],
-            letter = ((p.pitch % 7) + 7) % 7,
-            name = 'CDEFGAB'[letter],
-            key = state.key || {};
-          if (p.accidental) state.carried[p.pitch] = ALTER[p.accidental] ?? 0;
-          const alter = state.carried[p.pitch] ?? key[name] ?? 0,
+          const key = state.key || {};
+          // Every pitch of a chord sets its own bar accidental and gets a concert MIDI number; the label names the first.
+          const spelled = e.pitches.map(p => {
+            const letter = ((p.pitch % 7) + 7) % 7,
+              name = 'CDEFGAB'[letter];
+            if (p.accidental) state.carried[p.pitch] = ALTER[p.accidental] ?? 0;
+            const alter = state.carried[p.pitch] ?? key[name] ?? 0;
+            return {letter, name, alter, midi: 60 + 12 * Math.floor(p.pitch / 7) + LETTER_SEMIS[letter] + alter};
+          });
+          const {letter, name, alter, midi} = spelled[0],
             pc = (LETTER_SEMIS[letter] + alter + 12) % 12;
           // Lowered against the key signature (a flat, or a natural on a sharp) takes the flat syllable.
           const text =
             mode === 'solfege'
               ? (alter < (key[name] ?? 0) ? SOLFEGE_FLAT : SOLFEGE_SHARP)[(pc - (state.doPc || 0) + 12) % 12]
               : name + ({1: '♯', 2: '𝄪', '-1': '♭', '-2': '𝄫'}[alter] || '');
-          labels.push({at: e.startChar, text, midi: 60 + 12 * Math.floor(p.pitch / 7) + LETTER_SEMIS[letter] + alter});
+          labels.push({at: e.startChar, text, midi, midis: spelled.map(x => x.midi)});
         }
       }
   return labels;

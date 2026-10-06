@@ -25,7 +25,8 @@ const legacy = {
 };
 w.localStorage.setItem('commonnote-scores-v1', JSON.stringify([legacy]));
 w.localStorage.setItem('commonnote-favorites-v1', '["ode","mutopia-263"]');
-const oscillators = [];
+const oscillators = [],
+  gains = [];
 class FakeAudio {
   constructor() {
     this.currentTime = 10;
@@ -35,7 +36,9 @@ class FakeAudio {
   createOscillator() {
     const o = {
       frequency: {value: 0},
-      connect() {},
+      connect(to) {
+        this.to = to;
+      },
       start(t) {
         this.startAt = t;
       },
@@ -47,7 +50,14 @@ class FakeAudio {
     return o;
   }
   createGain() {
-    return {gain: {setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {}}, connect() {}};
+    const g = {
+      gain: {setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {}},
+      connect(to) {
+        this.to = to;
+      }
+    };
+    gains.push(g);
+    return g;
   }
 }
 w.AudioContext = FakeAudio;
@@ -130,6 +140,104 @@ assert.equal(run(`editNoteText('C2- ',{tie:false})`), 'C2 ');
 assert.equal(run(`[1,2,.5,1.5,.25,2/3].map(lengthText).join(',')`), ',2,/2,3/2,/4,2/3', 'Lengths stay exact for L:3/8');
 assert.equal(run(`editNoteText('[C2E2G2]',{length:2})`), '[CEG]2', 'New chord length replaces per-pitch lengths');
 assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
+// Master bus and note audition: every note and click reaches the speakers through one gain node that follows the
+// Volume slider live; entering, selecting or moving a note sounds it once at concert pitch when Hear notes is on.
+async function checkAudio() {
+  const hz = midi => 440 * 2 ** ((midi - 69) / 12),
+    near = (a, b) => Math.abs(a - b) < 1e-6;
+  run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nC [EG] E F | G4 |]')},instrument:'Flute'})`);
+  run("$('metronome').checked=true;$('count-in').checked=true;$('volume').value='0.3'");
+  oscillators.length = 0;
+  await run('play()');
+  const bus = run('outputNode()');
+  assert.equal(bus.to, run('audio.destination'), 'Without a limiter the master bus feeds the speakers');
+  assert.ok(
+    oscillators.length > 6 && oscillators.every(o => o.to?.to === bus),
+    'Every note and click uses the master bus'
+  );
+  assert.equal(bus.gain.value, 0.3, 'Master gain starts at the Volume setting');
+  run("$('volume').value='0.8';$('volume').dispatchEvent(new Event('input'))");
+  assert.equal(run('playing'), true, 'Moving Volume keeps playing');
+  assert.equal(bus.gain.value, 0.8, 'Master gain follows Volume live');
+  oscillators.length = 0;
+  run(`scoreClick(scoreEvents(renderedTune).find(e=>e.element.pitches).element,0,[],{},{step:0},{})`);
+  assert.equal(oscillators.length, 0, 'No audition during playback');
+  run("stop();$('metronome').checked=false;$('count-in').checked=false;$('volume').value='0.3'");
+  const clickNote = i =>
+    run(`scoreClick(scoreEvents(renderedTune).filter(e=>e.element.pitches)[${i}].element,0,[],{},{step:0},{})`);
+  const heard = () => oscillators.map(o => o.frequency.value);
+  oscillators.length = 0;
+  clickNote(0);
+  assert.deepEqual(heard(), [hz(60)], 'Clicking a note plays it once');
+  assert.ok(
+    oscillators[0].type !== 'square' && oscillators[0].to.to === bus,
+    'Audition uses the instrument and the bus'
+  );
+  oscillators.length = 0;
+  clickNote(1);
+  assert.deepEqual(heard(), [hz(64), hz(67)], 'Clicking a chord plays every pitch');
+  oscillators.length = 0;
+  run(`scoreKey({key:'ArrowRight'})`);
+  assert.deepEqual(heard(), [hz(64)], 'Arrow keys sound the newly selected note');
+  oscillators.length = 0;
+  run(`scoreKey({key:'ArrowUp'})`);
+  assert.match(run("$('abc').value"), /\[EG\] F F/);
+  assert.deepEqual(heard(), [hz(65)], 'Up arrow sounds the new pitch');
+  oscillators.length = 0;
+  run(`scoreKey({key:'#'})`);
+  assert.deepEqual(heard(), [hz(66)], 'An accidental sounds the new pitch');
+  oscillators.length = 0;
+  run(`scoreKey({key:'b'})`);
+  assert.match(run("$('abc').value"), /\[EG\] \^F B F/);
+  assert.deepEqual(heard(), [hz(71)], 'Typing a letter sounds the new note');
+  oscillators.length = 0;
+  clickNote(0);
+  run(`scoreClick(scoreEvents(renderedTune).filter(e=>e.element.pitches)[0].element,0,[],{},{step:-1},{})`);
+  assert.deepEqual(heard(), [hz(60), hz(62)], 'A drag sounds the moved note once');
+  oscillators.length = 0;
+  run(`scoreClick(scoreEvents(renderedTune).filter(e=>e.element.pitches)[2].element,0,[],{},null)`);
+  assert.equal(oscillators.length, 0, 'Selecting from code (the note menu) stays quiet');
+  // Typing over a rest (and drawing on one) sounds the note that replaces it.
+  run(
+    `openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:D\nz4 | z4 |]')},instrument:'Flute'});selectEntry(scoreNotes()[0])`
+  );
+  oscillators.length = 0;
+  run(`scoreKey({key:'f'})`);
+  assert.match(run("$('abc').value"), /\nF z3 \|/);
+  assert.deepEqual(heard(), [hz(66)], 'Key signature applies: F is F sharp in D');
+  run('selectEntry(scoreNotes().find(n=>n.element.rest&&n.measure===2))');
+  oscillators.length = 0;
+  run(`scoreKey({key:'a'})`);
+  assert.match(run("$('abc').value"), /\| A z3 \|/);
+  assert.deepEqual(heard(), [hz(69)], 'A note written over the rest after a bar line sounds');
+  // Concert pitch and the playback octave rule: a cello sounds an octave below the source, a clarinet as written in ABC.
+  run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nc d e f |]')},instrument:'Cello'})`);
+  oscillators.length = 0;
+  clickNote(0);
+  assert.deepEqual(heard(), [hz(60)], 'Cello audition drops the source an octave, as playback does');
+  run("$('instrument').value='Clarinet in B♭';$('instrument').onchange();clearTimeout(renderTimer);render()");
+  oscillators.length = 0;
+  clickNote(0);
+  assert.deepEqual(heard(), [hz(72)], 'Transposing instruments sound the concert source');
+  // Off: nothing sounds, and the choice is saved and backed up.
+  run("$('audition').checked=false;$('audition').dispatchEvent(new Event('change'))");
+  oscillators.length = 0;
+  clickNote(1);
+  run(`scoreKey({key:'ArrowUp'})`);
+  assert.equal(oscillators.length, 0, 'Hear notes off stays silent');
+  assert.equal(w.localStorage.getItem('fretfree-audition'), 'false', 'Hear notes is remembered');
+  assert.ok(run('BACKUP_SETTING_KEYS()').includes('fretfree-audition'), 'Hear notes is in backups');
+  w.localStorage.setItem('fretfree-audition', 'true');
+  run('applyStoredSettings()');
+  assert.equal(run("$('audition').checked"), true, 'Restored settings apply Hear notes');
+  // Audition pitches match playback pitches note for note, through key signatures, bar accidentals and chords.
+  const tricky = 'X:1\nM:4/4\nL:1/4\nK:A\n[FA] ^G =G G | [C=E] c G, g |]';
+  assert.equal(
+    run(`noteLabels(ABCJS.parseOnly(${JSON.stringify(tricky)})[0],'letters').flatMap(l=>l.midis).join()`),
+    run(`parseMidi(midiBytes(${JSON.stringify(tricky)})).notes.map(n=>n.note).join()`),
+    'Audition MIDI equals playback MIDI'
+  );
+}
 async function checkPlayback() {
   run(`openScore({abc:${JSON.stringify(source)},instrument:'Flute'});$('start-measure').value=3;$('speed').value=50`);
   assert.equal(run('measureStarts.get(3)'), 9.6, 'Measure after repeated section uses performed timing');
@@ -223,12 +331,13 @@ async function checkPlayback() {
   );
   run(`openScore({abc:${JSON.stringify('X:1\nM:6/8\nL:1/8\nK:C\nc3 d3|]')}})`);
   assert.equal(run('beatsPerBar()'), 2, '6/8 counts two dotted beats');
+  await checkAudio();
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-scores-v1')), [legacy]);
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-favorites-v1')), ['ode', 'mutopia-263']);
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, bar checks, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, bar checks, and legacy storage.'
   );
   w.close();
 }

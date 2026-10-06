@@ -105,6 +105,8 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
   }
   $('selection-status').textContent =
     `Measure ${entry.measure} selected · type A–G to add notes after it, ↑↓ to change pitch · Shift+click another note to practice from here to there`;
+  // A pointer click or drag sounds the note (Hear notes). Calls from code pass no event: the note menu stays quiet.
+  if (event || drag?.step) auditionAt(start);
 }
 function updateMeasures() {
   measureStarts = new Map();
@@ -276,6 +278,10 @@ function insertToken(token) {
   changed();
   clearTimeout(renderTimer);
   render();
+  // A letter after a ♯ ♭ ♮ button starts its note at the accidental.
+  let at = start;
+  while (at > 0 && /[\^_=]/.test(area.value[at - 1])) at--;
+  if (/^[A-G]$/.test(token)) auditionAt(at);
 }
 function safeName() {
   return (
@@ -700,6 +706,26 @@ function applyNoteEdit(start, end, text, select = text ? [start, start + text.le
   if (selectedRange) area.setSelectionRange(...selectedRange);
   focusScore();
 }
+// Note audition: the concert pitches of the note or chord that starts at a source position, keyed by startChar and
+// cached per source text. Playback adds the instrument's octave (a cello sounds an octave below the source).
+let concertPitches = {source: null, at: new Map()};
+function concertPitchesAt(at) {
+  const source = $('abc').value;
+  if (concertPitches.source !== source)
+    concertPitches = {
+      source,
+      at: new Map(noteLabels(ABCJS.parseOnly(source)[0], 'letters').map(l => [l.at, l.midis]))
+    };
+  // abcjs can start an element at the whitespace before it (after a bar line, for one).
+  while (!concertPitches.at.has(at) && at > 0 && /\s/.test(source[at - 1])) at--;
+  return concertPitches.at.get(at) || [];
+}
+function auditionAt(at) {
+  if (playing || $('audition')?.checked === false) return;
+  try {
+    auditionPitches(concertPitchesAt(at));
+  } catch {}
+}
 function drawNote(t) {
   if (renderedSource !== $('abc').value) {
     clearTimeout(renderTimer);
@@ -761,6 +787,7 @@ function drawNote(t) {
   if (at > 0 && !/\s/.test(value[at - 1]) && !text.startsWith(' ') && !text.startsWith('\n')) text = ' ' + text;
   const start = at + text.indexOf(token);
   applyNoteEdit(at, at, text, [start, start + token.length]);
+  auditionAt(start);
   $('selection-status').textContent = `Added ${pitchName(t.written)} · right-click it to change accidental or length`;
 }
 function setDrawMode(on) {
@@ -934,6 +961,7 @@ function editNote(entry, display, action) {
   }
   if (action.startsWith('acc:')) {
     applyNoteEdit(start, end, accidentalEdit(entry, display, action.slice(4)));
+    auditionAt(start);
     return;
   }
   if (action === 'tie') {
@@ -1041,7 +1069,7 @@ function selectEntry(entry) {
   scoreClick(display, 0, [], {}, null);
   renderedTune?.engraver?.rangeHighlight?.(display.startChar, display.endChar);
 }
-// Insert a token at a source position with spacing, then select it.
+// Insert a token at a source position with spacing, then select it. Returns where the token starts.
 function insertAt(at, token, select = true) {
   const v = $('abc').value,
     before = at > 0 && !/\s/.test(v[at - 1]) ? ' ' : '',
@@ -1052,6 +1080,7 @@ function insertAt(at, token, select = true) {
     before + token + after,
     select ? [at + before.length, at + before.length + token.length] : null
   );
+  return at + before.length;
 }
 // Where a new note goes with nothing selected: before the closing bar line, or at the end of the music.
 function tuneEndPosition() {
@@ -1076,7 +1105,7 @@ function insertNote(letter, sel) {
     // Letters name what the student sees, so pick the octave in written pitch, nearest the previous note.
     token = letterToken(letter, at);
   }
-  insertAt(at, token + lengthText(length / unitLengthAt(at)));
+  auditionAt(insertAt(at, token + lengthText(length / unitLengthAt(at))));
 }
 // Written-pitch note token for a letter, in the octave nearest the last note before a source position.
 function letterToken(letter, at) {
@@ -1112,6 +1141,7 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength()) {
       text = lead + token + ' ' + remainder + trail,
       at = start + lead.length + token.length + 1;
     applyNoteEdit(start, end, text, [at, at + remainder.length]);
+    auditionAt(start + lead.length);
     return;
   }
   const text = lead + token + trail,
@@ -1125,6 +1155,7 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength()) {
       ? [next.element.startChar + delta, next.element.endChar + delta]
       : [start + lead.length, start + lead.length + token.length]
   );
+  auditionAt(start + lead.length);
 }
 function scoreKey(e) {
   if (e.metaKey || e.altKey || (e.ctrlKey && !/^Arrow(Up|Down)$/.test(e.key)) || !$('note-menu').hidden) return false;
@@ -1167,6 +1198,7 @@ function scoreKey(e) {
     const i = sel ? notes.indexOf(sel.entry) : key === 'ArrowLeft' ? notes.length : -1,
       next = notes[Math.max(0, Math.min(notes.length - 1, i + (key === 'ArrowLeft' ? -1 : 1)))];
     selectEntry(next);
+    auditionAt(next.element.startChar);
     return true;
   }
   if (key === 'Escape' && sel) {
@@ -1191,6 +1223,7 @@ function scoreKey(e) {
   if (key === 'ArrowUp' || key === 'ArrowDown') {
     const v = $('abc').value;
     applyNoteEdit(start, end, moveNoteText(v.slice(start, end), (key === 'ArrowUp' ? 1 : -1) * (e.ctrlKey ? 7 : 1)));
+    auditionAt(start);
     return true;
   }
   const accidental = {'#': '^', '-': '_', '=': '='}[key];
