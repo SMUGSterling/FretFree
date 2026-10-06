@@ -117,6 +117,8 @@ const {chromium} = require('playwright'),
   await page.click('#draw-mode');
   {
     const [x, y] = await page.evaluate(() => {
+      // The controls above the score push its staff low in a 900 px window; a mouse click needs it in view.
+      $('notation').scrollIntoView({block: 'center', behavior: 'instant'});
       const svg = $('notation').querySelector('svg'),
         st = renderedTune.engraver.staffgroups[0].staffs[0],
         [a, b] = renderedTune.engraver.selectables.slice(1, 3).map(s => {
@@ -815,6 +817,8 @@ const {chromium} = require('playwright'),
   const sheet = () => page.evaluate(() => $('abc').value.trim().split('\n').pop());
   assert.equal(await sheet(), 'z4 | z4 | z4 | z4 | z4 | z4 | z4 | z4 |]', 'New score is a blank sheet');
   await page.click('#draw-mode');
+  // The controls above the score push it low in a 900 px window; a mouse click needs it in view.
+  await page.evaluate(() => $('notation').scrollIntoView({block: 'center', behavior: 'instant'}));
   const firstRest = await page.locator('#notation .abcjs-rest').first().boundingBox();
   await page.mouse.click(firstRest.x + firstRest.width / 2 - 20, firstRest.y + firstRest.height / 2);
   await page.waitForFunction(() => !$('abc').value.includes('z4 | z4 | z4 | z4 | z4 | z4 | z4 | z4'));
@@ -1173,6 +1177,8 @@ const {chromium} = require('playwright'),
   await page.click('#draw-mode');
   {
     const [x, y] = await page.evaluate(() => {
+      // The controls above the score push its staff low in a 900 px window; a mouse click needs it in view.
+      $('notation').scrollIntoView({block: 'center', behavior: 'instant'});
       const svg = $('notation').querySelector('svg'),
         st = renderedTune.engraver.staffgroups[0].staffs[0],
         [a, b] = renderedTune.engraver.selectables.slice(1, 3).map(s => {
