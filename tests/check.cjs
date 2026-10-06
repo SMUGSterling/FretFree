@@ -308,6 +308,181 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
   assert.equal(midiQuarter(context.midiBytes(`X:1\nM:C|\nL:1/8\nQ:1/2=60\nK:C\n${bars}`)), 500);
   assert.equal(midiQuarter(context.midiBytes(`X:1\nM:6/8\nL:1/8\nQ:3/8=60\nK:C\nCDE FGA|]`)), 666.667);
 }
+// Slurs, hairpins and trill lines over a run of notes: toggleSlur and toggleSpan write ( … ) and the !<(! … !<)!,
+// !>(! … !>)! and !trill(! … !trill)! decorations, take them off again, replace the lines of the same family they
+// cover or cross (keeping a slur around them and lines that only meet them at an end note), and keep each note's text
+// whole for abcjs (decorations before slur and tuplet openings, ( before a staccato dot). Slurs pair as abcjs pairs
+// them, and a line goes on in its voice's next block.
+{
+  const head = 'X:1\nL:1/4\nM:4/4\nK:C\n',
+    tuneOf = body => ABCJS.parseOnly(head + body + '\n')[0],
+    notesOf = tune =>
+      tune.lines.flatMap(l => l.staff || []).flatMap(s => s.voices[0].filter(e => e.el_type === 'note')),
+    toggle = (body, i, j, kind) => {
+      const abc = head + body + '\n',
+        notes = notesOf(tuneOf(body)),
+        last = j == null ? null : notes[j];
+      return (kind === 'slur' ? context.toggleSlur(abc, notes[i], last) : context.toggleSpan(abc, notes[i], last, kind))
+        .slice(head.length)
+        .trim();
+    };
+  for (const [body, i, j, kind, expected] of [
+    ['C D E F|', 0, 3, 'slur', '(C D E F)|'],
+    ['(C D E F)|', 0, 3, 'slur', 'C D E F|'],
+    ['(C D) (E F)|G', 0, 3, 'slur', '(C D E F)|G'],
+    ['(C D) E (F|G)', 0, 3, 'slur', '(C D E (F)|G)'],
+    ['(C D E F|G)|', 0, 2, 'slur', '(C D E) F|G|'],
+    ['"G"!p!.C D E F2-|', 0, 3, 'slur', '"G"!p!(.C D E F2-)|'],
+    ['"G"(.C D E) F|', 0, null, 'slur', '"G".C D E F|'],
+    ['C (D E F|G) A|', 1, null, 'slur', 'C D E F|G A|'],
+    ['C D E F|', 0, null, 'slur', 'C D E F|'],
+    ['(3C D E F|', 0, 3, 'slur', '(3(C D E F)|'],
+    ['C D>E F|', 0, 2, 'slur', '(C D>E) F|'],
+    ['[CE] D [EG]2-|[EG]', 0, 2, 'slur', '([CE] D [EG]2-)|[EG]'],
+    ['z D E z|', 0, 3, 'slur', 'z D E z|'],
+    ['C D E F|', 0, 3, 'crescendo', '!<(!C D E !<)!F|'],
+    ['!<(!C D E !<)!F|', 0, 3, 'crescendo', 'C D E F|'],
+    ['!crescendo(!C D E !crescendo)!F|', 0, 3, 'crescendo', 'C D E F|'],
+    ['!>(!C D E !>)!F|', 0, 3, 'crescendo', '!<(!C D E !<)!F|'],
+    ['C D E F|', 0, 3, 'diminuendo', '!>(!C D E !>)!F|'],
+    ['(3C D E F|', 0, 3, 'crescendo', '!<(!(3C D E !<)!F|'],
+    ['(C D) E F|', 1, 3, 'crescendo', '(C !<(!D) E !<)!F|'],
+    ['C D | E F|', 1, 2, 'crescendo', 'C !<(!D | !<)!E F|'],
+    ['C D | (E F)|', 1, 2, 'trill', 'C !trill(!D | !trill)!(E F)|'],
+    ['z D E Z|', 0, 3, 'crescendo', '!<(!z D E !<)!Z|'],
+    ['x D E F|', 0, 3, 'crescendo', 'x D E F|'],
+    ['C D E F|', 0, 3, 'trill', '!trill(!C D E !trill)!F|'],
+    ['!trill(!C D E !trill)!F|', 0, null, 'trill', 'C D E F|'],
+    // Chained slurs: abcjs reads a note's ) before its (, so (C D (E) F) is C to E and E to F.
+    ['(C D E) F|', 2, 3, 'slur', '(C D (E) F)|'],
+    ['(C D (E) F)|', 0, 2, 'slur', 'C D (E F)|'],
+    ['(C D (E) F)|', 2, 3, 'slur', '(C D E) F|'],
+    ['(C D (E) F)|', 2, null, 'slur', '(C D E) F|'],
+    ['(C (D) E) F|', 1, null, 'slur', '(C D) E F|'],
+    ['(C D>)E F|', 1, 3, 'slur', '(C (D>)E F)|'],
+    // Lines that start before the run and end inside it come off; a slur around it stays, a hairpin around it goes.
+    ['(B, C D) E F|', 1, 3, 'slur', 'B, (C D E) F|'],
+    ['!<(!B, C D !<)!E F|', 1, 4, 'crescendo', 'B, !<(!C D E !<)!F|'],
+    ['!<(!B, C D !<)!E F|', 1, 4, 'diminuendo', 'B, !>(!C D E !>)!F|'],
+    ['!trill(!B, C D !trill)!E F|', 1, 4, 'trill', 'B, !trill(!C D E !trill)!F|'],
+    ['(B, C D E F)|', 1, 3, 'slur', '(B, (C D E) F)|'],
+    ['!<(!B, C D E !<)!F|', 1, 3, 'crescendo', 'B, !<(!C D !<)!E F|'],
+    ['(B, C D E F|', 1, 3, 'slur', '(B, (C D E) F|'],
+    ['C D) E F|', 0, 3, 'slur', '(C D E F)|'],
+    // abcjs pairs slurs on chords and rests apart from slurs on single notes, so this slur would take the outer one's
+    // end; the outer one comes off instead.
+    ['(C [CE] D E)|', 1, 2, 'slur', 'C ([CE] D) E|'],
+    ['([CE] C D [EG])|', 1, 2, 'slur', '([CE] (C D) [EG])|'],
+    // Hairpins meeting at a note: the one ending there ends before the next starts.
+    ['C D !<(!E !<)!F|', 0, 2, 'crescendo', '!<(!C D !<)!!<(!E !<)!F|'],
+    ['!<(!C !<)!D E F|', 1, 3, 'crescendo', '!<(!C !<)!!<(!D E !<)!F|'],
+    // Marks just before a ( that abcjs starts the note after are the note's.
+    ['!<(!(.C D) E !<)!F|', 0, 3, 'crescendo', '(.C D) E F|'],
+    ['((3{d}C D E)|', 0, 2, 'slur', '(3{d}C D E|']
+  ]) {
+    const result = toggle(body, i, j, kind);
+    assert.equal(result, expected, `${kind} from note ${i} to ${j} on ${body}`);
+    assert.ok(!tuneOf(result).warnings?.length, `${result} parses cleanly: ${tuneOf(result).warnings}`);
+  }
+  // FretFree finds the slurs abcjs draws, and no others.
+  for (const body of [
+    '(C D (E) F)|',
+    '(C (D) E) F|',
+    '((C D) E)|',
+    '(C D (E F))|',
+    '((E)) F)|',
+    '(C ([CE] D) E)|',
+    '([CE] (D [EG]) F)|',
+    '(z C) (D z)|',
+    '(  .D E) F|'
+  ]) {
+    const abc = head + body + '\n',
+      notes = notesOf(tuneOf(body)),
+      open = new Map(),
+      drawn = [];
+    notes.forEach((n, k) => {
+      for (const label of [n, ...(n.pitches || [])].flatMap(x => x.endSlur || []))
+        if (open.has(label)) (drawn.push([open.get(label), k]), open.delete(label));
+      for (const {label} of [n, ...(n.pitches || [])].flatMap(x => x.startSlur || [])) open.set(label, k);
+    });
+    for (const [i, j] of drawn) assert.ok(context.lineAt(abc, notes[i], notes[j], 'slur'), `${body}: ${i} to ${j}`);
+    assert.equal(
+      context.linePairs(abc).pairs.filter(p => p.kind === 'slur' && p.open && p.close).length,
+      drawn.length,
+      body
+    );
+  }
+  // A voice written in blocks (V:1, V:2, V:1 ...): a line goes on to the voice's next block, and comes off again.
+  for (const voice of ['V:1\n', '[V:1] ']) {
+    const other = voice.replace('1', '2'),
+      abc = `${head}${voice}C D E F|\n${other}C, D, E, F,|\n${voice}G A B c|\n${other}G, A, B, C|\n`,
+      first = abc => {
+        const notes = ABCJS.parseOnly(abc)[0].lines.flatMap(l =>
+          l.staff[0].voices[0].filter(e => e.el_type === 'note')
+        );
+        return [notes[3], notes[4], notes[2]];
+      },
+      [f, g] = first(abc),
+      slurred = context.toggleSlur(abc, f, g);
+    assert.equal(slurred, abc.replace('F|', '(F|').replace('G A', 'G) A'));
+    assert.equal(context.toggleSlur(slurred, ...first(slurred).slice(0, 2)), abc, 'Taken off again');
+    assert.equal(context.toggleSlur(slurred, first(slurred)[0], null), abc, 'Taken off from its first note');
+    const [, g2, e2] = first(abc),
+      louder = context.toggleSpan(abc, e2, g2, 'crescendo');
+    assert.equal(louder, abc.replace('E F|', '!<(!E F|').replace('G A', '!<)!G A'));
+    assert.ok(context.lineAt(louder, first(louder)[2], first(louder)[1], 'crescendo'));
+    assert.equal(context.toggleSpan(louder, first(louder)[2], first(louder)[1], 'crescendo'), abc);
+  }
+  // Each note keeps all its text, so a slur and its marks stay part of the note abcjs reads, and lines reach the
+  // right notes.
+  const [c, , e, f, g] = notesOf(tuneOf('"G"!p!(.C D !<(!(E F)- | !<)!F)'));
+  assert.ok(c.pitches[0].startSlur && g.pitches[0].endSlur && e.pitches[0].startSlur && f.pitches[0].endSlur);
+  assert.deepEqual([e.decoration, g.decoration], [['crescendo('], ['crescendo)']]);
+  {
+    const abc = head + 'C !p!.D E F|\n',
+      [, d, , last] = notesOf(ABCJS.parseOnly(abc)[0]),
+      slurred = context.toggleSlur(abc, d, last),
+      [, d2, , f2] = notesOf(ABCJS.parseOnly(slurred)[0]);
+    assert.equal(slurred.slice(head.length), 'C !p!(.D E F)|\n');
+    assert.ok(d2.pitches[0].startSlur && f2.pitches[0].endSlur);
+    assert.ok(
+      context.lineAt(slurred, d2, f2, 'slur'),
+      'The slur is found again, though abcjs starts the note at the dot'
+    );
+    assert.equal(context.lineAt(slurred, d2, f2, 'crescendo'), null);
+    assert.equal(context.toggleSlur(slurred, d2, f2), abc, 'And taken off');
+  }
+  // Note edits on slurred notes keep working: length, accidental, tie, rest and pitch moves keep ( and ).
+  for (const [text, edit, expected] of [
+    ['(C ', {length: 2}, '(C2 '],
+    ['"G"(C', {accidental: '^'}, '"G"(^C'],
+    ['F2-)', {tie: false}, 'F2)'],
+    ['F2)', {tie: true}, 'F2-)'],
+    ['!<(!(E', {rest: true}, '!<(!(z']
+  ])
+    assert.equal(context.editNoteText(text, edit), expected, `editNoteText(${text}, ${JSON.stringify(edit)})`);
+  assert.equal(context.moveNoteText('!<(!(E2-)', 1), '!<(!(F2-)');
+  // A crescendo raises the velocity note by note and a diminuendo lowers it.
+  const velocities = body =>
+    context
+      .parseMidi(context.midiBytes(`${head}Q:1/4=120\n${body}|]`))
+      .notes.slice(0, 4)
+      .map(n => n.velocity);
+  const up = velocities(toggle('!p!C D E F|G', 0, 3, 'crescendo')),
+    down = velocities(toggle('!f!C D E F|G', 0, 3, 'diminuendo'));
+  assert.ok(
+    up.every((v, k) => !k || v > up[k - 1]),
+    `Velocities rise across a crescendo: ${up}`
+  );
+  assert.ok(
+    down.every((v, k) => !k || v < down[k - 1]),
+    `Velocities fall across a diminuendo: ${down}`
+  );
+  // Transposing keeps slurs, hairpins and trill lines.
+  const moved = context.transposeABC(`${head}"G"!<(!(C D E !<)!F)|!trill(!G2 !trill)!A2|]\n`, 2);
+  assert.equal(moved.trim().split('\n').at(-1), '"A"!<(!(D E F !<)!G)|!trill(!A2 !trill)!B2|]');
+  assert.ok(!ABCJS.parseOnly(moved)[0].warnings?.length);
+}
 // Swing feel: the setting round-trips through Q: text and %%MIDI swing, and playback delays off-beat eighths only.
 {
   const head = 'X:1\nT:Blues\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\n',
@@ -1621,6 +1796,259 @@ for (const prompt of context.writingPrompts) {
     `MusicXML import: ${own.length} FretFree scores and a ${sample.length}-score library sample round-trip correctly`
   );
 }
+// Offline use: the web app manifest and icons meet Chrome's install rules, and sw.js only ever talks to its own site.
+// The worker runs here against fake caches and a fake server: install, a new deploy, going offline, opened and
+// unopened PDFs, and old caches dropped without touching another project's caches on the same origin.
+{
+  const manifest = JSON.parse(fs.readFileSync(require.resolve('../manifest.webmanifest'), 'utf8')),
+    html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+  assert.equal(manifest.name, 'FretFree');
+  assert.ok(manifest.short_name && manifest.short_name.length <= 12, 'A short name fits under an app icon');
+  assert.deepEqual(
+    [manifest.id, manifest.start_url, manifest.scope, manifest.display],
+    ['./', './', './', 'standalone']
+  );
+  assert.match(html, /<link rel="manifest" href="manifest\.webmanifest" \/>/);
+  assert.equal(html.match(/<meta name="theme-color" content="([^"]+)"/)[1], manifest.theme_color);
+  assert.match(html, /<link rel="apple-touch-icon" href="icons\/apple-touch-icon\.png" \/>/);
+  // A PNG's width and height are bytes 16-23 of its IHDR chunk.
+  const pngSize = file => {
+    const png = fs.readFileSync(require.resolve('../' + file));
+    assert.equal(png.toString('latin1', 1, 4), 'PNG', `${file} is a PNG`);
+    return `${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`;
+  };
+  for (const icon of manifest.icons) {
+    assert.ok(!/^(https?:)?\/\//.test(icon.src), `${icon.src} is local`);
+    if (icon.type === 'image/png') assert.equal(pngSize(icon.src), icon.sizes, `${icon.src} is ${icon.sizes}`);
+    else assert.match(fs.readFileSync(require.resolve('../' + icon.src), 'utf8'), /^<svg/);
+  }
+  assert.equal(pngSize('icons/apple-touch-icon.png'), '180x180');
+  for (const size of ['192x192', '512x512'])
+    assert.ok(
+      manifest.icons.some(i => i.sizes === size && i.type === 'image/png' && i.purpose === 'any'),
+      size
+    );
+  assert.ok(
+    manifest.icons.some(i => i.purpose === 'maskable'),
+    'A maskable icon for Android'
+  );
+  const source = fs.readFileSync(require.resolve('../sw.js'), 'utf8');
+  assert.doesNotMatch(source, /https?:|['"`]\/\/|importScripts|\bimport\s*\(/, 'sw.js references no other site');
+}
+async function offlineWorker() {
+  const SCOPE = 'https://student.github.io/fretfree/',
+    html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+  // The fake server: path -> body. Bodies are strings, and every response is an ordinary same-origin one.
+  let files = {},
+    online = true,
+    cut = null,
+    fetched = [];
+  const reply = (body, status = 200) => ({
+    status,
+    ok: status === 200,
+    type: 'basic',
+    body,
+    clone: () => reply(body, status),
+    text: async () => body
+  });
+  const serve = page => {
+    files = {'': page, 'index.html': page, 'manifest.webmanifest': '{}', 'RIGHTS.md': '# Rights'};
+    for (const icon of ['icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png']) files[icon] = icon;
+    for (const m of page.matchAll(/(?:src|href)="([^"?]+)\?v=[^"]+"/g)) files[m[1]] = 'asset ' + m[1];
+    files['scores/a/score.pdf'] = 'PDF a';
+    files['scores/b/score.pdf'] = 'PDF b';
+  };
+  const fakeFetch = async input => {
+    const url = new URL(typeof input === 'string' ? input : input.url);
+    fetched.push(url.href);
+    const path = url.pathname.slice(new URL(SCOPE).pathname.length);
+    // Offline, or a connection that drops on the files matching cut.
+    if (!online || cut?.test(path)) throw new TypeError('Failed to fetch');
+    return url.origin === new URL(SCOPE).origin && path in files ? reply(files[path]) : reply('Not found', 404);
+  };
+  const stores = new Map(),
+    keyOf = r => (typeof r === 'string' ? r : r.url);
+  const openCache = name => {
+    if (!stores.has(name)) stores.set(name, new Map());
+    const map = stores.get(name);
+    return {
+      async match(r, {ignoreSearch} = {}) {
+        const key = keyOf(r),
+          base = u => u.split('?')[0];
+        const hit = ignoreSearch ? [...map].find(([k]) => base(k) === base(key))?.[1] : map.get(key);
+        return hit?.clone();
+      },
+      async put(r, response) {
+        map.set(keyOf(r), response);
+      },
+      async addAll(urls) {
+        for (const url of urls) {
+          const response = await fakeFetch(url);
+          if (!response.ok) throw new TypeError(`${url} failed`);
+          map.set(url, response);
+        }
+      },
+      keys: async () => [...map.keys()].map(url => ({url})),
+      delete: async r => map.delete(keyOf(r))
+    };
+  };
+  const caches = {
+    open: async name => openCache(name),
+    keys: async () => [...stores.keys()],
+    delete: async name => stores.delete(name)
+  };
+  const handlers = {},
+    self = {
+      registration: {scope: SCOPE},
+      addEventListener: (type, handler) => (handlers[type] = handler),
+      skipWaiting: async () => {},
+      clients: {claim: async () => {}}
+    };
+  vm.runInNewContext(fs.readFileSync(require.resolve('../sw.js'), 'utf8'), {
+    self,
+    caches,
+    fetch: fakeFetch,
+    URL,
+    console
+  });
+  // Runs one event to the end, including the work it keeps going with waitUntil.
+  const dispatch = async (type, props = {}) => {
+    const waits = [];
+    let answer = null,
+      responded = false;
+    handlers[type]({
+      ...props,
+      waitUntil: p => waits.push(p),
+      respondWith: p => {
+        responded = true;
+        answer = p;
+      }
+    });
+    const response = await answer;
+    for (let i = 0; i < waits.length; i++) await waits[i];
+    return responded ? response : 'not handled';
+  };
+  const request = (path, mode = 'cors', headers = {}, method = 'GET') => ({
+    url: new URL(path, SCOPE).href,
+    method,
+    mode,
+    headers: new Headers(headers)
+  });
+  const get = async (path, mode) => {
+    try {
+      const response = await dispatch('fetch', {request: request(path, mode)});
+      return response === 'not handled' ? response : `${response.status} ${response.body}`;
+    } catch {
+      return 'failed';
+    }
+  };
+  const cached = name => [...(stores.get(name)?.keys() || [])].map(url => url.slice(SCOPE.length));
+  const APP = 'fretfree-app-v1:/fretfree/',
+    SCORES = 'fretfree-scores-v1:/fretfree/';
+  const stamps = page => [...page.matchAll(/(?:src|href)="([^"]+\?v=[^"]+)"/g)].map(m => m[1]);
+  serve(html);
+  // Install keeps the manifest, the icons and the small assets; the catalogs wait until they are fetched, and the page
+  // waits with them until it is complete. Offline before then, the waiting page opens with what there is.
+  await dispatch('install');
+  const first = stamps(html);
+  assert.ok(first.length >= 20 && first.some(s => /^catalog-licensed\.js\?v=/.test(s)));
+  assert.deepEqual(
+    cached(APP).sort(),
+    [
+      'index.html?next',
+      'icons/icon-192.png',
+      'icons/icon-512.png',
+      'icons/icon.svg',
+      'manifest.webmanifest',
+      ...first.filter(s => !s.startsWith('catalog-'))
+    ].sort()
+  );
+  online = false;
+  assert.equal(await get('', 'navigate'), '200 ' + html, 'A first visit cut short opens what it has');
+  online = true;
+  // Activating drops this site's older caches only.
+  for (const name of ['fretfree-app-v0:/fretfree/', 'fretfree-app-v0:/other-project/', 'someone-else'])
+    await caches.open(name);
+  await dispatch('activate');
+  assert.deepEqual((await caches.keys()).sort(), [APP, 'fretfree-app-v0:/other-project/', 'someone-else'].sort());
+  // The page hands over what it loaded before the worker took charge: only stamped files from this site are kept.
+  const replies = [];
+  await dispatch('message', {
+    data: {
+      type: 'keep',
+      urls: [...first.map(s => SCOPE + s), 'https://elsewhere.example/x.js?v=1', SCOPE + 'RIGHTS.md']
+    },
+    source: {postMessage: m => replies.push({...m})}
+  });
+  assert.deepEqual(replies, [{type: 'kept', kept: first.length, total: first.length}], 'Only stamped files count');
+  assert.ok(first.every(s => cached(APP).includes(s)) && !cached(APP).includes('RIGHTS.md'));
+  assert.ok(cached(APP).includes('') && !cached(APP).includes('index.html?next'), 'The complete page is the copy');
+  // Requests for other sites, and anything but GET, are left to the browser.
+  assert.equal(await get('https://elsewhere.example/font.woff'), 'not handled');
+  assert.equal(await dispatch('fetch', {request: request('index.html', 'cors', {}, 'POST')}), 'not handled');
+  assert.equal(
+    await dispatch('fetch', {request: request('scores/a/score.pdf', 'no-cors', {range: 'bytes=0-99'})}),
+    'not handled',
+    'Range requests (partial PDFs) go straight to the network'
+  );
+  // A deploy cut short: the new page and its small assets arrive, then the connection drops on the catalogs. The page
+  // hears that part of the copy is missing, and offline the old page opens with every asset it loads.
+  const cutShort = html.replace(/\?v=\w+/g, '?v=cutshort'),
+    catalogs = first.filter(s => s.startsWith('catalog'));
+  serve(cutShort);
+  cut = /^catalog/;
+  assert.equal(await get('', 'navigate'), '200 ' + cutShort);
+  for (const s of stamps(cutShort))
+    assert.equal(await get(s), s.startsWith('catalog') ? 'failed' : `200 asset ${s.split('?')[0]}`);
+  replies.length = 0;
+  await dispatch('message', {
+    data: {type: 'keep', urls: stamps(cutShort).map(s => SCOPE + s)},
+    source: {postMessage: m => replies.push({...m})}
+  });
+  assert.deepEqual(replies, [{type: 'kept', kept: first.length - catalogs.length, total: first.length}]);
+  cut = null;
+  online = false;
+  assert.equal(await get('', 'navigate'), '200 ' + html, 'Offline, the last complete page opens');
+  for (const s of first) assert.equal(await get(s), `200 asset ${s.split('?')[0]}`, `${s} is still there`);
+  online = true;
+  // A new deploy: the page comes from the network and becomes the offline copy once all its assets are cached; then
+  // the assets it no longer loads, including those of the deploy cut short, are dropped.
+  const deployed = html.replace(/\?v=\w+/g, '?v=newdeploy');
+  serve(deployed);
+  assert.equal(await get('', 'navigate'), '200 ' + deployed);
+  assert.ok(
+    first.every(s => cached(APP).includes(s)),
+    'Old assets stay while the new page is incomplete'
+  );
+  for (const s of stamps(deployed)) await get(s);
+  assert.ok(!cached(APP).some(s => first.includes(s)), 'Old stamped assets are dropped');
+  assert.ok(!cached(APP).some(s => s.endsWith('?v=cutshort')), 'So are those of the deploy cut short');
+  assert.ok(cached(APP).includes('manifest.webmanifest'), 'Unstamped files stay');
+  const catalogNow = stamps(deployed).find(s => s.startsWith('catalog-licensed.js'));
+  assert.equal(await get(catalogNow), '200 asset catalog-licensed.js');
+  // Opening a PDF keeps it; a missing file is not kept. Online, a corrected edition replaces the kept copy.
+  assert.equal(await get('scores/a/score.pdf', 'navigate'), '200 PDF a');
+  assert.equal(await get('scores/missing.pdf'), '404 Not found');
+  assert.equal(await get('RIGHTS.md', 'navigate'), '200 # Rights');
+  assert.deepEqual(cached(SCORES), ['scores/a/score.pdf']);
+  files['scores/a/score.pdf'] = 'PDF a, corrected';
+  assert.equal(await get('scores/a/score.pdf'), '200 PDF a, corrected', 'An opened PDF is fetched again online');
+  // Offline: the page (with or without a query), assets, the opened PDF and RIGHTS.md come from the cache.
+  online = false;
+  fetched = [];
+  assert.equal(await get('', 'navigate'), '200 ' + deployed);
+  assert.equal(await get('?from=home-screen', 'navigate'), '200 ' + deployed);
+  assert.equal(await get('index.html', 'navigate'), '200 ' + deployed);
+  assert.equal(await get(catalogNow), '200 asset catalog-licensed.js');
+  assert.equal(await get('scores/a/score.pdf', 'navigate'), '200 PDF a, corrected');
+  assert.equal(await get('RIGHTS.md', 'navigate'), '200 # Rights');
+  assert.equal(await get('scores/b/score.pdf', 'navigate'), 'failed', 'A PDF never opened is not there offline');
+  assert.equal(await get('licenses/GPL-2.0.txt', 'navigate'), 'failed', 'Other pages do not turn into the app');
+  assert.ok(!fetched.includes(SCOPE + catalogNow), 'Stamped assets are served from the cache without asking');
+  console.log(
+    'Offline use: manifest, icons, install, activate, keep, a deploy cut short, deploy, offline and PDF caching passed'
+  );
+}
 // MusicXML import from files: a MuseScore .mxl (zip) and its uncompressed .musicxml, a hand-written timewise file
 // full of things ABC cannot show, damaged files, and a copyright line that must survive later exports.
 async function musicXMLImportFiles() {
@@ -1941,11 +2369,12 @@ async function musicXMLImportFiles() {
   );
 }
 musicXMLImportFiles()
+  .then(offlineWorker)
   .then(() =>
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits) and MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {

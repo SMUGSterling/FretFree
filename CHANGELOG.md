@@ -11,6 +11,27 @@
 
 ---
 
+# Install as an app and work offline · 2026-10-06
+
+- After one visit FretFree opens and works without internet: the library, saved scores, a score opened before, the editor and playback. A PDF or MIDI file from the library works offline once it has been opened; one never opened does not.
+- New `sw.js` service worker (scope `./`). The page is network-first with the last complete copy as the offline fallback, so a new deploy shows within one reload. `?v=`-stamped scripts and styles are cache-first: the small ones are cached at install and the large catalogs at runtime, with the page handing over the files it loaded before the worker took charge, so the first visit is enough. A newly fetched page replaces the offline copy only once every stamped file it loads is cached, and only then are the files the old page alone loaded dropped, so an update cut short by lost Wi-Fi or a closed lid leaves the previous copy working. Files under `scores/` are cached only when opened, and are fetched again when online, so a corrected edition reaches students. Older FretFree caches for the same folder are dropped; other projects' caches on a shared github.io origin are left alone. It never fetches from another site.
+- New `manifest.webmanifest` (relative URLs, standalone display, theme colors) with local icons in `icons/` (192 and 512 px, maskable, Apple touch icon and an SVG favicon), drawn from the SVGs by `node scripts/make-icons.cjs`. Chrome's installability check passes.
+- **Install app** appears in the header when the browser offers installing (Chrome and Edge) and works from the keyboard. A **Working offline** notice in the header, announced to screen readers, shows while the device is offline, with a toast when the connection drops. They sit with the theme choice: above the nav at iPad and phone widths, and on a row below the nav at narrow laptop widths when they do not fit beside it, so the nav labels stay on one line. The About page explains offline use and installing on iPads and iPhones, and says whether this browser has an offline copy or whether part of it is missing; a copy cut short is finished when the connection comes back.
+- Registration runs only on https and localhost, after the page has loaded, and never in an embedded score, which keeps nothing on the visitor's device; without service workers the site works online as before.
+
+---
+
+# Slurs, hairpins and trill lines · 2026-10-06
+
+- Select notes and press **S** to slur them; **S** again takes the slur off. With one note selected the slur goes to the next note in the same voice, and **S** on that note again removes it.
+- The notation toolbar has a **Lines** group: **Slur**, **Cresc.**, **Dim.** and **Trill line**. Each puts its line over the selected notes, or from one note to the next, and lights up while the selection has it; pressing a lit one takes the line off. The status line says what changed, or why nothing did (a slur on a rest, no next note).
+- Slurs and trill lines run from the first to the last selected note and leave out rests at either end; a hairpin may start or end on a rest. A new line replaces the lines of its kind that it covers or crosses, so slurring a longer run joins two short slurs into one, and a crescendo replaces a diminuendo. A slur around it stays, as a phrase mark, and so do lines that only meet it at its first or last note.
+- Slurs are read the way abcjs draws them: a note's `)` ends a slur from an earlier note, so `(C D (E) F)` is a slur from C to E and one from E to F, and **S** on either takes off just that one; slurs on chords and rests pair apart from slurs on single notes, as in abcjs, and where that would join a new slur to the slur around it, the slur around it comes off. A line also carries on into the voice's next block in scores that write their voices in turns (`V:1`, `V:2`, `V:1` …).
+- Lines go into the ABC as `(` … `)`, `!<(!` … `!<)!`, `!>(!` … `!>)!` and `!trill(!` … `!trill)!`. Spellings such as `!crescendo(!` come off too. abcjs starts a note's text after any mark that follows a `(`, and reads `.(` as a dotted slur, so hairpin and trill marks go before slur and tuplet openings and a slur opening goes before a staccato dot. A slur written just before a staccato dot is still found and taken off. Each change is one undo step that keeps the selection.
+- abcjs draws only the tr of a trill line, so FretFree draws the wavy line from the tr to the end of the last note, carrying on across system breaks; it shows in embedded scores, prints and SVG exports. Hairpins change the playback volume note by note, in exported MIDI too; trill lines print but the notes play as written. Slurs, hairpins and trill lines parse without warnings and survive transposition. `lineEdits`, `toggleSlur` and `toggleSpan` in score-tools.js do the editing.
+
+---
+
 # Swing feel · 2026-10-06
 
 - **Feel** in Score settings plays a score straight or with a swing feel: Light swing (60), Swing (66) or Hard swing (75). The off-beat eighth of each quarter beat starts late, at that percent of the beat, and the on-beat eighth before it lasts longer, so at Swing and 120 BPM the second of two eighths starts at 2/3 of the beat instead of halfway.

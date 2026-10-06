@@ -1,8 +1,8 @@
 'use strict';
 // Notation palette: a toolbar above the score for the selected note's length, dot, tie, rest, accidental, beam,
-// articulations, dynamics, chord symbol, ornaments (under More), and Delete. Buttons light up (aria-pressed) to show the
-// selection's state and send the same action as the note menu or the matching key to editNote, so each press is one
-// undo step. Later notation tools add their own groups here.
+// articulations, dynamics, chord symbol, lines (slur, hairpins, trill line), ornaments (under More), and Delete.
+// Buttons light up (aria-pressed) to show the selection's state and send the same action as the note menu or the
+// matching key to editNote, so each press is one undo step. Later notation tools add their own groups here.
 const PALETTE_DONE = {
   'to-rest': 'Changed to a rest.',
   'acc:^': 'Sharp.',
@@ -42,7 +42,8 @@ function paletteState() {
     accidental: isRest ? null : (noteParts(text)?.core.match(/^\[?(\^{1,2}|_{1,2}|=)/) || [])[1] || '',
     beam: isRest ? null : beamGap(sel.entry),
     marks: picked.length > 1 ? rangeMarks(picked) : noteMarks(source),
-    chord: shownChord(sel)
+    chord: shownChord(sel),
+    lines: Object.fromEntries(Object.keys(LINE_WORDS).map(kind => [kind, lineState(kind, picked)]))
   };
 }
 // Why a button does nothing for the current selection, or '' when it applies.
@@ -51,6 +52,8 @@ function paletteBlocked(action, state) {
   if (!state.sel) return 'Select a note on the score first.';
   // Chord opens its box on the selected note, or on the first note of a range selection.
   if (action === 'chord') return '';
+  // Lines go over a range selection, or from one note to the next.
+  if (action.startsWith('line:')) return state.lines[action.slice(5)]?.why ?? '';
   if (/^(deco|dyn):/.test(action))
     return state.picked
       ? markTargets(action, state.picked).why
@@ -114,6 +117,7 @@ function updatePalette() {
     else if (action === 'beam:join') pressed = !!state.beam?.joined && !paletteBlocked(action, state);
     else if (action.startsWith('deco:')) pressed = !!state.marks?.marks.includes(action.slice(5));
     else if (action.startsWith('dyn:')) pressed = state.marks?.dynamic === action.slice(4);
+    else if (action.startsWith('line:')) pressed = !!state.lines?.[action.slice(5)]?.on;
     if (pressed != null) b.setAttribute('aria-pressed', pressed);
     b.setAttribute('aria-disabled', !!paletteBlocked(action, state));
   }
@@ -146,6 +150,7 @@ $('palette').addEventListener('click', e => {
   if (blocked) $('selection-status').textContent = blocked;
   else if (action.startsWith('len:')) chooseLength(+action.slice(4), state.sel);
   else if (action === 'respell') respellSelected(state.sel);
+  else if (action.startsWith('line:')) toggleLineSelected(action.slice(5));
   else {
     const before = $('abc').value,
       toggled = {

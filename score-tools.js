@@ -234,6 +234,247 @@ function setDynamic(text, dyn) {
   if (!placed) items.push(`!${dyn}!`);
   return items.join('') + parts.rest;
 }
+// Slurs, hairpins and trill lines over a run of notes in one voice. A slur is ( just before the first note's pitch
+// and ) after the last note's length and tie; a crescendo, diminuendo or trill line is a start decoration (!<(!,
+// !>(!, !trill(!) on its first note and an end one (!<)!, !>)!, !trill)!) on its last, before the pitch. abcjs
+// starts a note's text after any mark that follows a ( and reads .( as a dotted slur, so these decorations go before
+// slur and tuplet openings, and a slur opening goes before a staccato dot. Such a ( then sits just before the note's
+// text; it still counts as the note's.
+const LINE_KINDS = ['slur', 'crescendo', 'diminuendo', 'trill'],
+  LINE_MARKS = {crescendo: ['!<(!', '!<)!'], diminuendo: ['!>(!', '!>)!'], trill: ['!trill(!', '!trill)!']},
+  // The spellings abcjs reads, so that a line written another way comes off too.
+  LINE_DECORATIONS = {
+    '<(': ['crescendo', 1],
+    '<)': ['crescendo', -1],
+    'crescendo(': ['crescendo', 1],
+    'crescendo)': ['crescendo', -1],
+    '>(': ['diminuendo', 1],
+    '>)': ['diminuendo', -1],
+    'diminuendo(': ['diminuendo', 1],
+    'diminuendo)': ['diminuendo', -1],
+    'trill(': ['trill', 1],
+    'trill)': ['trill', -1]
+  },
+  // A new line replaces the lines of its family it covers: a crescendo replaces a diminuendo.
+  LINE_FAMILY = {
+    slur: ['slur'],
+    crescendo: ['crescendo', 'diminuendo'],
+    diminuendo: ['crescendo', 'diminuendo'],
+    trill: ['trill']
+  };
+// Comments, field lines, quoted text, grace notes and inline fields are skipped. V: lines and [V:] fields change the
+// voice, & starts an overlay voice that ends at the bar line, and X: starts a new tune.
+const LINE_TOKEN =
+  /%[^\n]*|(?:^|\n)(?:[A-Za-z+]:|%%)[^\n]*|"[^"]*"|\{[^}]*\}|\[[A-Za-z]:[^\]\n]*\]|([!+])([^!+\n]*)\1|\(\d+(?::\d*){0,2}|[()&|]/g;
+// A note's text from just after a slur opening to its length, tie and broken rhythm; the group is its pitch, chord or
+// rest.
+const LINE_NOTE =
+  /(?:"[^"]*"|![^!]*!|\+[^+]*\+|\{[^}]*\}|\((?:\d+(?::\d*){0,2})?|[.~HLMOPSTuv]|\s)*(\[[^\]]*\]|(?:\^{1,2}|_{1,2}|=)?[A-Ga-g][,']*|[zx])\d*\/*\d*[-<>]*/y;
+// abcjs starts a note's text after a slur or tuplet opening that a mark or grace note follows ((.C, (3{d}c), so such
+// openings just before a note's text, and the marks before them, are the note's too.
+const LINE_BEFORE =
+  /(?:"[^"]*"|![^!\n]*!|\+[^+\n]*\+|\{[^}]*\}|[.~]|\((?:\d+(?::\d*){0,2})?)*\((?:\d+(?::\d*){0,2})?[ \t]*$/;
+function lineStart(abc, at) {
+  if (!/[(\d: \t]/.test(abc[at - 1] || '')) return at;
+  return at - (abc.slice(Math.max(0, at - 80), at).match(LINE_BEFORE)?.[0].length || 0);
+}
+// abcjs pairs the slurs of chords and rests (0) apart from those of single notes (1): a ) closes the newest open slur
+// of its own sort, or else the newest of the first sort that has one. It reads a note's ) before its (, so in
+// (C D (E) F) the ) on E closes the slur from C and the ( on E opens one to F, and it drops a ( before a rest.
+function closeSort(abc, at) {
+  while (at > 0 && /[)\-\d/<>]/.test(abc[at - 1])) at--;
+  return /[\]zxZX]/.test(abc[at - 1] || '') ? 0 : 1;
+}
+// Whether a ( that ends at open and the ) at close are on one note, as in (E) or ((E)).
+function sameNote(abc, open, close) {
+  LINE_NOTE.lastIndex = open;
+  if (!LINE_NOTE.exec(abc) || LINE_NOTE.lastIndex > close) return false;
+  for (let i = LINE_NOTE.lastIndex; i < close; i++) if (abc[i] !== ')') return false;
+  return true;
+}
+// Every slur, hairpin and trill line in the ABC, paired as abcjs pairs them, each {kind, voice, open, close} with the
+// [start, end) of its marks: open is null for an end mark that closes nothing and close is null for a line never
+// closed. A hairpin or trill line that starts while one of its kind is open leaves that one unclosed. voices lists
+// where each voice's text starts ({at, voice}, in order), so a line in a voice written in blocks (V:1, V:2, V:1 ...)
+// carries on in the voice's next block. The last result is kept, as a toolbar refresh asks for it several times.
+let lineMemo = null;
+function linePairs(abc) {
+  if (lineMemo?.abc === abc) return lineMemo;
+  const pairs = [],
+    voices = [],
+    open = new Map(),
+    token = new RegExp(LINE_TOKEN.source, 'g');
+  let tune = 0,
+    base = '0:',
+    voice = null,
+    overlay = 0;
+  const enter = (id, at) => {
+    if (id !== voice) voices.push({at, voice: id});
+    voice = id;
+  };
+  enter(base, 0);
+  for (let m; (m = token.exec(abc));) {
+    const t = m[0],
+      at = m.index;
+    const field = /^\n?\[?([VX]):\s*([^\s\]]*)/.exec(t);
+    if (field) {
+      if (field[1] === 'X') tune++;
+      base = `${tune}:${field[1] === 'V' ? field[2] : ''}`;
+      overlay = 0;
+      enter(base, at);
+      continue;
+    }
+    if (t === '&' || (t === '|' && overlay)) {
+      overlay = t === '&' ? overlay + 1 : 0;
+      enter(overlay ? `${base}&${overlay}` : base, at);
+      continue;
+    }
+    const [kind, dir] = t === '(' ? ['slur', 1] : t === ')' ? ['slur', -1] : (m[1] && LINE_DECORATIONS[m[2]]) || [];
+    if (!kind) continue;
+    if (!open.has(voice)) open.set(voice, {slur: [[], []]});
+    const lines = open.get(voice),
+      span = [at, at + t.length];
+    let pair = null;
+    if (kind === 'slur' && dir > 0) {
+      LINE_NOTE.lastIndex = span[1];
+      const core = LINE_NOTE.exec(abc)?.[1] || '';
+      if (/^[zx]/.test(core)) continue;
+      lines.slur[core[0] === '[' ? 0 : 1].push((pair = {kind, voice, open: span, close: null}));
+    } else if (kind === 'slur') {
+      const newest = stack => stack.findLastIndex(p => !sameNote(abc, p.open[1], at)),
+        stack = [lines.slur[closeSort(abc, at)], ...lines.slur].find(s => newest(s) >= 0);
+      if (stack) stack.splice(newest(stack), 1)[0].close = span;
+      else pair = {kind, voice, open: null, close: span};
+    } else if (dir > 0) lines[kind] = pair = {kind, voice, open: span, close: null};
+    else if (lines[kind]) {
+      lines[kind].close = span;
+      lines[kind] = null;
+    } else pair = {kind, voice, open: null, close: span};
+    if (pair) pairs.push(pair);
+  }
+  return (lineMemo = {abc, pairs, voices});
+}
+function voiceAt(voices, at) {
+  let voice = voices[0]?.voice;
+  for (const v of voices) if (v.at <= at) voice = v.voice;
+  return voice;
+}
+// The line of a kind that opens on note first ({startChar, endChar}, as abcjs gives them) and closes on note last,
+// or anywhere when last is null; null when there is none.
+function lineAt(abc, first, last, kind) {
+  const from = lineStart(abc, first.startChar),
+    to = last && lineStart(abc, last.startChar);
+  return (
+    linePairs(abc).pairs.find(
+      p =>
+        p.kind === kind &&
+        p.open?.[0] >= from &&
+        p.open[0] < first.endChar &&
+        (!last || (p.close?.[0] >= to && p.close[0] < last.endChar))
+    ) || null
+  );
+}
+// Where a line's mark goes in a note's text: before the pitch, but before the slur and tuplet openings that end the
+// prefix (a slur opening goes after them, but before a staccato dot just ahead of the pitch). An end mark goes before
+// a start mark of its kind, so that a line ending on the note ends before the next one starts there.
+function lineSlot(text, kind, end) {
+  const items = String(text).match(MARK_PRE)?.[0].match(PRE_ITEM) || [];
+  let i = items.length;
+  if (kind === 'slur') {
+    if (items[i - 1] === '.') i--;
+  } else {
+    while (i > 0 && /^(?:\(\d*(?::\d*)*|\s)$/.test(items[i - 1])) i--;
+    if (end) {
+      const starts = items.findIndex(item => {
+        const [k, dir] = LINE_DECORATIONS[/^([!+])(.*)\1$/.exec(item)?.[2]] || [];
+        return k === kind && dir > 0;
+      });
+      if (starts >= 0) i = Math.min(i, starts);
+    }
+  }
+  // abcjs can start a note at the space after a bar line; the mark goes after that space.
+  while (i < items.length && !items[i].trim()) i++;
+  return items.slice(0, i).join('').length;
+}
+// The edits ({at, remove, insert}, source positions) that toggle a line of a kind from note first to note last.
+// When that line is there it comes off, and only its marks change. Otherwise the new line goes on, and the lines of
+// its family in the same voice that share more than an end note with it come off, with stray end marks inside it:
+// lines of a kind never cross, and a crescendo replaces a diminuendo. A slur around the run stays (a phrase mark over
+// shorter slurs) unless abcjs would then pair the new slur with it. Lines that only meet the run at its first or last
+// note stay, so slurs and hairpins can follow on from one another. With last null, a line opening on the first note
+// comes off and nothing else happens. Slurs and trill lines join notes; a hairpin may start or end on a rest. Returns
+// {on, edits}, or null when there is nothing to do.
+function lineEdits(abc, first, last, kind) {
+  if (!LINE_KINDS.includes(kind)) return null;
+  const off = p => [p.open, p.close].filter(Boolean).map(([s, e]) => ({at: s, remove: e - s, insert: ''})),
+    here = lineAt(abc, first, last, kind);
+  if (here) return {on: false, edits: off(here)};
+  if (!last || last.startChar < first.endChar) return null;
+  const firstText = abc.slice(first.startChar, first.endChar),
+    lastText = abc.slice(last.startChar, last.endChar),
+    hairpin = kind === 'crescendo' || kind === 'diminuendo',
+    fits = text => (hairpin ? !!noteMarks(text) : /^[[A-Ga-g^_=]/.test(noteParts(text)?.core || ''));
+  if (!fits(firstText) || !fits(lastText)) return null;
+  const {pairs, voices} = linePairs(abc),
+    voice = voiceAt(voices, first.startChar),
+    from = lineStart(abc, first.startChar),
+    to = lineStart(abc, last.startChar),
+    shares = p =>
+      p.open
+        ? p.open[0] < to && (p.close?.[0] ?? Infinity) >= first.endChar
+        : p.close[0] >= first.endChar && p.close[0] < last.endChar,
+    around = p => kind === 'slur' && p.open?.[0] < from && (p.close?.[0] ?? Infinity) >= last.endChar,
+    near = pairs.filter(p => p.voice === voice && LINE_FAMILY[kind].includes(p.kind) && shares(p));
+  let marks;
+  if (kind === 'slur') {
+    const m = lastText.match(NOTE_PARTS);
+    marks = [
+      {at: first.startChar + lineSlot(firstText, kind), remove: 0, insert: '('},
+      {
+        at: last.startChar + m[1].length + m[2].length + m[3].length + m[4].match(/^-?\)*/)[0].length,
+        remove: 0,
+        insert: ')'
+      }
+    ];
+  } else
+    marks = [
+      {at: first.startChar + lineSlot(firstText, kind), remove: 0, insert: LINE_MARKS[kind][0]},
+      {at: last.startChar + lineSlot(lastText, kind, true), remove: 0, insert: LINE_MARKS[kind][1]}
+    ];
+  for (const keep of [true, false]) {
+    const edits = near
+      .filter(p => !keep || !around(p))
+      .flatMap(off)
+      .concat(marks);
+    if (pairsUp(abc, edits, kind)) return {on: true, edits};
+  }
+  return null;
+}
+// Whether the line whose two marks end the edits reads as one line once they are made.
+function pairsUp(abc, edits, kind) {
+  const moved = at => edits.reduce((sum, e) => (e.at < at ? sum + e.insert.length - e.remove : sum), at),
+    [open, close] = edits.slice(-2).map(e => moved(e.at));
+  return linePairs(applyLineEdits(abc, edits)).pairs.some(
+    p => p.kind === kind && p.open?.[0] === open && p.close?.[0] === close
+  );
+}
+// Apply lineEdits' edits, last first; at one position a removal goes before an insertion.
+function applyLineEdits(abc, edits) {
+  for (const e of [...edits].sort((a, b) => b.at - a.at || b.remove - a.remove))
+    abc = abc.slice(0, e.at) + e.insert + abc.slice(e.at + e.remove);
+  return abc;
+}
+function toggleLine(abc, first, last, kind) {
+  const change = lineEdits(abc, first, last, kind);
+  return change ? applyLineEdits(abc, change.edits) : abc;
+}
+function toggleSlur(abc, first, last) {
+  return toggleLine(abc, first, last, 'slur');
+}
+// kind: 'crescendo', 'diminuendo' or 'trill'.
+function toggleSpan(abc, first, last, kind) {
+  return kind === 'slur' ? abc : toggleLine(abc, first, last, kind);
+}
 // Chord symbols: a quoted string before a note that does not start with ^ _ < > @ (those place text annotations).
 // abcjs prints any such string above the staff. A chord symbol is a root (A–G), an optional sharp or flat, a quality
 // and an optional bass after a slash, optionally in parentheses; N.C. means no chord. The quality is an optional triad
