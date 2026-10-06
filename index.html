@@ -12,34 +12,35 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-    <script src="theme.js?v=d2023caa7461"></script>
-    <link rel="stylesheet" href="style.css?v=d2023caa7461" />
-    <script defer src="vendor/abcjs-basic-min.js?v=d2023caa7461"></script>
-    <script defer src="vendor/qrcode.js?v=d2023caa7461"></script>
-    <script defer src="catalog.js?v=d2023caa7461"></script>
-    <script defer src="catalog-expanded.js?v=d2023caa7461"></script>
-    <script defer src="score-tools.js?v=d2023caa7461"></script>
-    <script defer src="rights-tools.js?v=d2023caa7461"></script>
-    <script defer src="musicxml.js?v=d2023caa7461"></script>
-    <script defer src="catalog-licensed.js?v=d2023caa7461"></script>
-    <script defer src="catalog-lieder.js?v=d2023caa7461"></script>
-    <script defer src="catalog-quartets.js?v=d2023caa7461"></script>
-    <script defer src="catalog-pgh.js?v=d2023caa7461"></script>
-    <script defer src="catalog-skills.js?v=d2023caa7461"></script>
-    <script defer src="prompts.js?v=d2023caa7461"></script>
-    <script defer src="shared.js?v=d2023caa7461"></script>
-    <script defer src="library.js?v=d2023caa7461"></script>
-    <script defer src="backup.js?v=d2023caa7461"></script>
-    <script defer src="editor.js?v=d2023caa7461"></script>
-    <script defer src="measure-tools.js?v=d2023caa7461"></script>
-    <script defer src="palette.js?v=d2023caa7461"></script>
-    <script defer src="shortcuts.js?v=d2023caa7461"></script>
-    <script defer src="playback.js?v=d2023caa7461"></script>
-    <script defer src="mixer.js?v=d2023caa7461"></script>
-    <script defer src="keyboard.js?v=d2023caa7461"></script>
-    <script defer src="assignments.js?v=d2023caa7461"></script>
-    <script defer src="turn-in.js?v=d2023caa7461"></script>
-    <script defer src="app.js?v=d2023caa7461"></script>
+    <script src="theme.js?v=71b1d27756ee"></script>
+    <link rel="stylesheet" href="style.css?v=71b1d27756ee" />
+    <script defer src="vendor/abcjs-basic-min.js?v=71b1d27756ee"></script>
+    <script defer src="vendor/qrcode.js?v=71b1d27756ee"></script>
+    <script defer src="catalog.js?v=71b1d27756ee"></script>
+    <script defer src="catalog-expanded.js?v=71b1d27756ee"></script>
+    <script defer src="score-tools.js?v=71b1d27756ee"></script>
+    <script defer src="rights-tools.js?v=71b1d27756ee"></script>
+    <script defer src="musicxml.js?v=71b1d27756ee"></script>
+    <script defer src="catalog-licensed.js?v=71b1d27756ee"></script>
+    <script defer src="catalog-lieder.js?v=71b1d27756ee"></script>
+    <script defer src="catalog-quartets.js?v=71b1d27756ee"></script>
+    <script defer src="catalog-pgh.js?v=71b1d27756ee"></script>
+    <script defer src="catalog-skills.js?v=71b1d27756ee"></script>
+    <script defer src="prompts.js?v=71b1d27756ee"></script>
+    <script defer src="shared.js?v=71b1d27756ee"></script>
+    <script defer src="library.js?v=71b1d27756ee"></script>
+    <script defer src="backup.js?v=71b1d27756ee"></script>
+    <script defer src="editor.js?v=71b1d27756ee"></script>
+    <script defer src="measure-tools.js?v=71b1d27756ee"></script>
+    <script defer src="palette.js?v=71b1d27756ee"></script>
+    <script defer src="shortcuts.js?v=71b1d27756ee"></script>
+    <script defer src="playback.js?v=71b1d27756ee"></script>
+    <script defer src="mixer.js?v=71b1d27756ee"></script>
+    <script defer src="keyboard.js?v=71b1d27756ee"></script>
+    <script defer src="assignments.js?v=71b1d27756ee"></script>
+    <script defer src="turn-in.js?v=71b1d27756ee"></script>
+    <script defer src="record.js?v=71b1d27756ee"></script>
+    <script defer src="app.js?v=71b1d27756ee"></script>
   </head>
   <body>
     <header>
@@ -488,6 +489,13 @@
             <div class="transport">
               <button id="play" class="primary">▶ Play</button
               ><button id="stop" aria-label="Stop playback">■ Stop</button
+              ><button
+                id="record"
+                aria-expanded="false"
+                aria-controls="record-panel"
+                title="Record yourself along with the score"
+              >
+                ● Record</button
               ><label class="inline"><input type="checkbox" id="loop" /> Loop</label
               ><label class="inline"><input type="checkbox" id="metronome" /> Metronome</label
               ><label class="inline"><input type="checkbox" id="count-in" /> Count-in</label
@@ -583,6 +591,41 @@
                 ><input type="checkbox" id="audition" checked /> Hear notes</label
               >
             </div>
+            <section id="record-panel" class="share-panel record-panel" aria-labelledby="record-heading" hidden>
+              <div class="share-head">
+                <h2 id="record-heading">Record yourself</h2>
+                <button id="record-close" type="button" aria-label="Close recording">✕</button>
+              </div>
+              <p class="small">
+                The practice range plays once at the playback speed while the microphone records you. Wear headphones so
+                the take has only you in it.
+              </p>
+              <div class="record-row">
+                <button id="record-start" class="primary">● Start recording</button
+                ><label class="inline"
+                  >Count-in
+                  <select id="record-count-in">
+                    <option value="1">1 bar</option>
+                    <option value="2">2 bars</option>
+                  </select></label
+                ><label class="inline record-level"
+                  >Microphone
+                  <meter id="record-level" min="0" max="1" low="0.05" high="0.9" optimum="0.5" value="0"></meter
+                ></label>
+              </div>
+              <p id="record-status" class="small" role="status"></p>
+              <p id="takes-empty" class="small">No takes of this score yet.</p>
+              <ol id="take-list" class="take-list" aria-label="Takes" hidden></ol>
+              <div class="record-row">
+                <button id="record-calibrate">Calibrate timing</button>
+                <p id="calibrate-status" class="small" role="status"></p>
+              </div>
+              <p id="record-storage" class="small"></p>
+              <div id="takes-stray" class="record-row" hidden>
+                <p id="takes-stray-text" class="small"></p>
+                <button id="takes-stray-delete" type="button" aria-describedby="takes-stray-text">Delete them</button>
+              </div>
+            </section>
             <p class="small keyboard-help">
               <strong>Keyboard:</strong> click a note, then <kbd>A</kbd>–<kbd>G</kbd> add notes · <kbd>R</kbd> rest ·
               Shift+<kbd>A</kbd>–<kbd>G</kbd> add to the chord · <kbd>3</kbd>–<kbd>7</kbd> length (16th to whole) ·
@@ -594,6 +637,7 @@
               double-click it) · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> or Shift+click select more ·
               <kbd>Ctrl</kbd>+<kbd>A</kbd> all · <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd> <kbd>V</kbd> copy, cut, paste
               · <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>[</kbd> <kbd>]</kbd> halve, double lengths ·
+              <kbd>L</kbd> lyrics ·
               <button
                 id="shortcuts-open"
                 class="shortcuts-open"
@@ -623,8 +667,8 @@
             <p class="small" id="selection-status" role="status">
               Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag
               up/down to change pitch; use the toolbar above the score or right-click a note for length, accidentals,
-              ties, tuplets, grace notes, articulations, dynamics and chord symbols. Playback speed leaves the score
-              tempo unchanged.
+              ties, tuplets, grace notes, articulations, dynamics, chord symbols and lyrics. Playback speed leaves the
+              score tempo unchanged.
             </p>
             <div id="feedback-note" class="feedback-note" hidden>
               <strong>Feedback from your teacher</strong>
@@ -632,6 +676,9 @@
             </div>
             <div id="prompt-check" class="prompt-check" aria-live="polite" hidden></div>
             <div id="bar-check" class="bar-check" aria-live="polite" hidden></div>
+            <p id="lyric-check" class="bar-check lyric-check" role="status" hidden>
+              Notes changed in a line with lyrics. Check that the words still line up.
+            </p>
             <div id="palette" class="palette" role="toolbar" aria-label="Notation" aria-controls="notation">
               <div role="group" aria-label="Length">
                 <button data-palette="len:1" aria-label="Whole note" aria-keyshortcuts="7" title="Whole note (7)">
@@ -776,6 +823,16 @@
               <div role="group" aria-label="Chord symbol">
                 <button data-palette="chord" aria-label="Chord symbol" aria-keyshortcuts="K" title="Chord symbol (K)">
                   Chord
+                </button>
+              </div>
+              <div role="group" aria-label="Lyrics">
+                <button
+                  data-palette="lyric"
+                  aria-label="Lyrics"
+                  aria-keyshortcuts="L"
+                  title="Lyrics under the notes (L)"
+                >
+                  Lyrics
                 </button>
               </div>
               <div role="group" aria-label="Lines">
@@ -983,6 +1040,25 @@
                   Next ▸
                 </button>
                 <p id="chord-hint" class="chord-hint" aria-live="polite">Enter saves · Tab next note · Esc cancels</p>
+              </div>
+              <div id="lyric-entry" class="chord-entry lyric-entry" role="group" aria-label="Lyrics" hidden>
+                <span id="lyric-verse" class="lyric-verse">Verse 1</span
+                ><input
+                  id="lyric-input"
+                  type="text"
+                  maxlength="400"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  enterkeyhint="next"
+                  aria-label="Lyrics, verse 1"
+                  aria-describedby="lyric-hint"
+                /><button id="lyric-next" type="button" tabindex="-1" title="Save and go to the next note (Tab)">
+                  Next ▸
+                </button>
+                <p id="lyric-hint" class="chord-hint" aria-live="polite">
+                  Space next note · - hyphen · _ hold · * no syllable · Enter verse 2 · Esc done
+                </p>
               </div>
             </div>
             <div
@@ -1308,16 +1384,21 @@
           from those programs too, converted to ABC on your device. Select a passage to copy, cut, paste or repeat it,
           or to move or lengthen every note in it at once. Measure in the toolbar inserts and deletes bars, and adds
           double and final bar lines, repeats, 1st and 2nd endings, segno, coda, D.C., D.S. and Fine, rehearsal letters,
-          and changes of time signature, key or clef. Screen readers hear the selected note named with its length,
-          pitch, measure and beat, and ? lists every shortcut, with a search box that runs the command you type. Zoom in
-          for larger notation, or choose how many measures go on each line. Use Print / PDF to produce a paper score, in
-          large print if you zoom in first. Transpose a score or a few measures by any interval or to a new key. Choose
-          a B♭, E♭ or F instrument for written-pitch transposition with concert-pitch playback, and tick Concert pitch
-          to see the notes as they sound. Classroom colors and letters in noteheads help beginners read, and both print.
-          Theme in the header switches to a dark theme, or follows your device; the score stays black on white unless
-          you tick Dark paper, and prints stay black on white. WAV makes an audio file of the score as playback sounds
-          it, made on your device, to hand in or to practice along with. Mixer mutes, solos, sets the volume of or pans
-          each voice, the chords and the metronome, to practice one part against the others.
+          and changes of time signature, key or clef; playback follows D.C., D.S., To Coda and Fine, and holds fermatas.
+          Screen readers hear the selected note named with its length, pitch, measure and beat, and ? lists every
+          shortcut, with a search box that runs the command you type. Zoom in for larger notation, or choose how many
+          measures go on each line. Use Print / PDF to produce a paper score, in large print if you zoom in first.
+          Transpose a score or a few measures by any interval or to a new key. Choose a B♭, E♭ or F instrument for
+          written-pitch transposition with concert-pitch playback, and tick Concert pitch to see the notes as they
+          sound. <strong>● Record</strong> records you playing or singing along with the score after a count-in; takes
+          stay on your device, play back alone or with the score, and download as audio files.
+          <strong>Calibrate timing</strong> lines takes up with the score on each device. Classroom colors and letters
+          in noteheads help beginners read, and both print. Theme in the header switches to a dark theme, or follows
+          your device; the score stays black on white unless you tick Dark paper, and prints stay black on white. WAV
+          makes an audio file of the score as playback sounds it, made on your device, to hand in or to practice along
+          with. Press L on a note to type lyrics under it, a syllable at a time, with more verses below. Mixer mutes,
+          solos, sets the volume of or pans each voice, the chords and the metronome, to practice one part against the
+          others.
         </p>
         <h2>Privacy and school access</h2>
         <p>
@@ -1331,10 +1412,11 @@
           <strong>embed code</strong> for a class website, Google Sites, Canvas or a blog, which shows the score
           read-only with Play and its credits and saves nothing on the visitor’s device, and a
           <strong>QR code</strong> of the link for students to scan from the projector. Library scores and the notation
-          engine ship with the site, so the core experience makes no third-party requests. Local storage can be cleared
-          by the browser or school device policy; export work you want to keep. Unsaved changes are kept as a draft in
-          the browser, so a closed or discarded tab offers them back on the next visit. Saving a changed score keeps the
-          copy it replaces: <strong>History</strong> in My scores previews, plays and restores earlier versions.
+          engine ship with the site, so the core experience makes no third-party requests. Recordings stay in the
+          browser too, and are not in backups. Local storage can be cleared by the browser or school device policy;
+          export work you want to keep. Unsaved changes are kept as a draft in the browser, so a closed or discarded tab
+          offers them back on the next visit. Saving a changed score keeps the copy it replaces:
+          <strong>History</strong> in My scores previews, plays and restores earlier versions.
         </p>
         <p>
           <strong>Offline and installing.</strong> After one visit, FretFree opens and works without internet: the

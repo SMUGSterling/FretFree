@@ -33,6 +33,7 @@ const SCRIPTS = [
   'keyboard.js',
   'assignments.js',
   'turn-in.js',
+  'record.js',
   'app.js'
 ];
 // A fresh page load: `seed` fills localStorage before the scripts run, as a previous visit would have left it.
@@ -447,7 +448,8 @@ $('new-bars').value = '8';
       'fretfree-note-names': 'letters',
       'fretfree-note-colors': 'classroom',
       'fretfree-zoom': 140,
-      'fretfree-practice-chords': false
+      'fretfree-practice-chords': false,
+      'fretfree-record-count-in': 2
     }
   };
   const before = run('saved.length');
@@ -464,6 +466,12 @@ $('new-bars').value = '8';
   assert.equal(run('backupData().settings')['fretfree-note-colors'], 'classroom', 'Classroom colors backed up');
   assert.equal(run("applyStoredSettings();$('chords').checked"), false, 'The Chords switch restored from a backup');
   assert.equal(run('backupData().settings')['fretfree-practice-chords'], false, 'and backed up');
+  // The recording count-in travels in backups; the measured latency belongs to this device and does not.
+  run('storage.set(KEYS.latency, {ms: 120, at: 1})');
+  assert.equal(run("$('record-count-in').value"), '2', 'The recording count-in restored from a backup');
+  assert.equal(run('backupData().settings')['fretfree-record-count-in'], 2);
+  assert.equal('fretfree-latency' in run('backupData().settings'), false, 'Latency is not backed up');
+  run('storage.remove(KEYS.latency)');
   const newer = {
     app: 'FretFree',
     format: 1,
@@ -2104,7 +2112,7 @@ assert.equal(
     assert.match($('toast').textContent, /^FretFree is installed/);
   }
   console.log(
-    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), turning in (name required and remembered, n/t/x/g links, the .json file, stale links after edits, Turned in by, escaping) and Submissions (30 pasted links in one group, bad lines reported, duplicates, sorting, Previous/Next with focus, feedback kept per student, return links with c, feedback on the student’s saved copy, backup and restore, damaged entries, the 200 cap, delete and clear), backup and restore (with classroom colors, zoom and the Chords switch), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files), and the offline notice and Install app.'
+    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), turning in (name required and remembered, n/t/x/g links, the .json file, stale links after edits, Turned in by, escaping) and Submissions (30 pasted links in one group, bad lines reported, duplicates, sorting, Previous/Next with focus, feedback kept per student, return links with c, feedback on the student’s saved copy, backup and restore, damaged entries, the 200 cap, delete and clear), backup and restore (with classroom colors, zoom, the Chords switch and the recording count-in, but not the device latency), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files), and the offline notice and Install app.'
   );
 })().catch(e => {
   console.error(e);

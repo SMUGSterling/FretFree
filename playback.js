@@ -25,6 +25,8 @@ function stop() {
   nodes = [];
   $('play').textContent = '▶ Play';
   $('play-status').textContent = 'Ready to play';
+  // A recording ends with the playback it follows, and a take playing with the score stops with it.
+  if (typeof takeStopped === 'function') takeStopped();
 }
 // Where playback is, in score seconds, so a speed change or the Chords switch can carry on from there.
 const playPosition = () => (playing ? playOrigin + Math.max(0, audio.currentTime - playClock) * playSpeed : null);
@@ -64,17 +66,19 @@ function measureLengths() {
   return lengths;
 }
 // Metronome clicks in score seconds. Each bar's clicks are spaced from that bar's real start and end, so they follow
-// repeats and tempo changes at barlines; a pickup bar is aligned to its end.
+// repeats, jumps and tempo changes at barlines; a pickup bar is aligned to its end. With a road map the bars are
+// spaced before holds (each click keeps that time as unheld), and a fermata then stretches the clicks under it.
 function clickTimes(from, until, end = until) {
   const beats = beatsPerBar(),
     bar = renderedTune?.getBarLength?.() || 1,
     beat = bar / beats,
     lengths = measureLengths(),
     out = [];
-  const starts = (renderedTune?.noteTimings || []).filter(e => e.type === 'event' && e.measureStart);
+  const starts = playEvents().filter(e => e.type === 'event' && e.measureStart),
+    unheld = e => (e.unheld ?? e.milliseconds) / 1000;
   for (const [i, e] of starts.entries()) {
-    const t = e.milliseconds / 1000,
-      next = starts[i + 1] ? starts[i + 1].milliseconds / 1000 : end;
+    const t = unheld(e),
+      next = starts[i + 1] ? unheld(starts[i + 1]) : playPlan ? playPlan.length : end;
     const measure = (e.startCharArray || []).map(c => noteSources.get(c)?.measure).find(Boolean);
     const length = lengths.get(measure) || bar,
       secondsPerWhole = (next - t) / length,
@@ -82,18 +86,18 @@ function clickTimes(from, until, end = until) {
     for (let k = 0; k < beats; k++) {
       const p = pickup ? length - (beats - k) * beat : k * beat;
       if (p < -1e-9 || p >= length - 1e-9) continue;
-      const c = t + p * secondsPerWhole;
-      if (c >= from - 1e-6 && c < until - 1e-6) out.push({time: c, down: k === 0 && !pickup});
+      const unheld = t + p * secondsPerWhole,
+        c = toPlayed(unheld);
+      if (c >= from - 1e-6 && c < until - 1e-6) out.push({time: c, down: k === 0 && !pickup, unheld});
     }
   }
   return out;
 }
-// Swing grid for playback, in the decoded MIDI's seconds: each measure as played, with its quarter-note length from its
-// real start and end, so swing follows repeats and tempo changes. Only x/4 and x/2 meters swing. The note timings and
+// Each measure start of the drawn notes' timeline (abcjs's note timings, with repeats played out) and the end of the
+// tune, in the decoded MIDI's seconds: {starts, sizes, times}, with one more time than starts. The note timings and
 // the MIDI share one tempo (settleTempo), so scale is 1 to within MIDI's whole microseconds; abcjs's note timings are
 // whole milliseconds, so each measure start is then moved onto the MIDI note that starts there, if one does.
-function swingBars(midi) {
-  if (![2, 4].includes(meterParts()[1])) return [];
+function midiMeasures(midi) {
   const bar = renderedTune?.getBarLength?.() || 1,
     perQuarter = (renderedTune?.millisecondsPerMeasure?.() || 0) / 1000 / bar / 4,
     scale = perQuarter > 0 && midi.quarter > 0 ? midi.quarter / perQuarter : 1,
@@ -102,7 +106,7 @@ function swingBars(midi) {
     timings = renderedTune?.noteTimings || [],
     starts = timings.filter(e => e.type === 'event' && e.measureStart),
     end = timings.find(e => e.type === 'end');
-  if (!starts.length) return [];
+  if (!starts.length) return null;
   const sizes = starts.map(
       e => lengths.get((e.startCharArray || []).map(c => noteSources.get(c)?.measure).find(Boolean)) || bar
     ),
@@ -127,7 +131,17 @@ function swingBars(midi) {
     drift += hit - t;
     return hit;
   });
-  const short = i => sizes[i] < bar - 1e-9;
+  return {starts, sizes, times};
+}
+// Swing grid for playback, in the decoded MIDI's seconds: each measure as played, with its quarter-note length from its
+// real start and end, so swing follows repeats and tempo changes. Only x/4 and x/2 meters swing.
+function swingBars(midi) {
+  if (![2, 4].includes(meterParts()[1])) return [];
+  const measures = midiMeasures(midi);
+  if (!measures) return [];
+  const {starts, sizes, times} = measures,
+    bar = renderedTune?.getBarLength?.() || 1,
+    short = i => sizes[i] < bar - 1e-9;
   return starts.map((e, i) => {
     // A pickup, at the start or after a short measure that it completes (at a repeat or a new section), ends on the beat.
     const pickup = short(i) && (i === 0 || (short(i - 1) && Math.abs(sizes[i - 1] + sizes[i] - bar) < 1e-9));
@@ -137,6 +151,70 @@ function swingBars(midi) {
       origin: pickup ? times[i + 1] : times[i]
     };
   });
+}
+// The road map (score-tools.js): the order of play through D.C., D.S., coda and Fine, and the fermatas to hold, read
+// from the drawn score's timeline after each render. playPlan times it in the note timings' clock, for the highlight,
+// measure starts, practice ranges and clicks; play() times it again in the MIDI's clock for the sound. Both are null
+// when the score plays straight, which keeps the path it had before road maps.
+let playRoad = null,
+  playPlan = null;
+function updateRoadMap() {
+  playRoad = playPlan = null;
+  if (!renderedTune?.engraver) return;
+  const timings = renderedTune?.noteTimings || [],
+    starts = timings.filter(e => e.type === 'event' && e.measureStart),
+    end = timings.find(e => e.type === 'end');
+  if (!starts.length || !end) return;
+  // Plays and marks are counted in bars, so a multi-measure rest on one staff does not put the staves out of step.
+  const times = [...starts.map(e => e.milliseconds / 1000), end.milliseconds / 1000],
+    events = [...noteSources.values()].filter(Boolean),
+    bars = roadBars(events),
+    barOf = e => {
+      const entry = (e.startCharArray || []).map(c => noteSources.get(c)).find(Boolean);
+      return entry && bars.bar(entry.key, entry.measure);
+    },
+    order = performanceOrder(starts.map(barOf), roadMarks(events, renderedSource || '')),
+    bar = renderedTune.getBarLength?.() || 1,
+    holds = [];
+  // A fermata holds its note (or chord, or rest) twice its length, so it sounds for its length again.
+  let play = 0;
+  for (const e of timings) {
+    if (e.type !== 'event') continue;
+    const t = e.milliseconds / 1000;
+    while (play + 1 < starts.length && times[play + 1] <= t + 1e-6) play++;
+    for (const c of e.startCharArray || []) {
+      const marks = noteSources.get(c)?.element.decoration || [],
+        whole = noteDurations.get(c) || 0;
+      if (whole > 0 && (marks.includes('fermata') || marks.includes('invertedfermata')))
+        holds.push({play, offset: t - times[play], length: (whole * e.millisecondsPerMeasure) / bar / 1000});
+    }
+  }
+  if (!order && !holds.length) return;
+  playRoad = {order, holds};
+  playPlan = performancePlan(order, times, holds);
+  playPlan.events = planEvents(playPlan, timings);
+  for (const piece of playPlan.pieces) piece.measure = bars.measure(piece.measure);
+}
+// The note timing events as heard, and a time before holds as heard.
+const playEvents = () => playPlan?.events || renderedTune?.noteTimings || [],
+  toPlayed = t => (playPlan ? planWarp(playPlan, t) : t);
+// The notes Play sounds, from the rendered score's MIDI. Swing moves note times only; measure starts, clicks and the
+// note highlight keep the written beat. The road map then puts the swung notes in the order of play, with fermatas
+// held, timed in the MIDI's clock.
+function playedNotes(source, chordsOff) {
+  const midi = parseMidi(midiBytes(source, {chordsOff})),
+    swung = swingPlayback(midi, swingAmount(source), swingBars(midi)),
+    measures = playRoad && midiMeasures(midi),
+    plan = measures && performancePlan(playRoad.order, measures.times, playRoad.holds);
+  return plan ? planNotes(plan, swung) : swung;
+}
+// Where a practice range stops for a jump that leaves it: a D.C. after measure 8 goes back to measure 1, outside a
+// range of measures 5–8. A range that holds the jump's target plays on through the jump.
+function jumpEnd(range, from) {
+  const out = (playPlan?.pieces || []).find(
+    p => p.jump && planWarp(playPlan, p.at) > from + 1e-6 && (p.measure < range.from || p.measure > range.to)
+  );
+  return out ? planWarp(playPlan, out.at) : Infinity;
 }
 // Master bus: every note and click goes through one gain node that follows the Volume slider live, then a limiter
 // (where the browser has one) so chords and accompaniment do not clip. Built once per audio context, on first use; an
@@ -267,7 +345,7 @@ function schedulePass(p, from, percent, base, pass) {
   const speed = percent / 100,
     notes = p.full.notes.filter(n => !(n.straightEnd <= from + SLICE_EDGE)),
     data = playbackSlice({...p.full, notes}, from, percent, p.until),
-    looping = $('loop').checked || $('trainer').checked;
+    looping = !p.once && ($('loop').checked || $('trainer').checked);
   // Each mixer track plays through its own chain (mixer.js); muted tracks are not scheduled.
   for (const [out, notes] of mixRoute(data.notes)) scheduleNotes(notes, base, currentInstrument(), nodes, audio, out);
   const clicks = $('metronome').checked && mixClick();
@@ -281,7 +359,7 @@ function schedulePass(p, from, percent, base, pass) {
     playSpeed = speed;
     nodes = nodes.filter(n => !n.done);
     startFollow(p.generation);
-    if ($('trainer').checked) {
+    if (looping && $('trainer').checked) {
       $('speed').value = percent;
       $('speed-value').textContent = percent + '%';
       if (typeof updateWavSummary === 'function') updateWavSummary();
@@ -289,6 +367,18 @@ function schedulePass(p, from, percent, base, pass) {
     $('play-status').textContent =
       `Measures ${p.range.from}–${p.range.to} · ${percent}% speed` + (looping ? ` · loop ${pass}` : '');
   });
+  // The status line names each jump as it is taken.
+  for (const piece of playPlan?.pieces || []) {
+    const at = planWarp(playPlan, piece.at);
+    if (piece.jump && at > from + 1e-6 && at < p.until - 1e-6)
+      atAudioTime(base + (at - from) / speed, () => {
+        if (p.generation !== playGeneration) return;
+        $('play-status').textContent =
+          `Measures ${p.range.from}–${p.range.to} · ${percent}% speed` +
+          (looping ? ` · loop ${pass}` : '') +
+          ` · ${piece.jump}: ${piece.jump === 'To Coda' ? '' : 'back to '}measure ${piece.measure}`;
+      });
+  }
   const end = base + (p.until - from) / speed;
   if (looping)
     atAudioTime(Math.max(base, end - 0.25), () => {
@@ -304,7 +394,10 @@ function schedulePass(p, from, percent, base, pass) {
       if (p.generation === playGeneration) stop();
     });
 }
-async function play(resumeFrom = null, {countIn = false} = {}) {
+// Options for recording and takes: countInBars counts in that many bars whatever the Count-in box says, once plays the
+// range a single time (no loop or trainer), percent and until replace the speed and the end, and onStart gets the audio
+// time where score time `from` sounds.
+async function play(resumeFrom = null, {countIn = false, countInBars = 0, once = false, percent, until, onStart} = {}) {
   if (playing) {
     stop();
     return;
@@ -317,9 +410,7 @@ async function play(resumeFrom = null, {countIn = false} = {}) {
     audio ||= new (window.AudioContext || window.webkitAudioContext)();
     await audio.resume();
     if (generation !== playGeneration) return;
-    // Swing moves note times only; measure starts, clicks and the note highlight keep the written beat.
-    const midi = parseMidi(midiBytes($('abc').value, {chordsOff: $('chords')?.checked === false})),
-      full = swingPlayback(midi, swingAmount($('abc').value), swingBars(midi)),
+    const full = playedNotes($('abc').value, $('chords')?.checked === false),
       range = measureRange(),
       start = measureStarts.get(range.from);
     const from = resumeFrom ?? start;
@@ -331,8 +422,11 @@ async function play(resumeFrom = null, {countIn = false} = {}) {
     // A start inside the range ends at the range's end; a start past it plays to the end of the tune, and loops from there.
     const rangeStop = start == null ? full.duration : rangeEnd(range.to, full.duration, start),
       past = from >= rangeStop - 1e-6;
-    const until = past ? full.duration : rangeEnd(range.to, full.duration, from);
-    const percent = +$('speed').value;
+    until = Math.min(
+      until ?? (past ? full.duration : Math.min(rangeEnd(range.to, full.duration, from), jumpEnd(range, from))),
+      full.duration
+    );
+    percent ??= +$('speed').value;
     if (!playbackSlice(full, from, percent, until).notes.length) {
       toast('Add some notes before playback.');
       return;
@@ -341,21 +435,30 @@ async function play(resumeFrom = null, {countIn = false} = {}) {
     $('play').textContent = '■ Playing';
     let base = audio.currentTime + 0.07;
     // Count-in: one bar of clicks at the starting tempo when starting fresh or from a chosen note, not on a speed change.
-    if ((resumeFrom == null || countIn) && $('count-in').checked) {
-      // Beat length at the start: the spacing of the first full-bar clicks from the starting measure onward.
+    // A recording asks for its own number of bars.
+    if (countInBars > 0 || ((resumeFrom == null || countIn) && $('count-in').checked)) {
+      // Beat length at the start: the spacing of the first full-bar clicks from the starting measure onward, before
+      // any fermata there stretches them.
       const beats = beatsPerBar(),
+        bars = Math.max(1, Math.round(countInBars) || 1),
         grid = clickTimes(from, full.duration, full.duration),
         down = grid.findIndex((c, i) => c.down && grid[i + 1]);
-      const step = (down >= 0 ? grid[down + 1].time - grid[down].time : 0.5) / (percent / 100);
+      const step = (down >= 0 ? grid[down + 1].unheld - grid[down].unheld : 0.5) / (percent / 100);
       const clicks = mixClick(audio, outputNode(), {countIn: true});
-      for (let k = 0; k < beats; k++) click(base + k * step, k === 0, audio, clicks);
-      $('play-status').textContent = 'Count-in…';
-      base += beats * step;
+      for (let k = 0; k < beats * bars; k++) click(base + k * step, k % beats === 0, audio, clicks);
+      const counting = left => (bars > 1 ? `Count-in: ${left} ${left === 1 ? 'bar' : 'bars'} to go…` : 'Count-in…');
+      $('play-status').textContent = counting(bars);
+      for (let b = 1; b < bars; b++)
+        atAudioTime(base + b * beats * step, () => {
+          if (generation === playGeneration) $('play-status').textContent = counting(bars - b);
+        });
+      base += beats * bars * step;
     } else $('play-status').textContent = `Measures ${range.from}–${range.to} · ${percent}% speed`;
     playOrigin = from;
     playClock = base;
     playSpeed = percent / 100;
-    schedulePass({full, range, start: past ? from : start, until, generation}, from, percent, base, 1);
+    schedulePass({full, range, start: past ? from : start, until, generation, once}, from, percent, base, 1);
+    onStart?.({clock: base, from, until, percent});
   } catch (e) {
     stop();
     toast('Playback unavailable: ' + e.message);
@@ -386,8 +489,7 @@ async function renderWav({metronome = false, chords = true, signal = null, progr
     render();
   }
   const source = $('abc').value,
-    midi = parseMidi(midiBytes(source, {chordsOff: !chords})),
-    full = swingPlayback(midi, swingAmount(source), swingBars(midi)),
+    full = playedNotes(source, !chords),
     percent = +$('speed').value,
     data = playbackSlice(full, 0, percent, full.duration);
   if (!data.notes.length) throw Error('Add some notes before making an audio file.');
@@ -473,14 +575,15 @@ function startFollow(generation) {
   stopFollow();
   if (!renderedTune?.noteTimings) return;
   const bar = renderedTune.getBarLength?.() || 1,
-    events = renderedTune.noteTimings.filter(e => e.type === 'event' && e.elements?.length),
+    events = playEvents().filter(e => e.type === 'event' && e.elements?.length),
     notes = [];
   for (const [i, e] of events.entries())
     for (const [j, group] of e.elements.entries()) {
       const start = e.milliseconds / 1000,
         whole = noteDurations.get(e.startCharArray?.[j]);
+      // A note under a fermata ends where the hold does.
       const end = whole
-        ? start + (whole * e.millisecondsPerMeasure) / bar / 1000
+        ? toPlayed((e.unheld ?? e.milliseconds) / 1000 + (whole * e.millisecondsPerMeasure) / bar / 1000)
         : (events[i + 1]?.milliseconds ?? Infinity) / 1000;
       notes.push({start, end, at: e.startCharArray?.[j], els: [group].flat(2).filter(el => el?.classList)});
     }
@@ -518,11 +621,10 @@ function prepareTrainer() {
     $('speed').oninput();
   }
 }
-// Play from a note: double-click it, press Space with it selected, or choose Play from here in its menu.
+// Play from a note: double-click it, press Space with it selected, or choose Play from here in its menu. A note played
+// more than once starts from its first time.
 function noteStartTime(display) {
-  const e = (renderedTune?.noteTimings || []).find(
-    t => t.type === 'event' && (t.startCharArray || []).includes(display.startChar)
-  );
+  const e = playEvents().find(t => t.type === 'event' && (t.startCharArray || []).includes(display.startChar));
   return e ? e.milliseconds / 1000 : null;
 }
 function playFromNote(display) {

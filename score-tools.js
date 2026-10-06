@@ -670,6 +670,345 @@ function transposeChordSymbol(name, semitones, letters = Math.round((semitones *
     }
   });
 }
+// Lyrics. Each w: line under a line of music is a verse, and abcjs gives its syllables to the notes of that line (of
+// the voice written there) in order, leaving out rests. In the text a space ends a syllable, - ends it with a hyphen
+// to the next one, _ holds it over one more note, * leaves a note out and | jumps to the next bar; ~ is a space inside
+// a syllable and a backslash makes any of these plain text. A w: line ending in a backslash goes on in the next one.
+// The functions below read verses the way abcjs 6.5.2 does (its quirks included: a skip can land on a rest) and write
+// them back so that it reads them as meant.
+// The w: text as abcjs splits it: syllables {syllable, divider: ' ' | '-' | '_'} and skips {skip: 'next' | 'slur' |
+// 'bar'}.
+function lyricUnits(text) {
+  let words = String(text).trim();
+  if (!words.endsWith('-')) words += ' ';
+  const units = [];
+  let from = 0,
+    tilde = false,
+    escaped = false;
+  const end = at => {
+    let word = words
+      .slice(from, at)
+      .trim()
+      .replace(/\\([-_*|~])/g, '$1');
+    from = at + 1;
+    if (!word) return false;
+    if (tilde) word = word.replace(/~/g, ' ');
+    units.push({syllable: word, divider: words[at] === '-' || words[at] === '_' ? words[at] : ' '});
+    tilde = false;
+    return true;
+  };
+  for (let i = 0; i < words.length; i++) {
+    const c = words[i];
+    if (c === ' ') end(i);
+    else if (!escaped && c === '-') {
+      if (!end(i) && units.length) {
+        units.at(-1).divider = '-';
+        units.push({skip: 'next'});
+      }
+    } else if (!escaped && (c === '_' || c === '*' || c === '|')) {
+      end(i);
+      units.push({skip: {_: 'slur', '*': 'next', '|': 'bar'}[c]});
+    } else if (!escaped && c === '~') tilde = true;
+    escaped = c === '\\';
+  }
+  return units;
+}
+// What each element of a voice's line gets from one verse: a Map from element to {syllable, divider}. A skip moves on
+// at the next note or rest (or bar line, for |), and every element it passes gets an empty syllable.
+function alignLyrics(elements, units) {
+  const queue = [...units],
+    out = new Map();
+  for (const e of elements) {
+    if (!queue.length) break;
+    if (queue[0].skip) {
+      if (queue[0].skip === 'bar' ? e.el_type === 'bar' : e.el_type === 'note' && e.pitches !== null) queue.shift();
+      if (e.el_type !== 'bar') out.set(e, {syllable: '', divider: ' '});
+    } else if (e.el_type === 'note' && e.rest === undefined) {
+      const {syllable, divider} = queue.shift();
+      out.set(e, {syllable: syllable.replace(/ +/g, '\u00a0'), divider});
+    }
+  }
+  return out;
+}
+// The lines of music of one voice ('staff:voice') that have notes: [{line (abcjs line number), elements, notes}],
+// where notes are the notes and chords that take syllables. Given the source, lines where the voice is written with &
+// over the staff's first voice are left out: abcjs gives the w: lines under that text to the first voice.
+function lyricSlots(tune, voice = '0:0', source = null) {
+  const [s, v] = String(voice).split(':').map(Number),
+    out = [];
+  (tune?.lines || []).forEach((line, i) => {
+    const elements = line.staff?.[s]?.voices?.[v];
+    const notes = (elements || []).filter(e => e.el_type === 'note' && e.rest === undefined);
+    if (notes.length && !(v > 0 && source != null && lyricOverlay(source, line.staff[s].voices[0], elements)))
+      out.push({line: i, elements, notes});
+  });
+  return out;
+}
+// Whether a voice's elements on a line of music share a line of text with the notes or bar lines of the staff's first
+// voice there, as a voice written after & does.
+function lyricOverlay(source, first, elements) {
+  const lines = new Set(
+    (first || [])
+      .filter(e => (e.el_type === 'note' || e.el_type === 'bar') && e.startChar >= 0)
+      .map(e => lineStartOf(source, e.startChar))
+  );
+  return elements.some(e => e.el_type === 'note' && e.startChar >= 0 && lines.has(lineStartOf(source, e.startChar)));
+}
+// The syllables abcjs keeps on a note or chord: one {syllable, divider} for each verse that reaches it, in order.
+function readLyrics(element) {
+  return (element?.lyric || []).map(({syllable, divider}) => ({syllable, divider}));
+}
+// The verses written under a slot's line of music: {at, verses: [{start, end, prefix, text}]}, where at is where a new
+// verse line goes (after the last one, or after the music) and each verse spans its w: lines. The music ends with the
+// line of text that holds its last note or bar line: abcjs also gives it a field that starts the next line of text
+// ([K:G] or a K: line), and the words for this line go before the music after it. Comment lines and fields other
+// than V: between w: lines are passed over, as abcjs does.
+function lyricVerses(source, slot) {
+  const last = Math.max(
+      ...slot.elements.map(e => (e.el_type === 'note' || e.el_type === 'bar' ? (e.startChar ?? -1) : -1))
+    ),
+    line = /\n([^\n]*)/y,
+    verses = [];
+  let at = source.indexOf('\n', last),
+    joined = false,
+    m;
+  if (at < 0) at = source.length;
+  line.lastIndex = at;
+  while ((m = line.exec(source))) {
+    const text = m[1];
+    if (/^%/.test(text) || (/^[A-Za-z]:/.test(text) && !/^[Vw]:/.test(text))) continue;
+    if (!/^w:/.test(text)) break;
+    const [, prefix, body] = text.match(/^(w:[ \t]*)(.*)$/),
+      more = /\\\s*$/.test(body),
+      words = more ? body.replace(/\\\s*$/, ' ') : body;
+    if (joined) Object.assign(verses.at(-1), {end: line.lastIndex, text: verses.at(-1).text + words});
+    else verses.push({start: m.index + 1, end: line.lastIndex, prefix, text: words});
+    joined = more;
+    at = line.lastIndex;
+  }
+  return {at, verses};
+}
+// One verse's syllable for each of the slot's notes, or null for a note it does not reach.
+function verseLyrics(slot, text) {
+  const got = alignLyrics(slot.elements, lyricUnits(text));
+  return slot.notes.map(n => got.get(n) || null);
+}
+const lyricReach = (slot, text) => verseLyrics(slot, text).filter(Boolean).length;
+// An entry with a syllable, or null: a note a skip passed over has nothing to show.
+const syllableOnly = x => (x?.syllable ? x : null);
+// A syllable as w: text: the marks above written as plain characters, and spaces (abcjs keeps them as no-break
+// spaces) as ~.
+const lyricWord = text =>
+  String(text)
+    .replace(/[-_*|~]/g, '\\$&')
+    .replace(/[ \u00a0]+/g, '~');
+// A typed syllable tidied for a w: line: line breaks, % (a comment) and backslashes dropped, spaces trimmed.
+const tidyLyric = text =>
+  String(text ?? '')
+    .replace(/[%\\\r\n]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+// The w: text for one verse of a slot: entries holds each note's {syllable, divider} or null. Notes without a syllable
+// before the last one with a syllable (or before note need) are written as *, or as - in a hyphenated word and _ in
+// a held syllable. A rest that abcjs would let take one of those gets one of its own.
+function lyricText(slot, entries, need = 0) {
+  const has = i => !!entries[i]?.syllable,
+    until = Math.max(
+      need - 1,
+      entries.findLastIndex((x, i) => has(i))
+    ),
+    tokens = [];
+  let i = 0,
+    hold = 0,
+    mark = '*';
+  for (const e of slot.elements) {
+    if (i > until) break;
+    if (e.el_type !== 'note' || e.pitches === null) continue;
+    if (e.rest !== undefined) {
+      if (hold) hold--;
+      else if (!has(i)) tokens.push({skip: mark});
+      continue;
+    }
+    if (has(i)) {
+      let {syllable, divider} = entries[i];
+      if (divider !== '-' && divider !== '_') divider = ' ';
+      if (divider === '_' && has(i + 1)) divider = ' ';
+      tokens.push({word: lyricWord(syllable), divider});
+      hold = divider === '_' ? 1 : 0;
+      mark = divider === ' ' ? '*' : divider;
+    } else if (hold) hold--;
+    else tokens.push({skip: mark});
+    i++;
+  }
+  let out = '';
+  // abcjs ends a verse's last syllable at a hyphen, so a last syllable ending in a plain one needs a skip after it.
+  if (tokens.at(-1)?.word?.endsWith('\\-') && tokens.at(-1).divider === ' ') tokens.push({skip: '*'});
+  tokens.forEach((t, k) => {
+    const next = tokens[k + 1];
+    if (t.skip) out += t.skip;
+    else out += t.word + (t.divider === '_' || (t.divider === '-' && !next?.skip) ? t.divider : '');
+    if (next && !(t.divider === '-' && !t.skip && !next.skip) && !(out.endsWith('_') && next.skip === '_')) out += ' ';
+  });
+  return out;
+}
+// Change one verse of a slot's line: change(entries) edits each note's {syllable, divider} or null in place. The verse
+// is written again (see lyricText); verses after the last one with a syllable go, and every verse reaches at least as
+// far as the verses after it (padded with *), because abcjs stacks a note's syllables in the order the verses reach
+// it, so a short verse would let the next one's syllables up into its row. Other verses are left as written.
+function setLyricEntries(abc, slot, verse, change) {
+  const {at, verses} = lyricVerses(abc, slot),
+    rows = verses.map(v => verseLyrics(slot, v.text));
+  while (rows.length <= verse) rows.push(slot.notes.map(() => null));
+  const shown = () => JSON.stringify(rows[verse].map(syllableOnly)),
+    before = shown();
+  change(rows[verse]);
+  if (shown() === before) return abc;
+  let last = rows.length - 1;
+  while (last >= 0 && !rows[last].some(x => x?.syllable)) last--;
+  const texts = [];
+  let need = 0;
+  for (let k = last; k >= 0; k--) {
+    let text = k === verse || k >= verses.length ? lyricText(slot, rows[k], need) : verses[k].text;
+    for (let guard = 0; lyricReach(slot, text) < need && guard <= slot.elements.length; guard++)
+      text = text.trimEnd() + ' *';
+    texts[k] = text.trim();
+    need = Math.max(need, lyricReach(slot, text));
+  }
+  const edits = [];
+  let added = '';
+  verses.forEach((v, k) => {
+    if (k > last) edits.push({start: v.start - 1, end: v.end, text: ''});
+    else if (texts[k] !== v.text || k === verse) edits.push({start: v.start, end: v.end, text: v.prefix + texts[k]});
+  });
+  for (let k = verses.length; k <= last; k++) added += '\nw: ' + texts[k];
+  if (added) edits.push({start: at, end: at, text: added});
+  return spliceAll(abc, edits);
+}
+// Set one syllable: the index-th lyric note of a line of music (abcjs line number) in a voice, in a verse (0 is the
+// first). An empty syllable takes it away.
+function setSyllable(abc, line, verse, index, syllable, divider = ' ', voice = '0:0') {
+  const slot = lyricSlots(ABCJS.parseOnly(abc)[0], voice, abc).find(s => s.line === line);
+  if (!slot || index < 0 || index >= slot.notes.length) return abc;
+  const word = tidyLyric(syllable);
+  return setLyricEntries(abc, slot, verse, entries => {
+    entries[index] = word ? {syllable: word, divider} : null;
+  });
+}
+// Lyric editing over a whole voice, whose lyric notes are counted in reading order across its lines (pos). get(pos)
+// and set(pos, entry) read and change one verse; text() writes every changed line, one w: block at a time from the
+// last, so the places found for earlier lines still hold.
+function lyricSession(abc, voice, verse, tune = ABCJS.parseOnly(abc)[0]) {
+  const slots = lyricSlots(tune, voice, abc),
+    notes = slots.flatMap((slot, k) => slot.notes.map((element, index) => ({k, index, element}))),
+    rows = new Map(),
+    changed = new Set();
+  const row = k => {
+    if (!rows.has(k)) {
+      const text = lyricVerses(abc, slots[k]).verses[verse]?.text;
+      rows.set(k, text == null ? slots[k].notes.map(() => null) : verseLyrics(slots[k], text).map(syllableOnly));
+    }
+    return rows.get(k);
+  };
+  const get = pos => (notes[pos] ? row(notes[pos].k)[notes[pos].index] : null);
+  const set = (pos, entry) => {
+    const n = notes[pos];
+    if (!n || JSON.stringify(get(pos)) === JSON.stringify(entry)) return;
+    row(n.k)[n.index] = entry;
+    changed.add(n.k);
+  };
+  const text = () => {
+    let out = abc;
+    for (const k of [...changed].sort((a, b) => b - a)) {
+      const entries = rows.get(k);
+      out = setLyricEntries(out, slots[k], verse, row => row.splice(0, row.length, ...entries));
+    }
+    return out;
+  };
+  return {notes, slots, get, set, text, sameLine: (a, b) => !!notes[a] && notes[a].k === notes[b]?.k};
+}
+// The syllables of one verse for a voice's lyric notes in reading order (null where a note has none).
+function voiceLyrics(abc, voice = '0:0', verse = 0, tune = ABCJS.parseOnly(abc)[0]) {
+  const session = lyricSession(abc, voice, verse, tune);
+  return session.notes.map((n, pos) => session.get(pos));
+}
+// Typing lyrics into a verse from lyric note pos of a voice. A space saves the syllable typed and moves to the next
+// note (passing a note with nothing typed leaves it as it is); - saves it with a hyphen to the next syllable, _ holds
+// it over the next note and * leaves the next note without one. With nothing typed, - and _ carry the syllable before
+// on through this note and * takes this note's syllable away. As in a w: line, a space straight after -, _ or *
+// only separates; after says the typing before this text ended with -, _ or *. A backslash makes the next character
+// part of the syllable, as in a w: line. Returns {abc, pos, rest, after, over}: the text, the note typing has reached
+// (the number of notes when past the last), what was typed after the last of these keys, whether the text ended with
+// -, _ or *, and whether words typed past the last note were left out.
+function typeLyrics(abc, voice, verse, pos, typed, tune = ABCJS.parseOnly(abc)[0], after = false) {
+  const s = lyricSession(abc, voice, verse, tune),
+    count = s.notes.length;
+  // A syllable carried on through notes without one: the nearest one before on its line, with only empty notes
+  // between.
+  const carry = (at, divider) => {
+    for (let q = at - 1; q >= 0 && s.sameLine(q, at); q--) {
+      const x = s.get(q);
+      if (x) return s.set(q, {...x, divider});
+    }
+  };
+  const chars = [...String(typed)];
+  let word = '',
+    escaped = false,
+    i = 0;
+  for (; i < chars.length && pos < count; i++) {
+    const c = chars[i];
+    if (escaped || !' -_*\\'.includes(c)) {
+      word += c;
+      after = escaped = false;
+      continue;
+    }
+    if (c === '\\') {
+      escaped = true;
+      continue;
+    }
+    const w = tidyLyric(word),
+      joined = after;
+    word = '';
+    after = true;
+    if (c === ' ') {
+      if (w) s.set(pos, {syllable: w, divider: ' '});
+      else if (joined) continue;
+      after = false;
+    } else if (c === '*') {
+      if (w) s.set(pos++, {syllable: w, divider: ' '});
+      s.set(pos, null);
+    } else if (w) {
+      s.set(pos, {syllable: w, divider: c});
+      // A held syllable takes the next note on its line.
+      if (c === '_' && s.sameLine(pos, pos + 1)) s.set(++pos, null);
+    } else {
+      s.set(pos, null);
+      carry(pos, c);
+    }
+    pos++;
+  }
+  return {
+    abc: s.text(),
+    pos: Math.min(pos, count),
+    rest: word + (escaped ? '\\' : ''),
+    after: after && !word,
+    over: /[^ \-_*\\]/.test(chars.slice(i).join(''))
+  };
+}
+// For the hint about lyrics that may no longer line up: each line of music with verses under it, as {voice, line,
+// notes (how many lyric notes), words (the verse text)}.
+function lyricLines(abc, tune = ABCJS.parseOnly(abc)[0]) {
+  const voices = new Set();
+  for (const line of tune?.lines || [])
+    (line.staff || []).forEach((staff, s) => staff.voices.forEach((_, v) => voices.add(s + ':' + v)));
+  const out = [];
+  for (const voice of voices)
+    for (const slot of lyricSlots(tune, voice, abc)) {
+      const {verses} = lyricVerses(abc, slot);
+      if (verses.length)
+        out.push({voice, line: slot.line, notes: slot.notes.length, words: verses.map(v => v.text).join('\n')});
+    }
+  return out;
+}
 // Bar-length check. Measures are numbered as in scoreEvents (a bar line ends a measure only once it holds notes).
 const SECTION_END = /repeat|thin_thin|thin_thick|thick_thin|dbl/;
 // A time signature as {length (whole notes), den, label}; 'free' for M:none, null when absent.
@@ -3402,6 +3741,283 @@ function swingPlayback(data, amount, bars) {
   return {...data, notes: parts.flatMap((part, i) => swingNotes(part, bars[i].quarter, amount, bars[i].origin))};
 }
 
+// Road-map playback: D.C., D.S., coda, Fine and fermatas. abcjs plays repeats and 1st and 2nd endings but not the
+// jumps, and it does not hold fermatas. Playback keeps abcjs's timeline, where a measure inside a repeat is played
+// once per pass (each a "play"), and puts the plays in the order the road map gives; a fermata holds its note for
+// twice its length. The marks are decorations (!D.C.!, !D.S.alcoda!, !fine!, !segno!, !coda!, S and O) or text in
+// chord position or above or below the staff ("D.C.", "^Fine", "_To Coda"), as many library tunes write them.
+const ROAD_JUMPS = {
+  'D.C.': ['D.C.', null],
+  'D.S.': ['D.S.', null],
+  'D.C.alfine': ['D.C.', 'fine'],
+  'D.S.alfine': ['D.S.', 'fine'],
+  'D.C.alcoda': ['D.C.', 'coda'],
+  'D.S.alcoda': ['D.S.', 'coda']
+};
+function roadItem(item, text) {
+  if (!text) {
+    if (['segno', 'coda', 'fine'].includes(item)) return {kind: item};
+    return ROAD_JUMPS[item] ? {kind: 'jump', to: ROAD_JUMPS[item][0], al: ROAD_JUMPS[item][1]} : null;
+  }
+  const t = item.trim();
+  if (/^(?:segno|S)$/i.test(t)) return {kind: 'segno'};
+  if (/^to\s+coda\b/i.test(t)) return {kind: 'toCoda'};
+  if (/^coda\.?$/i.test(t)) return {kind: 'heading'};
+  if (/^fine\.?$/i.test(t)) return {kind: 'fine'};
+  const to = /^(?:D\.\s?C\.?(?![a-z])|da\s+capo\b)/i.test(t)
+    ? 'D.C.'
+    : /^(?:D\.\s?S\.?(?![a-z])|dal\s+segno\b)/i.test(t)
+      ? 'D.S.'
+      : null;
+  return to && {kind: 'jump', to, al: /\bal\s*fine\b/i.test(t) ? 'fine' : /\bal\s*coda\b/i.test(t) ? 'coda' : null};
+}
+// Bars of the score, for the road map. scoreEvents counts a multi-measure rest (Z3) as one measure of its voice, so a
+// voice with one numbers its later measures lower than the other voices do; here the rest takes every bar it lasts.
+// bar(key, measure, last) is the first bar of a voice's measure (key is an event key, or a voice 's:v'), or its last
+// bar with `last`. measure(bar) turns a bar back into a measure number of the first voice with no multi-measure rest
+// (or of the first voice), as Measure tools and the practice range count. With no multi-measure rests both keep the
+// number they are given.
+function roadBars(events) {
+  const sizes = new Map(),
+    firsts = new Map(),
+    voiceOf = key => key.split(':').slice(0, 2).join(':');
+  for (const {element, key, measure} of events) {
+    const list = sizes.get(voiceOf(key)) || sizes.set(voiceOf(key), []).get(voiceOf(key));
+    list[measure] = Math.max(list[measure] || 1, element.rest?.type === 'multimeasure' ? +element.rest.text || 1 : 1);
+  }
+  if ([...sizes.values()].every(list => list.every(n => n === 1))) return {bar: (key, m) => m, measure: bar => bar};
+  for (const [voice, list] of sizes) {
+    const first = [];
+    for (let m = 1, bar = 1; m < list.length; bar += list[m++] || 1) first[m] = bar;
+    firsts.set(voice, first);
+  }
+  const voices = [...sizes.keys()],
+    ref = voices.find(v => sizes.get(v).every(n => n === 1)) ?? voices[0];
+  return {
+    bar(key, m, last = false) {
+      const list = sizes.get(voiceOf(key)),
+        first = firsts.get(voiceOf(key));
+      if (!list) return m;
+      // A measure past the voice's last one (after its closing bar line) follows on from it.
+      const n = Math.min(m, list.length - 1),
+        end = first[n] + (list[n] || 1) - 1;
+      return m > n ? end + m - n : last ? end : first[n];
+    },
+    measure(bar) {
+      const list = sizes.get(ref),
+        first = firsts.get(ref);
+      for (let m = list.length - 1; m >= 1; m--)
+        if (first[m] <= bar) return bar < first[m] + list[m] ? m : m + bar - (first[m] + list[m] - 1);
+      return bar;
+    }
+  };
+}
+// The road-map marks of a score from its scoreEvents, by bar (roadBars): where a segno or a Coda heading starts, coda
+// signs and To Coda before or after a bar, Fine after one, and the jump after one (D.C. or D.S., al Fine or al Coda).
+// A mark on a measure's first note or on a bar line counts as before the measure that follows; a segno or a heading
+// starts the measure it is in. Fine and jumps end the measure they are in, or the one before an opening bar line.
+// fermataEnd marks a measure that ends at a double, final or repeat bar line under a fermata, on the bar line or on
+// the last note or rest before it, as older scores mark where a D.C. stops. abcjs drops a fermata on an invisible rest
+// (O'Neill's `Hx||`), so that one is read from the source text when it is given.
+function roadMarks(events, source = '') {
+  const marks = new Map(),
+    open = new Map(),
+    held = new Map(),
+    bars = roadBars(events),
+    at = bar => marks.get(bar) || marks.set(bar, {}).get(bar),
+    fermata = element => {
+      if ((element.decoration || []).some(d => /^(?:inverted)?fermata$/.test(d))) return true;
+      if (element.rest?.type !== 'invisible') return false;
+      const text = source.slice(element.startChar, element.endChar).replace(/"[^"]*"/g, '');
+      return /[!+](?:inverted)?fermata[!+]/.test(text) || /H/.test(text.replace(/([!+])[^!+]*\1/g, ''));
+    };
+  for (const {element, key, measure} of events) {
+    const voice = key.split(':').slice(0, 2).join(':'),
+      bar = element.el_type === 'bar',
+      inside = open.get(voice);
+    open.set(voice, !bar);
+    const start = bars.bar(voice, bar && inside ? measure + 1 : measure),
+      before = bar || !inside,
+      ends = bars.bar(voice, bar && !inside ? Math.max(1, measure - 1) : measure, true);
+    if (!bar) held.set(voice, fermata(element));
+    else if (
+      inside &&
+      (held.get(voice) || fermata(element)) &&
+      /repeat|thin_thin|thin_thick|thick_thin/.test(element.type)
+    )
+      at(ends).fermataEnd = true;
+    const items = [
+      ...(element.decoration || []).map(d => roadItem(d, false)),
+      ...(element.chord || []).map(c => roadItem(String(c.name || ''), true))
+    ];
+    for (const item of items.filter(Boolean)) {
+      if (item.kind === 'segno') at(start).segno = true;
+      else if (item.kind === 'heading') at(start).heading = true;
+      else if (item.kind === 'coda' || item.kind === 'toCoda')
+        at(before ? start : ends)[item.kind + (before ? 'Before' : 'After')] = true;
+      else if (item.kind === 'fine') at(ends).fine = true;
+      else at(ends).jump ||= {to: item.to, al: item.al};
+    }
+  }
+  return marks;
+}
+// The order of play through the road map. plays lists the bar of each play in abcjs's timeline; the result lists
+// the plays in the order they are heard, {play, measure, jump}, where jump names the mark that led to that play
+// ('D.C.', 'D.S.' or 'To Coda'), or null when no jump is taken (the score plays straight).
+// A jump is taken on the last pass through its measure, once. After it, repeats are not taken again: each measure is
+// played in its last pass (so the last ending), up to Fine, or up to the To Coda and then from the coda. A plain D.C.
+// or D.S. stops at a Fine and takes a coda if the score has them. With neither, it stops at the first fermataEnd
+// between where it goes back to and the jump, the older way to mark the end. With two or more coda signs the last
+// starts the coda and the others are To Coda; one coda sign starts the coda when there is a To Coda, or is the To
+// Coda when there is a Coda heading. A D.S. with no segno is not taken.
+function performanceOrder(plays, marks) {
+  const last = new Map(plays.map((m, i) => [m, i])),
+    measures = [...marks.keys()].sort((a, b) => a - b),
+    find = name => measures.filter(m => marks.get(m)[name]),
+    signs = [...find('codaBefore'), ...find('codaAfter')].sort((a, b) => a - b),
+    texts = [...find('toCodaBefore'), ...find('toCodaAfter')],
+    heading = find('heading')[0],
+    segno = find('segno')[0];
+  // The coda: its first measure, and the To Coda points before or after a measure.
+  let coda = null,
+    leaveBefore = new Set(find('toCodaBefore')),
+    leaveAfter = new Set(find('toCodaAfter'));
+  if (signs.length > 1 || (signs.length === 1 && texts.length)) {
+    const target = signs.at(-1);
+    coda = marks.get(target).codaBefore ? target : target + 1;
+    for (const m of signs.slice(0, -1)) (marks.get(m).codaBefore ? leaveBefore : leaveAfter).add(m);
+  } else if (heading != null) {
+    coda = heading;
+    for (const m of signs) (marks.get(m).codaBefore ? leaveBefore : leaveAfter).add(m);
+  }
+  if (!last.has(coda)) coda = null;
+  const fine = new Set(find('fine')),
+    ends = find('fermataEnd'),
+    out = [],
+    taken = new Set();
+  let i = 0,
+    mode = null,
+    jump = null;
+  while (i != null && i < plays.length && out.length < plays.length * 3 + 8) {
+    const m = plays[i];
+    if (mode?.coda && leaveBefore.has(m) && m !== coda) {
+      mode.coda = false;
+      [i, jump] = [last.get(coda), 'To Coda'];
+      continue;
+    }
+    out.push({play: i, measure: m, jump});
+    jump = null;
+    const mark = marks.get(m) || {};
+    if (mode?.stop?.has(m)) break;
+    if (mode?.coda && leaveAfter.has(m)) {
+      mode.coda = false;
+      [i, jump] = [last.get(coda), 'To Coda'];
+      continue;
+    }
+    const target = mark.jump && (mark.jump.to === 'D.C.' ? plays[0] : segno);
+    if (target != null && last.has(target) && !taken.has(m) && last.get(m) === i) {
+      taken.add(m);
+      const al = mark.jump.al,
+        toCoda = al !== 'fine' && coda != null && leaveBefore.size + leaveAfter.size > 0,
+        hold = al === 'coda' || fine.size || toCoda ? null : ends.find(e => e >= target && e < m);
+      mode = {stop: al !== 'coda' && fine.size ? fine : hold != null ? new Set([hold]) : null, coda: toCoda};
+      [i, jump] = [last.get(target), mark.jump.to];
+      continue;
+    }
+    i = mode ? last.get(plays[i + 1]) : i + 1;
+  }
+  return taken.size ? out : null;
+}
+// Times for the order of play. times are the start of each play in abcjs's timeline and the end of the last, in
+// seconds of one clock (the note timings, or the MIDI); holds are the fermatas, {play, offset, length}: the play they
+// are in, from its start, and the held note's length. Consecutive plays become one piece, placed at `at` seconds into
+// the performance before holds; each hold doubles the time from its start to its end, merged where holds overlap,
+// and later times move by its length. Returns null when there is nothing to change: no jumps and no fermatas.
+function performancePlan(order, times, holds = []) {
+  if (!order && !holds.length) return null;
+  const count = times.length - 1,
+    pieces = [];
+  let at = 0;
+  for (const o of order || Array.from({length: count}, (_, play) => ({play}))) {
+    const piece = pieces.at(-1),
+      length = times[o.play + 1] - times[o.play];
+    if (piece && !o.jump && piece.last + 1 === o.play) {
+      piece.last = o.play;
+      piece.to = times[o.play + 1];
+    } else
+      pieces.push({
+        first: o.play,
+        last: o.play,
+        from: times[o.play],
+        to: times[o.play + 1],
+        at,
+        jump: o.jump || null,
+        measure: o.measure
+      });
+    at += length;
+  }
+  const held = [];
+  for (const piece of pieces)
+    for (const h of holds)
+      if (h.play >= piece.first && h.play <= piece.last) {
+        const start = piece.at + times[h.play] - piece.from + h.offset;
+        held.push({start, end: start + h.length});
+      }
+  held.sort((a, b) => a.start - b.start);
+  const merged = [];
+  for (const h of held)
+    if (merged.length && h.start <= merged.at(-1).end) merged.at(-1).end = Math.max(merged.at(-1).end, h.end);
+    else merged.push({...h});
+  const plan = {pieces, holds: merged, count, length: at};
+  plan.duration = planWarp(plan, at);
+  return plan;
+}
+// A time in the performance before holds, with the holds put in.
+function planWarp(plan, t) {
+  return t + plan.holds.reduce((sum, h) => sum + Math.max(0, Math.min(t, h.end) - h.start), 0);
+}
+// A time in a piece's plays (in the clock its plan was made with) as heard.
+function planTime(plan, piece, t) {
+  return planWarp(plan, piece.at + t - piece.from);
+}
+// Whether a time in the plays' clock falls in a piece. The first and last plays take everything before and after
+// them; edge allows for MIDI note times a little before the measure start (ticks are rounded).
+function inPiece(plan, piece, t, edge = 0) {
+  return (piece.first === 0 || t >= piece.from - edge) && (piece.last === plan.count - 1 || t < piece.to - edge);
+}
+// Decoded MIDI notes (parseMidi, after swing) in the order of play, with the fermatas held. A note in a piece played
+// twice sounds twice; one held over a jump keeps its length.
+function planNotes(plan, data, edge = 0.002) {
+  const notes = [];
+  for (const piece of plan.pieces)
+    for (const n of data.notes) {
+      if (!inPiece(plan, piece, n.start, edge)) continue;
+      const start = planTime(plan, piece, n.start),
+        note = {...n, start, duration: Math.max(0.025, planTime(plan, piece, n.start + n.duration) - start)};
+      if (n.straightEnd != null) note.straightEnd = planTime(plan, piece, n.straightEnd);
+      notes.push(note);
+    }
+  notes.sort((a, b) => a.start - b.start);
+  return {
+    ...data,
+    notes,
+    duration: Math.max(plan.duration, ...notes.map(n => n.start + n.duration), 0)
+  };
+}
+// abcjs's note timing events in the order of play, timed as heard (milliseconds) and before holds (unheld), ending
+// with an 'end' event. Each keeps its drawn elements, so the highlight follows the jumps.
+function planEvents(plan, timings) {
+  const out = [];
+  for (const piece of plan.pieces)
+    for (const e of timings)
+      if (e.type === 'event' && inPiece(plan, piece, e.milliseconds / 1000, 1e-6)) {
+        const unheld = piece.at + e.milliseconds / 1000 - piece.from;
+        out.push({...e, milliseconds: planWarp(plan, unheld) * 1000, unheld: unheld * 1000});
+      }
+  out.push({type: 'end', milliseconds: plan.duration * 1000, unheld: plan.length * 1000});
+  return out;
+}
+
 // Share links: the whole score rides in the URL hash (#s=…), so no server ever holds student work.
 // Payload {v, a: abc, i: instrument, s: library source id, p: built-in prompt id,
 // q: teacher-written assignment, checked by validPrompt}. A turned-in assignment adds n: the student's name,
@@ -3491,4 +4107,78 @@ function turnInCodes(text) {
     .map((line, i) => ({line: i + 1, text: line.trim()}))
     .filter(l => l.text)
     .map(l => ({line: l.line, code: (l.text.match(/(?:^|[#&?]s=)([01][A-Za-z0-9_-]{8,})$/) || [])[1] || null}));
+}
+
+// Record yourself: lining a take up with the score, finding click onsets for calibration, and naming takes.
+// A take's lead is the audio-clock time from the recorder starting to the score starting (the count-in and start-up).
+// The device's round-trip latency is how much later than that a sound played on time shows up in the recording:
+// output and input delays plus any lag in the recorder starting. Score time `from` is at their sum in the take.
+function takeOffset(take, latencyMs = take?.latencyMs) {
+  return Math.max(0, (+take?.lead || 0) + (+latencyMs || 0) / 1000);
+}
+// Where in a take a score time falls, at the take's speed (percent).
+function takePosition(take, scoreTime, latencyMs) {
+  return takeOffset(take, latencyMs) + (scoreTime - take.from) / ((take.speed || 100) / 100);
+}
+// Sound onsets in mono samples, in seconds: the first 0.5 ms block that rises above a threshold set well clear of the
+// recording's noise floor, at least `gap` seconds after the previous onset.
+function audioOnsets(samples, sampleRate, {gap = 0.15} = {}) {
+  const block = Math.max(1, Math.round(sampleRate / 2000)),
+    envelope = [];
+  for (let i = 0; i < samples.length; i += block) {
+    let peak = 0;
+    for (let j = i; j < Math.min(samples.length, i + block); j++) peak = Math.max(peak, Math.abs(samples[j]));
+    envelope.push(peak);
+  }
+  if (!envelope.length) return [];
+  const sorted = [...envelope].sort((a, b) => a - b),
+    floor = sorted[Math.floor(sorted.length / 2)],
+    top = sorted[sorted.length - 1],
+    threshold = Math.max(floor * 6, top * 0.25, 0.005),
+    onsets = [];
+  let last = -Infinity;
+  for (const [i, value] of envelope.entries()) {
+    const t = (i * block) / sampleRate;
+    if (value >= threshold && t - last >= gap) {
+      onsets.push(t);
+      last = t;
+    }
+  }
+  return onsets;
+}
+// Round-trip latency from calibration: each click (seconds into the recording, as scheduled) is matched with the first
+// onset up to `max` seconds after it. Most clicks must be heard, at delays within 15 ms of each other, or the result
+// is null: a noisy room or muted speakers must not set a wrong latency.
+function estimateLatency(clicks, onsets, {max = 0.55} = {}) {
+  const delays = clicks
+    .map(c => onsets.find(o => o >= c && o < c + max))
+    .map((o, i) => (o == null ? null : o - clicks[i]))
+    .filter(d => d != null)
+    .sort((a, b) => a - b);
+  const need = Math.ceil(clicks.length * 0.6);
+  if (delays.length < need) return null;
+  const median = delays[Math.floor(delays.length / 2)],
+    close = delays.filter(d => Math.abs(d - median) <= 0.015);
+  if (close.length < need) return null;
+  return {latencyMs: Math.round((close.reduce((a, b) => a + b, 0) / close.length) * 1000), heard: close.length};
+}
+// File names for a take and its credits: "<title> take 3.webm", with characters file systems refuse taken out.
+function takeExtension(mime) {
+  const type = String(mime || '').toLowerCase();
+  return /mp4|m4a|aac/.test(type) ? 'm4a' : /ogg/.test(type) ? 'ogg' : /wav/.test(type) ? 'wav' : 'webm';
+}
+function takeFileName(title, n, extension, suffix = '') {
+  const name =
+    String(title || '')
+      .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80)
+      .trim() || 'Recording';
+  return `${name} take ${n}${suffix}.${extension}`;
+}
+// A take's length as m:ss.
+function clockText(seconds) {
+  const s = Math.max(0, Math.round(+seconds || 0));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }

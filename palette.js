@@ -1,7 +1,7 @@
 'use strict';
 // Notation palette: a toolbar above the score for the selected note's length, dot, tie, rest, tuplets (other counts
-// under Tuplet), accidental, beam, articulations, dynamics, chord symbol, lines (slur, hairpins, trill line), grace
-// notes, ornaments (under More), and Delete.
+// under Tuplet), accidental, beam, articulations, dynamics, chord symbol, lyrics, lines (slur, hairpins, trill line),
+// grace notes, ornaments (under More), and Delete.
 // Buttons light up (aria-pressed) to show the selection's state and send the same action as the note menu or the
 // matching key to editNote, so each press is one undo step. The Measure panel (measure-tools.js) adds bar, bar line,
 // repeat, form and key, time and clef tools. Later notation tools add their own groups here.
@@ -47,6 +47,7 @@ function paletteState() {
     beam: isRest ? null : beamGap(sel.entry),
     marks: picked.length > 1 ? rangeMarks(picked) : noteMarks(source),
     chord: shownChord(sel),
+    lyric: shownLyric(sel),
     tuplet: tupletGroup(sel.entry)?.p ?? null,
     grace: graceOf(source),
     lines: Object.fromEntries(Object.keys(LINE_WORDS).map(kind => [kind, lineState(kind, picked)])),
@@ -60,6 +61,8 @@ function paletteBlocked(action, state) {
   if (action.startsWith('len:')) return '';
   if (MEASURE_ACTION.test(action)) return measureBlocked(action, state.measure);
   if (!state.sel) return 'Select a note on the score first.';
+  // Lyrics open on the selected note, the first note of a range, or the note after a selected rest.
+  if (action === 'lyric') return lyricWhy(state.sel);
   // Chord opens its box on the selected note, or on the first note of a range selection.
   if (action === 'chord') return '';
   // Lines go over a range selection, or from one note to the next.
@@ -125,6 +128,11 @@ function updatePalette() {
   const chord = bar.querySelector('[data-palette="chord"]');
   chord.classList.toggle('in-use', !!state.chord);
   chord.setAttribute('aria-label', state.chord ? `Chord symbol (${state.chord})` : 'Chord symbol');
+  const lyric = bar.querySelector('[data-palette="lyric"]');
+  if (lyric) {
+    lyric.classList.toggle('in-use', !!state.lyric);
+    lyric.setAttribute('aria-label', state.lyric ? `Lyrics (${state.lyric})` : 'Lyrics');
+  }
   for (const b of bar.querySelectorAll('[data-palette]')) {
     const action = b.dataset.palette;
     // The Measure panel's buttons are brought up to date while it is open.
@@ -181,6 +189,10 @@ function pressPalette(b, keyboard = false) {
   // The chord box takes the keyboard; it hands it back to this button after a keyboard press, else to the score.
   if (action === 'chord' && !blocked) {
     openChordEntry(state.sel, keyboard ? b : null);
+    return;
+  }
+  if (action === 'lyric' && !blocked) {
+    openLyricEntry(state.sel, keyboard ? b : null);
     return;
   }
   if (blocked) $('selection-status').textContent = blocked;

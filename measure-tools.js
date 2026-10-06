@@ -17,7 +17,23 @@ const FORM_WORDS = {
   'D.C.alfine': 'D.C. al Fine',
   'D.S.alcoda': 'D.S. al Coda'
 };
-const NOT_PLAYED = ' Playback does not follow segno, coda, Fine, D.C. or D.S. yet.';
+// Playback follows the road map (roadMarks and performanceOrder in score-tools.js); this says what a new mark still
+// needs for that, when the score does not have it yet.
+function formPlaybackNote(source, value) {
+  const marks = [...roadMarks(scoreEvents(sourceTune(source) || {lines: []}), source).values()],
+    count = names => marks.reduce((n, m) => n + names.filter(name => m[name]).length, 0);
+  if (value.startsWith('D.S.') && !count(['segno'])) return ' Add a segno where playback should go back to.';
+  if (value === 'D.C.alfine' && !count(['fine'])) return ' Add a Fine where playback should stop.';
+  if (value !== 'coda' && value !== 'D.S.alcoda') return '';
+  // The coda plays as performanceOrder finds it: two coda signs, one with a To Coda, or a Coda heading with either.
+  const signs = count(['codaBefore', 'codaAfter']),
+    texts = count(['toCodaBefore', 'toCodaAfter']),
+    heading = count(['heading']);
+  if (signs > 1 || (signs && texts) || (heading && signs + texts)) return '';
+  if (texts) return ' Add a coda sign where the coda starts.';
+  if (heading) return ' Add a coda sign where playback leaves for the coda.';
+  return ' After a jump, playback leaves at the first coda sign and goes on at the second, so add two.';
+}
 const ordinalWord = n => n + ({1: 'st', 2: 'nd', 3: 'rd'}[n] || 'th');
 // The source parsed once per text: the palette asks for the state after every selection change.
 let measureParse = {source: null, tune: null};
@@ -189,14 +205,15 @@ function measureCommand(action) {
     } else if (kind === 'form') {
       const note = JUMP_MARKS.includes(value) ? m.last : m.first,
         had = state.marks.includes(value),
-        text = toggleFormMark(source.slice(note.startChar, note.endChar), value);
+        text = toggleFormMark(source.slice(note.startChar, note.endChar), value),
+        next = spliceAll(source, [{start: note.startChar, end: note.endChar, text}]);
       commitMeasure(
-        spliceAll(source, [{start: note.startChar, end: note.endChar, text}]),
+        next,
         focus,
         had
           ? `${FORM_WORDS[value]} removed.`
           : `${FORM_WORDS[value]} ${JUMP_MARKS.includes(value) ? 'at the end of' : 'at the start of'} measure ${n}.` +
-              NOT_PLAYED
+              formPlaybackNote(next, value)
       );
     } else if (kind === 'rehearsal') {
       const next = toggleRehearsal(source, tune, n),

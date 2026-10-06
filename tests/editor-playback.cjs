@@ -86,6 +86,7 @@ for (const f of [
   'keyboard.js',
   'assignments.js',
   'turn-in.js',
+  'record.js',
   'app.js'
 ])
   run(fs.readFileSync(path.join(root, f), 'utf8'));
@@ -818,9 +819,9 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.equal(
     disabled(),
     'tie to-rest tuplet:3 tuplet:6 acc:^ acc:_ acc:= acc: respell beam:join beam:break deco:staccato deco:tenuto ' +
-      'deco:accent deco:marcato line:slur line:trill grace grace:slash grace:up grace:down deco:wedge deco:upbow ' +
-      'deco:downbow deco:breath deco:trill deco:mordent deco:turn deco:arpeggio',
-    'A rest takes only a dynamic, a fermata, a hairpin or a tuplet'
+      'deco:accent deco:marcato lyric line:slur line:trill grace grace:slash grace:up grace:down deco:wedge ' +
+      'deco:upbow deco:downbow deco:breath deco:trill deco:mordent deco:turn deco:arpeggio',
+    'A rest takes only a dynamic, a fermata, a hairpin or a tuplet (and no note follows this one for lyrics)'
   );
   press('acc:^');
   assert.equal(body(), '^G3- G E F G A | B4 z3 z |]', 'Disabled buttons change nothing');
@@ -862,7 +863,7 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
     disabled(),
     'dot tie to-rest tuplet:3 tuplet:2 tuplet:5 tuplet:6 tuplet:7 acc:^ acc:_ acc:= acc: respell beam:join ' +
       'beam:break deco:staccato deco:tenuto deco:accent deco:marcato deco:fermata dyn:ppp dyn:pp dyn:p dyn:mp dyn:mf ' +
-      'dyn:f dyn:ff dyn:fff dyn:sfz chord line:slur line:crescendo line:diminuendo line:trill grace grace:slash ' +
+      'dyn:f dyn:ff dyn:fff dyn:sfz chord lyric line:slur line:crescendo line:diminuendo line:trill grace grace:slash ' +
       'grace:up grace:down deco:wedge deco:upbow deco:downbow deco:breath deco:trill deco:mordent deco:turn ' +
       'deco:arpeggio delete'
   );
@@ -1304,9 +1305,9 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.equal(
     disabled(),
     'tie to-rest tuplet:2 acc:^ acc:_ acc:= acc: respell beam:join beam:break deco:staccato deco:tenuto deco:accent ' +
-      'deco:marcato line:slur line:trill grace grace:slash grace:up grace:down deco:wedge deco:upbow deco:downbow ' +
-      'deco:breath deco:trill deco:mordent deco:turn deco:arpeggio',
-    'A rest offers a dynamic, a fermata, a hairpin and a tuplet'
+      'deco:marcato lyric line:slur line:trill grace grace:slash grace:up grace:down deco:wedge deco:upbow ' +
+      'deco:downbow deco:breath deco:trill deco:mordent deco:turn deco:arpeggio',
+    'A rest offers a dynamic, a fermata, a hairpin and a tuplet (no note follows it for lyrics)'
   );
   run('dirty=false');
   key(';');
@@ -2076,12 +2077,33 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   pick(12);
   press('form:D.C.alfine');
   assert.equal(body(), 'C D E F | G A B c | d e f g | !D.C.alfine!c4 |]');
-  assert.match(status(), /^D\.C\. al Fine at the end of measure 4\. Playback does not follow/);
+  assert.equal(status(), 'D.C. al Fine at the end of measure 4. Add a Fine where playback should stop.');
   pick(4);
   press('form:fine');
   press('form:segno');
   assert.equal(body(), 'C D E F | !segno!G A B !fine!c | d e f g | !D.C.alfine!c4 |]');
   assert.equal(pressed(), 'barline:| form:segno form:fine');
+  assert.equal(
+    run('playPlan.pieces.map(p=>p.jump+":"+p.measure).join()'),
+    'null:1,D.C.:1',
+    'Playback follows the D.C. al Fine back to measure 1'
+  );
+  pick(8);
+  press('form:coda');
+  assert.equal(
+    status(),
+    'Coda at the start of measure 3. After a jump, playback leaves at the first coda sign and goes on at the second, so add two.'
+  );
+  undo();
+  pick(12);
+  press('form:D.S.alcoda');
+  assert.equal(
+    status(),
+    'D.S. al Coda at the end of measure 4. After a jump, playback leaves at the first coda sign and goes on at the second, so add two.',
+    'With a segno, D.S. al Coda needs only the coda signs'
+  );
+  undo();
+  pick(4);
   press('rehearsal:mark');
   pick(12);
   press('rehearsal:mark');
@@ -2519,6 +2541,405 @@ async function checkAudio() {
     'A note tied across a bar line sounds the held sharp'
   );
 }
+// Record yourself: plain messages without a microphone, the count-in and one pass of the range while recording, the
+// take listed with its length, playing it alone and lined up with the score, downloads with credits, and deleting.
+async function checkRecording() {
+  // Waits for what the asynchronous recording and storage code leads to, rather than for a fixed time.
+  const until = async (check, what) => {
+    for (let i = 0; i < 600 && !check(); i++) await new Promise(r => w.setTimeout(r, 5));
+    assert.ok(check(), 'Timed out waiting for ' + what);
+  };
+  const takeCount = () => run("$('take-list').querySelectorAll('li').length"),
+    memoryTake = (id, key) =>
+      run(
+        `memoryTakes.set(${JSON.stringify(id)},{id:${JSON.stringify(id)},scoreKey:${JSON.stringify(key)},n:1,at:1,duration:3,mime:'audio/webm',blob:new Blob(['x'])})`
+      );
+  run(
+    `openScore({title:'Take test',abc:${JSON.stringify('X:1\nT:Take test\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nC D E F | G4 |]')}})`
+  );
+  run("$('metronome').checked=false;$('count-in').checked=false;$('loop').checked=true");
+  run("$('record').click()");
+  assert.equal(run("$('record-panel').hidden"), false, '● Record opens the panel');
+  assert.equal(run("$('record').getAttribute('aria-expanded')"), 'true');
+  assert.equal(run('document.activeElement.id'), 'record-start', 'Focus goes to Start recording');
+  assert.match(run("$('takes-empty').textContent"), /^No takes/);
+  assert.match(run("$('record-storage').textContent"), /can’t keep takes after the tab closes/, 'No IndexedDB here');
+  await run('startRecording()');
+  assert.match(run("$('record-status').textContent"), /^This browser can’t use a microphone here/);
+  let mic = () => Promise.reject(Object.assign(new Error('denied'), {name: 'NotAllowedError'})),
+    constraints = null;
+  Object.defineProperty(w.navigator, 'mediaDevices', {
+    configurable: true,
+    value: {getUserMedia: c => ((constraints = c), mic())}
+  });
+  await run('startRecording()');
+  assert.match(run("$('record-status').textContent"), /^This browser can’t record audio/, 'No MediaRecorder');
+  const recorders = [];
+  class FakeRecorder {
+    static isTypeSupported(type) {
+      return type === 'audio/webm;codecs=opus';
+    }
+    constructor(stream, options) {
+      Object.assign(this, {stream, mimeType: options?.mimeType || '', state: 'inactive', listeners: {}});
+      recorders.push(this);
+    }
+    addEventListener(type, f) {
+      (this.listeners[type] ||= []).push(f);
+    }
+    emit(type, e = {}) {
+      for (const f of this.listeners[type] || []) f(e);
+    }
+    start() {
+      this.state = 'recording';
+      w.setTimeout(() => this.emit('start'), 0);
+    }
+    stop() {
+      this.state = 'inactive';
+      this.emit('dataavailable', {data: new w.Blob(['take bytes'], {type: this.mimeType})});
+      this.emit('stop');
+    }
+  }
+  w.MediaRecorder = FakeRecorder;
+  await run('startRecording()');
+  assert.match(run("$('record-status').textContent"), /^Microphone access is blocked/, 'Denied permission');
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(constraints)),
+    {audio: {echoCancellation: false, noiseSuppression: false, autoGainControl: false}},
+    'The microphone is asked for without call processing'
+  );
+  mic = () => Promise.reject(Object.assign(new Error('none'), {name: 'NotFoundError'}));
+  await run('startRecording()');
+  assert.match(run("$('record-status').textContent"), /^No microphone was found/);
+  assert.equal(run('rec'), null);
+  // The microphone answers after a render (which stops playback); that must not end the recording before it starts.
+  const track = {
+      stopped: false,
+      stop() {
+        this.stopped = true;
+      },
+      getSettings: () => ({latency: 0.01})
+    },
+    stream = {getTracks: () => [track], getAudioTracks: () => [track]};
+  let allow;
+  mic = () => new Promise(r => (allow = () => r(stream)));
+  run("$('record-count-in').value='2';$('record-count-in').dispatchEvent(new Event('change'))");
+  assert.equal(w.localStorage.getItem('fretfree-record-count-in'), '2', 'The count-in choice is remembered');
+  oscillators.length = 0;
+  const started = run('startRecording()');
+  assert.equal(run("$('record-start').textContent"), '■ Stop recording');
+  run('render()');
+  allow();
+  await started;
+  assert.equal(run('rec.state'), 'live', 'Recording once the score plays');
+  assert.equal(recorders.at(-1).mimeType, 'audio/webm;codecs=opus');
+  const clicks = oscillators.filter(o => o.type === 'square'),
+    notes = oscillators.filter(o => o.type !== 'square');
+  assert.equal(clicks.length, 8, 'Two bars of count-in, though Count-in and Metronome are off');
+  assert.equal(clicks.filter((c, i) => i % 4 === 0).length, 2);
+  assert.equal(notes.length, 5, 'The range plays once');
+  assert.ok(Math.abs(notes[0].startAt - clicks[0].startAt - 4) < 1e-9, 'The first note follows two bars at 120');
+  assert.equal(run("$('play-status').textContent"), 'Count-in: 2 bars to go…');
+  assert.ok(Math.abs(run('rec.lead') - (run('playClock') - run('rec.startAudio'))) < 1e-9);
+  assert.ok(Math.abs(run('rec.lead') - 4.07) < 1e-9, 'The lead is the count-in and start-up');
+  assert.equal(run("$('record').textContent"), '● Recording');
+  // Playback ends (here, ■ Stop): the recorder runs on for a short tail, then the take is kept.
+  run('audio.currentTime=16.2;stop()');
+  assert.equal(recorders.at(-1).state, 'recording', 'A short tail for the last note');
+  assert.equal(run("$('record-status').textContent"), 'Saving the take…');
+  assert.equal(run("$('record-start').textContent"), '● Saving…', 'Stop recording is no longer offered');
+  assert.equal(run("$('record-start').getAttribute('aria-disabled')"), 'true');
+  // Pressing it again during the tail (a double press, or a press just after the range ends) keeps the take.
+  run("$('record-start').click();$('record-start').click()");
+  assert.equal(run('rec.state'), 'stopping', 'A press while saving does nothing');
+  assert.equal(recorders.at(-1).state, 'recording');
+  await until(() => takeCount() === 1, 'the take to be listed');
+  assert.equal(recorders.at(-1).state, 'inactive');
+  assert.ok(track.stopped, 'The microphone is released');
+  assert.equal(
+    run("$('record-status').textContent"),
+    'Take 1 saved (0:07). This browser can’t keep it after the tab closes, so download it to keep it.'
+  );
+  assert.equal(run("$('record-start').textContent"), '● Start recording');
+  assert.equal(run("$('record-start').hasAttribute('aria-disabled')"), false);
+  assert.match(run("$('take-list').textContent"), /Take 1 0:07/);
+  assert.equal(run("$('takes-empty').hidden"), true);
+  const take = JSON.parse(run('JSON.stringify({...shownTakes[0], blob: undefined})'));
+  assert.equal(take.scoreKey, run('recordKey()'));
+  assert.equal(take.latencyMs, 10, 'Before calibration, the browser’s own latency estimate');
+  assert.deepEqual([take.from, take.speed, take.mime, take.calibrated], [0, 100, 'audio/webm;codecs=opus', false]);
+  // Playing the take, alone and with the score.
+  const sources = [];
+  w.AudioContext.prototype.createBufferSource = () => {
+    const source = {
+      connect(to) {
+        this.to = to;
+      },
+      start(when, offset) {
+        Object.assign(this, {when, offset});
+      },
+      stop() {
+        this.stopped = true;
+      }
+    };
+    sources.push(source);
+    return source;
+  };
+  w.AudioContext.prototype.decodeAudioData = (bytes, ok) => ok({duration: 7});
+  run("$('take-list').querySelector('[data-take-play]').click()");
+  await until(() => sources.length === 1, 'the take to play');
+  assert.equal(sources[0].to, run('outputNode()'), 'Takes play through the master bus');
+  assert.deepEqual([sources[0].when, sources[0].offset], [16.25, 0], 'Alone, from the start');
+  assert.equal(run("$('take-list').querySelector('[data-take-play]').textContent"), '■ Stop');
+  assert.equal(run("$('take-list').querySelector('[data-take-play]').getAttribute('aria-label')"), 'Stop take 1');
+  run("$('take-list').querySelector('[data-take-play]').click()");
+  assert.ok(sources[0].stopped, 'Pressed again, it stops');
+  assert.equal(run("$('take-list').querySelector('[data-take-play]').textContent"), '▶ Play');
+  run("$('speed').value=50");
+  oscillators.length = 0;
+  run("$('take-list').querySelector('[data-take-score]').click()");
+  await until(() => sources.length === 2, 'the take to play with the score');
+  assert.ok(
+    Math.abs(sources[1].when - run('playClock')) < 1e-9 && Math.abs(sources[1].offset - 4.08) < 1e-9,
+    'With the score, the take starts where the score’s first note was recorded'
+  );
+  assert.equal(run('playSpeed'), 1, 'at the speed it was recorded at');
+  assert.equal(oscillators.filter(o => o.type === 'square').length, 0, 'with no count-in');
+  run('stop()');
+  assert.ok(sources[1].stopped, 'Stopping the score stops the take');
+  run("$('speed').value=100");
+  // Calibrating afterwards lines up takes recorded before it.
+  w.localStorage.setItem('fretfree-latency', JSON.stringify({ms: 150, at: 1}));
+  run("$('take-list').querySelector('[data-take-score]').click()");
+  await until(() => sources.length === 3, 'the take to play with the score again');
+  assert.ok(Math.abs(sources[2].offset - 4.22) < 1e-9, 'An uncalibrated take uses the calibration made since');
+  run('stop()');
+  // Downloads: the audio, and for a library edition its credits.
+  w.__downloads = [];
+  run('download = (data, name, type) => __downloads.push({data, name, type})');
+  run("$('take-list').querySelector('[data-take-download]').click()");
+  assert.deepEqual(
+    w.__downloads.map(d => d.name),
+    ['Take test take 1.webm'],
+    'A personal score has no credits file'
+  );
+  run(`openScore(catalog.find(x => x.rights && x.licenseURL))`);
+  const library = run('current');
+  await until(() => run("$('take-list').hidden"), 'the library score’s takes');
+  assert.equal(run('recordKey()'), 'library:' + library.id, 'A library score’s takes go by its id');
+  run("$('record-panel').hidden=true");
+  w.__downloads = [];
+  run(`shownTakes=[{id:'t9',n:4,title:${JSON.stringify(library.title)},at:0,mime:'audio/mp4',blob:new Blob(['x'])}]`);
+  run("downloadTake('t9')");
+  assert.deepEqual(
+    w.__downloads.map(d => d.name),
+    [`${run('takeFileName(current.title,4,"m4a")')}`, `${run('takeFileName(current.title,4,"txt"," credits")')}`]
+  );
+  assert.ok(w.__downloads[1].data.includes(library.licenseURL), 'The credits carry the licence');
+  assert.ok(w.__downloads[1].data.includes(run('scoreLicense(current)')));
+  assert.equal(w.__downloads[1].data, run('takeCredits(shownTakes[0], current)'));
+  // The same text opened again is another score, with no takes. The first one's take can no longer be reached, so the
+  // panel offers to delete it; a draft that kept the first score's key brings the take back.
+  run(
+    `openScore({title:'Take test',abc:${JSON.stringify('X:1\nT:Take test\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nC D E F | G4 |]')}})`
+  );
+  await until(() => run("$('take-list').hidden") && !run("$('takes-stray').hidden"), 'the take to be out of reach');
+  assert.notEqual(run('recordKey()'), take.scoreKey, 'Each opened score that is not saved has takes of its own');
+  assert.equal(
+    run("$('takes-stray-text').textContent"),
+    '1 take here belongs to a score that was deleted or never saved.'
+  );
+  run(`takesRestored(${JSON.stringify(take.scoreKey)})`);
+  await until(() => takeCount() === 1, 'the take to come back with its score');
+  assert.equal(run("$('takes-stray').hidden"), true, 'The open score’s takes are not out of reach');
+  run("$('record').click()");
+  w.confirm = () => false;
+  run("$('take-list').querySelector('[data-take-delete]').click()");
+  await new Promise(r => w.setTimeout(r, 20));
+  assert.equal(takeCount(), 1, 'Cancel keeps the take');
+  w.confirm = () => true;
+  run("$('take-list').querySelector('[data-take-delete]').click()");
+  await until(() => takeCount() === 0, 'the take to be deleted');
+  assert.equal(run("$('record-status').textContent"), 'Take 1 deleted.');
+  assert.equal(run('document.activeElement.id'), 'record-start');
+  // Two blank sheets from the same template do not share takes.
+  run('dirty=false;newScore(2)');
+  const firstSheet = run('recordKey()');
+  assert.match(firstSheet, /^new:/);
+  memoryTake('b1', firstSheet);
+  run('updateTakes(true)');
+  await until(() => takeCount() === 1, 'the blank sheet’s take');
+  run('dirty=false;newScore(2)');
+  assert.notEqual(run('recordKey()'), firstSheet, 'A second blank sheet has its own takes');
+  await until(() => run("$('take-list').hidden"), 'the second sheet’s empty list');
+  run("memoryTakes.delete('b1')");
+  // Unsaved work recovered from its draft gets its takes back, and the first save carries them over.
+  run("selectEntry(scoreNotes()[0]);scoreKey({key:'c'});clearTimeout(renderTimer);render()");
+  assert.equal(run('dirty'), true);
+  const drafted = run('recordKey()');
+  memoryTake('d1', drafted);
+  run('writeDraft()');
+  const draft = JSON.parse(w.localStorage.getItem('fretfree-draft')).find(d => d.tab === run('draftTab'));
+  assert.equal(draft.takes, drafted, 'The draft keeps the takes’ key');
+  // A later visit: another score is open, and the draft from the earlier tab is restored.
+  run(`dirty=false;openScore({title:'Other',abc:${JSON.stringify('X:1\nT:Other\nM:4/4\nL:1/4\nK:C\nC4 |]')}})`);
+  run(`storage.set(KEYS.draft, [${JSON.stringify({...draft, tab: 'earlier'})}])`);
+  run('loadDrafts();restoreDraft()');
+  assert.equal(run('recordKey()'), drafted, 'Restored work has its takes’ key back');
+  await until(() => takeCount() === 1, 'the restored work’s take');
+  run("$('save').onclick()");
+  await until(
+    () =>
+      run("memoryTakes.get('d1')?.scoreKey.startsWith('saved:') && $('take-list').querySelectorAll('li').length === 1"),
+    'the saved score’s take'
+  );
+  const scoreId = run('savedId');
+  assert.equal(run("memoryTakes.get('d1').scoreKey"), 'saved:' + scoreId, 'Saving keeps the takes');
+  // A library edition's draft keeps the library key.
+  run("dirty=false;openScore(catalog.find(x=>x.id==='ode'));selectEntry(scoreNotes()[0]);scoreKey({key:'c'})");
+  run('clearTimeout(renderTimer);render();writeDraft()');
+  const libraryDraft = JSON.parse(w.localStorage.getItem('fretfree-draft')).find(d => d.tab === run('draftTab'));
+  assert.equal(libraryDraft.takes, 'library:ode');
+  run(`dirty=false;openScore({title:'Other',abc:${JSON.stringify('X:1\nT:Other\nM:4/4\nL:1/4\nK:C\nC4 |]')}})`);
+  run(`storage.set(KEYS.draft, [${JSON.stringify({...libraryDraft, tab: 'earlier'})}])`);
+  run('loadDrafts();restoreDraft()');
+  assert.equal(run('recordKey()'), 'library:ode', 'A restored library edition keeps its takes');
+  run('dirty=false;storage.remove(KEYS.draft);updateTakes(true)');
+  // Deleting a saved score deletes its takes, and says so first.
+  await until(() => run(`takeCount('saved:${scoreId}')`) === 1, 'the take index');
+  run("show('saved')");
+  let asked = '';
+  w.confirm = message => ((asked = message), true);
+  run(`$('saved-cards').querySelector('[data-delete="${scoreId}"]').click()`);
+  assert.equal(asked, 'Delete this locally saved score and its take?');
+  await until(() => !run("memoryTakes.has('d1')"), 'the deleted score’s take to go');
+  run("show('studio');newScore(2)");
+  // Takes no score can reach (a deleted score's, closed unsaved work's) can be deleted from the panel. Library takes, the
+  // open score's, and takes of work kept in a draft or open in another tab stay.
+  w.confirm = () => true;
+  memoryTake('s1', 'saved:gone');
+  memoryTake('s2', 'new:closed');
+  memoryTake('s3', 'library:ode');
+  memoryTake('s4', 'new:drafted');
+  memoryTake('s5', run('recordKey()'));
+  run("storage.set(KEYS.draft, [{abc:'X:1\\nK:C\\nC|]',tab:'other',at:1,takes:'new:drafted'}])");
+  // Unsaved work open in another tab, with no draft, holds a Web Lock for its takes, and this tab holds one for its own.
+  const locks = [];
+  Object.defineProperty(w.navigator, 'locks', {
+    configurable: true,
+    value: {
+      request(name, options, callback) {
+        const lock = `${name} (${options.mode})`;
+        locks.push(lock);
+        return Promise.resolve(callback()).then(() => locks.splice(locks.indexOf(lock), 1));
+      },
+      query: async () => ({held: locks.map(lock => ({name: lock.replace(/ \(\w+\)$/, '')})), pending: []})
+    }
+  });
+  locks.push('fretfree-takes new:elsewhere (shared)');
+  memoryTake('s6', 'new:elsewhere');
+  run('updateTakes(true)');
+  await until(() => run("$('takes-stray-text').textContent").startsWith('2 takes'), 'the stray takes');
+  const ownLock = `fretfree-takes ${run('recordKey()')} (shared)`;
+  assert.ok(locks.includes(ownLock), 'A tab with unsaved takes holds a lock for them');
+  assert.equal(
+    run("$('takes-stray-text').textContent"),
+    '2 takes here belong to scores that were deleted or never saved.'
+  );
+  w.confirm = message => ((asked = message), false);
+  run("$('takes-stray-delete').click()");
+  await new Promise(r => w.setTimeout(r, 20));
+  assert.equal(run('memoryTakes.size'), 6, 'Cancel keeps them');
+  assert.equal(asked, 'Delete the 2 takes of scores that were deleted or never saved? They can’t be brought back.');
+  w.confirm = () => true;
+  run("$('takes-stray-delete').click()");
+  await until(() => run("$('takes-stray').hidden"), 'the stray takes to go');
+  assert.equal(run('[...memoryTakes.keys()].join()'), 's3,s4,s5,s6', 'Takes open in another tab stay');
+  assert.equal(run("$('record-status').textContent"), '2 takes deleted.');
+  assert.equal(run('document.activeElement.id'), 'record-start');
+  run('memoryTakes.clear();storage.remove(KEYS.draft);updateTakes(true)');
+  await until(() => !locks.includes(ownLock), 'the lock to go with the takes');
+  delete w.navigator.locks;
+  // Starting, then stopping before the microphone answers, records nothing and lets the microphone go.
+  track.stopped = false;
+  mic = () => new Promise(r => (allow = () => r(stream)));
+  const cancelled = run('startRecording()');
+  run("$('record-start').click()");
+  allow();
+  await cancelled;
+  assert.ok(track.stopped, 'The microphone is released');
+  assert.equal(run('rec'), null);
+  assert.equal(run("$('record-status').textContent"), 'No take was recorded.');
+  assert.equal(run('memoryTakes.size'), 0);
+  // Stopping in the count-in (a false start) keeps no take. The count-in is 2 bars at 120, so the score starts at 14.07.
+  mic = () => Promise.resolve(stream);
+  const takeAbc = JSON.stringify('X:1\nT:Take test\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nC D E F | G4 |]');
+  run(`dirty=false;openScore({title:'Take test',abc:${takeAbc}})`);
+  run('audio.currentTime=10');
+  track.stopped = false;
+  await run('startRecording()');
+  assert.equal(run('rec.state'), 'live');
+  run("audio.currentTime=13.9;$('record-start').click()");
+  assert.equal(run('rec'), null);
+  assert.equal(recorders.at(-1).state, 'inactive');
+  assert.ok(track.stopped, 'The microphone is released');
+  assert.equal(run("$('record-status').textContent"), 'Stopped in the count-in, so no take was recorded.');
+  await new Promise(r => w.setTimeout(r, 20));
+  assert.equal(run('memoryTakes.size'), 0, 'A false start is not a take');
+  // Saving unsaved work while it records, while its take is saved (the tail), or while the take is stored, keeps the
+  // take with the saved score, and leaves nothing out of reach.
+  for (const when of ['recording', 'the tail', 'storing']) {
+    run(`dirty=false;openScore({title:'Take test',abc:${takeAbc}})`);
+    const unsaved = run('recordKey()');
+    run('audio.currentTime=10');
+    await run('startRecording()');
+    run('audio.currentTime=15');
+    if (when === 'recording') run("$('save').onclick()");
+    else {
+      run('stop()');
+      assert.equal(run('rec.state'), 'stopping');
+      if (when === 'the tail') run("$('save').onclick()");
+      else {
+        // The take's number is being worked out when the score is saved.
+        run(
+          'window.__list=listTakes;listTakes=async key=>{listTakes=__list;await new Promise(r=>(window.__go=r));return __list(key)};closeRecorder(rec)'
+        );
+        await until(() => run("typeof __go === 'function'"), 'the take to be stored');
+        assert.equal(run('rec'), null);
+        run("$('save').onclick();__go();delete window.__go");
+      }
+    }
+    await until(() => takeCount() === 1, `the take saved in ${when}`);
+    assert.equal(run('shownTakes[0].scoreKey'), 'saved:' + run('savedId'), `Saved in ${when}, the take is the score’s`);
+    assert.equal(await run(`listTakes(${JSON.stringify(unsaved)}).then(takes => takes.length)`), 0);
+    await run('indexTakes()');
+    assert.equal((await run('strayTakeKeys()')).length, 0, `Saved in ${when}, no take is out of reach`);
+    run('saved=saved.filter(x=>x.id!==savedId);storeScores(saved);memoryTakes.clear()');
+  }
+  // Saving one's own copy of a library edition takes along the takes recorded since it was opened. Takes recorded on
+  // the edition before (a teacher's model take on a shared computer) stay with it.
+  memoryTake('model', 'library:ode');
+  run("dirty=false;openScore(catalog.find(x=>x.id==='ode'))");
+  await until(() => takeCount() === 1, 'the edition’s take');
+  run('audio.currentTime=10');
+  await run('startRecording()');
+  run('audio.currentTime=30;stop()');
+  await until(() => takeCount() === 2, 'the take recorded on the edition');
+  run("selectEntry(scoreNotes()[0]);scoreKey({key:'c'});$('save').onclick()");
+  await until(() => run("shownKey.startsWith('saved:')") && takeCount() === 1, 'the saved copy’s take');
+  const copy = run('savedId');
+  assert.equal(run('shownTakes[0].n'), 2, 'The take recorded on the copy goes with it');
+  assert.equal(run("memoryTakes.get('model').scoreKey"), 'library:ode', 'The earlier take stays with the edition');
+  run("dirty=false;openScore(catalog.find(x=>x.id==='ode'))");
+  await until(() => run("shownTakes[0]?.id === 'model'") && takeCount() === 1, 'the edition’s take again');
+  run(`saved=saved.filter(x=>x.id!==${JSON.stringify(copy)});storeScores(saved);memoryTakes.clear();updateTakes(true)`);
+  run("$('record-close').click()");
+  assert.equal(run("$('record-panel').hidden"), true);
+  assert.equal(run('document.activeElement.id'), 'record');
+  run("$('loop').checked=false");
+  w.localStorage.removeItem('fretfree-latency');
+  delete w.MediaRecorder;
+  delete w.navigator.mediaDevices;
+}
 // WAV export: without OfflineAudioContext the panel says so. With a fake one, the file has the notes Play schedules, at
 // the same times and speed, clicks only with Include metronome and the chords only with Include chords; the export
 // never touches the live context and downloads <title>.wav. The summary follows Speed and the instrument. A bar shows
@@ -2718,6 +3139,22 @@ async function checkWavExport() {
     'At this speed the score plays for 20:48, and an audio file can be up to 10 minutes. Export MIDI instead.'
   );
   assert.equal(downloads.length, 3);
+  // Road-map playback: the file follows a D.C. al Fine as Play does, and its clicks keep time with the notes.
+  run(`openScore({abc:${JSON.stringify(abc.replace(/K:C\n.*/s, 'K:C\nC4|D4 !fine!|E4|F4 !D.C.alfine!|]'))}})`);
+  run("$('speed').value='100';$('export-wav').click();$('wav-metronome').checked=true");
+  oscillators.length = 0;
+  await run('makeWav()');
+  assert.equal(
+    oscillators
+      .filter(o => o.type !== 'square')
+      .map(o => `${Math.round(69 + 12 * Math.log2(o.frequency.value / 440))}@${o.startAt.toFixed(2)}`)
+      .join(' '),
+    '60@0.00 62@2.00 64@4.00 65@6.00 60@8.00 62@10.00',
+    'The file plays back to measure 1 and stops at Fine'
+  );
+  assert.equal(oscillators.filter(o => o.type === 'square').length, 24, 'Four clicks in each of the six bars heard');
+  assert.equal(offline.at(-1).args[1], Math.ceil((12 + 1) * 44100));
+  assert.equal(downloads.length, 4);
   run(`openScore({abc:${JSON.stringify(abc)}})`);
   assert.equal(run("$('wav-panel').hidden"), true, 'Opening another score closes the panel');
   run("download=keepDownload;$('speed').value='100';$('metronome').checked=false");
@@ -3089,6 +3526,435 @@ async function checkInstrumentSounds() {
     ]
   );
   run('stop();dirty=false');
+}
+// Road-map playback: D.C., D.S., coda, Fine and fermatas, through the score's real timeline (repeats played out).
+async function checkRoadMap() {
+  const head = 'X:1\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\n',
+    NAMES = {
+      48: 'C,',
+      50: 'D,',
+      52: 'E,',
+      53: 'F,',
+      60: 'C',
+      62: 'D',
+      64: 'E',
+      65: 'F',
+      67: 'G',
+      69: 'A',
+      71: 'B',
+      72: 'c'
+    },
+    open = abc => {
+      run(`openScore({abc:${JSON.stringify(head + abc)},instrument:'Piano'})`);
+      run("$('metronome').checked=false;$('count-in').checked=false;$('loop').checked=false;$('speed').value=100");
+    },
+    sounding = () =>
+      oscillators
+        .filter(o => o.type !== 'square')
+        .sort((a, b) => a.startAt - b.startAt || a.frequency.value - b.frequency.value)
+        .map(o => NAMES[Math.round(69 + 12 * Math.log2(o.frequency.value / 440))]),
+    heard = async () => {
+      oscillators.length = 0;
+      await run('play()');
+      run('stop()');
+      return sounding().join(' ');
+    },
+    // The measure lit at each event, as heard: the highlight's own list of events.
+    lit = () =>
+      run(
+        `playEvents().filter(e=>e.type==='event').map(e=>e.milliseconds/1000+':'+noteSources.get(e.startCharArray[0]).measure).join(' ')`
+      );
+  // Note times below count from the mocked clock at 10 s, where the recording checks may have left it elsewhere.
+  run('audio.currentTime=10');
+  open('C4|D4 !fine!|E4|F4 !D.C.alfine!|]');
+  assert.equal(await heard(), 'C D E F C D', 'D.C. al Fine plays from the start to Fine');
+  assert.equal(lit(), '0:1 2:2 4:3 6:4 8:1 10:2', 'The highlight follows the jump');
+  assert.equal(
+    run('JSON.stringify([...measureStarts])'),
+    '[[1,0],[2,2],[3,4],[4,6]]',
+    'Measures start where first heard'
+  );
+  assert.equal(run("$('warnings').textContent"), '');
+  run('setRange(3,4)');
+  assert.equal(await heard(), 'E F', 'A range of measures 3–4 stops at the D.C., which leaves it');
+  run('setRange(1,4)');
+  assert.equal(await heard(), 'C D E F C D', 'A range that holds the jump target plays on through it');
+  const fromNote = async (i, range) => {
+    run(`setRange(${range})`);
+    oscillators.length = 0;
+    run(`playFromNote(scoreEvents(renderedTune).filter(e=>e.element.el_type==='note')[${i}].element)`);
+    await new Promise(r => w.setTimeout(r, 0));
+    run('stop()');
+    return sounding().join(' ');
+  };
+  assert.equal(await fromNote(1, '1,4'), 'D E F C D', 'Play from a note runs through the jump');
+  assert.equal(await fromNote(1, '3,4'), 'D E F', 'and stops where a jump leaves the practice range');
+  // Library tunes write it as text: "fine" and "D.C." in chord position.
+  open('C4|"fine"D4|E4|F4"D.C."|]');
+  assert.equal(await heard(), 'C D E F C D', 'A plain D.C. stops at Fine');
+  open('C4|D4|E4 !D.C.!|]');
+  assert.equal(await heard(), 'C D E C D E', 'D.C. with no Fine plays the whole score again');
+  open('C4|D4|E4 !D.S.!|]');
+  assert.equal(await heard(), 'C D E', 'A D.S. with no segno plays straight');
+  assert.equal(run(`formPlaybackNote($('abc').value,'D.S.')`), ' Add a segno where playback should go back to.');
+  // Measure tools asks for a second coda sign only when the score does not already have a coda that plays.
+  const codaNote = abc =>
+    run(
+      `formPlaybackNote(${JSON.stringify(head + abc)},'coda')+'|'+formPlaybackNote(${JSON.stringify(head + abc)},'D.S.alcoda')`
+    );
+  assert.equal(codaNote('C4|!segno!D4|E4 "^To Coda"|F4 !D.S.alcoda!|!coda!G4|A4|]'), '|', 'To Coda and one sign');
+  assert.equal(codaNote('C4|!segno!D4|!coda!E4|F4 !D.S.alcoda!|!coda!G4|]'), '|', 'Two coda signs');
+  assert.equal(codaNote('C4|!segno!D4|!coda!E4|F4 !D.S.alcoda!|"^Coda"G4|]'), '|', 'A sign and a heading');
+  assert.equal(
+    codaNote('C4|!segno!D4|E4 "^To Coda"|F4 !D.S.alcoda!|G4|]'),
+    ' Add a coda sign where the coda starts.| Add a coda sign where the coda starts.',
+    'A To Coda with no sign'
+  );
+  assert.equal(
+    codaNote('C4|!segno!D4|!coda!E4|F4 !D.S.alcoda!|G4|]').split('|')[0],
+    ' After a jump, playback leaves at the first coda sign and goes on at the second, so add two.',
+    'One coda sign alone'
+  );
+  // D.S. al Coda as Measure tools writes it: the segno and the coda signs on a measure's first note.
+  open('C4|!segno!D4|!coda!E4|F4 !D.S.alcoda!|!coda!G4|A4|]');
+  assert.equal(
+    await heard(),
+    'C D E F D G A',
+    'D.S. al Coda: back to the segno, then from the first coda sign to the last'
+  );
+  assert.equal(lit(), '0:1 2:2 4:3 6:4 8:2 10:5 12:6');
+  open('C4|!segno!D4|E4 "^To Coda"|F4 !D.S.alcoda!|"^Coda"G4|A4|]');
+  assert.equal(await heard(), 'C D E F D E G A', 'To Coda text at the end of a measure, to the Coda heading');
+  // Repeats and endings still play; after the jump each measure plays its last pass, the 2nd ending.
+  open('|:C4|D4|1E4:|2F4|G4 !D.C.!|]');
+  assert.equal(await heard(), 'C D E C D F G C D F G', 'Repeats are not taken after a D.C.');
+  // A jump on one staff takes every staff with it.
+  run(
+    `openScore({abc:${JSON.stringify(head + 'V:1\nC4|D4|E4 !D.C.!|]\nV:2 clef=bass\nC,4|D,4|E,4|]')},instrument:'Piano'})`
+  );
+  assert.equal(await heard(), 'C, C D, D E, E C, C D, D E, E');
+  // A multi-measure rest is one measure of its staff but three bars: the D.C. written on both staves is one jump.
+  run(
+    `openScore({abc:${JSON.stringify(head + 'V:1\nC4|D4|E4|F4 !D.C.!|]\nV:2\nZ3|F,4 !D.C.!|]')},instrument:'Piano'})`
+  );
+  assert.equal(await heard(), 'C D E F, F C D E F, F', 'A D.C. after a multi-measure rest is in its own bar');
+  run(
+    `openScore({abc:${JSON.stringify(head + 'V:1\nZ3|F4 !D.C.!|]\nV:2\nC,4|D,4|E,4|F,4 !D.C.!|]')},instrument:'Piano'})`
+  );
+  assert.equal(await heard(), 'C, D, E, F, F C, D, E, F, F', 'and so is one on the first staff');
+  // Older scores mark where a D.C. stops with a fermata at a double bar line, or on an invisible rest before it.
+  open('C D E HF||G4|A4 !D.C.!|]');
+  assert.equal(await heard(), 'C D E F G A C D E F', 'A D.C. with no Fine stops at a fermata over a double bar');
+  open('C D E Hx||G4|A4 "D.C."|]');
+  assert.equal(await heard(), 'C D E G A C D E', 'The fermata may be on an invisible rest (Hx)');
+  open('C D E HF|G4|A4 !D.C.!|]');
+  assert.equal(await heard(), 'C D E F G A C D E F G A', 'One before a plain bar line is only held');
+  // Metronome clicks follow the jump: four beats in each of the six measures heard.
+  open('C4|D4 !fine!|E4|F4 !D.C.alfine!|]');
+  assert.equal(run('clickTimes(0,99,12).length'), 24, 'The metronome clicks through the jump');
+  assert.equal(run('clickTimes(0,99,12).filter(c=>c.down).map(c=>c.time).join()'), '0,2,4,6,8,10');
+  // Fermatas: the held note lasts twice as long and later notes start later; the highlight holds it too.
+  open('C D HE F|G4|]');
+  oscillators.length = 0;
+  await run('play()');
+  const spans = oscillators.map(o => [+(o.startAt - 10.07).toFixed(3), +(o.stopAt - o.startAt).toFixed(3)]);
+  run('stop()');
+  assert.deepEqual(
+    spans.map(s => s[0]),
+    [0, 0.5, 1, 2, 2.5],
+    'Notes after a fermata start later'
+  );
+  assert.equal(+(spans[2][1] - spans[1][1]).toFixed(3), 0.5, 'The fermata note sounds for twice its length');
+  assert.equal(run('JSON.stringify([...measureStarts])'), '[[1,0],[2,2.5]]');
+  assert.equal(run('clickTimes(0,99,4.5).map(c=>c.time).join()'), '0,0.5,1,2,2.5,3,3.5,4', 'Clicks wait for it');
+  // The count-in keeps the written beat when the first beat has a fermata.
+  open('HC D E F|G4|]');
+  run("$('count-in').checked=true");
+  oscillators.length = 0;
+  await run('play()');
+  const counts = oscillators.filter(o => o.type === 'square').map(o => o.startAt);
+  run("stop();$('count-in').checked=false");
+  assert.deepEqual(
+    counts.slice(1).map((t, i) => +(t - counts[i]).toFixed(3)),
+    [0.5, 0.5, 0.5],
+    'Count-in at the written tempo, not stretched by the fermata'
+  );
+  // Fermatas on both staves hold together, and a fermata in a D.C. is held each time.
+  run(`openScore({abc:${JSON.stringify(head + 'V:1\nC2 HD2|E4 !D.C.!|]\nV:2\nC,2 HD,2|E,4|]')},instrument:'Piano'})`);
+  oscillators.length = 0;
+  await run('play()');
+  run('stop()');
+  assert.equal(
+    [...new Set(oscillators.map(o => +(o.startAt - 10.07).toFixed(3)))].join(' '),
+    '0 1 3 5 6 8',
+    'Each pass holds the fermata, on both staves'
+  );
+  // Scores with no jumps and no fermatas keep today's path: no plan, and exactly the notes of the score's MIDI.
+  for (const abc of [source, 'X:1\nM:6/8\nL:1/8\nQ:3/8=60\nK:G\n|:GAB c2d|e3 d3:|\n|:"D7"A3 F3|"G"G6:|']) {
+    run(`openScore({abc:${JSON.stringify(abc)},instrument:'Flute'})`);
+    run("$('metronome').checked=false;$('count-in').checked=false;$('speed').value=100;setRange(1,99)");
+    assert.equal(run('playPlan'), null, 'No road map');
+    oscillators.length = 0;
+    await run('play()');
+    run('stop()');
+    assert.equal(
+      oscillators.map(o => (o.startAt - 10.07).toFixed(4)).join(),
+      run("parseMidi(midiBytes($('abc').value)).notes.map(n=>n.start.toFixed(4)).join()"),
+      'Every note at its MIDI time'
+    );
+  }
+  // Library tunes through their real timelines, repeats and endings played out: the measures heard, in order.
+  const road = id => {
+    run(`openScore(catalog.find(x=>x.id===${JSON.stringify(id)}))`);
+    return run(`playRoad.order.map(o=>o.measure+(o.jump?'('+o.jump+')':'')).join(' ')`);
+  };
+  assert.equal(
+    road('oneill-1850-1208'),
+    '1 2 3 4 1 2 3 5 6 7 8 9 10 11 12 13 1(D.C.) 2 3 5 6 7 8 9 10 11 12 13',
+    'After a D.C., the repeat is not taken and the 2nd ending plays'
+  );
+  assert.equal(
+    road('oneill-1850-1310'),
+    '1 2 3 4 5 1 2 3 6 7 2(D.S.) 3 6 7 8 9 10 11 12 13 14 15 16 2(D.S.) 3 6 7 8 9 10 11 12 13 14 15 16',
+    'A D.S. in a 2nd ending, then another at the end: each is taken once'
+  );
+  assert.equal(
+    road('oneill-1850-0552'),
+    '1 2 3 4 5 1 2 3 4 5 6 7 8 9 10 11 12 13 14 1(D.C.) 2 3 4 5',
+    'The D.C. stops at the fermata (Hx) over the repeat sign'
+  );
+  assert.equal(
+    road('oneill-1850-1720'),
+    '1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 1(D.S.) 2 3 4 5 6 7 8 9',
+    'The D.S. stops at the held note before the double bar'
+  );
+  run('stop();dirty=false');
+  assert.equal(
+    run(`Array.from(midiBytes(${JSON.stringify(head + 'C4|D4 !fine!|E4|F4 !D.C.alfine!|]')})).join()`),
+    run(`Array.from(midiBytes(${JSON.stringify(head + 'C4|D4|E4|F4|]')})).join()`),
+    'MIDI export stays in written order'
+  );
+  run('stop();dirty=false');
+}
+// Lyrics: L, the toolbar's Lyrics button and the note menu open the box under a note; Space, -, _ and * write the
+// verse as typed, Enter starts the next verse on the same notes, Backspace and Tab move, rests are skipped, each saved
+// syllable is one undo step, and the words survive transposing, instruments, saving, share links and exports.
+async function checkLyrics() {
+  const abc = () => run("$('abc').value"),
+    words = () =>
+      abc()
+        .split('\n')
+        .filter(l => l.startsWith('w:')),
+    pick = i => run(`selectEntry(scoreNotes()[${i}])`),
+    key = k => run(`scoreKey(${JSON.stringify({key: k})})`),
+    box = () => run("$('lyric-entry').hidden ? null : $('lyric-input').value"),
+    status = () => run("$('selection-status').textContent"),
+    selected = () => run("$('abc').value.slice(...selectedRange)"),
+    // Each character as a keyboard types it: over the selected text, or after what is there.
+    type = text => {
+      for (const c of text)
+        run(
+          `(i=>{i.value=i.selectionStart===0&&i.selectionEnd===i.value.length?${JSON.stringify(c)}:i.value+${JSON.stringify(c)};` +
+            `i.dispatchEvent(new Event('input'))})($('lyric-input'))`
+        );
+    },
+    press = (k, shiftKey = false) =>
+      run(
+        `$('lyric-input').dispatchEvent(new KeyboardEvent('keydown',{key:${JSON.stringify(k)},shiftKey:${shiftKey},bubbles:true,cancelable:true}))`
+      ),
+    twinkle = 'X:1\nT:Twinkle\nM:4/4\nL:1/4\nK:C\nCCGG|AAG2|\nFFEE|DDC2|]\n';
+  run(`dirty=false;openScore({abc:${JSON.stringify(twinkle)},instrument:'Flute'})`);
+  run('selectedRange=null;selectionAnchor=null');
+  key('l');
+  assert.equal(box(), null, 'L needs a selected note');
+  assert.equal(status(), 'Select a note on the score first.');
+  pick(0);
+  key('l');
+  assert.equal(box(), '', 'L opens an empty box on the note');
+  assert.equal(run('document.activeElement.id'), 'lyric-input', 'The box takes the keyboard');
+  assert.equal(run("$('lyric-verse').textContent"), 'Verse 1');
+  assert.equal(run("$('lyric-input').getAttribute('aria-label')"), 'Lyrics, verse 1');
+  type('Twin-kle twin-kle ');
+  assert.deepEqual(words(), ['w: Twin-kle twin-kle'], 'Syllables go on four notes, written under their line');
+  assert.equal(abc(), twinkle.replace('G|AAG2|\n', 'G|AAG2|\nw: Twin-kle twin-kle\n'));
+  assert.equal(box(), '', 'The box moves on to the fifth note');
+  assert.equal(selected(), 'A');
+  assert.equal(run('document.activeElement.id'), 'lyric-input');
+  // The words engrave under the notes.
+  assert.deepEqual(
+    JSON.parse(run("JSON.stringify([...document.querySelectorAll('#notation .abcjs-lyric')].map(t=>t.textContent))")),
+    ['Twin-', 'kle', 'twin-', 'kle']
+  );
+  press('Enter');
+  assert.equal(run("$('lyric-verse').textContent"), 'Verse 2', 'Enter starts the next verse');
+  assert.equal(selected(), 'C', 'on the note where typing started');
+  assert.equal(box(), '');
+  type('Up a-bove the ');
+  assert.deepEqual(words(), ['w: Twin-kle twin-kle', 'w: Up a-bove the'], 'The second verse goes on the same notes');
+  assert.equal(
+    run("JSON.stringify(ABCJS.parseOnly($('abc').value)[0].lines[0].staff[0].voices[0][2].lyric.map(l=>l.syllable))"),
+    '["twin","bove"]',
+    'Each note stacks its verses in order'
+  );
+  press('Escape');
+  assert.equal(box(), null, 'Escape closes the box');
+  assert.equal(run('document.activeElement.id'), 'notation', 'and the keyboard goes back to the score');
+  run('stepHistory(-1)');
+  assert.deepEqual(words(), ['w: Twin-kle twin-kle', 'w: Up a-bove'], 'Each saved syllable is one undo step');
+  run('stepHistory(1)');
+  // Editing one syllable changes only that syllable; Tab keeps its hyphen.
+  pick(2);
+  key('L');
+  assert.equal(box(), 'twin', 'The box shows the syllable the note has, selected');
+  type('TWIN');
+  press('Tab');
+  assert.deepEqual(words(), ['w: Twin-kle TWIN-kle', 'w: Up a-bove the']);
+  assert.equal(selected(), 'G', 'Tab moves on');
+  assert.equal(box(), 'kle');
+  press('Tab', true);
+  assert.equal(box(), 'TWIN', 'Shift+Tab moves back');
+  press('Escape');
+  // A second line of music has its own w: line; typing past the last note keeps the box open after it, where more
+  // words go nowhere (letters never reach the score) and Enter starts the next verse.
+  pick(11);
+  key('l');
+  type('won-der what ');
+  assert.deepEqual(words(), ['w: Twin-kle TWIN-kle', 'w: Up a-bove the', 'w: * * * * won-der what']);
+  assert.equal(
+    abc(),
+    'X:1\nT:Twinkle\nM:4/4\nL:1/4\nK:C\nCCGG|AAG2|\nw: Twin-kle TWIN-kle\nw: Up a-bove the\nFFEE|DDC2|]\nw: * * * * won-der what\n',
+    'Notes before the first syllable of a line are skipped with *'
+  );
+  assert.equal(box(), '', 'Typing past the last note keeps the box open');
+  assert.equal(status(), 'That was the last note. Enter starts verse 2.');
+  assert.match(run("$('lyric-hint').textContent"), /^No more notes · Enter verse 2/);
+  const ended = abc();
+  type('and a b ');
+  assert.equal(abc(), ended, 'Words past the last note change nothing');
+  assert.equal(status(), 'No more notes for those words. Enter starts verse 2.');
+  assert.equal(selected(), 'C2', 'The last note stays selected');
+  press('Enter');
+  assert.deepEqual([run("$('lyric-verse').textContent"), selected(), box()], ['Verse 2', 'D', ''], 'Enter goes on');
+  press('Escape');
+  assert.equal(abc(), ended);
+  // Backspace in an empty box goes back a note; an empty box takes a syllable away.
+  pick(13);
+  key('l');
+  run("$('lyric-input').value='';$('lyric-input').dispatchEvent(new Event('input'))");
+  assert.match(run("$('lyric-hint').textContent"), /^Empty removes the syllable/);
+  press('Backspace');
+  assert.equal(box(), 'der', 'Backspace in an empty box goes back a note');
+  assert.deepEqual(words().at(-1), 'w: * * * * won-der', 'and takes away the syllable it left');
+  press('Escape');
+  // * leaves a note out, _ holds a syllable over the next note, and a space after either only separates.
+  run(`openScore({abc:${JSON.stringify('X:1\nM:3/4\nL:1/4\nK:G\nG z A B|c2 d|e2-e d|]\n')},instrument:'Flute'})`);
+  pick(0);
+  key('l');
+  assert.equal(selected(), 'G ');
+  type('Ah_ * men a* way');
+  assert.equal(box(), 'way', 'A space after _ or * only separates');
+  press('Escape');
+  assert.deepEqual(words(), ['w: Ah___ men a * way'], 'Rests are passed over; * and _ take a note each');
+  assert.deepEqual(
+    run("JSON.stringify(voiceLyrics($('abc').value).map(x=>x&&x.syllable))"),
+    JSON.stringify(['Ah', null, null, 'men', 'a', null, 'way', null]),
+    'Ah on G, A held, B left out, men on c, a on d, the first e left out, way on the tied e'
+  );
+  // A selected rest starts the words at the next note.
+  pick(1);
+  assert.equal(selected(), 'z ');
+  key('l');
+  assert.equal(selected(), 'A ', 'L on a rest opens the box on the next note');
+  assert.equal(box(), '');
+  press('Escape');
+  // - and _ in an empty box carry the syllable before through the note.
+  run(`openScore({abc:${JSON.stringify('X:1\nL:1/4\nK:C\nC D E F|]\n')},instrument:'Flute'})`);
+  pick(0);
+  key('l');
+  type('Ky-');
+  type('-');
+  type('ri ');
+  assert.deepEqual(words(), ['w: Ky - ri'], 'A hyphen in an empty box carries the word on through the note');
+  // The toolbar button and the note menu open the box too, and the button names the syllable.
+  press('Escape');
+  pick(0);
+  assert.equal(run(`document.querySelector('[data-palette="lyric"]').getAttribute('aria-label')`), 'Lyrics (Ky)');
+  assert.equal(run(`document.querySelector('[data-palette="lyric"]').classList.contains('in-use')`), true);
+  pick(1);
+  assert.equal(run(`document.querySelector('[data-palette="lyric"]').getAttribute('aria-label')`), 'Lyrics');
+  run(`document.querySelector('[data-palette="lyric"]').click()`);
+  assert.equal(box(), '', 'The Lyrics button opens the box');
+  press('Escape');
+  run("runShortcut(SHORTCUTS.find(s=>s.name==='Lyrics'))");
+  assert.equal(box(), '', 'and so does Lyrics in the shortcut sheet');
+  press('Escape');
+  run('openNoteMenu(scoreNotes()[2], displayOf(scoreNotes()[2]), 10, 10)');
+  assert.match(run(`$('note-menu').querySelector('[data-edit="lyric"]').textContent`), /^Lyrics: ri…$/);
+  run(`$('note-menu').querySelector('[data-edit="lyric"]').click()`);
+  assert.equal(box(), 'ri', 'The note menu opens the box');
+  // Leaving the box saves it.
+  type('RI');
+  run("$('lyric-input').dispatchEvent(new FocusEvent('blur',{relatedTarget:$('abc')}))");
+  assert.equal(box(), null);
+  assert.deepEqual(words(), ['w: Ky - RI'], 'Leaving the box saves it');
+  // Adding or taking away notes in a line with words under it says to check them; other edits do not.
+  assert.equal(run("$('lyric-check').hidden"), true);
+  pick(1);
+  key('g');
+  assert.equal(run("$('lyric-check').hidden"), false, 'A new note in a line with lyrics shows the check');
+  run('stepHistory(-1)');
+  pick(0);
+  key('ArrowUp');
+  assert.equal(run("$('lyric-check').hidden"), true, 'A pitch change hides it');
+  // Lines with the same words are told apart by their order.
+  run(
+    `openScore({abc:${JSON.stringify('X:1\nL:1/4\nK:C\nC D E F|\nw: la la la la\nG A B c d|\nw: la la la la\n')},instrument:'Flute'})`
+  );
+  pick(1);
+  key('g');
+  assert.equal(run("$('lyric-check').hidden"), false, 'A new note under a refrain shows the check');
+  // A syllable's own hyphen is shown as a look-alike, so it is not read as the hyphen key and stays in the syllable;
+  // a backslash typed before a mark keeps it in the syllable too.
+  run(`openScore({abc:${JSON.stringify('X:1\nL:1/4\nK:C\nC D E F|\nw: mid\\-day sun hot\n')},instrument:'Flute'})`);
+  pick(0);
+  key('l');
+  assert.equal(box(), 'mid\u2010day');
+  run("(i=>{i.value+='s';i.dispatchEvent(new Event('input'))})($('lyric-input'))");
+  assert.deepEqual([box(), words()], ['mid\u2010days', ['w: mid\\-day sun hot']], 'Typing at its end keeps it whole');
+  type(' ');
+  assert.deepEqual([words(), box()], [['w: mid\\-days sun hot'], 'sun']);
+  type('a\\-b ');
+  assert.deepEqual(words(), ['w: mid\\-days a\\-b hot'], 'A backslash keeps a mark in the syllable');
+  press('Escape');
+  // A voice written after & shares the words of the staff's first voice, so it cannot have its own.
+  run(`openScore({abc:${JSON.stringify('X:1\nL:1/4\nK:C\nC D E F & c d e f|]\n')},instrument:'Flute'})`);
+  run("selectEntry(scoreNotes().find(e => voiceOf(e) === '0:1'))");
+  key('l');
+  assert.deepEqual(
+    [box(), status()],
+    [null, 'Lyrics go under the first voice of a staff, not a voice written after &.'],
+    'L explains why a voice after & takes no words'
+  );
+  // The words survive transposing, another instrument, saving, share links and exports.
+  run(
+    `openScore({abc:${JSON.stringify(twinkle.replace('G|AAG2|\n', 'G|AAG2|\nw: Twin-kle twin-kle lit-tle star\n'))},instrument:'Flute'})`
+  );
+  const verse = 'w: Twin-kle twin-kle lit-tle star';
+  run('toggleTranspose(true);applyTranspose()');
+  assert.ok(words().includes(verse) && /^K:D$/m.test(abc()), 'Transposing keeps the words');
+  run("$('instrument').value='Clarinet in B♭';$('instrument').onchange();clearTimeout(renderTimer);render()");
+  assert.equal(
+    run("[...document.querySelectorAll('#notation .abcjs-lyric')].map(t=>t.textContent).join(' ')"),
+    'Twin- kle twin- kle lit- tle star',
+    'A transposing instrument shows the words'
+  );
+  assert.ok(run('sharePayload().a').includes(verse), 'Share links carry the words');
+  assert.ok(run("creditedABC($('abc').value, current)").includes(verse), 'ABC export keeps the words');
+  assert.match(
+    run("abcToMusicXML($('abc').value, {item: current})"),
+    /<lyric number="1"><syllabic>begin<\/syllabic><text>Twin<\/text>/
+  );
+  assert.match(run("creditedSVG($('notation'), $('abc').value, current)"), /abcjs-lyric/, 'SVG export draws the words');
 }
 async function checkPlayback() {
   run(`openScore({abc:${JSON.stringify(source)},instrument:'Flute'});$('start-measure').value=3;$('speed').value=50`);
@@ -3830,8 +4696,11 @@ async function checkPlayback() {
     delete w.navigator.requestMIDIAccess;
   }
   await checkChordSymbols();
+  await checkLyrics();
   await checkAudio();
+  await checkRecording();
   await checkInstrumentSounds();
+  await checkRoadMap();
   await checkWavExport();
   await checkMixer();
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-scores-v1')), [legacy]);
@@ -3839,8 +4708,10 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, screen-reader note descriptions (selection, arrow keys, edits, typing over rests, pickups, compound and free meters, triplets, written and concert pitch), the shortcut sheet (? and the button, groups, focus trap, search, Enter running a command as one undo step, hints, Escape, tuplet and Measure panel commands), measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, the mixer (tracks for one and two voices with chords, Mute at once and left out of the next pass and the WAV file, Solo with the metronome, live Volume and Pan, restarts when a track comes back, count-in with a muted metronome, saving with a new saved time that backups see, reopening, share links, drafts, Reset in the draft too, a library score mixed on a copy that leaves the catalog as it was, and Escape), WAV export (the notes, times, speed, clicks and chords Play has, its own full-level bus, INFO title, scaling, no offline audio, a summary that follows Speed and the instrument, a busy or filling progress bar, a closed panel cutting the render off, too long with its length and MIDI as the way out), instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, screen-reader note descriptions (selection, arrow keys, edits, typing over rests, pickups, compound and free meters, triplets, written and concert pitch), the shortcut sheet (? and the button, groups, focus trap, search, Enter running a command as one undo step, hints, Escape, tuplet and Measure panel commands), measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), road-map playback (D.C., D.C. al Fine, D.S. al Coda, To Coda and Coda text, jumps after repeats and on several staves, a multi-measure rest on one staff, a D.C. ending at a fermata over a double bar line, library tunes through their real repeats, the highlight, measure starts, practice ranges and play from a note through jumps, metronome clicks, the count-in under a fermata, fermatas held on every staff and pass, no plan and the same notes without jumps, MIDI export in written order, Measure tools hints for segno, Fine and coda), lyrics (L, the Lyrics button, the shortcut sheet and the note menu, Space, -, _ and * as typed, Enter for the next verse, the box kept open past the last note, Tab, Shift+Tab and Backspace, rests passed over, saving on blur, one undo per syllable, the check after notes change (refrains too), marks kept inside a syllable, voices after &, and words kept through transposing, instruments, share links and ABC, MusicXML and SVG export), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, recording yourself (no microphone, denied, count-in bars, one pass, the take and its length, playing alone and lined up with the score, calibration applied to older takes, downloads with credits, delete, a press while saving keeps the take, each unsaved score with takes of its own, takes back with a restored draft and kept through the first save, deleting a saved score with its takes, deleting takes no score can reach but not those open in another tab, cancelling, a stop in the count-in keeping no take, a save while recording, in the tail or while the take is stored keeping the take with the saved score, a library copy taking only the takes recorded since it opened), the mixer (tracks for one and two voices with chords, Mute at once and left out of the next pass and the WAV file, Solo with the metronome, live Volume and Pan, restarts when a track comes back, count-in with a muted metronome, saving with a new saved time that backups see, reopening, share links, drafts, Reset in the draft too, a library score mixed on a copy that leaves the catalog as it was, and Escape), WAV export (the notes, times, speed, clicks and chords Play has, its own full-level bus, INFO title, scaling, no offline audio, a summary that follows Speed and the instrument, a busy or filling progress bar, a closed panel cutting the render off, too long with its length and MIDI as the way out, a D.C. al Fine with its clicks), instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
+  // Let the takes list that the last save refreshes finish before the window goes.
+  await new Promise(r => setTimeout(r, 20));
   w.close();
 }
 checkPlayback().catch(e => {

@@ -22,6 +22,8 @@ const KEYS = {
   versions: 'fretfree-versions',
   studentName: 'fretfree-student-name',
   inbox: 'fretfree-inbox',
+  recordCountIn: 'fretfree-record-count-in',
+  latency: 'fretfree-latency',
   practice: id => 'fretfree-practice-' + id
 };
 // An embedded score (#e=…, usually in an iframe on a class website) is a read-only view. It neither reads nor writes

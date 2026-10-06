@@ -48,10 +48,12 @@ const {chromium} = require('playwright'),
           url: '',
           abc: $('abc').value
         })
-      ).abc
+      ).abc,
+      takeCredits: takeCredits({title: 'Practice', n: 1, at: Date.now(), mime: 'audio/webm'}, current)
     }));
     assert.ok(exported.abc.includes(license));
     assert.ok(exported.turnIn.includes(license), 'The turn-in file carries the credits');
+    assert.ok(exported.takeCredits.includes(license), 'A recorded take’s credits file carries the licence');
     assert.equal(
       await page.evaluate(abc => creditedABC(abc, current), exported.abc),
       exported.abc,
@@ -99,6 +101,7 @@ const {chromium} = require('playwright'),
       assert.ok(Buffer.from(exported.midi).toString().includes('GNU GENERAL PUBLIC LICENSE'));
       assert.ok(exported.musicxml.includes('GNU GENERAL PUBLIC LICENSE'));
       assert.ok(exported.turnIn.includes('GNU GENERAL PUBLIC LICENSE'));
+      assert.ok(exported.takeCredits.includes('GNU GENERAL PUBLIC LICENSE'));
       assert.ok(Buffer.from(exported.wav).toString().includes('GNU GENERAL PUBLIC LICENSE'));
     }
     await page.evaluate(() => {
@@ -213,7 +216,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: every catalog score engraves; collection/exact-license filters; ABC, MIDI, SVG, MusicXML, WAV, turn-in file and print credits (WAV INFO license and full credit; only title and composer for your own score); GPL license/source embedding (MusicXML and WAV too); exported MIDI preserves playback; the highlight keeps time with the sound in cut time, 3/2, 6/4 and other meters, and through tempo and meter changes.'
+    'PASS: every catalog score engraves; collection/exact-license filters; ABC, MIDI, SVG, MusicXML, WAV, turn-in file, recorded-take and print credits; GPL license/source embedding (MusicXML and WAV too); exported MIDI preserves playback; the highlight keeps time with the sound in cut time, 3/2, 6/4 and other meters, and through tempo and meter changes.'
   );
 })().catch(e => {
   console.error(e);

@@ -996,6 +996,88 @@ const {chromium} = require('playwright'),
     assert.ok(all > 5, 'With Chords the accompaniment plays too');
     await page.locator('#chords').click();
   }
+  // Lyrics with real keys: L opens a box under the note's staff, typing writes the words under the notes, Enter starts
+  // the second verse on the same notes and the box moves down under it, each syllable undoes on its own, the toolbar
+  // button works from the keyboard, and clicking another note saves the box and selects that note.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:L\nM:4/4\nL:1/4\nK:C\nCCGG|AAG2|]\n', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  {
+    const head = i => page.locator('#notation .abcjs-notehead').nth(i),
+      verses = () =>
+        page.evaluate(() =>
+          $('abc')
+            .value.split('\n')
+            .filter(l => l.startsWith('w:'))
+        ),
+      shown = () =>
+        page.evaluate(() => [...document.querySelectorAll('#notation .abcjs-lyric')].map(e => e.textContent));
+    await head(0).click({force: true});
+    await page.keyboard.press('l');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'lyric-input', 'L opens the lyrics box');
+    const staff = await page.locator('#notation .abcjs-staff').first().boundingBox(),
+      note = await head(0).boundingBox(),
+      entry = await page.locator('#lyric-entry').boundingBox();
+    assert.ok(
+      entry.y >= staff.y + staff.height && entry.y < staff.y + staff.height + 30 && Math.abs(entry.x - note.x) < 20,
+      'The box sits just under the staff, at the note'
+    );
+    await page.keyboard.type('Twin-kle twin-kle');
+    await page.keyboard.press('Enter');
+    assert.deepEqual(await verses(), ['w: Twin-kle twin-kle'], 'Typing writes the words under four notes');
+    assert.deepEqual(await shown(), ['Twin-', 'kle', 'twin-', 'kle'], 'and they are engraved');
+    assert.equal(await page.locator('#lyric-verse').textContent(), 'Verse 2', 'Enter starts the second verse');
+    const lower = await page.locator('#lyric-entry').boundingBox();
+    assert.ok(lower.y > entry.y + 8 && Math.abs(lower.x - entry.x) < 10, 'on the first note, under the first verse');
+    await page.keyboard.type('Up a-bove ');
+    assert.deepEqual(await verses(), ['w: Twin-kle twin-kle', 'w: Up a-bove']);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'notation', 'Escape goes back to the score');
+    await page.keyboard.press('Control+z');
+    assert.deepEqual(await verses(), ['w: Twin-kle twin-kle', 'w: Up a-'], 'Each syllable is one undo step');
+    await head(2).click({force: true});
+    await page.locator('[data-palette="lyric"]').focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#lyric-input').inputValue(), 'twin', 'The Lyrics button opens the box');
+    await page.keyboard.press('Escape');
+    assert.equal(
+      await page.evaluate(() => document.activeElement.dataset.palette),
+      'lyric',
+      'Escape goes back to the button'
+    );
+    await head(4).click({force: true});
+    await page.keyboard.press('l');
+    await page.keyboard.type('lit');
+    await head(6).click({force: true});
+    assert.deepEqual(await verses(), ['w: Twin-kle twin-kle lit', 'w: Up a-'], 'Clicking another note saves the box');
+    assert.deepEqual(
+      await page.evaluate(() => [$('abc').value.slice(...selectedRange), $('lyric-entry').hidden]),
+      ['G2', true],
+      'and selects that note'
+    );
+    // A verse typed to the last note keeps the box open after it: words past it go nowhere (never into the music),
+    // and Enter starts the next verse.
+    await page.evaluate(() => {
+      dirty = false;
+      openScore({abc: 'X:1\nT:L\nM:4/4\nL:1/4\nK:C\nCCGG|AAG2|]\n', instrument: 'Flute'});
+    });
+    await head(0).click({force: true});
+    await page.keyboard.press('l');
+    await page.keyboard.type('Twin-kle twin-kle lit-tle star and more ');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'lyric-input', 'The box stays open at the end');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Up a-bove the world so high ');
+    await page.keyboard.type('x-');
+    await page.keyboard.press('Escape');
+    assert.deepEqual(
+      [await verses(), (await page.evaluate(() => $('abc').value)).split('\n')[5]],
+      [['w: Twin-kle twin-kle lit-tle star', 'w: Up a-bove the world so high'], 'CCGG|AAG2|]'],
+      'Enter after the last note starts the second verse, and the music is unchanged'
+    );
+    assert.equal(await page.locator('#warnings').textContent(), '');
+  }
   // Writing prompts: blank bars of rests, typing writes over them, goals tick off live; keys follow written pitch.
   await page.evaluate(() => {
     dirty = false;
@@ -1290,6 +1372,42 @@ const {chromium} = require('playwright'),
       [],
       `${abc.split('\n')[1]}: the lit note is the one sounding`
     );
+  }
+  // Feature: road-map playback. The highlight and the status line follow a D.C. al Fine back to the start, from the
+  // Play button and from a note played with Space; the sound follows the same order (tests/editor-playback.cjs).
+  {
+    await reopen('X:1\nM:4/4\nL:1/4\nQ:1/4=300\nK:C\nC4|D4 !fine!|E4|F4 !D.C.alfine!|]');
+    await page.evaluate(() => {
+      for (const id of ['trainer', 'metronome', 'loop', 'count-in']) $(id).checked = false;
+    });
+    const follow = () =>
+      page.evaluate(
+        () =>
+          new Promise(done => {
+            const heads = [...document.querySelectorAll('#notation .abcjs-note')],
+              lit = [],
+              said = new Set();
+            const sample = () => {
+              const i = heads.findIndex(h => h.classList.contains('abcjs-playing'));
+              if (i >= 0 && lit.at(-1) !== i) lit.push(i);
+              said.add($('play-status').textContent);
+              if (!playing) return done({lit, said: [...said]});
+              setTimeout(sample, 25);
+            };
+            setTimeout(sample, 25);
+          })
+      );
+    await page.click('#play');
+    const fromStart = await follow();
+    assert.deepEqual(fromStart.lit, [0, 1, 2, 3, 0, 1], 'The highlight goes back to measure 1 and stops at Fine');
+    assert.ok(
+      fromStart.said.includes('Measures 1–4 · 100% speed · D.C.: back to measure 1'),
+      'The status line names the jump: ' + fromStart.said.join(' | ')
+    );
+    await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
+    await page.keyboard.press('Space');
+    const fromNote = await follow();
+    assert.deepEqual(fromNote.lit, [1, 2, 3, 0, 1], 'Space plays from the selected note through the jump');
   }
   await reopen('X:1\nM:2/4\nK:C\nC4 D4|]');
   assert.match(await menuEdit(0, 'Half'), /C8 D4/, 'Implicit L:1/16 in 2/4');
@@ -3489,6 +3607,15 @@ const {chromium} = require('playwright'),
     await page.keyboard.press('Escape');
     const chordsBox = await page.locator('#chords').boundingBox();
     assert.ok(chordsBox && chordsBox.x + chordsBox.width <= 390, 'The Chords switch fits a phone');
+    // The lyrics box fits a phone too, under the staff; Next moves on without a Tab key.
+    await note.click({force: true});
+    await page.locator('[data-palette="lyric"]').click();
+    await page.keyboard.type('la');
+    await page.locator('#lyric-next').click();
+    const words = await page.locator('#lyric-entry').boundingBox();
+    assert.ok(words.x >= 0 && words.x + words.width <= 390, 'The lyrics box fits a phone');
+    await page.keyboard.press('Escape');
+    assert.match(await page.evaluate(() => $('abc').value), /\nw: \* la\n?$/, 'Next saves and moves on');
   }
   assert.ok(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
@@ -3795,10 +3922,154 @@ const {chromium} = require('playwright'),
     await halt();
     fs.rmSync(profile, {recursive: true, force: true});
   }
+  // Record yourself in real Chromium. The "microphone" is a loopback of FretFree's own output, 120 ms late, so
+  // calibration has clicks to hear and the take holds the score as played: its first note must fall where the take is
+  // lined up with the score, within 50 ms.
+  {
+    await page.setViewportSize({width: 1280, height: 900});
+    const takeSource = 'X:1\nT:Browser take\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nC D E F | G4 |]',
+      offSite = [];
+    const watchRequests = request => {
+      if (!request.url().startsWith(new URL(page.url()).origin)) offSite.push(request.url());
+    };
+    page.on('request', watchRequests);
+    const openTakeScore = () =>
+      page.evaluate(source => {
+        openScore({title: 'Browser take', abc: source});
+        $('metronome').checked = false;
+        $('trainer').checked = false;
+        $('loop').checked = true;
+        $('speed').value = 100;
+        $('speed').oninput();
+        $('record-count-in').value = '1';
+        window.scrollTo({top: 0, behavior: 'instant'});
+      }, takeSource);
+    await openTakeScore();
+    await page.evaluate(() => {
+      navigator.mediaDevices.getUserMedia = async () => {
+        audioContext();
+        const loop = audio.createMediaStreamDestination(),
+          delay = audio.createDelay(1);
+        delay.delayTime.value = 0.12;
+        outputNode().connect(delay);
+        delay.connect(loop);
+        return loop.stream;
+      };
+    });
+    await page.click('#record');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'record-start');
+    await page.focus('#record-calibrate');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(
+      () => !calibrating && /^Calibrated|couldn’t/.test($('calibrate-status').textContent),
+      null,
+      {
+        timeout: 20000
+      }
+    );
+    const latency = await page.evaluate(() => storedLatency()?.ms);
+    assert.ok(latency >= 100 && latency <= 400, `Calibration hears its clicks (${latency} ms)`);
+    await page.focus('#record-start');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => rec?.state === 'live');
+    assert.equal(await page.textContent('#record'), '● Recording');
+    await page.waitForFunction(() => document.querySelector('#take-list li'), null, {timeout: 20000});
+    assert.match(
+      await page.textContent('#record-status'),
+      /^Take 1 saved \(0:0[6-8]\)\. Save the score to keep its takes with it\.$/,
+      'One pass, though Loop is on'
+    );
+    const lined = await page.evaluate(async () => {
+      const take = shownTakes[0],
+        buffer = await decodeBlob(take.blob),
+        rate = buffer.sampleRate,
+        at = takeOffset(take, takeLatency(take)),
+        from = Math.round((at - 0.3) * rate),
+        samples = buffer.getChannelData(0).subarray(from);
+      let peak = 0;
+      for (const v of samples) peak = Math.max(peak, Math.abs(v));
+      return {
+        at,
+        heard: samples.findIndex(v => Math.abs(v) > peak * 0.3) / rate + from / rate,
+        calibrated: take.calibrated
+      };
+    });
+    assert.ok(
+      lined.calibrated && Math.abs(lined.heard - lined.at) < 0.05,
+      `Take and score line up: ${JSON.stringify(lined)}`
+    );
+    // The score is unsaved and unchanged, so it has no draft. Another tab of the same browser still does not count its
+    // take as out of reach while this tab is open, through the Web Lock this tab holds.
+    const [otherTab] = await Promise.all([
+      page.waitForEvent('popup'),
+      page.evaluate(() => window.open(location.origin + location.pathname, '_blank'))
+    ]);
+    otherTab.on('pageerror', e => errors.push(e.message));
+    await otherTab.waitForFunction(() => typeof strayTakeKeys === 'function' && renderedTune);
+    const elsewhere = await otherTab.evaluate(
+      async key => {
+        await indexTakes();
+        return {stored: storedTakeKeys.includes(key), stray: (await strayTakeKeys()).includes(key)};
+      },
+      await page.evaluate(() => recordKey())
+    );
+    assert.deepEqual(elsewhere, {stored: true, stray: false}, 'Takes of work open in another tab are kept');
+    await otherTab.close();
+    // Takes are kept in IndexedDB and go with the score when it is saved: after a reload the saved score shows its
+    // take, which plays with the score and downloads.
+    await page.click('#save');
+    await page.waitForFunction(async () => /^saved:/.test(recordKey()) && (await listTakes(recordKey())).length === 1);
+    await page.reload();
+    await page.waitForFunction(() => typeof recordKey === 'function' && renderedTune);
+    await page.evaluate(() => {
+      const score = saved.find(x => x.title === 'Browser take');
+      openScore(score, score.id);
+      $('loop').checked = true;
+      window.scrollTo({top: 0, behavior: 'instant'});
+    });
+    await page.click('#record');
+    await page.waitForFunction(() => document.querySelector('#take-list li'));
+    assert.match(await page.textContent('#take-list'), /Take 1 0:0[6-8]/);
+    await page.click('[data-take-score]');
+    await page.waitForFunction(() => takePlayer?.withScore && playing);
+    assert.equal(await page.textContent('[data-take-score]'), '■ Stop');
+    await page.click('[data-take-score]');
+    await page.waitForFunction(() => !takePlayer && !playing);
+    const [file] = await Promise.all([page.waitForEvent('download'), page.click('[data-take-download]')]);
+    assert.equal(file.suggestedFilename(), 'Browser take take 1.webm');
+    // Phone width: the panel and its takes fit without scrolling the page sideways.
+    await page.setViewportSize({width: 390, height: 844});
+    await page.locator('#record-panel').scrollIntoViewIfNeeded();
+    assert.ok(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      'No sideways scroll at 390px'
+    );
+    const buttons = await page
+      .locator('#take-list button')
+      .evaluateAll(els =>
+        els.map(el => el.getBoundingClientRect()).map(r => r.right <= window.innerWidth && r.height >= 30)
+      );
+    assert.ok(buttons.length === 4 && buttons.every(Boolean), 'Take buttons stay on screen and easy to tap');
+    await page.focus('[data-take-delete]');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => !document.querySelector('#take-list li'));
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'record-start');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => $('record-panel').hidden), true, 'Escape closes the panel');
+    await page.setViewportSize({width: 1280, height: 900});
+    page.off('request', watchRequests);
+    assert.deepEqual(offSite, [], 'Recording makes no request off the site');
+    await page.evaluate(() => {
+      $('loop').checked = false;
+      storage.remove(KEYS.latency);
+      saved = saved.filter(x => x.id !== savedId);
+      storeScores(saved);
+    });
+  }
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: screen-reader note names on click, arrow keys and edits, the shortcut sheet (?, search, Enter, click, focus trap, Escape, over the note menu, fits the window and a phone) and an accessible name on every studio button, dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), tuplets and grace notes (T and letters filling and beaming the rests, staccato on and off and Delete in a triplet, the Tuplet menu by pointer, Grace, Grace ↑ and Slashed by pointer and keyboard, undo), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, the mixer (keyboard and pointer, Mute at once, live Volume and Pan through a StereoPannerNode, unmuting during playback, Reset, Escape, phone width), note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), WAV export (keyboard and pointer, a real download as long as playback at the chosen speed, 16-bit stereo at 44.1 kHz, sound from the first note, scaling, INFO credits, metronome, a summary that follows the Speed slider and the Instrument menu, the same file with progress checkpoints, Escape, a progress bar on a long score and closing the panel stopping its render at once, phone width), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
+    'PASS: screen-reader note names on click, arrow keys and edits, the shortcut sheet (?, search, Enter, click, focus trap, Escape, over the note menu, fits the window and a phone) and an accessible name on every studio button, dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, road-map playback (the highlight and status line through a D.C. al Fine, from Play and from a note with Space), draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), tuplets and grace notes (T and letters filling and beaming the rests, staccato on and off and Delete in a triplet, the Tuplet menu by pointer, Grace, Grace ↑ and Slashed by pointer and keyboard, undo), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), lyrics (L, a verse typed with hyphens, Enter for the next verse with the box under it, undo, the toolbar button by keyboard, click away, a verse typed past the last note then Enter, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, the mixer (keyboard and pointer, Mute at once, live Volume and Pan through a StereoPannerNode, unmuting during playback, Reset, Escape, phone width), note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), WAV export (keyboard and pointer, a real download as long as playback at the chosen speed, 16-bit stereo at 44.1 kHz, sound from the first note, scaling, INFO credits, metronome, a summary that follows the Speed slider and the Instrument menu, the same file with progress checkpoints, Escape, a progress bar on a long score and closing the panel stopping its render at once, phone width), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, recording yourself (calibration by keyboard, a take lined up with the score within 50 ms, one pass with Loop on, not out of reach in another tab, kept with the score through a save and a reload, playing with the score, download, delete by keyboard, Escape, phone width, no off-site requests), offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);
