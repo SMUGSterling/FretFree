@@ -9,8 +9,10 @@ function show(view) {
     renderBackupStatus();
   }
   if (view !== 'studio') stop();
-  if (view !== 'library') stopPreview();
-  history.replaceState(null, '', '#' + view);
+  // A preview stops when its view goes: card previews live in the library, History previews in My scores.
+  if (view !== (previewId === 'history' ? 'saved' : 'library')) stopPreview();
+  // An embedded score keeps its #e= address, so reloading the frame shows the same score.
+  if (!embedView) history.replaceState(null, '', '#' + view);
   window.scrollTo({top: 0, behavior: 'smooth'});
 }
 function allowReplace() {
@@ -18,8 +20,9 @@ function allowReplace() {
 }
 function openScore(item, id = null) {
   if (!allowReplace()) return;
-  // The assignment builder describes the score it was opened on, so it closes with it.
+  // The assignment builder and the share panel describe the score they were opened on, so they close with it.
   toggleAssignmentBuilder(false);
+  closeShare();
   stop();
   stopPreview();
   current = item;
@@ -222,10 +225,15 @@ document.addEventListener('click', e => {
       renderSaved();
     } else toast('This browser could not save favorites.');
   }
-  if (b.dataset.delete && confirm('Delete this locally saved score?')) {
+  if (b.dataset.history) openHistory(b.dataset.history);
+  if (
+    b.dataset.delete &&
+    confirm(`Delete this locally saved score${versionsOf(b.dataset.delete).length ? ' and its history' : ''}?`)
+  ) {
     const next = saved.filter(x => x.id !== b.dataset.delete);
-    if (storage.set(KEYS.scores, next)) {
+    if (storeScores(next)) {
       saved = next;
+      removeVersions(b.dataset.delete);
       renderSaved();
       if (savedId === b.dataset.delete) savedId = null;
     } else toast('Deletion could not be saved.');
@@ -245,11 +253,20 @@ for (const [id, header] of [
 ])
   $(id).addEventListener('input', () => {
     noteTyping(id);
-    setHeader(header, id === 'bpm' ? '1/4=' + $(id).value : $(id).value);
+    setHeader(header, id === 'bpm' ? sliderBeat().replace(/\d+$/, $(id).value) : $(id).value);
     $('bpm-value').textContent = $('bpm').value;
+    if (id === 'meter') syncFeel();
     changed();
   });
 $('key').addEventListener('input', () => chooseKey($('key').value));
+// Feel writes the swing tempo text and %%MIDI swing into the ABC, so it prints, saves and shares with the score.
+$('feel').addEventListener('input', () => {
+  noteTyping('feel');
+  $('abc').value = setSwing($('abc').value, +$('feel').value);
+  // The Tempo slider follows the beat that swing writes out for a score with no Q:.
+  syncFields();
+  changed();
+});
 // On a prompt score the assignment is in written pitch, so a new instrument transposes the concert source to keep
 // every written note, and the written key, exactly where the student put them.
 $('instrument').onchange = () => {
@@ -282,7 +299,9 @@ $('help-toggle').onclick = () => {
   $('abc-help').hidden = !$('abc-help').hidden;
 };
 $('save').onclick = () => {
-  const id = savedId || globalThis.crypto?.randomUUID?.() || 'score-' + Date.now();
+  const id = savedId || globalThis.crypto?.randomUUID?.() || 'score-' + Date.now(),
+    previous = saved.find(x => x.id === id);
+  // Each save of a score gets its own time, which names the version it later becomes.
   const entry = {
     ...current,
     id,
@@ -290,11 +309,13 @@ $('save').onclick = () => {
     composer: field('C'),
     abc: $('abc').value,
     instrument: currentInstrument(),
-    updated: Date.now()
+    updated: Math.max(Date.now(), (previous?.updated || 0) + 1)
   };
   const next = saved.filter(x => x.id !== id).concat(entry);
-  if (storage.set(KEYS.scores, next)) {
+  if (storeScores(next)) {
     saved = next;
+    // The copy this save replaced goes into the score's History, if its music changed.
+    if (previous && previous.abc !== entry.abc) keepVersion(previous);
     savedId = id;
     dirty = false;
     markClean();
@@ -387,6 +408,7 @@ function applyStoredSettings() {
   $('audition').checked = storage.get(KEYS.audition, true) !== false;
   if (typeof setPiano === 'function') setPiano(storage.get(KEYS.piano, false) === true, false);
   applyStoredLayout();
+  applyTheme();
   prepareTrainer();
 }
 // Zoom, measures per line and Concert pitch view are read before the first render, so the start-up score is drawn
@@ -396,6 +418,16 @@ function applyStoredLayout() {
   showZoom(storage.get(KEYS.zoom, 100));
   $('measures-per-line').value = String(validMeasuresPerLine(storage.get(KEYS.measuresPerLine, 0)));
 }
+// Theme and Dark paper only change colors in style.css, so the score is not redrawn. Each choice applies even when
+// it cannot be saved.
+$('theme').onchange = () => {
+  storage.set(KEYS.theme, $('theme').value);
+  applyTheme($('theme').value, $('dark-paper').checked);
+};
+$('dark-paper').onchange = () => {
+  storage.set(KEYS.darkPaper, $('dark-paper').checked);
+  applyTheme($('theme').value, $('dark-paper').checked);
+};
 $('zoom-out').onclick = () => stepZoom(-1);
 $('zoom-in').onclick = () => stepZoom(1);
 $('zoom-reset').onclick = () => stepZoom(0);
@@ -522,12 +554,15 @@ ABCJS.renderAbc('hero-notation', catalog[0].abc, {
   paddingtop: 25,
   paddingbottom: 30
 });
-renderCards();
+// An embedded score opens on its own: no library cards, no blank sheet first, no draft offer and no storage
+// (storage.get gives every default there, so the layout starts at 100% and written pitch).
+if (!embedView) renderCards();
 applyStoredLayout();
 // Unsaved work from an earlier visit is offered once the start-up score is open; a share link opens first.
 loadDrafts();
-newScore();
-if (initialView.startsWith('s=')) {
+if (!embedView) newScore();
+if (embedView) openEmbed(initialView);
+else if (initialView.startsWith('s=')) {
   show('studio');
   openSharedLink(initialView).then(ok => {
     if (!ok) show('library');
