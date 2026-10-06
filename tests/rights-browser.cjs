@@ -33,7 +33,8 @@ const {chromium} = require('playwright'),
       abc: creditedABC($('abc').value, current),
       midi: Array.from(creditedMidi(midiBytes($('abc').value), $('abc').value, current)),
       svg: creditedSVG($('notation'), $('abc').value, current),
-      notes: parseMidi(midiBytes($('abc').value)).notes
+      notes: parseMidi(midiBytes($('abc').value)).notes,
+      musicxml: abcToMusicXML($('abc').value, {item: current})
     }));
     assert.ok(exported.abc.includes(license));
     assert.equal(
@@ -42,6 +43,18 @@ const {chromium} = require('playwright'),
       'Rights notice is idempotent'
     );
     assert.ok(exported.svg.includes(license));
+    const musicxml = await page.evaluate(xml => {
+      const doc = new DOMParser().parseFromString(xml, 'application/xml'),
+        credit = [...doc.querySelectorAll('credit')].find(c => c.querySelector('credit-type').textContent === 'rights');
+      return {
+        wellFormed: !doc.querySelector('parsererror'),
+        rights: doc.querySelector('identification > rights')?.textContent,
+        credit: credit?.querySelector('credit-words').textContent,
+        expected: exportCredit(current)
+      };
+    }, exported.musicxml);
+    assert.ok(musicxml.wellFormed, 'MusicXML is well-formed');
+    assert.ok(musicxml.rights.includes(license) && musicxml.credit === musicxml.expected, 'MusicXML credits');
     assert.ok(Buffer.from(exported.midi).toString('utf8').includes(license));
     const check = await page.evaluate(
       ({abc, midi, notes}) => {
@@ -56,6 +69,7 @@ const {chromium} = require('playwright'),
       assert.ok(exported.svg.includes('GNU GENERAL PUBLIC LICENSE'));
       assert.ok(exported.abc.includes('GNU GENERAL PUBLIC LICENSE'));
       assert.ok(Buffer.from(exported.midi).toString().includes('GNU GENERAL PUBLIC LICENSE'));
+      assert.ok(exported.musicxml.includes('GNU GENERAL PUBLIC LICENSE'));
     }
     await page.evaluate(() => {
       window.print = () => {};
@@ -100,7 +114,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: every catalog score engraves; collection/exact-license filters; ABC, MIDI, SVG and print credits; GPL license/source embedding; exported MIDI preserves playback.'
+    'PASS: every catalog score engraves; collection/exact-license filters; ABC, MIDI, SVG, MusicXML and print credits; GPL license/source embedding (MusicXML too); exported MIDI preserves playback.'
   );
 })().catch(e => {
   console.error(e);

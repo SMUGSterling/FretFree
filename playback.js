@@ -263,7 +263,8 @@ async function play(resumeFrom = null, {countIn = false} = {}) {
     toast('Playback unavailable: ' + e.message);
   }
 }
-// Light up sounding notes. Score time comes from the audio clock, so speed changes and resumes stay in sync.
+// Light up sounding notes (and their keys on the on-screen piano). Score time comes from the audio clock, so speed
+// changes and resumes stay in sync.
 // abcjs timing events group notes by onset, so each note keeps its own end time; a held note stays lit while others move.
 let followFrame = 0,
   noteDurations = new Map();
@@ -273,6 +274,7 @@ function stopFollow() {
   if (followFrame) cancelFrame(followFrame);
   followFrame = 0;
   document.querySelectorAll('#notation .abcjs-playing').forEach(el => el.classList.remove('abcjs-playing'));
+  if (typeof pianoFollow === 'function') pianoFollow(null);
 }
 function startFollow(generation) {
   stopFollow();
@@ -287,7 +289,7 @@ function startFollow(generation) {
       const end = whole
         ? start + (whole * e.millisecondsPerMeasure) / bar / 1000
         : (events[i + 1]?.milliseconds ?? Infinity) / 1000;
-      notes.push({start, end, els: [group].flat(2).filter(el => el?.classList)});
+      notes.push({start, end, at: e.startCharArray?.[j], els: [group].flat(2).filter(el => el?.classList)});
     }
   notes.sort((a, b) => a.start - b.start);
   let next = 0,
@@ -298,12 +300,14 @@ function startFollow(generation) {
     active = active.filter(n => {
       if (n.end > now) return true;
       for (const el of n.els) el.classList.remove('abcjs-playing');
+      if (typeof pianoFollow === 'function') pianoFollow(n.at, false);
       return false;
     });
     while (next < notes.length && notes[next].start <= now) {
       const n = notes[next++];
       if (n.end <= now) continue;
       for (const el of n.els) el.classList.add('abcjs-playing');
+      if (typeof pianoFollow === 'function') pianoFollow(n.at, true);
       active.push(n);
       const box = n.els[0]?.getBoundingClientRect();
       if (box && (box.top < 0 || box.bottom > window.innerHeight))

@@ -14,9 +14,11 @@ const PALETTE_DONE = {
   delete: 'Deleted.'
 };
 // What the palette shows: the selected note's length (without its dot), dot, tie, accidental, whether it is beamed
-// to the next note, and its marks, or, with nothing selected, the length new notes will get.
+// to the next note, and its marks, or, with nothing selected, the length new notes will get. A range selection shows
+// its first note and the marks its notes share, and picked lists its notes.
 function paletteState() {
-  const sel = selectedNote();
+  const sel = selectedNote(),
+    picked = selectedNotes();
   if (!sel) return {sel: null, length: inputLength ?? beatLength()};
   const element = sel.entry.element,
     isRest = !element.pitches?.length,
@@ -24,11 +26,14 @@ function paletteState() {
     source = $('abc').value.slice(element.startChar, element.endChar),
     len = element.duration || 0,
     dotted = !multiRest && DOTTABLE.some(v => Math.abs(len - v * 1.5) < 1e-9);
-  // Accidentals are shown as the player reads them, in written pitch, like the note menu.
-  const text = !isRest && transposing() && sel.display ? writtenNote(sel.display).text : source;
+  // Accidentals are shown as the player reads them, in written pitch, like the note menu. The written score is the
+  // one just engraved, so refreshing the palette after a render does not transpose the whole score again.
+  const written = (renderedSource === $('abc').value && renderedWritten) || undefined,
+    text = !isRest && transposing() && sel.display ? writtenNote(sel.display, written).text : source;
   // A multi-measure rest (Z) lasts whole bars, so it shows no note length and cannot be dotted.
   return {
     sel,
+    picked: picked.length > 1 ? picked : null,
     isRest,
     multiRest,
     length: multiRest ? null : dotted ? len / 1.5 : len,
@@ -36,7 +41,7 @@ function paletteState() {
     tied: !isRest && /^-/.test(noteParts(source)?.post || ''),
     accidental: isRest ? null : (noteParts(text)?.core.match(/^\[?(\^{1,2}|_{1,2}|=)/) || [])[1] || '',
     beam: isRest ? null : beamGap(sel.entry),
-    marks: noteMarks(source)
+    marks: picked.length > 1 ? rangeMarks(picked) : noteMarks(source)
   };
 }
 // Why a button does nothing for the current selection, or '' when it applies.
@@ -44,7 +49,10 @@ function paletteBlocked(action, state) {
   if (action.startsWith('len:')) return '';
   if (!state.sel) return 'Select a note on the score first.';
   if (/^(deco|dyn):/.test(action))
-    return markBlocked(action, state.sel.entry.element) || (state.marks ? '' : 'This cannot take marks.');
+    return state.picked
+      ? markTargets(action, state.picked).why
+      : markBlocked(action, state.sel.entry.element) || (state.marks ? '' : 'This cannot take marks.');
+  if (state.picked) return RANGE_PALETTE[action] ? '' : 'Select a single note for this.';
   if (state.multiRest && action === 'dot') return 'A multi-measure rest cannot be dotted.';
   if (state.isRest && !['dot', 'delete'].includes(action))
     return action === 'to-rest' ? 'This is already a rest.' : 'Rests have no accidental, tie or beam.';
@@ -131,11 +139,22 @@ $('palette').addEventListener('click', e => {
         dot: state.dotted ? 'Dot removed.' : 'Dotted.',
         tie: state.tied ? 'Tie removed.' : 'Tied to the next note.'
       };
-    editNote(state.sel.entry, state.sel.display, action);
-    $('selection-status').textContent =
-      $('abc').value === before
-        ? 'No change.'
-        : toggled[action] || PALETTE_DONE[action] || (/^(deco|dyn):/.test(action) ? markDone(action, state.marks) : '');
+    // On a range selection the buttons act on every note, as their keys do; Delete says how many notes went.
+    if (state.picked && /^(deco|dyn):/.test(action))
+      $('selection-status').textContent = markRange(state.picked, action);
+    else if (state.picked && rangePalette(action, state.picked)) {
+      if (action !== 'delete')
+        $('selection-status').textContent =
+          $('abc').value === before ? 'No change.' : `Changed ${countWords(state.picked.filter(pitched).length)}.`;
+    } else {
+      editNote(state.sel.entry, state.sel.display, action);
+      $('selection-status').textContent =
+        $('abc').value === before
+          ? 'No change.'
+          : toggled[action] ||
+            PALETTE_DONE[action] ||
+            (/^(deco|dyn):/.test(action) ? markDone(action, state.marks) : '');
+    }
   }
   paletteMessage = {text: $('selection-status').textContent, at: selectedRange?.[0] ?? null};
   updatePalette();
