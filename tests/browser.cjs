@@ -1096,6 +1096,8 @@ const {chromium} = require('playwright'),
     dirty = false;
     openScore({abc: 'X:1\nT:Hear\nM:4/4\nL:1/4\nQ:1/4=60\nK:C\nC D E F | z4 |]', instrument: 'Flute'});
     window.scrollTo({top: 0, behavior: 'instant'});
+    // An earlier step's toast can still cover the bottom of the screen, where the score's first notes sit.
+    $('toast').style.display = 'none';
     $('metronome').checked = true;
     $('volume').value = '0.3';
     window.__routes = [];
