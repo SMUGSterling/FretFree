@@ -540,10 +540,16 @@ function keepForOffline(registration) {
   registration.active?.postMessage({type: 'keep', urls});
 }
 if (offlineCapable()) {
+  let complete = true;
   navigator.serviceWorker.addEventListener('message', e => {
-    if (e.data?.type === 'kept' && e.data.kept >= e.data.total)
-      $('offline-ready').textContent = 'This browser has an offline copy of FretFree.';
+    if (e.data?.type !== 'kept') return;
+    complete = e.data.kept >= e.data.total;
+    $('offline-ready').textContent = complete
+      ? 'This browser has an offline copy of FretFree.'
+      : 'Part of the offline copy is missing; open FretFree once more while online.';
   });
+  // A copy cut short by a lost connection is finished when the connection comes back.
+  window.addEventListener('online', () => complete || navigator.serviceWorker.ready.then(keepForOffline));
   const register = () =>
     navigator.serviceWorker
       .register('sw.js')

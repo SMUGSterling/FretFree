@@ -1,19 +1,22 @@
 'use strict';
 // FretFree's service worker: after one visit the app, the library and any PDF or MIDI file a student opened keep
 // working without internet. It only ever fetches from this site; requests to anywhere else are left alone.
-//   - The page (index.html) is network-first, so a new deploy is picked up on the next reload; offline, the last copy
-//     opens.
+//   - The page (index.html) is network-first, so a new deploy is picked up on the next reload; offline, the last
+//     complete copy opens. A newly fetched page waits (NEXT_PAGE) until every stamped file it loads is cached; only then
+//     does it become the offline copy and are the files only older pages loaded dropped. An update cut short by a lost
+//     connection or a closed tab leaves the previous copy whole.
 //   - ?v=-stamped scripts and styles are cache-first: bump-version.cjs changes the stamp whenever a file changes, so a
 //     stamped URL never goes stale. The small ones are cached at install; the large catalogs are cached as they are
 //     fetched, and the page hands over the ones it loaded before this worker was in charge (the 'keep' message).
-//   - Files under scores/ are cached only when opened.
-//   - Other files on this site (the manifest, icons, RIGHTS.md) are network-first with the cached copy as fallback.
+//   - Files under scores/ are cached only when opened. Like other files on this site (the manifest, icons, RIGHTS.md)
+//     they are network-first with the cached copy as fallback, so a corrected edition reaches students online.
 // Cache names carry the scope, since every project on a github.io origin shares one CacheStorage.
 const VERSION = 1,
   SCOPE = new URL(self.registration.scope),
   APP_CACHE = `fretfree-app-v${VERSION}:${SCOPE.pathname}`,
   SCORE_CACHE = `fretfree-scores-v${VERSION}:${SCOPE.pathname}`,
   PAGE = SCOPE.href,
+  NEXT_PAGE = new URL('index.html?next', PAGE).href,
   SHELL = ['manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 // The stamped assets an index.html loads, as absolute URLs.
 function stampedAssets(html) {
@@ -41,13 +44,29 @@ async function put(cacheName, key, response) {
     await (await caches.open(cacheName)).put(key, response);
   } catch {}
 }
-// Drops cached assets that the current index.html no longer loads, so old deploys do not pile up.
-async function prune(html) {
-  const current = new Set(stampedAssets(html)),
-    cache = await caches.open(APP_CACHE);
+// Changes to the offline copy run one at a time, so an older check never undoes a newer page.
+let queue = Promise.resolve();
+const serial = task => (queue = queue.catch(() => {}).then(task));
+// Stamped assets still being written to the cache, so the page's 'keep' message does not fetch them a second time.
+const storing = new Map();
+// Makes the waiting page the offline copy once every stamped asset it loads is cached, then drops the assets that only
+// older pages loaded, so old deploys do not pile up.
+async function settle() {
+  const cache = await caches.open(APP_CACHE),
+    next = await cache.match(NEXT_PAGE);
+  if (!next) return;
+  const current = new Set(stampedAssets(await next.clone().text()));
+  for (const href of current) if (!(await cache.match(href))) return;
+  await cache.put(PAGE, next);
+  await cache.delete(NEXT_PAGE);
   for (const request of await cache.keys())
     if (isStamped(new URL(request.url)) && !current.has(request.url)) await cache.delete(request);
 }
+const stage = response =>
+  serial(async () => {
+    await put(APP_CACHE, NEXT_PAGE, response);
+    await settle();
+  });
 async function page(event) {
   const {request} = event,
     url = new URL(request.url),
@@ -55,45 +74,45 @@ async function page(event) {
   try {
     // no-cache revalidates with the server, so a fresh deploy is never hidden behind the HTTP cache.
     const response = await fetch(request, {cache: 'no-cache'});
-    if (keepable(response)) {
-      const copy = response.clone();
-      event.waitUntil(
-        (async () => {
-          await put(APP_CACHE, key, copy.clone());
-          if (key === PAGE) await prune(await copy.text());
-        })()
-      );
-    }
+    if (keepable(response))
+      event.waitUntil(key === PAGE ? stage(response.clone()) : put(APP_CACHE, key, response.clone()));
     return response;
   } catch (error) {
+    // Before the first copy is complete, the page that is still waiting opens with what has been cached so far.
     const cache = await caches.open(APP_CACHE),
-      cached = await cache.match(key, {ignoreSearch: true});
+      cached = (await cache.match(key, {ignoreSearch: true})) || (key === PAGE && (await cache.match(NEXT_PAGE)));
     if (cached) return cached;
     throw error;
   }
 }
-async function cacheFirst(event, cacheName) {
-  const cached = await (await caches.open(cacheName)).match(event.request);
+async function asset(event) {
+  const {request} = event,
+    cached = await (await caches.open(APP_CACHE)).match(request);
   if (cached) return cached;
-  const response = await fetch(event.request);
-  event.waitUntil(put(cacheName, event.request, response.clone()));
+  const response = await fetch(request),
+    stored = put(APP_CACHE, request, response.clone())
+      .then(() => serial(settle))
+      .catch(() => {});
+  storing.set(request.url, stored);
+  event.waitUntil(stored.finally(() => storing.delete(request.url)));
   return response;
 }
-async function file(event) {
+async function networkFirst(event, cacheName) {
   try {
     const response = await fetch(event.request);
-    event.waitUntil(put(APP_CACHE, event.request, response.clone()));
+    event.waitUntil(put(cacheName, event.request, response.clone()));
     return response;
   } catch (error) {
-    const cached = await (await caches.open(APP_CACHE)).match(event.request);
+    const cached = await (await caches.open(cacheName)).match(event.request);
     if (cached) return cached;
     throw error;
   }
 }
-// Caches the stamped URLs it is given (from this site only) that are not cached yet.
+// Caches the stamped URLs it is given (from this site only) that are not cached yet, and counts them.
 async function keep(urls) {
   const cache = await caches.open(APP_CACHE);
-  let kept = 0;
+  let kept = 0,
+    total = 0;
   for (const href of urls) {
     let url;
     try {
@@ -102,6 +121,8 @@ async function keep(urls) {
       continue;
     }
     if (!isStamped(url)) continue;
+    total++;
+    await storing.get(url.href);
     if (!(await cache.match(url.href))) {
       try {
         await put(APP_CACHE, url.href, await fetch(url.href));
@@ -109,7 +130,7 @@ async function keep(urls) {
     }
     if (await cache.match(url.href)) kept++;
   }
-  return kept;
+  return {kept, total};
 }
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -121,7 +142,7 @@ self.addEventListener('install', event => {
       // The catalogs are most of the download; they are cached at runtime instead, so installing stays quick.
       const assets = stampedAssets(html).filter(href => !/\/catalog-[^/]*\.js\?/.test(href));
       await cache.addAll([...SHELL.map(path => new URL(path, PAGE).href), ...assets]);
-      await cache.put(PAGE, response);
+      await stage(response);
       await self.skipWaiting();
     })()
   );
@@ -143,16 +164,18 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const strategy = route(event.request);
   if (strategy === 'page') event.respondWith(page(event));
-  else if (strategy === 'asset') event.respondWith(cacheFirst(event, APP_CACHE));
-  else if (strategy === 'score') event.respondWith(cacheFirst(event, SCORE_CACHE));
-  else if (strategy === 'file') event.respondWith(file(event));
+  else if (strategy === 'asset') event.respondWith(asset(event));
+  else if (strategy === 'score') event.respondWith(networkFirst(event, SCORE_CACHE));
+  else if (strategy === 'file') event.respondWith(networkFirst(event, APP_CACHE));
 });
-// The page lists the assets it loaded; the reply tells it how many are kept for offline use.
+// The page lists the assets it loaded; the reply tells it how many of its stamped ones are kept for offline use.
 self.addEventListener('message', event => {
   if (event.data?.type !== 'keep' || !Array.isArray(event.data.urls)) return;
   event.waitUntil(
-    keep(event.data.urls.slice(0, 200)).then(kept =>
-      event.source?.postMessage({type: 'kept', kept, total: event.data.urls.length})
-    )
+    (async () => {
+      const counts = await keep(event.data.urls.slice(0, 200));
+      await serial(settle).catch(() => {});
+      event.source?.postMessage({type: 'kept', ...counts});
+    })()
   );
 });
