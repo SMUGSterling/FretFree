@@ -652,6 +652,40 @@ function respellMusic(text, d) {
     }
   );
 }
+// Enharmonic respelling (Z): every pitch of a note or chord moves to its next spelling at the same pitch, keeping
+// length, ties and decorations. ^C becomes _D and back; E becomes _F; D, G and A, which have no other spelling with
+// one accidental, cycle through double ones (D, __E, ^^C). key is a parsed abcjs key, as midiToken takes: an
+// accidental is written only where the key signature would not give the new spelling, or always with explicit.
+// midis gives each pitch's MIDI note in source order, for a bar where an earlier accidental changes a plain letter;
+// without it, a pitch is read from its own accidental or the key. Rests are left as they are.
+function respell(text, key, {midis = null, explicit = false} = {}) {
+  const parts = noteParts(text);
+  if (!parts || /^[zx]/.test(parts.core)) return text;
+  const alters = keyAlters(key);
+  let i = 0;
+  const core = parts.core.replace(/(\^{1,2}|_{1,2}|=)?([A-Ga-g])([,']*)/g, (_, acc, letter, marks) => {
+    const step =
+        'CDEFGAB'.indexOf(letter.toUpperCase()) +
+        (letter >= 'a' ? 7 : 0) +
+        [...marks].reduce((n, c) => n + (c === "'" ? 7 : -7), 0),
+      midi = midis?.[i++] ?? 60 + diatonicSemis(step) + (acc ? ACC_VALUE[acc] : alters[letter.toUpperCase()] || 0);
+    // Spellings of the pitch on nearby letters, lowest letter (most sharps) first.
+    const spellings = [];
+    for (let s = step - 2; s <= step + 2; s++) {
+      const alter = midi - 60 - diatonicSemis(s);
+      if (Math.abs(alter) <= 2) spellings.push({step: s, alter});
+    }
+    if (!spellings.length) return _;
+    const single = spellings.filter(s => Math.abs(s.alter) <= 1),
+      cycle = single.length > 1 ? single : spellings,
+      at = cycle.findIndex(s => s.step === step),
+      // A spelling outside the cycle (__D for C) goes to the plainest one.
+      next = at < 0 ? spellings.find(s => !s.alter) || cycle[0] : cycle[(at + 1) % cycle.length],
+      keyAlter = alters['CDEFGAB'[posMod(next.step, 7)]] || 0;
+    return (explicit || next.alter !== keyAlter ? ACC_TEXT[next.alter] : '') + pitchToken(next.step);
+  });
+  return parts.pre + core + text.slice(parts.pre.length + parts.core.length);
+}
 // A tune without a K: line is read in C major. Transposing it needs a key to move, so K:C closes its header.
 function withKey(source) {
   if (/(^|\n)K:/.test(source)) return source;

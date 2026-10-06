@@ -1269,6 +1269,37 @@ function addLetterToChord(letter, sel) {
     ? `Added ${letter} to the chord. Shift+A–G adds more.`
     : `${letter} is already in the chord.`;
 }
+// Z: spell the selected note or chord another way at the same pitch (C♯ as D♭ and back), as one undo step. The bar's
+// accidentals decide what a plain letter sounds, so the new text is checked against the parse and its accidentals are
+// written out where the plain spelling would change the pitch; later notes in the bar keep theirs (keepLaterPitches).
+function respellSelected(sel) {
+  const status = $('selection-status');
+  if (!sel?.entry.element.pitches?.length) {
+    status.textContent = 'Z respells a note. Select a note or chord first.';
+    return;
+  }
+  const source = $('abc').value,
+    {startChar: start, endChar: end} = sel.entry.element,
+    old = source.slice(start, end),
+    pitchesAt = (text, at) => noteLabels(ABCJS.parseOnly(text)[0], 'letters').find(l => l.at === at)?.written,
+    midis = pitchesAt(source, start),
+    key = pianoKeyAt(ABCJS.parseOnly(source)[0], start, sel.entry.key.split(':').slice(0, 2).join(':')),
+    sounds = text => String(pitchesAt(source.slice(0, start) + text + source.slice(end), start)) === String(midis);
+  let text = midis && respell(old, key, {midis});
+  if (text && !sounds(text)) text = respell(old, key, {midis, explicit: true});
+  if (!text || text === old) {
+    status.textContent = 'This note has no other spelling.';
+    return;
+  }
+  applyNoteEdit(start, end, text, undefined, start, true);
+  // Name the new spelling as the staff shows it (written pitch for transposing instruments).
+  const display = selectedNote()?.display,
+    label =
+      display &&
+      midis.length === 1 &&
+      noteLabels(ABCJS.parseOnly(writtenABC())[0], 'letters').find(l => l.at === display.startChar);
+  status.textContent = `${label ? 'Respelled as ' + label.text : 'Respelled the chord'}. Press Z again for the next spelling.`;
+}
 // Written-pitch note token for a letter, in the octave nearest the last note before a source position.
 function letterToken(letter, at) {
   if (letter === 'z') return 'z';
@@ -1385,6 +1416,10 @@ function scoreKey(e) {
     if (typeof showPianoSelection === 'function') showPianoSelection();
     $('selection-status').textContent = 'Nothing selected. Letters add notes at the end.';
     refreshPalette();
+    return true;
+  }
+  if (key === 'z' || key === 'Z') {
+    respellSelected(sel);
     return true;
   }
   if (!sel) return false;

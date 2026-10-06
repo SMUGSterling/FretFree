@@ -838,13 +838,107 @@ async function checkPlayback() {
   assert.equal(body(), '[FA] G ^A B |]', 'Shift+C adds the written C above written A-flat: concert A#');
   run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C#\nC D E F |]')},instrument:'Alto sax in E♭'})`);
   assert.equal(run("letterToken('A', $('abc').value.length - 2)"), 'B', 'Typed A on alto sax is concert B#');
+  // Z respells the selected note or chord at the same pitch, one undo step each; the bar's accidentals are kept right.
+  {
+    const open = (abc, instrument = 'Flute') =>
+        run(`openScore({abc:${JSON.stringify(abc)},instrument:${JSON.stringify(instrument)}})`),
+      pick = i => run(`selectEntry(scoreNotes()[${i}])`),
+      z = () => run("scoreKey({key:'z'})"),
+      status = () => run("$('selection-status').textContent"),
+      midis = () => run("parseMidi(midiBytes($('abc').value)).notes.map(n=>n.note).join()");
+    open('X:1\nM:4/4\nL:1/4\nK:C\n^C [^C^F]2 z |]');
+    pick(0);
+    assert.equal(z(), true, 'Z is a score shortcut');
+    assert.equal(body(), '_D [^C^F]2 z |]', 'Z turns ^C into _D');
+    assert.match(status(), /^Respelled as D♭\. Press Z again/);
+    z();
+    assert.equal(body(), '^C [^C^F]2 z |]', 'and back');
+    run('stepHistory(-1)');
+    assert.equal(body(), '_D [^C^F]2 z |]', 'One undo step');
+    pick(1);
+    z();
+    assert.equal(body(), '_D [_D_G]2 z |]', 'Z works on chords');
+    assert.match(status(), /^Respelled the chord\./);
+    pick(2);
+    z();
+    assert.match(status(), /select a note or chord first/i, 'A rest has no spelling');
+    assert.equal(body(), '_D [_D_G]2 z |]');
+    // The key signature and earlier accidentals in the bar decide what a plain letter sounds.
+    open('X:1\nM:4/4\nL:1/4\nK:D\nC =C E _D |]');
+    pick(0);
+    z();
+    assert.equal(body(), '_D =C E _D |]', 'In D major a plain C is C sharp: D flat');
+    z();
+    assert.equal(body(), 'C =C E _D |]', 'and back to the plain letter');
+    pick(3);
+    z();
+    assert.equal(body(), 'C =C E ^C |]', 'After =C in the bar the C sharp needs its sharp');
+    assert.equal(midis(), '61,60,64,61');
+    open('X:1\nM:4/4\nL:1/4\nK:C\n^C z C2 |]');
+    pick(0);
+    z();
+    assert.equal(body(), '_D z ^C2 |]', 'A later C that the sharp carried to keeps its pitch');
+    assert.equal(midis(), '61,61');
+    open('X:1\nM:4/4\nL:1/4\nK:C\nD F z2 |]');
+    pick(0);
+    z();
+    z();
+    z();
+    assert.equal(body(), 'D F z2 |]', 'D cycles through E double flat and C double sharp back to D');
+    open('X:1\nM:4/4\nL:1/4\nK:C\n^C z3 |]', 'Clarinet in B♭');
+    pick(0);
+    z();
+    assert.equal(body(), '_D z3 |]');
+    assert.match(status(), /^Respelled as E♭\./, 'Named in written pitch');
+  }
+  // MIDI keyboards: the toggle shows only with Web MIDI; notes within 40 ms make a chord; no SysEx is asked for.
+  {
+    assert.equal(run("$('midi-toggle').hidden"), true, 'The MIDI toggle is hidden without Web MIDI');
+    const asked = [];
+    let deny = true;
+    const input = {name: 'Test Keys', state: 'connected', onmidimessage: null};
+    w.navigator.requestMIDIAccess = async options => {
+      asked.push(options);
+      if (deny) throw new w.DOMException('Permission denied', 'NotAllowedError');
+      return {inputs: new Map([['in', input]]), onstatechange: null};
+    };
+    run(
+      `openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nz4 | z4 |]')},instrument:'Flute'});selectEntry(scoreNotes()[0])`
+    );
+    await run('setMidi(true)');
+    assert.match(run("$('midi-status').textContent"), /^MIDI access was blocked\./, 'Denied permission says so');
+    assert.equal(run("$('midi-toggle').getAttribute('aria-pressed')"), 'false');
+    deny = false;
+    await run('setMidi(true)');
+    assert.deepEqual(JSON.parse(JSON.stringify(asked)), [{sysex: false}, {sysex: false}], 'No SysEx is requested');
+    assert.equal(run("$('midi-toggle').getAttribute('aria-pressed')"), 'true');
+    assert.match(run("$('midi-status').textContent"), /^MIDI input from Test Keys\./, 'The status names the device');
+    assert.equal(typeof input.onmidimessage, 'function', 'Every input is heard');
+    const play = (...notes) => {
+      for (const note of notes) input.onmidimessage({data: [0x90, note, 100]});
+      run('clearTimeout(midiTimer);midiEnter()');
+      for (const note of notes) input.onmidimessage({data: [0x80, note, 0]});
+    };
+    play(60);
+    play(64);
+    assert.equal(body(), 'C E z2 | z4 |]', 'Notes one after another enter one after another');
+    play(67, 60, 64);
+    assert.equal(body(), 'C E [CEG] z | z4 |]', 'Notes played together enter as a chord, lowest first');
+    run('stepHistory(-1)');
+    assert.equal(body(), 'C E [CE] z | z4 |]', 'Each chord pitch is its own undo step, like Shift+tap');
+    run("$('midi-toggle').click()");
+    await new Promise(r => w.setTimeout(r, 0));
+    assert.equal(input.onmidimessage, null, 'Turning MIDI input off stops listening');
+    assert.equal(run("$('midi-status').hidden"), true);
+    delete w.navigator.requestMIDIAccess;
+  }
   await checkAudio();
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-scores-v1')), [legacy]);
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-favorites-v1')), ['ode', 'mutopia-263']);
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, notation palette state, edits and guards, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, notation palette state, edits and guards, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, on-screen piano entry, spelling and chords, Z respelling (keys, chords, bar accidentals, written names), MIDI keyboard entry (chords, denied access, no SysEx), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }

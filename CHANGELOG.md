@@ -1,3 +1,11 @@
+# MIDI keyboard input and respelling · 2026-10-06
+
+- **MIDI input** (next to Piano keys) enters notes and chords from a USB MIDI keyboard. The button shows only where the browser has Web MIDI (Chrome, Edge and other Chromium browsers, and Firefox); it asks for MIDI access without SysEx, listens to every connected input, and the status line names the keyboards and follows them being plugged in or out. Blocked access gets a plain message, and the button stays off.
+- Each note goes in through the piano strip's entry path: keys are written pitch, notes land over the selected rest or after the selected note at the current length, spelled for the key in force, and each sounds with Hear notes. Notes that start within 40 ms of each other make one chord, entered lowest first (60, 64 and 67 together give `[CEG]`). Held keys light the piano strip. Notes played while the score is playing, or away from Compose, are ignored.
+- **Z** respells the selected note or chord at the same pitch: `^C` becomes `_D` and back, `E` becomes `_F`, and D, G and A cycle through double accidentals. A plain letter is read with the key signature and the bar's earlier accidentals, accidentals are written out only where the plain letter would change the pitch, later notes in the bar keep theirs, and each press is one undo step. The status line names the new spelling in written pitch. The pure `respell(text, key, {midis, explicit})` is in score-tools.js.
+
+---
+
 # On-screen piano keys · 2026-10-06
 
 - **Piano keys** (under the note buttons) shows a piano strip, C2 to C7, under the score. It stays at the bottom of the window and scrolls to the selected note or to the instrument's range. Tap a key to write the note over the selected rest or after the selected note; tapping in turn enters a melody at the current length, and each tap sounds with Hear notes. On a touch screen the note goes in when the finger lifts, so a swipe that starts on a key scrolls the strip or the page without entering anything. Keys are written pitch: on Clarinet in B♭ the D key writes concert `C`.

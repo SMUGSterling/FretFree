@@ -1403,6 +1403,102 @@ const {chromium} = require('playwright'),
   await page.evaluate(() => {
     dirty = false;
   });
+  // MIDI keyboards, with a mocked Web MIDI input: the toggle works by keyboard, notes 100 ms apart enter one after
+  // another, notes within 40 ms make a chord, held keys light the piano, Z respells; without Web MIDI there is no
+  // toggle, and a refusal says so.
+  {
+    const tab = await browser.newPage({viewport: {width: 1280, height: 900}});
+    tab.on('pageerror', e => errors.push(e.message));
+    tab.on('dialog', dialog => dialog.accept());
+    await tab.addInitScript(() => {
+      const input = {name: 'Practice Keys', state: 'connected', onmidimessage: null};
+      window.__midi = {input, asked: [], deny: false};
+      navigator.requestMIDIAccess = async options => {
+        __midi.asked.push(options);
+        if (__midi.deny) throw new DOMException('Permission denied', 'NotAllowedError');
+        return (__midi.access = {inputs: new Map([['in', input]]), onstatechange: null});
+      };
+      window.__note = (on, ...notes) =>
+        notes.forEach(note => input.onmidimessage?.({data: [on ? 0x90 : 0x80, note, on ? 100 : 0]}));
+    });
+    await tab.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+    const body = () => tab.evaluate(() => $('abc').value.trim().split('\n').pop());
+    await tab.evaluate(() => {
+      openScore({abc: 'X:1\nT:MIDI\nM:4/4\nL:1/4\nK:C\nz4 | z4 |]', instrument: 'Flute'});
+      show('studio');
+      selectEntry(scoreNotes()[0]);
+    });
+    assert.equal(await tab.locator('#midi-toggle').isVisible(), true, 'The toggle shows with Web MIDI');
+    await tab.focus('#midi-toggle');
+    await tab.keyboard.press('Enter');
+    await tab.waitForFunction(() => $('midi-toggle').getAttribute('aria-pressed') === 'true');
+    assert.match(await tab.locator('#midi-status').textContent(), /^MIDI input from Practice Keys\./);
+    assert.deepEqual(await tab.evaluate(() => __midi.asked), [{sysex: false}], 'No SysEx is requested');
+    await tab.click('#piano-toggle');
+    await tab.evaluate(() => __note(true, 60));
+    assert.equal(await tab.locator('[data-piano-midi="60"].down').count(), 1, 'A held MIDI key lights the piano');
+    await tab.waitForTimeout(100);
+    await tab.evaluate(() => (__note(false, 60), __note(true, 64)));
+    await tab.waitForTimeout(100);
+    await tab.evaluate(() => __note(false, 64));
+    assert.equal(await body(), 'C E z2 | z4 |]', 'Note-on 60 then 64, 100 ms apart, enter C then E');
+    assert.equal(await tab.locator('#piano-keys .down').count(), 0, 'Released keys go dark');
+    await tab.evaluate(() => {
+      __note(true, 67);
+      setTimeout(() => __note(true, 60), 5);
+      setTimeout(() => __note(true, 64), 10);
+    });
+    await tab.waitForTimeout(150);
+    assert.deepEqual(
+      await tab.evaluate(() => [...document.querySelectorAll('#piano-keys .down')].map(k => +k.dataset.pianoMidi)),
+      [60, 64, 67],
+      "The held chord's keys are lit"
+    );
+    await tab.evaluate(() => __note(false, 60, 64, 67));
+    assert.equal(await body(), 'C E [CEG] z | z4 |]', '60, 64 and 67 within 40 ms enter [CEG]');
+    // Black keys come in as sharps in C major; Z respells the note just entered from the keyboard.
+    await tab.evaluate(() => __note(true, 61));
+    await tab.waitForTimeout(100);
+    await tab.evaluate(() => __note(false, 61));
+    assert.equal(await body(), 'C E [CEG] ^C | z4 |]');
+    await tab.evaluate(() => selectEntry(scoreNotes()[3]));
+    await tab.keyboard.press('z');
+    assert.equal(await body(), 'C E [CEG] _D | z4 |]', 'Z turns ^C into _D');
+    await tab.keyboard.press('z');
+    assert.equal(await body(), 'C E [CEG] ^C | z4 |]', 'and back');
+    await tab.click('#midi-toggle');
+    await tab.waitForFunction(() => $('midi-toggle').getAttribute('aria-pressed') === 'false');
+    assert.equal(await tab.evaluate(() => __midi.input.onmidimessage), null, 'Off stops listening');
+    // At phone width the toggle and status fit.
+    await tab.setViewportSize({width: 390, height: 844});
+    await tab.click('#midi-toggle');
+    await tab.waitForFunction(() => $('midi-toggle').getAttribute('aria-pressed') === 'true');
+    assert.equal(
+      await tab.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      true,
+      'No sideways scroll at 390 px'
+    );
+    await tab.close();
+    const denied = await browser.newPage({viewport: {width: 1280, height: 900}});
+    denied.on('pageerror', e => errors.push(e.message));
+    await denied.addInitScript(() => {
+      navigator.requestMIDIAccess = async () => {
+        throw new DOMException('Permission denied', 'NotAllowedError');
+      };
+    });
+    await denied.goto((process.env.FRETFREE_URL || 'http://localhost:8000') + '#studio');
+    await denied.click('#midi-toggle');
+    await denied.waitForFunction(() => $('midi-status').textContent);
+    assert.match(await denied.locator('#midi-status').textContent(), /^MIDI access was blocked\./);
+    assert.equal(await denied.locator('#midi-toggle').getAttribute('aria-pressed'), 'false');
+    await denied.close();
+    const without = await browser.newPage({viewport: {width: 1280, height: 900}});
+    without.on('pageerror', e => errors.push(e.message));
+    await without.addInitScript(() => delete Navigator.prototype.requestMIDIAccess);
+    await without.goto((process.env.FRETFREE_URL || 'http://localhost:8000') + '#studio');
+    assert.equal(await without.locator('#midi-toggle').isHidden(), true, 'No toggle without Web MIDI');
+    await without.close();
+  }
   // Unsaved-work recovery: an edit made with the keyboard survives a reload; Restore (keyboard) brings it back with
   // its instrument and credits, Save clears it, and on a phone the banner fits and Discard removes the draft.
   {
@@ -1555,7 +1651,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
+    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

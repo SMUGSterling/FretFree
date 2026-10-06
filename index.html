@@ -8,28 +8,28 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=2695f0510921" />
-    <script defer src="vendor/abcjs-basic-min.js?v=2695f0510921"></script>
-    <script defer src="catalog.js?v=2695f0510921"></script>
-    <script defer src="catalog-expanded.js?v=2695f0510921"></script>
-    <script defer src="score-tools.js?v=2695f0510921"></script>
-    <script defer src="rights-tools.js?v=2695f0510921"></script>
-    <script defer src="musicxml.js?v=2695f0510921"></script>
-    <script defer src="catalog-licensed.js?v=2695f0510921"></script>
-    <script defer src="catalog-lieder.js?v=2695f0510921"></script>
-    <script defer src="catalog-quartets.js?v=2695f0510921"></script>
-    <script defer src="catalog-pgh.js?v=2695f0510921"></script>
-    <script defer src="catalog-skills.js?v=2695f0510921"></script>
-    <script defer src="prompts.js?v=2695f0510921"></script>
-    <script defer src="shared.js?v=2695f0510921"></script>
-    <script defer src="library.js?v=2695f0510921"></script>
-    <script defer src="backup.js?v=2695f0510921"></script>
-    <script defer src="editor.js?v=2695f0510921"></script>
-    <script defer src="palette.js?v=2695f0510921"></script>
-    <script defer src="playback.js?v=2695f0510921"></script>
-    <script defer src="keyboard.js?v=2695f0510921"></script>
-    <script defer src="assignments.js?v=2695f0510921"></script>
-    <script defer src="app.js?v=2695f0510921"></script>
+    <link rel="stylesheet" href="style.css?v=246c9054b6af" />
+    <script defer src="vendor/abcjs-basic-min.js?v=246c9054b6af"></script>
+    <script defer src="catalog.js?v=246c9054b6af"></script>
+    <script defer src="catalog-expanded.js?v=246c9054b6af"></script>
+    <script defer src="score-tools.js?v=246c9054b6af"></script>
+    <script defer src="rights-tools.js?v=246c9054b6af"></script>
+    <script defer src="musicxml.js?v=246c9054b6af"></script>
+    <script defer src="catalog-licensed.js?v=246c9054b6af"></script>
+    <script defer src="catalog-lieder.js?v=246c9054b6af"></script>
+    <script defer src="catalog-quartets.js?v=246c9054b6af"></script>
+    <script defer src="catalog-pgh.js?v=246c9054b6af"></script>
+    <script defer src="catalog-skills.js?v=246c9054b6af"></script>
+    <script defer src="prompts.js?v=246c9054b6af"></script>
+    <script defer src="shared.js?v=246c9054b6af"></script>
+    <script defer src="library.js?v=246c9054b6af"></script>
+    <script defer src="backup.js?v=246c9054b6af"></script>
+    <script defer src="editor.js?v=246c9054b6af"></script>
+    <script defer src="palette.js?v=246c9054b6af"></script>
+    <script defer src="playback.js?v=246c9054b6af"></script>
+    <script defer src="keyboard.js?v=246c9054b6af"></script>
+    <script defer src="assignments.js?v=246c9054b6af"></script>
+    <script defer src="app.js?v=246c9054b6af"></script>
   </head>
   <body>
     <header>
@@ -349,9 +349,18 @@
                 aria-controls="piano"
                 title="Show piano keys under the score for entering notes and chords"
               >
-                Piano keys
+                Piano keys</button
+              ><button
+                id="midi-toggle"
+                aria-pressed="false"
+                aria-describedby="midi-status"
+                title="Enter notes and chords from a USB MIDI keyboard"
+                hidden
+              >
+                MIDI input
               </button>
             </div>
+            <p id="midi-status" class="small" role="status" hidden></p>
             <label for="abc">ABC score <span class="small">Editable source</span></label
             ><textarea id="abc" spellcheck="false" rows="12" aria-describedby="warnings"></textarea>
             <div id="warnings" role="status" class="small"></div>
@@ -449,7 +458,8 @@
               Shift+<kbd>A</kbd>–<kbd>G</kbd> add to the chord · <kbd>3</kbd>–<kbd>7</kbd> length (16th to whole) ·
               <kbd>.</kbd> dot · <kbd>↑</kbd><kbd>↓</kbd> pitch (<kbd>Ctrl</kbd> octave) · <kbd>←</kbd
               ><kbd>→</kbd> select · <kbd>#</kbd> <kbd>-</kbd> <kbd>=</kbd> sharp, flat, natural · <kbd>+</kbd> tie ·
-              <kbd>|</kbd> bar line · <kbd>Delete</kbd> · <kbd>Space</kbd> play from the note (or double-click it)
+              <kbd>Z</kbd> respell (C♯ to D♭) · <kbd>|</kbd> bar line · <kbd>Delete</kbd> · <kbd>Space</kbd> play from
+              the note (or double-click it)
             </p>
             <p class="small" id="selection-status" role="status">
               Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag
@@ -625,11 +635,13 @@
         </p>
         <h2>Write, practice, and take it with you.</h2>
         <p>
-          Use ABC notation, the note buttons, the notation toolbar above the score, or the on-screen piano keys to write
-          music and chords. Hear each note as you enter it, play the score with built-in synthesized tones, change
-          tempo, loop playback, and export ABC, MIDI, SVG, or MusicXML (for MuseScore, Noteflight, Finale, Sibelius or
-          Dorico). Use Print / PDF to produce a paper score. Transpose a score or a few measures by any interval or to a
-          new key. Choose a B♭ or E♭ instrument for written-pitch transposition with concert-pitch playback.
+          Use ABC notation, the note buttons, the notation toolbar above the score, the on-screen piano keys, or a USB
+          MIDI keyboard (in browsers with Web MIDI, such as Chrome and Edge) to write music and chords; press Z to
+          respell a note, such as C♯ as D♭. Hear each note as you enter it, play the score with built-in synthesized
+          tones, change tempo, loop playback, and export ABC, MIDI, SVG, or MusicXML (for MuseScore, Noteflight, Finale,
+          Sibelius or Dorico). Use Print / PDF to produce a paper score. Transpose a score or a few measures by any
+          interval or to a new key. Choose a B♭ or E♭ instrument for written-pitch transposition with concert-pitch
+          playback.
         </p>
         <h2>Privacy and school access</h2>
         <p>

@@ -1351,7 +1351,8 @@ input[type='range'] {
   color: var(--ink);
 }
 /* On-screen piano: a scrolling strip of keys under the score, kept in view at the bottom of the window. */
-#piano-toggle[aria-pressed='true'] {
+#piano-toggle[aria-pressed='true'],
+#midi-toggle[aria-pressed='true'] {
   background: var(--green);
   color: white;
   border-color: var(--green);
