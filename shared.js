@@ -12,6 +12,8 @@ const KEYS = {
   noteNames: 'fretfree-note-names',
   draft: 'fretfree-draft',
   audition: 'fretfree-audition',
+  zoom: 'fretfree-zoom',
+  measuresPerLine: 'fretfree-measures-per-line',
   practice: id => 'fretfree-practice-' + id
 };
 let storageOK = true;

@@ -244,8 +244,21 @@ function applyStoredSettings() {
   $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
   $('note-names').value = storage.get(KEYS.noteNames, 'off');
   $('audition').checked = storage.get(KEYS.audition, true) !== false;
+  applyStoredLayout();
   prepareTrainer();
 }
+// Zoom and measures per line are read before the first render, so the start-up score is drawn once at its size.
+function applyStoredLayout() {
+  showZoom(storage.get(KEYS.zoom, 100));
+  $('measures-per-line').value = String(validMeasuresPerLine(storage.get(KEYS.measuresPerLine, 0)));
+}
+$('zoom-out').onclick = () => stepZoom(-1);
+$('zoom-in').onclick = () => stepZoom(1);
+$('zoom-reset').onclick = () => stepZoom(0);
+$('measures-per-line').onchange = () => {
+  storage.set(KEYS.measuresPerLine, measuresPerLine());
+  render();
+};
 for (const id of ['loop', 'metronome', 'count-in', 'trainer']) {
   $(id).checked = !!storage.get(KEYS.practice(id), false);
   $(id).addEventListener('change', () => {
@@ -341,6 +354,7 @@ ABCJS.renderAbc('hero-notation', catalog[0].abc, {
   paddingbottom: 30
 });
 renderCards();
+applyStoredLayout();
 // Unsaved work from an earlier visit is offered once the start-up score is open; a share link opens first.
 loadDrafts();
 newScore();

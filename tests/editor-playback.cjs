@@ -107,6 +107,68 @@ for (const instrument of Object.keys(run('instruments'))) {
 }
 assert.equal(run(`moveNoteText('"Am"!accent!{a}[=CEG]2-',1)`), '"Am"!accent!{a}[=DFA]2-');
 assert.equal(run(`moveNoteText('B,2 c/2 ^f-',1)`), 'C2 d/2 ^g-');
+// Zoom and measures per line: zoom narrows the staff width (never abcjs scale); a chosen count re-flows the lines.
+const json = expr => JSON.parse(run(`JSON.stringify(${expr})`));
+assert.deepEqual(json('layoutOptions(100,0)'), {staffwidth: 740}, '100% on Auto keeps the source lines');
+assert.deepEqual(json('layoutOptions(70,0)'), {staffwidth: 1057});
+assert.deepEqual(json('layoutOptions(200,0)'), {staffwidth: 370, wrap: {minSpacing: 1.8, maxSpacing: 2.7}});
+assert.deepEqual(json('layoutOptions(100,4)'), {
+  staffwidth: 740,
+  wrap: {minSpacing: 1.8, maxSpacing: 2.7, preferredMeasuresPerLine: 4}
+});
+assert.deepEqual(
+  json("[validZoom(150),validZoom('120'),validMeasuresPerLine(5),validMeasuresPerLine('6')]"),
+  [100, 120, 0, 6]
+);
+assert.equal(run('engraveOptions().scale'), undefined, 'Zoom never sets abcjs scale');
+{
+  const eight =
+    'X:1\nT:Eight bars\nM:4/4\nL:1/4\nK:C\nC D E F | G A B c | c B A G | F E D C | C E G c | c G E C | D F A c | c4 |]';
+  run(`openScore({abc:${JSON.stringify(eight)},instrument:'Flute'})`);
+  const systems = () => run('renderedTune.engraver.staffgroups.length');
+  assert.equal(systems(), 1, 'Auto at 100% keeps the one source line');
+  run("$('measures-per-line').value='2';$('measures-per-line').dispatchEvent(new Event('change'))");
+  assert.equal(systems(), 4, '2 per line gives four systems');
+  assert.equal(w.localStorage.getItem('fretfree-measures-per-line'), '2', 'Measures per line is remembered');
+  assert.equal(run('editHistory.length'), 1, 'A layout change is not an undo step');
+  run("$('zoom-in').click()");
+  assert.deepEqual(
+    json("[zoomPercent,$('zoom-reset').textContent,engraveOptions().staffwidth,localStorage.getItem('fretfree-zoom')]"),
+    [120, '120%', 617, '120'],
+    'Zoom in steps to 120% and is remembered'
+  );
+  run("for(let i=0;i<9;i++)$('zoom-in').click()");
+  assert.deepEqual(
+    json("[zoomPercent,$('zoom-in').getAttribute('aria-disabled')]"),
+    [200, 'true'],
+    'Zoom stops at 200%'
+  );
+  run("$('zoom-reset').click()");
+  assert.deepEqual(json("[zoomPercent,$('zoom-in').getAttribute('aria-disabled')]"), [100, 'false']);
+  assert.ok(
+    run('BACKUP_SETTING_KEYS()').includes('fretfree-zoom') &&
+      run('BACKUP_SETTING_KEYS()').includes('fretfree-measures-per-line'),
+    'Zoom and measures per line are in backups'
+  );
+  // Restored values are checked: an unknown zoom or count falls back to 100% and Auto.
+  w.localStorage.setItem('fretfree-zoom', '170');
+  w.localStorage.setItem('fretfree-measures-per-line', '4');
+  run('applyStoredSettings();render()');
+  assert.deepEqual(
+    json("[zoomPercent,$('measures-per-line').value]"),
+    [170, '4'],
+    'Restored settings apply the layout'
+  );
+  run('showZoom(100);render()');
+  assert.equal(systems(), 2, '4 per line engraves eight bars as two systems');
+  w.localStorage.setItem('fretfree-zoom', '"huge"');
+  w.localStorage.setItem('fretfree-measures-per-line', '5');
+  run('applyStoredSettings()');
+  assert.deepEqual(json("[zoomPercent,$('measures-per-line').value]"), [100, '0']);
+  w.localStorage.removeItem('fretfree-zoom');
+  w.localStorage.removeItem('fretfree-measures-per-line');
+  run('render()');
+}
 // Bar check: pickups, section-closing bars that complete a pickup, free meter, multi-bar rests, tuplets and meter changes are fine.
 // Note names: written letters and movable-do solfège, raised/lowered against the key signature.
 const labels = (abc, mode) =>
@@ -410,7 +472,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, bar checks, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, master volume bus, note audition, bar checks, and legacy storage.'
   );
   w.close();
 }

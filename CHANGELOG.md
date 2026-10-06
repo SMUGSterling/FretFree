@@ -1,3 +1,11 @@
+# Zoom and measures per line · 2026-10-06
+
+- **Zoom** (− / 100% / +) above the score sets the notation size from 70% to 200%. Zoom narrows the width abcjs lays the score out in and the drawing is stretched back to the panel width, so notes grow without changing the engraving scale; clicking, dragging (10 px per staff step) and drawing stay accurate at every size. Above 100% on Auto, lines re-flow so they fit.
+- **Measures per line** (Auto, 2, 3, 4 or 6) lays the score out with that many bars on each line where they fit. Auto keeps the line breaks written in the ABC at 100% and below.
+- Print / PDF and SVG exports use the same layout, so a zoomed score prints in large print. Both settings are display only, remembered in the browser (`fretfree-zoom`, `fretfree-measures-per-line`) and included in backups.
+
+---
+
 # Unsaved-work recovery · 2026-10-06
 
 - While a score has unsaved changes, FretFree keeps a draft copy in the browser, two seconds after each edit and straight away when the tab is hidden. If the tab is closed or a Chromebook discards it, the next visit offers **Unsaved work from 3:42 PM: Title. Restore / Discard**.

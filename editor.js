@@ -64,6 +64,47 @@ const FINGERING = {
   Recorder: {kind: 'recorder', label: 'Recorder fingering'}
 };
 const fingeringShown = () => ($('fingering')?.checked !== false && FINGERING[currentInstrument()]?.kind) || null;
+// Zoom and measures per line, display only. Zoom narrows the staff width abcjs lays out and `responsive: 'resize'`
+// stretches the SVG back to the panel width, so the notes grow while abcjs keeps its default scale (drag, draw and
+// STAFF_STEP assume it). A chosen number of measures per line, or zooming in on Auto, lets abcjs re-flow the lines.
+const ZOOM_LEVELS = [70, 85, 100, 120, 140, 170, 200],
+  MEASURES_PER_LINE = [2, 3, 4, 6],
+  BASE_STAFF_WIDTH = 740;
+let zoomPercent = 100;
+const validZoom = z => (ZOOM_LEVELS.includes(+z) ? +z : 100),
+  validMeasuresPerLine = n => (MEASURES_PER_LINE.includes(+n) ? +n : 0),
+  measuresPerLine = () => validMeasuresPerLine($('measures-per-line')?.value);
+function layoutOptions(zoom = zoomPercent, perLine = measuresPerLine()) {
+  const spacing = {minSpacing: 1.8, maxSpacing: 2.7};
+  return {
+    staffwidth: Math.round(BASE_STAFF_WIDTH / (validZoom(zoom) / 100)),
+    ...(perLine
+      ? {wrap: {...spacing, preferredMeasuresPerLine: perLine}}
+      : validZoom(zoom) > 100
+        ? {wrap: spacing}
+        : {})
+  };
+}
+// The end buttons stay focusable at the limits (aria-disabled), so a keyboard user pressing + again keeps focus.
+function showZoom(z) {
+  zoomPercent = validZoom(z);
+  const i = ZOOM_LEVELS.indexOf(zoomPercent);
+  $('zoom-out')?.setAttribute('aria-disabled', String(i === 0));
+  $('zoom-in')?.setAttribute('aria-disabled', String(i === ZOOM_LEVELS.length - 1));
+  if ($('zoom-reset')) {
+    $('zoom-reset').textContent = zoomPercent + '%';
+    $('zoom-reset').setAttribute('aria-label', `Zoom ${zoomPercent}%. Reset to 100%`);
+  }
+}
+// step -1 or +1 moves one zoom level; 0 goes back to 100%. The choice is remembered and the score redrawn.
+function stepZoom(step) {
+  const i = ZOOM_LEVELS.indexOf(zoomPercent),
+    next = step ? ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, i + step))] : 100;
+  if (next === zoomPercent) return;
+  showZoom(next);
+  storage.set(KEYS.zoom, zoomPercent);
+  render();
+}
 function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
   if (renderedSource !== $('abc').value) {
     clearTimeout(renderTimer);
@@ -169,19 +210,25 @@ function render() {
   }
   scheduleDraft();
 }
-// abcjs options for the main score. Guitar adds a tab staff; recorder leaves room below for the fingering diagrams.
+// abcjs 6.5.2 loses the tablature when it re-parses a re-flowed score, so the re-parsed tune gets it back here.
+const GUITAR_TAB = [{instrument: 'guitar', label: 'Guitar'}];
+function keepTablature(tune, number, abc) {
+  if (!tune.tablatures) tune.tablatures = ABCJS.parseOnly(abc, {tablature: GUITAR_TAB})[0]?.tablatures;
+}
+// abcjs options for the main score: zoom and line layout from the view controls. Guitar adds a tab staff; recorder
+// leaves room below for the fingering diagrams.
 function engraveOptions() {
   const fingering = fingeringShown();
   return {
     responsive: 'resize',
-    staffwidth: 740,
+    ...layoutOptions(),
     add_classes: true,
     dragging: true,
     selectTypes: ['note', 'bar'],
     selectionColor: '#317761',
     dragColor: '#ba663d',
     clickListener: scoreClick,
-    ...(fingering === 'guitar' ? {tablature: [{instrument: 'guitar', label: 'Guitar'}], paddingbottom: 40} : {}),
+    ...(fingering === 'guitar' ? {tablature: GUITAR_TAB, paddingbottom: 40, afterParsing: keepTablature} : {}),
     ...(fingering === 'recorder' ? {paddingbottom: 120} : {})
   };
 }
@@ -191,7 +238,10 @@ function indexDisplay(display) {
     lengths = effectiveDurations(shown);
   noteDurations = new Map(shown.map(e => [e.element.startChar, lengths.get(e.element) || 0]));
   shownElements = new Map(shown.map(e => [e.element.startChar, e.element]));
-  staffClefs = display.lines.filter(l => l.staff).map(l => l.staff.map(st => st.clef?.verticalPos || 0));
+  // Clefs per drawn line. abcjs re-parses a re-flowed score, so its lines (not the display's) match the staff groups.
+  staffClefs = (renderedTune?.lines || display.lines)
+    .filter(l => l.staff)
+    .map(l => l.staff.map(st => st.clef?.verticalPos || 0));
 }
 // Keep the selected note highlighted across a re-render.
 function restoreSelection(display) {

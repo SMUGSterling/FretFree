@@ -10,6 +10,8 @@ const BACKUP_FORMAT = 1,
     KEYS.fingering,
     KEYS.noteNames,
     KEYS.audition,
+    KEYS.zoom,
+    KEYS.measuresPerLine,
     ...['loop', 'metronome', 'count-in', 'trainer'].map(KEYS.practice)
   ];
 function backupData() {
