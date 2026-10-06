@@ -96,6 +96,7 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
   selectedRange = [start, nextEnd];
   area.setSelectionRange(start, nextEnd);
   focusScore();
+  if (typeof showPianoSelection === 'function') showPianoSelection();
   // A plain click only selects, so editing never moves the practice range. Shift+click sets the range from the
   // selected note's measure to the clicked one (from the clicked measure to the end when nothing was selected).
   if (event?.shiftKey && !drag?.step) {
@@ -159,6 +160,7 @@ function render() {
     updateBarCheck(original);
     updatePromptCheck(display);
     restoreSelection(display);
+    if (typeof updatePiano === 'function') updatePiano(display);
     $('warnings').textContent = (renderedTune?.warnings || []).map(x => String(x).replace(/<[^>]+>/g, '')).join(' · ');
     updateCaption();
     updateSourceEdition();
@@ -1052,8 +1054,9 @@ window.addEventListener(
   {passive: true}
 );
 // Keyboard note entry on the score (MuseScore-style): A–G add a note after the selection in the nearest octave,
-// R or 0 a rest, 3–7 set the length (16th…whole), . dots, ↑↓ move by step (Ctrl: octave), ←→ change the selection,
-// # - = set sharp/flat/natural, + ties, | adds a bar line, Delete removes the note.
+// Shift+A–G add a pitch to the selected chord, R or 0 a rest, 3–7 set the length (16th…whole), . dots, ↑↓ move by
+// step (Ctrl: octave), ←→ change the selection, # - = set sharp/flat/natural, + ties, | adds a bar line, Delete
+// removes the note.
 const LENGTH_KEYS = {3: 1 / 16, 4: 1 / 8, 5: 1 / 4, 6: 1 / 2, 7: 1};
 function focusScore() {
   $('notation').focus?.({preventScroll: true});
@@ -1102,19 +1105,60 @@ function tuneEndPosition() {
     ? last.element.startChar
     : last.element.endChar;
 }
+// Where a new note goes: over the selected rest (typing on a rest writes over it, as in MuseScore), after the
+// selected note, or at the end of the music.
+const fillsRest = sel => sel && !sel.entry.element.pitches?.length && sel.entry.element.rest?.type !== 'multimeasure';
+const entryPosition = sel =>
+  fillsRest(sel) ? sel.entry.element.startChar : sel ? sel.entry.element.endChar : tuneEndPosition();
+// Letters name what the student sees, so pick the octave in written pitch, nearest the previous note.
 function insertNote(letter, sel) {
-  if (sel && !sel.entry.element.pitches?.length && sel.entry.element.rest?.type !== 'multimeasure') {
-    overwriteRest(letter, sel.entry);
+  insertCore(letterToken(letter, entryPosition(sel)), sel);
+}
+// Enter a pitch (or z), without a length, at the input length: a selected rest keeps whatever time is left and
+// stays selected so the next note continues; otherwise the note goes after the selection and is selected.
+function insertCore(core, sel) {
+  if (fillsRest(sel)) {
+    fillRest(sel.entry, core);
     return;
   }
-  const at = sel ? sel.entry.element.endChar : tuneEndPosition(),
-    length = inputLength ?? beatLength();
-  let token = 'z';
-  if (letter !== 'z') {
-    // Letters name what the student sees, so pick the octave in written pitch, nearest the previous note.
-    token = letterToken(letter, at);
-  }
-  insertAt(at, token + lengthText(length / unitLengthAt(at)), true, letter !== 'z');
+  const at = entryPosition(sel);
+  insertAt(at, core + lengthText((inputLength ?? beatLength()) / unitLengthAt(at)), true, core !== 'z');
+}
+// The note a chord pitch goes on: the selected note, or the note just before a selected rest. Entering a note over a
+// rest moves the selection on to what is left of the rest, so this is the note just entered.
+function chordTarget(sel) {
+  if (!sel || sel.entry.element.pitches?.length) return sel;
+  const voice = sel.entry.key.split(':').slice(0, 2).join(':') + ':',
+    notes = scoreNotes().filter(n => n.key.startsWith(voice)),
+    prev = notes[notes.indexOf(sel.entry) - 1];
+  return prev?.element.pitches?.length ? {entry: prev, display: displayOf(prev)} : null;
+}
+// Add a pitch (without a length) to the chord target, making it a chord or adding to one; one undo step. A selected
+// rest stays selected, so entry carries on after the chord. Returns false when the pitch is already there.
+function addToChord(sel, core) {
+  const target = chordTarget(sel),
+    start = target.entry.element.startChar,
+    end = target.entry.element.endChar,
+    old = $('abc').value.slice(start, end),
+    text = addChordPitch(old, core),
+    delta = text.length - old.length;
+  if (text === old) return false;
+  const select =
+    target === sel
+      ? [start, start + text.length]
+      : [sel.entry.element.startChar + delta, sel.entry.element.endChar + delta];
+  applyNoteEdit(start, end, text, select, start);
+  return true;
+}
+// Shift+A–G: the letter's pitch just above the chord's top note (in written pitch), as the key signature spells it.
+function addLetterToChord(letter, sel) {
+  const steps = Math.round((instruments[currentInstrument()].shift * 7) / 12),
+    top = Math.max(...chordTarget(sel).entry.element.pitches.map(p => p.pitch)) + steps,
+    index = 'CDEFGAB'.indexOf(letter),
+    pitch = index + 7 * (Math.floor((top - index) / 7) + 1);
+  $('selection-status').textContent = addToChord(sel, pitchToken(pitch - steps))
+    ? `Added ${letter} to the chord. Shift+A–G adds more.`
+    : `${letter} is already in the chord.`;
 }
 // Written-pitch note token for a letter, in the octave nearest the last note before a source position.
 function letterToken(letter, at) {
@@ -1127,12 +1171,8 @@ function letterToken(letter, at) {
     letterIndex = 'CDEFGAB'.indexOf(letter);
   return pitchToken(letterIndex + 7 * Math.round((ref - letterIndex) / 7) - steps);
 }
-// Typing on a rest writes over it (as in MuseScore): the note takes its length from the rest and the rest keeps
-// what is left, which stays selected so the next letter continues. A filled rest passes the selection on.
-function overwriteRest(letter, rest) {
-  fillRest(rest, letterToken(letter, rest.element.startChar));
-}
-// Put a note (its pitch token, without a length) at the start of a rest; the rest keeps whatever time is left.
+// Put a note (its pitch token, without a length) at the start of a rest, taking its length from the rest; the rest
+// keeps what is left, which stays selected so the next note continues. A filled rest passes the selection on.
 function fillRest(rest, core, wanted = inputLength ?? beatLength()) {
   const v = $('abc').value,
     start = rest.element.startChar,
@@ -1180,6 +1220,10 @@ function scoreKey(e) {
     else play();
     return true;
   }
+  if (e.shiftKey && /^[A-G]$/.test(key) && chordTarget(sel)) {
+    addLetterToChord(key, sel);
+    return true;
+  }
   if (/^[a-g]$/i.test(key)) {
     insertNote(key.toUpperCase(), sel);
     return true;
@@ -1212,6 +1256,7 @@ function scoreKey(e) {
   if (key === 'Escape' && sel) {
     selectedRange = null;
     renderedTune?.engraver?.rangeHighlight?.(-1, -1);
+    if (typeof showPianoSelection === 'function') showPianoSelection();
     $('selection-status').textContent = 'Nothing selected. Letters add notes at the end.';
     return true;
   }

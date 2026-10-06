@@ -250,6 +250,27 @@ for (const [text, edit, expected] of [
     .map(x => x.id);
   assert.equal(own.join(', '), '', 'FretFree teaching scores have correct bar lengths');
 }
+// On-screen piano spelling and chords: midiToken spells a MIDI note for a key signature; addChordPitch builds chords.
+{
+  const key = k => ABCJS.parseOnly(`X:1\nK:${k}\nC`)[0].lines[0].staff[0].key,
+    spell = (k, ...midis) => midis.map(m => context.midiToken(m, key(k))).join(' ');
+  assert.equal(spell('C', 60, 61, 63, 66, 72, 48, 84, 59), "C ^C ^D ^F c C, c' B,");
+  assert.equal(spell('F', 70, 71, 66, 61), 'B =B _G _D', 'Flat keys use flats; B flat is in the key');
+  assert.equal(spell('G', 66, 65, 70), 'F =F ^A', 'Sharp keys use sharps; F sharp is in the key');
+  assert.equal(spell('Bb', 70, 63, 68), 'B E _A');
+  assert.equal(spell('Am', 68, 69), '^G A', 'Minor keys spell from their signature');
+  assert.equal(spell('C#', 60, 65), 'B, E', 'B sharp and E sharp are in C sharp major');
+  assert.equal(context.midiToken(70, key('F'), true), '_B', 'Explicit writes the key accidental');
+  assert.equal(context.midiToken(60, key('C'), true), '=C');
+  assert.equal(context.midiToken(61, null), '^C', 'No key is C major');
+  const add = (text, core) => context.addChordPitch(text, core);
+  assert.equal(add('C2', 'E'), '[CE]2');
+  assert.equal(add('[CE]2', 'G'), '[CEG]2');
+  assert.equal(add('"Am"!f!(C2- ', '^g'), '"Am"!f!([C^g]2- ', 'Decorations, slur, tie and spacing stay put');
+  assert.equal(add('[C2E2]', 'G'), '[C2E2G2]', 'Per-pitch chord lengths are copied');
+  assert.equal(add('[CE]', 'E'), '[CE]', 'A pitch already there is not added');
+  assert.equal(add('z2', 'E'), 'z2', 'Rests are left alone');
+}
 // Writing prompts: every example meets all its goals, and the blank starting score does not.
 vm.runInContext(
   fs
@@ -279,5 +300,5 @@ for (const prompt of context.writingPrompts) {
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, slur and tuplet note edits, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, slur and tuplet note edits, piano spelling and chord building, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.'
 );

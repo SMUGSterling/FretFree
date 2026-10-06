@@ -51,6 +51,7 @@ for (const file of [
   'backup.js',
   'editor.js',
   'playback.js',
+  'keyboard.js',
   'app.js'
 ])
   run(fs.readFileSync(path.join(root, file), 'utf8'));

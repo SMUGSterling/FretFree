@@ -280,6 +280,39 @@ function keyAlters(key) {
   for (const a of key?.accidentals || []) alters[a.note.toUpperCase()] = ALTER[a.acc] ?? 0;
   return alters;
 }
+// ABC pitch for a MIDI note in a key (a parsed abcjs key, as keyAlters takes). A note in the key needs no accidental;
+// any other uses a natural if one fits, else a sharp, or a flat in flat keys. With explicit, the accidental is always
+// written (for a bar where an earlier accidental would otherwise change the note). midiToken(61, C major) is '^C'.
+function midiToken(midi, key, explicit = false) {
+  const alters = keyAlters(key),
+    pc = ((midi % 12) + 12) % 12,
+    sign = {'-2': '__', '-1': '_', 0: '=', 1: '^', 2: '^^'},
+    token = (letter, alter, written) =>
+      (written ? sign[alter] : '') +
+      pitchToken(letter + 7 * Math.round((midi - 60 - LETTER_SEMIS[letter] - alter) / 12));
+  for (let letter = 0; letter < 7; letter++) {
+    const alter = alters['CDEFGAB'[letter]] || 0;
+    if ((LETTER_SEMIS[letter] + alter + 12) % 12 === pc) return token(letter, alter, explicit);
+  }
+  const natural = LETTER_SEMIS.indexOf(pc);
+  if (natural >= 0) return token(natural, 0, true);
+  return Object.values(alters).some(a => a < 0)
+    ? token(LETTER_SEMIS.indexOf((pc + 1) % 12), -1, true)
+    : token(LETTER_SEMIS.indexOf(pc - 1), 1, true);
+}
+// Add a pitch (an ABC pitch without a length, such as 'E' or '^f') to a note or chord, keeping its length, ties and
+// decorations: C2 becomes [CE]2. A pitch already in the chord, or a rest, is left as it was.
+function addChordPitch(text, core) {
+  const parts = noteParts(text);
+  if (!parts || /^[zx]/.test(parts.core)) return text;
+  const pitches = parts.core.match(/(?:\^{1,2}|_{1,2}|=)?[A-Ga-g][,']*/g) || [];
+  if (pitches.includes(core)) return text;
+  // Chords written with a length on each pitch ([C2E2]) give the new pitch the same length.
+  const each =
+    parts.core[0] === '[' ? (parts.core.match(/^\[(?:\^{1,2}|_{1,2}|=)?[A-Ga-g][,']*(\d*\/*\d*)/) || [])[1] : '';
+  const inner = parts.core[0] === '[' ? parts.core.slice(1, -1) : parts.core;
+  return parts.pre + '[' + inner + core + (each || '') + ']' + text.slice(parts.pre.length + parts.core.length);
+}
 function melodyBars(tune) {
   const bars = [],
     lengths = barLengths(tune).filter(m => m.voice === '0:0');
@@ -389,7 +422,8 @@ function promptSource(prompt, key = prompt.key, body = null) {
 // Note-name labels for every voice, as written: letters (F♯) or movable-do solfège (do-based major,
 // la-based minor; notes raised against the key signature use sharp syllables, lowered ones flat syllables).
 // Each voice keeps its own key and bar accidentals; a note tied across a bar line keeps the accidental it was tied
-// from. Each label also has `midis`: every pitch of the note as playback sounds it (see playbackShift).
+// from. Each label also has `midis`: every pitch of the note as playback sounds it (see playbackShift), and
+// `written`: every pitch as the staff shows it, before that shift.
 const SOLFEGE_SHARP = ['do', 'di', 're', 'ri', 'mi', 'fa', 'fi', 'sol', 'si', 'la', 'li', 'ti'],
   SOLFEGE_FLAT = ['do', 'ra', 're', 'me', 'mi', 'fa', 'se', 'sol', 'le', 'la', 'te', 'ti'];
 function noteLabels(tune, mode) {
@@ -446,7 +480,13 @@ function noteLabels(tune, mode) {
             mode === 'solfege'
               ? (alter < (key[name] ?? 0) ? SOLFEGE_FLAT : SOLFEGE_SHARP)[(pc - (state.doPc || 0) + 12) % 12]
               : name + ({1: '♯', 2: '𝄪', '-1': '♭', '-2': '𝄫'}[alter] || '');
-          labels.push({at: e.startChar, text, midi, midis: spelled.map(x => x.midi + state.shift)});
+          labels.push({
+            at: e.startChar,
+            text,
+            midi,
+            midis: spelled.map(x => x.midi + state.shift),
+            written: spelled.map(x => x.midi)
+          });
         }
       }
   return labels;

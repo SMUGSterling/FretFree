@@ -993,6 +993,110 @@ const {chromium} = require('playwright'),
     'Hear notes is remembered'
   );
   await page.check('#audition');
+  // On-screen piano: mouse taps enter notes over the selected rest and sound them; Shift+click and a held touch make
+  // chords; arrows and Enter work from the keyboard; keys light for the selection and during playback.
+  {
+    const body = () => page.evaluate(() => $('abc').value.trim().split('\n').pop()),
+      key = midi => page.locator(`[data-piano-midi="${midi}"]`);
+    await page.evaluate(() => {
+      dirty = false;
+      openScore({abc: 'X:1\nT:Piano\nM:4/4\nL:1/4\nQ:1/4=120\nK:F\nz4 | z4 |]', instrument: 'Flute'});
+      selectEntry(scoreNotes()[0]);
+      $('count-in').checked = $('loop').checked = $('metronome').checked = false;
+      __heard.length = 0;
+    });
+    await page.click('#piano-toggle');
+    assert.equal(await page.evaluate(() => localStorage.getItem('fretfree-piano')), 'true');
+    assert.ok(await key(71).isVisible(), 'The strip starts at the treble staff');
+    await key(65).click();
+    assert.deepEqual(await heard(), [349.23], 'A tap sounds its pitch');
+    await key(70).click();
+    await key(72).click();
+    await key(76).click({modifiers: ['Shift']});
+    assert.equal(await body(), 'F B [ce] z | z4 |]', 'Taps enter a melody in F; Shift+click adds to the chord');
+    assert.deepEqual(await heard(), [466.16, 523.25, 523.25, 659.26], 'Each tap sounds; a chord sounds whole');
+    // Two fingers: the second key goes down while the first is held.
+    await page.evaluate(() => {
+      const down = (midi, pointerId) =>
+        document.querySelector(`[data-piano-midi="${midi}"]`).dispatchEvent(
+          new PointerEvent('pointerdown', {
+            bubbles: true,
+            pointerId,
+            pointerType: 'touch',
+            isPrimary: pointerId === 7
+          })
+        );
+      down(69, 7);
+      down(72, 8);
+      for (const pointerId of [7, 8])
+        window.dispatchEvent(new PointerEvent('pointerup', {bubbles: true, pointerId, pointerType: 'touch'}));
+    });
+    assert.equal(await body(), 'F B [ce] [Ac] | z4 |]', 'Holding one key while tapping another makes a chord');
+    await page.waitForTimeout(20);
+    await key(67).click();
+    assert.equal(await body(), 'F B [ce] [Ac] | G z3 |]', 'After the fingers lift, a tap enters a new note');
+    assert.equal(
+      await page.evaluate(() => document.activeElement.dataset.pianoMidi),
+      '67',
+      'The tapped key keeps focus'
+    );
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Shift+Enter');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('Space');
+    assert.equal(
+      await page.evaluate(() => $('abc').value.trim().split('\n').pop()),
+      'F B [ce] [Ac] | G [AB] A z |]',
+      'Arrows move between keys; Enter enters, Shift+Enter adds to the chord, Space enters once'
+    );
+    await page.keyboard.press('Shift+C');
+    assert.equal(await body(), 'F B [ce] [Ac] | G [AB] [Ac] z |]', 'Score shortcuts work from the piano');
+    // The piano stays at the bottom of the window, so bring the score to the top before clicking on it.
+    await page.evaluate(() => $('notation').scrollIntoView({block: 'start', behavior: 'instant'}));
+    await page.locator('#notation .abcjs-notehead').nth(2).click({force: true});
+    assert.equal(await body(), 'F B [ce] [Ac] | G [AB] [Ac] z |]', 'Clicking the score does not enter a note');
+    assert.deepEqual(
+      await page.evaluate(() => [...document.querySelectorAll('#piano-keys .held')].map(k => k.dataset.pianoMidi)),
+      ['72', '76'],
+      'Clicking a chord lights its keys'
+    );
+    await page.click('#play');
+    const lit = new Set();
+    for (let i = 0; i < 25; i++) {
+      await page.waitForTimeout(80);
+      for (const k of await page.evaluate(() =>
+        [...document.querySelectorAll('#piano-keys .sounding')].map(k => k.dataset.pianoMidi)
+      ))
+        lit.add(k);
+    }
+    await page.click('#stop');
+    assert.ok(
+      ['65', '70', '72', '76'].every(k => lit.has(k)),
+      'Keys light during playback: ' + [...lit]
+    );
+    assert.equal(await page.locator('#piano-keys .sounding').count(), 0, 'Stopping clears the lights');
+    await page.emulateMedia({media: 'print'});
+    assert.equal(await page.locator('#piano').isVisible(), false, 'The piano is hidden in print');
+    await page.emulateMedia({media: 'screen'});
+    await page.setViewportSize({width: 390, height: 844});
+    await key(64).scrollIntoViewIfNeeded();
+    assert.ok(
+      await page.evaluate(() => {
+        const strip = $('piano-scroll');
+        return strip.scrollWidth > strip.clientWidth && document.documentElement.scrollWidth <= innerWidth + 1;
+      }),
+      'At 390px the keys scroll inside their strip, not the page'
+    );
+    await page.setViewportSize({width: 1280, height: 900});
+    await page.click('#piano-toggle');
+    assert.equal(
+      await page.evaluate(() => [$('piano').hidden, localStorage.getItem('fretfree-piano')]).then(String),
+      'true,false'
+    );
+  }
   await page.evaluate(() => {
     dirty = false;
   });
@@ -1004,7 +1108,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), legacy storage, mobile width, and no browser errors.'
+    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile), legacy storage, mobile width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

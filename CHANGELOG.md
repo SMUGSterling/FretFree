@@ -1,3 +1,13 @@
+# On-screen piano keys · 2026-10-06
+
+- **Piano keys** (under the note buttons) shows a piano strip, C2 to C7, under the score. It stays at the bottom of the window and scrolls to the selected note or to the instrument's range. Tap a key to write the note over the selected rest or after the selected note; tapping in turn enters a melody at the current length, and each tap sounds with Hear notes. Keys are written pitch: on Clarinet in B♭ the D key writes concert `C`.
+- **Chords:** Shift+tap, or hold one key while tapping others on a touch screen, to add the pitch to the selected note or the note just entered (`C2` becomes `[CE]2`). <kbd>Shift</kbd>+<kbd>A</kbd>–<kbd>G</kbd> on the score does the same with the letter just above the chord's top note.
+- **Spelling** follows the key in force: in-key notes need no accidental (the black key between A and B is `B` in F major, F♯ is `F` in G major), others take sharps in sharp keys and C (`^C`) and flats in flat keys, and a natural is written where an earlier accidental in the bar would change the note.
+- The selected note's keys are lit, and keys light as playback sounds them. From the keyboard, ←→ move between keys, Enter adds the note, Shift+Enter adds it to the chord, and the score's other shortcuts still work. The setting is remembered and backed up (`fretfree-piano`), and the strip is hidden in print.
+- `midiToken(midi, key)` and `addChordPitch(text, pitch)` in score-tools.js spell a MIDI note for a key signature and add a pitch to a note or chord; `insertNote` now goes through `insertCore(pitch, selection)`, which later input methods (MIDI keyboards, fretboard) can share.
+
+---
+
 # Hear notes and live volume · 2026-10-06
 
 - **Hear notes** (on by default, next to Draw notes): clicking, typing, drawing or moving a note plays it once, as does changing its accidental or stepping to it with ←→. Chords play every pitch. It uses the chosen instrument's sound at concert pitch with playback's octave rule, stays silent during playback, and is remembered and backed up (`fretfree-audition`).
