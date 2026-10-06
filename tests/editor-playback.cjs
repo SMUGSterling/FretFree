@@ -1548,6 +1548,24 @@ async function checkInstrumentSounds() {
     );
   }
   const caption = () => run("$('score-caption').textContent");
+  // A caption calls the source or the view concert pitch only when playback sounds the pitches the MIDI export holds:
+  // the baritone sax plays the source an octave lower, so its captions give that distance instead.
+  for (const name of names.filter(n => all[n].shift % 12)) {
+    open(name);
+    const exported = run("parseMidi(midiBytes($('abc').value)).notes.map(n=>n.note).join()");
+    oscillators.length = 0;
+    await run('play()');
+    run('stop()');
+    const played = oscillators.map(o => Math.round(69 + 12 * Math.log2(o.frequency.value / 440))).join();
+    for (const concert of [true, false]) {
+      run(`$('concert-pitch').checked=${concert};$('concert-pitch').onchange()`);
+      assert.equal(
+        /are concert pitch|Concert pitch shown/.test(caption()),
+        played === exported,
+        `${name}${concert ? ' in Concert pitch view' : ''}: ${caption()}`
+      );
+    }
+  }
   open('Horn in F');
   assert.match(run('writtenABC()'), /K:C[^\n]*\nc d e f \| g4 \|\]/, 'Horn in F is written a fifth higher');
   assert.equal(
@@ -1573,13 +1591,13 @@ async function checkInstrumentSounds() {
   open('Baritone sax in E♭');
   assert.equal(
     caption(),
-    'Baritone sax in E♭ · treble clef · Concert pitch shown, an octave above how it sounds; turn off Concert pitch for the written part.'
+    'Baritone sax in E♭ · treble clef · ABC source shown, an octave above how it sounds; turn off Concert pitch for the written part.'
   );
   run("$('concert-pitch').checked=false;$('concert-pitch').onchange()");
   assert.match(run('writtenABC()'), /K:D[^\n]*\nd e f g \| a4 \|\]/);
   assert.equal(
     caption(),
-    'Baritone sax in E♭ · treble clef · Written pitch shown; it sounds an octave and a major 6th lower. ABC source and MIDI are concert pitch, played an octave lower.'
+    'Baritone sax in E♭ · treble clef · Written pitch shown; it sounds an octave and a major 6th lower. ABC source and MIDI are an octave above how it sounds.'
   );
   oscillators.length = 0;
   run(`scoreClick(scoreEvents(renderedTune).find(e=>e.element.pitches).element,0,[],{},{step:0},{})`);

@@ -365,17 +365,20 @@ function restoreSelection(display) {
 }
 // The caption names the instrument, its clef or staves, and what is shown against what plays: written pitch and the
 // interval it sounds below, a bass-range octave, or an octave transposition such as a double bass or glockenspiel.
+// A transposing instrument that also plays in another octave (baritone sax) does not sound at the source's pitch, so
+// its caption gives the source's distance from the sound instead of calling it concert pitch.
 function updateCaption() {
   $('workspace-heading').textContent = field('T', 'Untitled melody');
   const config = instruments[currentInstrument()],
     staves = staffClefs[0]?.length || 1,
     sound = instrumentSound(config),
     written = writtenAboveSound(config),
-    sounds = written ? ` It sounds ${intervalPhrase(written)} ${written > 0 ? 'lower' : 'higher'} than written.` : '';
+    sounds = written ? ` It sounds ${intervalPhrase(written)} ${written > 0 ? 'lower' : 'higher'} than written.` : '',
+    source = sound ? `${intervalPhrase(sound)} ${sound < 0 ? 'above' : 'below'} how it sounds` : '';
   const pitch = concertView()
-    ? `Concert pitch shown${sound ? `, ${intervalPhrase(sound)} ${sound < 0 ? 'above' : 'below'} how it sounds` : ', as it sounds'}; turn off Concert pitch for the written part.`
+    ? `${sound ? `ABC source shown, ${source}` : 'Concert pitch shown, as it sounds'}; turn off Concert pitch for the written part.`
     : transposesInstrument()
-      ? `Written pitch shown; it sounds ${intervalPhrase(written)} lower. ABC source and MIDI are concert pitch${sound ? `, played ${intervalPhrase(sound)} ${sound < 0 ? 'lower' : 'higher'}` : ''}.`
+      ? `Written pitch shown; it sounds ${intervalPhrase(written)} lower. ABC source and MIDI are ${source || 'concert pitch'}.`
       : config.shift === -12
         ? `${staves > 1 ? 'Parts' : 'Melody'} lowered one octave for bass range.${sounds}`
         : written

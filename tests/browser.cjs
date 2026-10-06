@@ -1856,13 +1856,42 @@ const {chromium} = require('playwright'),
       ['all', ...names],
       'The library filter lists every instrument'
     );
-    await page.selectOption('#instrument-filter', 'Horn in F');
-    await page.locator('.card [data-listen]').first().click();
-    await page.waitForTimeout(250);
-    assert.ok(
-      await page.evaluate(() => __heard.length > 0 && __heard.every(h => h.type === 'custom')),
-      'Listen plays in the filtered instrument'
+    // Listen plays the first card in the filtered instrument: the piano when none is chosen, and with Double bass the
+    // same notes two octaves down, in the double bass's own periodic wave.
+    const listen = async filter => {
+      await page.selectOption('#instrument-filter', filter);
+      await page.evaluate(() => {
+        __heard.length = 0;
+        window.__waves = [];
+        const set = OscillatorNode.prototype.setPeriodicWave;
+        OscillatorNode.prototype.setPeriodicWave = function (wave) {
+          __waves.push(wave);
+          return set.call(this, wave);
+        };
+        window.__unspyWaves = () => (OscillatorNode.prototype.setPeriodicWave = set);
+      });
+      await page.locator('.card [data-listen]').first().click();
+      await page.waitForFunction(() => __heard.length > 0);
+      return page.evaluate(
+        name => {
+          stopPreview();
+          __unspyWaves();
+          const own = instrumentWave(audio, name, instruments[name]);
+          return {hz: __heard.splice(0).map(h => h.hz), own: __waves.length > 0 && __waves.every(w => w === own)};
+        },
+        filter === 'all' ? 'Piano' : filter
+      );
+    };
+    const piano = await listen('all'),
+      bass = await listen('Double bass');
+    assert.deepEqual([piano.own, bass.own], [true, true], 'Listen uses the instrument’s own periodic wave');
+    assert.deepEqual(
+      piano.hz.map((h, i) => Math.round(12 * Math.log2(h / bass.hz[i]))),
+      piano.hz.map(() => 24),
+      'Listen plays in the filtered instrument’s octave: ' + bass.hz.join()
     );
+    assert.equal(bass.hz.length, piano.hz.length, 'Listen plays the same notes in either instrument');
+    await page.selectOption('#instrument-filter', 'Horn in F');
     await page.locator('.card [data-open]').first().click();
     assert.equal(await page.inputValue('#instrument'), 'Horn in F', 'The opened score uses the filtered instrument');
     assert.match(
@@ -2807,7 +2836,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen and opening in the filtered instrument), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
+    'PASS: dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);
