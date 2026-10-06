@@ -1330,28 +1330,39 @@ function updateFingering(source) {
 // Classroom colors and letters in noteheads, drawn on the engraved SVG after each render. Both stay in print and SVG
 // export (worksheets), so they are set as attributes; the class only lets a selected or playing note show as one.
 // Each head names its written pitch in data-name ("^c", "A,"), which covers chords and grace notes; heads without
-// one pair with the pitches by height, lowest first.
+// one pair with the pitches by height, lowest first, and grace heads with the grace notes in order.
+// abcjs shrinks grace heads with a CSS scale that getBBox() ignores, so they are found by that style instead.
+// Every head is read and measured before anything is drawn: measuring after each note's letter goes in would make
+// the browser lay out the whole score again for every note.
 function updateNoteColors() {
   const colors = noteColorsShown(),
     letters = lettersInHeads();
   if (!colors && !letters) return;
-  const ns = 'http://www.w3.org/2000/svg';
+  const letter = pitch => (pitch == null ? null : 'CDEFGAB'[((pitch % 7) + 7) % 7]),
+    drawn = [];
   for (const sel of renderedTune?.engraver?.selectables || []) {
     const note = sel.absEl.abcelem;
     if (note.el_type !== 'note' || note.rest || !note.pitches?.length) continue;
-    const heads = [...sel.svgEl.querySelectorAll('.abcjs-notehead')];
+    const heads = [...sel.svgEl.querySelectorAll('.abcjs-notehead')],
+      grace = heads.map(h => /scale\(/.test(h.getAttribute('style') || ''));
     let names = heads.map(h => (h.getAttribute('data-name') || '').match(/[A-G]/i)?.[0].toUpperCase());
-    if (names.some(n => !n)) {
-      const box = h => h.getBBox?.() || {y: 0, height: 0},
-        byHeight = heads.map((h, i) => [i, box(h).y]).sort((a, b) => b[1] - a[1]),
-        pitches = note.pitches.map(p => p.pitch).sort((a, b) => a - b);
-      names = [];
-      byHeight.forEach(([i], n) => (names[i] = pitches[n] == null ? null : 'CDEFGAB'[((pitches[n] % 7) + 7) % 7]));
+    const unnamed = names.some(n => !n),
+      boxes = heads.map((h, i) => ((letters || unnamed) && !grace[i] && h.getBBox?.()) || null);
+    if (unnamed) {
+      const pitches = note.pitches.map(p => p.pitch).sort((a, b) => a - b),
+        graces = (note.gracenotes || []).map(g => g.pitch);
+      names = heads.map((h, i) => (grace[i] ? letter(graces.shift()) : null));
+      heads
+        .map((h, i) => [i, boxes[i]?.y || 0])
+        .filter(([i]) => !grace[i])
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([i], n) => (names[i] = letter(pitches[n])));
     }
-    // Half and whole heads are hollow, so their letter is drawn in ink; grace heads are too small for one.
-    const hollow = note.duration >= 0.5,
-      boxes = letters && typeof heads[0]?.getBBox === 'function' ? heads.map(h => h.getBBox()) : [],
-      widest = Math.max(0, ...boxes.map(b => b.width));
+    drawn.push({sel, heads, names, grace, boxes, hollow: note.duration >= 0.5});
+  }
+  const ns = 'http://www.w3.org/2000/svg';
+  // Half and whole heads are hollow, so their letter is drawn in ink; grace heads are too small for one.
+  for (const {sel, heads, names, grace, boxes, hollow} of drawn) {
     heads.forEach((head, i) => {
       const color = colors && NOTE_COLORS[names[i]];
       if (color) {
@@ -1363,7 +1374,7 @@ function updateNoteColors() {
         }
       }
       const box = boxes[i];
-      if (!names[i] || !box || box.width < widest * 0.8) return;
+      if (!letters || !names[i] || grace[i] || !box) return;
       // The letter goes last in the note's group so ledger lines do not cross it.
       const cx = box.x + box.width / 2,
         cy = box.y + box.height / 2,

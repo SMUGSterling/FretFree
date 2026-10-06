@@ -517,7 +517,7 @@ const {chromium} = require('playwright'),
   // Classroom colors and letters in noteheads: chosen from the keyboard, shown on screen, in print and in SVG export.
   {
     const before = await page.evaluate(() => $('abc').value),
-      abc = 'X:1\nT:Colors\nM:4/4\nL:1/4\nK:G\nC, c [CEG] g | G, ^c z [G^g] | _B2 e2 |]';
+      abc = 'X:1\nT:Colors\nM:4/4\nL:1/4\nK:G\nC, c [CEG] g | G, ^c z [G^g] | {a}_B2 e2 |]';
     await page.evaluate(abc => {
       dirty = false;
       openScore({abc, instrument: 'Flute'});
@@ -558,7 +558,14 @@ const {chromium} = require('playwright'),
         [...document.querySelectorAll('#notation .notehead-letter')].map(t => t.textContent).join('')
       ),
       'CCCEGGGCGGBE',
-      'A letter inside every head'
+      'A letter inside every head but the grace note'
+    );
+    assert.equal(
+      await page.evaluate(() =>
+        document.querySelector('#notation .abcjs-notehead[data-name="a"]').getAttribute('fill')
+      ),
+      '#1d3fbb',
+      'The grace note is colored'
     );
     await page.locator('#notation .abcjs-notehead').nth(1).click({force: true});
     assert.equal(
@@ -572,20 +579,23 @@ const {chromium} = require('playwright'),
     });
     const svg = await page.evaluate(() => creditedSVG($('notation'), $('abc').value, current));
     assert.ok(svg.includes('fill="#d62828"') && svg.includes('class="notehead-letter"'), 'Colors and letters export');
-    assert.equal(
+    assert.deepEqual(
       await page.evaluate(() => {
-        for (const h of document.querySelectorAll('#notation .abcjs-notehead')) {
+        const heads = [...document.querySelectorAll('#notation .abcjs-notehead')],
+          fills = heads.map(h => h.getAttribute('fill'));
+        for (const h of heads) {
           h.removeAttribute('data-name');
           h.removeAttribute('fill');
         }
         document.querySelectorAll('#notation .notehead-letter').forEach(t => t.remove());
         updateNoteColors();
-        const letters = [...document.querySelectorAll('#notation .notehead-letter')].map(t => t.textContent).join('');
+        const letters = [...document.querySelectorAll('#notation .notehead-letter')].map(t => t.textContent).join(''),
+          same = heads.every((h, i) => h.getAttribute('fill') === fills[i]);
         render();
-        return letters;
+        return [letters, same];
       }),
-      'CCCEGGGCGGBE',
-      'Without data-name, heads pair with pitches by height'
+      ['CCCEGGGCGGBE', true],
+      'Without data-name, heads pair with pitches by height and grace heads with the grace notes'
     );
     await page.emulateMedia({media: 'print'});
     assert.equal(byLetter(await fillsOf()).C, 'rgb(214, 40, 40)', 'Colors print');

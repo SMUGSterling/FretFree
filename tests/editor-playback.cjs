@@ -127,7 +127,7 @@ assert.equal(
 assert.equal(run(`labelSource('X:1\\nL:1/4\\nK:G\\nG A|]','letters')`), 'X:1\nL:1/4\nK:G\n"_G"G "_A"A|]');
 // Classroom colors and letters in noteheads: drawn on the SVG by written letter, never written to the ABC source.
 {
-  const abc = 'X:1\nL:1/4\nK:D\nC, c [CEG] ^c | g G, z [G^g] | _B2 e2 |]',
+  const abc = 'X:1\nL:1/4\nK:D\nC, c [CEG] ^c | g G, z [G^g] | {a}_B2 e2 |]',
     instrument = run('currentInstrument()');
   run(`openScore({abc:${JSON.stringify(abc)},instrument:'Flute'})`);
   run("$('note-colors').value='classroom';$('note-colors').onchange()");
@@ -140,7 +140,8 @@ assert.equal(run(`labelSource('X:1\\nL:1/4\\nK:G\\nG A|]','letters')`), 'X:1\nL:
     ['C', '#d62828'],
     ['G', '#4cc9f0'],
     ['E', '#ffd60a'],
-    ['B', '#7b2cbf']
+    ['B', '#7b2cbf'],
+    ['A', '#1d3fbb']
   ])
     assert.deepEqual(
       [...fills].filter(f => f.startsWith(letter + '=')),
@@ -158,7 +159,26 @@ assert.equal(run(`labelSource('X:1\\nL:1/4\\nK:G\\nG A|]','letters')`), 'X:1\nL:
   assert.equal(
     run("[...document.querySelectorAll('#notation .notehead-letter')].map(t=>t.textContent).join('')"),
     'CCCEGCGGGGBE',
-    'A letter in every head'
+    'A letter in every head but the grace note'
+  );
+  // Every head is measured before the first color or letter goes in, so the browser lays out the score only once.
+  assert.equal(
+    run(`(() => {
+      const log = [], bbox = SVGElement.prototype.getBBox, append = Node.prototype.appendChild,
+        set = Element.prototype.setAttribute;
+      SVGElement.prototype.getBBox = function () { log.push('read'); return bbox.call(this); };
+      Node.prototype.appendChild = function (c) { log.push('write'); return append.call(this, c); };
+      Element.prototype.setAttribute = function (...a) { log.push('write'); return set.apply(this, a); };
+      try { updateNoteColors(); } finally {
+        SVGElement.prototype.getBBox = bbox;
+        Node.prototype.appendChild = append;
+        Element.prototype.setAttribute = set;
+      }
+      render();
+      return log.filter((x, i) => x !== log[i - 1]).join(' ');
+    })()`),
+    'read write',
+    'Heads are measured before anything is drawn'
   );
   assert.equal(run("document.querySelectorAll('#notation .abcjs-annotation').length"), 0, 'No labels under the score');
   assert.equal(run("$('abc').value"), abc, 'The ABC source is byte-identical');
