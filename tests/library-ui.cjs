@@ -1334,6 +1334,8 @@ assert.equal(
   assert.equal($('student-name').value, 'Ana <img src=x onerror=alert(1)>', 'The remembered name fills in');
   $('turn-in-close').click();
   // The teacher opens the turned-in link: who and when, the checklist, and an offer to add it to Submissions.
+  const linkDraftAfter = () =>
+    (JSON.parse(w.localStorage.getItem('fretfree-draft')) || []).find(d => d.tab === run('draftTab'));
   run('dirty = false');
   await run(`openSharedLink(${JSON.stringify(turnInLink)})`);
   assert.equal($('submission-bar').hidden, false);
@@ -1343,12 +1345,55 @@ assert.equal(
   assert.equal($('turn-in').hidden, true, 'Turned-in work is answered with feedback, not turned in again');
   assert.match($('toast').textContent, /Opened the work Ana <img src=x onerror=alert\(1\)> turned in/);
   assert.deepEqual([$('submission-add').hidden, $('submission-prev').hidden], [false, true]);
+  // Feedback typed for a link not in Submissions stays with the work: leaving the page with the box still focused
+  // writes it into the unsaved-work draft, which comes back as the turned-in work, ready to add to Submissions.
+  $('feedback-text').value = 'Check bar 2.';
+  $('feedback-text').dispatchEvent(new w.Event('input'));
+  w.dispatchEvent(new w.Event('pagehide'));
+  const linkDraft = JSON.parse(w.localStorage.getItem('fretfree-draft')).find(d => d.tab === run('draftTab'));
+  assert.deepEqual(
+    [linkDraft.submission.name, linkDraft.submission.feedback],
+    ['Ana <img src=x onerror=alert(1)>', 'Check bar 2.']
+  );
+  {
+    const next = boot(storage => storage.setItem('fretfree-draft', JSON.stringify([linkDraft])));
+    next.$('draft-restore').click();
+    assert.deepEqual(
+      [
+        next.run('current.submission.name'),
+        next.$('submission-bar').hidden,
+        next.$('turn-in').hidden,
+        next.$('submission-add').hidden,
+        next.$('feedback-text').value
+      ],
+      ['Ana <img src=x onerror=alert(1)>', false, true, false, 'Check bar 2.'],
+      'A restored draft of turned-in work keeps "Turned in by", the feedback and Add to submissions'
+    );
+    next.$('submission-add').click();
+    assert.equal(next.run('storedInbox()[0].feedback'), 'Check bar 2.');
+    const prompt = next.run('current.prompt');
+    for (const damaged of [{id: 'sub-"x'}, {name: ' '}, {at: '1'}, {assignment: 'custom-other'}, {feedback: 7}])
+      assert.equal(
+        next.run(
+          `JSON.stringify(draftSubmission(${JSON.stringify({...linkDraft, submission: {...linkDraft.submission, ...damaged}})}, ${JSON.stringify(prompt)}))`
+        ),
+        'feedback' in damaged ? JSON.stringify({...linkDraft.submission, feedback: undefined}) : 'null',
+        `A draft's submission is checked: ${Object.keys(damaged)[0]}`
+      );
+  }
   $('submission-add').click();
   assert.equal(run('storedInbox().length'), 1);
   assert.deepEqual(
     [$('submission-add').hidden, $('submission-prev').hidden, $('submission-pos').textContent],
     [true, false, '1 of 1']
   );
+  // Added as it came, the work is kept in Submissions with the feedback typed for it, so it is not unsaved work: no
+  // draft, and Previous or Next would not ask to replace it.
+  assert.deepEqual(
+    [run('storedInbox()[0].feedback'), run('dirty'), run("'feedback' in current.submission"), linkDraftAfter()],
+    ['Check bar 2.', false, false, undefined]
+  );
+  assert.equal($('save-status').textContent, run('SUBMISSION_STATUS'));
   // Thirty links, one per line, with a blank line, a line of text and a link without a name.
   const links = await run(`(async () => {
     const sent = ${JSON.stringify(sent)}, links = [];
@@ -1389,6 +1434,16 @@ assert.equal(
   $('inbox-add').click();
   await until(() => /already/.test($('inbox-status').textContent));
   assert.equal($('inbox-status').textContent, 'Added 0 submissions. 3 were already here.');
+  // Files: a link in a text file is read; a file over 1 MB is not, and is named in the report.
+  run(`(async () => addTurnIns(await readFiles([
+    new File(['{' + ' '.repeat(1100000) + '}'], 'big.json'),
+    new File([${JSON.stringify(links[0])}], 'ana.txt')
+  ])))()`);
+  await until(() => /large/.test($('inbox-status').textContent));
+  assert.equal(
+    $('inbox-status').textContent,
+    'Added 0 submissions. 1 was already here. Too large to read (over 1 MB): big.json.'
+  );
   $('inbox-sort').value = 'goals';
   $('inbox-sort').dispatchEvent(new w.Event('change'));
   assert.match(
@@ -1421,6 +1476,39 @@ assert.equal(
   assert.equal(w.document.activeElement.id, 'submission-next', 'At the start, focus moves to Next');
   for (let i = 0; i < 29; i++) $('submission-next').click();
   assert.deepEqual([$('submission-pos').textContent, $('submission-next').disabled], ['30 of 30', true]);
+  // Feedback is kept as it is typed, after a pause, and at once when the page goes, with the box still focused.
+  const lastFeedback = () => run('storedInbox().find(e => e.id === current.submission.id).feedback');
+  $('feedback-text').value = 'Last one.';
+  $('feedback-text').dispatchEvent(new w.Event('input'));
+  assert.equal(lastFeedback(), undefined);
+  await until(() => lastFeedback() === 'Last one.');
+  assert.equal(lastFeedback(), 'Last one.', 'Typed feedback is kept without leaving the box');
+  $('feedback-text').value = 'Last one, again.';
+  $('feedback-text').dispatchEvent(new w.Event('input'));
+  w.dispatchEvent(new w.Event('pagehide'));
+  assert.equal(lastFeedback(), 'Last one, again.', 'Leaving the page keeps it at once');
+  // Corrections the teacher makes come back from the unsaved-work draft as the same submission, in its place.
+  run("$('abc').value = $('abc').value.replace(/\|\]/, 'z4 |]'); changed(); clearTimeout(renderTimer); render()");
+  run('flushDraft()');
+  {
+    const next = boot(storage => {
+      for (const key of ['fretfree-draft', 'fretfree-inbox']) storage.setItem(key, w.localStorage.getItem(key));
+    });
+    next.$('draft-restore').click();
+    assert.deepEqual(
+      [
+        next.run('current.submission.id') === run('current.submission.id'),
+        next.$('submission-pos').textContent,
+        next.$('turn-in').hidden,
+        next.$('feedback-text').value,
+        /z4 \|\]/.test(next.$('abc').value)
+      ],
+      [true, '30 of 30', true, 'Last one, again.', true],
+      'A restored draft of a submission keeps its place in the class and its feedback'
+    );
+  }
+  $('undo').click();
+  assert.equal(linkDraftAfter(), undefined);
   $('submission-all').click();
   assert.equal($('saved').hidden, false);
   assert.equal(
@@ -1451,6 +1539,25 @@ assert.equal(
   assert.equal($('feedback-note').hidden, true);
   run(`openScore(saved.find(x => x.id === ${JSON.stringify(feedbackId)}), ${JSON.stringify(feedbackId)})`);
   assert.equal($('feedback-note-text').textContent, 'Lovely steps. <b>End</b> on C.', 'Saved copies keep it');
+  // Saving turned-in work (a student checking their own link, or a teacher keeping a copy) makes a copy of one's own:
+  // "Turned in by" stays behind, and the copy can be turned in, now and when reopened.
+  run('dirty = false');
+  await run(`openSharedLink(${JSON.stringify(turnInLink)})`);
+  assert.deepEqual([$('submission-bar').hidden, $('turn-in').hidden], [false, true]);
+  $('save').click();
+  const copyId = run('savedId');
+  assert.deepEqual(
+    [
+      run(`'submission' in saved.find(x => x.id === ${JSON.stringify(copyId)})`),
+      $('submission-bar').hidden,
+      $('turn-in').hidden
+    ],
+    [false, true, false],
+    'A saved copy of turned-in work is not a submission'
+  );
+  run('dirty = false; newScore()');
+  run(`openScore(saved.find(x => x.id === ${JSON.stringify(copyId)}), ${JSON.stringify(copyId)})`);
+  assert.deepEqual([$('submission-bar').hidden, $('turn-in').hidden], [true, false], 'Reopened, it can be turned in');
   // Backups carry the inbox; restoring adds what this device lacks. Damaged entries are dropped when read.
   const inboxBackup = JSON.parse(JSON.stringify(run('backupData()')));
   assert.equal(inboxBackup.inbox.length, 30);

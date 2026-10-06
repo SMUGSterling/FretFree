@@ -1855,15 +1855,14 @@ function cleanStudentName(name) {
     .trim();
   return clean.length <= STUDENT_NAME_MAX ? clean : '';
 }
-// The turn-in parts of a link (n, t, x, g), read against the assignment the link carries: x must be its id, and g, when
-// present, has one 0 or 1 per goal. Returns {name, at, assignment} or null.
+// The turn-in parts of a link (n, t, x), read against the assignment the link carries: x must be its id. Returns
+// {name, at, assignment} or null. g is not read: the inbox works the goals out again from the music, so a link stays
+// readable after a built-in prompt's goals change.
 function readSubmission(payload, prompt) {
   if (!payload || typeof payload !== 'object' || !prompt || typeof prompt.id !== 'string') return null;
   const name = cleanStudentName(payload.n),
-    {t, x, g} = payload;
+    {t, x} = payload;
   if (!name || !Number.isInteger(t) || t <= 0 || t > 8.64e15 || x !== prompt.id) return null;
-  if (g !== undefined && !(Array.isArray(g) && g.length === prompt.goals.length && g.every(v => v === 0 || v === 1)))
-    return null;
   return {name, at: t, assignment: x};
 }
 // A teacher's feedback (c): text up to 2,000 characters, or null.

@@ -294,9 +294,11 @@ $('help-toggle').onclick = () => {
 $('save').onclick = () => {
   const id = savedId || globalThis.crypto?.randomUUID?.() || 'score-' + Date.now(),
     previous = saved.find(x => x.id === id);
+  // Turned-in work saved to My scores is a copy of one's own: "Turned in by" stays behind, and it can be turned in.
+  const {submission, ...item} = current || {};
   // Each save of a score gets its own time, which names the version it later becomes.
   const entry = {
-    ...current,
+    ...item,
     id,
     title: field('T', 'Untitled'),
     composer: field('C'),
@@ -312,6 +314,10 @@ $('save').onclick = () => {
     savedId = id;
     dirty = false;
     markClean();
+    if (submission) {
+      if (typeof saveFeedback === 'function') saveFeedback();
+      current = item;
+    }
     $('save-status').textContent = 'Saved on this device. Back up from My scores to keep it safe.';
     renderBackupStatus();
     toast('Score saved');

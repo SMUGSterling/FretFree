@@ -3443,6 +3443,7 @@ function draftData() {
     title: field('T', current?.title || 'Untitled'),
     prompt: current?.prompt,
     feedback: current?.feedback,
+    submission: current?.submission,
     sourceId: shareSourceId(),
     savedId,
     kind: current?.kind,
@@ -3546,7 +3547,9 @@ function restoreDraft() {
   dirty = false;
   const source = catalog.find(x => x.id === draft.sourceId),
     entry = draft.savedId ? saved.find(x => x.id === draft.savedId) : null,
-    title = String(draft.title || 'Untitled');
+    title = String(draft.title || 'Untitled'),
+    // Turned-in work a teacher was correcting comes back as that work, with its "Turned in by" bar.
+    submission = typeof draftSubmission === 'function' ? draftSubmission(draft, activePrompt(draft.prompt)) : null;
   openScore(
     {
       ...(source || {}),
@@ -3557,7 +3560,8 @@ function restoreDraft() {
       abc: draft.abc,
       instrument: instruments[draft.instrument] ? draft.instrument : undefined,
       prompt: draft.prompt,
-      ...(readFeedback(draft.feedback) ? {feedback: readFeedback(draft.feedback)} : {})
+      ...(readFeedback(draft.feedback) ? {feedback: readFeedback(draft.feedback)} : {}),
+      ...(submission ? {submission} : {})
     },
     entry ? entry.id : null
   );

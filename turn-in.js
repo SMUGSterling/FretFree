@@ -137,6 +137,7 @@ function showFeedbackNote() {
 
 // Opening a link: the parts turn-in.js reads (openSharedLink adds them to the score). A turned-in link becomes
 // current.submission; the entry it would make in the inbox is kept so "Add to submissions" can store it as it came.
+const SUBMISSION_STATUS = 'Turned-in work, kept in Submissions. Save it to My scores for a copy of your own.';
 let linkEntry = null;
 function linkExtras(payload, prompt) {
   const extras = {},
@@ -146,6 +147,22 @@ function linkExtras(payload, prompt) {
   const feedback = readFeedback(payload.c);
   if (feedback) extras.feedback = feedback;
   return extras;
+}
+// current.submission as an unsaved-work draft brings it back: which entry, who, when and for which assignment, and
+// feedback typed for work not in Submissions. Checked like a link's n, t and x; null when it does not fit. While the
+// music is as it was turned in, the draft can still be added to Submissions.
+function draftSubmission(draft, prompt) {
+  const sub = draft?.submission,
+    read =
+      sub && typeof sub === 'object' && readSubmission({n: sub.name, t: sub.at, x: sub.assignment}, prompt || null);
+  if (!read || typeof sub.id !== 'string' || !/^sub-[a-z0-9]{1,13}$/.test(sub.id)) return null;
+  const entry = inboxEntry(
+    {n: read.name, t: read.at, x: read.assignment, a: draft.abc, i: draft.instrument, s: draft.sourceId},
+    prompt
+  );
+  if (entry?.id === sub.id) linkEntry = entry;
+  const feedback = readFeedback(sub.feedback);
+  return {id: sub.id, ...read, ...(feedback ? {feedback} : {})};
 }
 
 // The inbox: entries in KEYS.inbox, checked again whenever they are read (storage and backups can be edited).
@@ -249,12 +266,18 @@ function addToInbox(entries) {
   if (result.added && !storeInbox(list)) throw new Error('This browser could not store the submissions.');
   return result;
 }
-// Read pasted text ({text}) or files ({name, text}): a turn-in file (its link), or links one per line. Each readable
-// link becomes an entry; anything else is reported by line number or file name, and the rest are still added.
+// Read pasted text ({text}) or files ({name, text}, or {name, tooLarge}): a turn-in file (its link), or links one per
+// line. Each readable link becomes an entry; anything else is reported by line number or file name, and the rest are
+// still added.
 async function readTurnIns(sources) {
   const entries = [],
-    problems = [];
-  for (const {name, text} of sources) {
+    problems = [],
+    large = [];
+  for (const {name, text, tooLarge} of sources) {
+    if (tooLarge) {
+      large.push(name);
+      continue;
+    }
     let lines = turnInCodes(text);
     if (name && /^\s*\{/.test(text)) {
       let file = null;
@@ -270,10 +293,10 @@ async function readTurnIns(sources) {
       else problems.push(name ? (lines.length > 1 ? `${name} line ${line}` : name) : `line ${line}`);
     }
   }
-  return {entries, problems};
+  return {entries, problems, large};
 }
 async function addTurnIns(sources) {
-  const {entries, problems} = await readTurnIns(sources);
+  const {entries, problems, large} = await readTurnIns(sources);
   let result;
   try {
     result = addToInbox(entries);
@@ -288,6 +311,10 @@ async function addTurnIns(sources) {
   if (problems.length)
     parts.push(
       `Not a turn-in link: ${listWords(problems.slice(0, 8))}${problems.length > 8 ? ` and ${problems.length - 8} more` : ''}.`
+    );
+  if (large.length)
+    parts.push(
+      `Too large to read (over 1 MB): ${listWords(large.slice(0, 8))}${large.length > 8 ? ` and ${large.length - 8} more` : ''}.`
     );
   $('inbox-status').textContent = parts.join(' ');
   renderInbox();
@@ -361,9 +388,12 @@ $('inbox-add').onclick = async () => {
   if (result) $('inbox-paste').value = '';
 };
 $('inbox-choose').onclick = () => $('inbox-file').click();
+// A file over 1 MB is not read; it is reported by name with the rest.
 const readFiles = files =>
   Promise.all(
-    [...files].filter(f => f.size <= 1024 * 1024).map(async f => ({name: f.name || 'file', text: await f.text()}))
+    [...files].map(async f =>
+      f.size > 1024 * 1024 ? {name: f.name || 'file', tooLarge: true} : {name: f.name || 'file', text: await f.text()}
+    )
   );
 $('inbox-file').onchange = async () => {
   await addTurnIns(await readFiles($('inbox-file').files));
@@ -412,13 +442,14 @@ $('inbox-list').addEventListener('click', e => {
 function openSubmission(id, focus = null) {
   const entry = storedInbox().find(e => e.id === id);
   if (!entry || !allowReplace()) return false;
+  saveFeedback();
   dirty = false;
   openScore({
     ...sharedItem({a: entry.abc, i: entry.instrument, s: entry.source}),
     prompt: entry.prompt,
     submission: {id: entry.id, name: entry.name, at: entry.at, assignment: entry.assignment}
   });
-  $('save-status').textContent = 'Turned-in work, kept in Submissions. Save it to My scores for a copy of your own.';
+  $('save-status').textContent = SUBMISSION_STATUS;
   $(focus || 'submission-text')?.focus?.({preventScroll: true});
   return true;
 }
@@ -450,10 +481,11 @@ function showSubmission(force = false) {
   $('submission-next').disabled = at < 0 || at >= group.length - 1;
   $('submission-add').hidden = at >= 0 || !linkEntry || linkEntry.id !== sub.id;
   $('feedback-name').textContent = name;
-  // The feedback box keeps what was typed while the same submission stays open; the inbox remembers it per entry.
+  // The feedback box keeps what was typed while the same submission stays open; the inbox remembers it per entry, and
+  // work not in Submissions keeps it itself.
   if (feedbackFor !== sub.id) {
     feedbackFor = sub.id;
-    $('feedback-text').value = entry?.feedback || '';
+    $('feedback-text').value = entry?.feedback || sub.feedback || '';
     $('feedback-result').hidden = true;
   }
 }
@@ -469,20 +501,37 @@ function stepSubmission(by) {
   // At either end the button goes disabled, so focus moves to the one that still works.
   if ($(button).disabled) $(by < 0 ? 'submission-next' : 'submission-prev').focus({preventScroll: true});
 }
-// The typed feedback is kept on the inbox entry, so stepping away and back does not lose it.
+// The typed feedback is kept on the inbox entry, so stepping away and back does not lose it. Work opened from a link
+// and not added to Submissions keeps it on current.submission instead, which its unsaved-work draft carries.
+let feedbackTimer = null;
 function saveFeedback() {
-  const id = current?.submission?.id,
-    list = storedInbox(),
-    entry = id && list.find(e => e.id === id),
-    text = $('feedback-text').value.trim();
-  if (!entry || (entry.feedback || '') === text) return;
-  if (text) entry.feedback = text.slice(0, FEEDBACK_MAX);
-  else delete entry.feedback;
-  storeInbox(list);
+  clearTimeout(feedbackTimer);
+  feedbackTimer = null;
+  const sub = current?.submission;
+  if (!sub || feedbackFor !== sub.id) return;
+  const list = storedInbox(),
+    entry = list.find(e => e.id === sub.id),
+    text = $('feedback-text').value.trim().slice(0, FEEDBACK_MAX),
+    keep = entry || sub;
+  if ((keep.feedback || '') === text) return;
+  if (text) keep.feedback = text;
+  else delete keep.feedback;
+  if (entry) storeInbox(list);
+  else scheduleDraft();
 }
 $('submission-prev').onclick = () => stepSubmission(-1);
 $('submission-next').onclick = () => stepSubmission(1);
+// Kept as it is typed, and when the tab is hidden or closed, so a reload with the box still focused loses nothing.
+// (This runs before app.js's pagehide, which writes the draft.)
+$('feedback-text').addEventListener('input', () => {
+  clearTimeout(feedbackTimer);
+  feedbackTimer = setTimeout(saveFeedback, 500);
+});
 $('feedback-text').addEventListener('change', saveFeedback);
+window.addEventListener('pagehide', saveFeedback);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) saveFeedback();
+});
 $('submission-all').onclick = () => {
   const id = current?.submission?.id;
   saveFeedback();
@@ -494,12 +543,26 @@ $('submission-all').onclick = () => {
 };
 $('submission-add').onclick = () => {
   if (!linkEntry || linkEntry.id !== current?.submission?.id) return;
+  let result;
   try {
-    const {added} = addToInbox([linkEntry]);
-    toast(added ? `Added the work ${linkEntry.name} turned in to Submissions.` : 'Already in Submissions.');
+    result = addToInbox([linkEntry]);
   } catch (e) {
     toast(e.message);
     return;
+  }
+  if (result.full) {
+    toast(`Submissions holds ${INBOX_LIMIT}. Delete some first.`);
+    return;
+  }
+  toast(result.added ? `Added the work ${linkEntry.name} turned in to Submissions.` : 'Already in Submissions.');
+  // Feedback typed so far moves to the entry. Unchanged music is kept there now, so it is no longer unsaved work.
+  saveFeedback();
+  delete current.submission.feedback;
+  if ($('abc').value === linkEntry.abc) {
+    dirty = false;
+    markClean();
+    scheduleDraft();
+    $('save-status').textContent = SUBMISSION_STATUS;
   }
   showSubmission(true);
   $('submission-all').focus();
