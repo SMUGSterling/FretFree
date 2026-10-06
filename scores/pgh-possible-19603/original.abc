@@ -1,0 +1,15 @@
+X:19603
+T:Sadlers Wells
+R:Slow Jig
+C:Trad. Playford 1726
+Z:Paul Hardy's Possible Tunebook 2015 (see www.paulhardy.net). Creative Commons cc by-nc-sa licenced.
+M:6/4
+L:1/4
+Q:3/4=50
+K:Em
+%%MIDI beatstring fppmpp
+%%MIDI gchord cffcff
+^d|"Em"eBg "B7"fBa|"Em"gfe "B7"^d2B|"Em"eBd "Am"GcB|"Em"GA2 "Bm"B2^c|
+"Bm"dBf -"F#7"f^cd|"F#7"e^cB ^A2F|"Em"Bge "Bm"fbB|"F#7"Fd^A "Bm"B2:|
+|:d/2c/2|"G"BdG gdB|"C"ecB "Am"A2B|"D7"cAF fad|"D7"cBc "G"B2"B7"^d|
+"Em"eBg "B7"fB^g|"B7"af^d "Em"efg|"Em"BAG "Am"cBA|"B7"Bg^d "Em"e2:|
