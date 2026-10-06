@@ -1712,9 +1712,56 @@ input[type='range'] {
   display: contents;
 }
 .palette [data-palette='more'].in-use,
+.palette [data-palette='tuplets'].in-use,
 .palette [data-palette='chord'].in-use {
   border-color: var(--green);
   box-shadow: inset 0 -3px 0 var(--green);
+}
+.palette [data-palette='measure'][aria-expanded='true'] {
+  border-color: var(--green);
+  box-shadow: inset 0 -3px 0 var(--green);
+}
+.palette-measure:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex-basis: 100%;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.palette .boxed {
+  display: inline-block;
+  padding: 0 3px;
+  border: 1.5px solid currentColor;
+  font:
+    700 12px Georgia,
+    'Times New Roman',
+    serif;
+  vertical-align: 0;
+}
+.measure-changes {
+  align-items: center;
+}
+.measure-changes-label {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+}
+.measure-changes label {
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+}
+.measure-changes select {
+  width: auto;
+  max-width: 11.5em;
+  min-height: 40px;
+  padding: 6px 8px;
+}
+.measure-key-choice {
+  flex-basis: 100%;
+  margin: 0;
 }
 @media (max-width: 720px) {
   .palette {

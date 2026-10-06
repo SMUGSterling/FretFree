@@ -586,6 +586,63 @@ const {chromium} = require('playwright'),
     'Dynamic from the note menu'
   );
   await page.locator('[data-palette="more"]').click();
+  // Measure tools with a real keyboard and pointer: the Measure panel opens from the toolbar, Enter inserts a bar that
+  // typing fills, pointer presses add a repeat with 1st and 2nd endings that engrave, and a key change by keyboard.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:K\nM:4/4\nL:1/4\nK:C\nC D E F | G A B c | d e f g | c4 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  await page.locator('#notation .abcjs-notehead').nth(4).click({force: true});
+  await page.locator('[data-palette="measure"]').focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await page.locator('[data-palette="measure"]').getAttribute('aria-expanded'), 'true');
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.palette), 'bar:before');
+  await page.keyboard.press('Enter');
+  assert.equal(await kbody(), 'C D E F | z4 | G A B c | d e f g | c4 |]', 'Enter inserts a bar before measure 2');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.palette), 'bar:before');
+  await page.locator('#notation').focus();
+  await page.keyboard.press('g');
+  assert.equal(await kbody(), 'C D E F | G z3 | G A B c | d e f g | c4 |]', 'Typing writes over the new rest');
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('Control+z');
+  assert.equal(await kbody(), 'C D E F | G A B c | d e f g | c4 |]', 'Undo takes the bar away again');
+  await page.locator('#notation .abcjs-notehead').nth(0).click({force: true});
+  await page.locator('[data-palette="repeat:start"]').click();
+  assert.equal(
+    await page.evaluate(() => document.activeElement.id),
+    'notation',
+    'A pointer press returns to the score'
+  );
+  await page.locator('#notation .abcjs-notehead').nth(8).click({force: true});
+  await page.locator('[data-palette="repeat:end"]').click();
+  await page.locator('[data-palette="ending:1"]').click();
+  await page.locator('#notation .abcjs-notehead').nth(12).click({force: true});
+  await page.locator('[data-palette="ending:2"]').click();
+  await page.locator('[data-palette="barline:|]"]').click();
+  assert.equal(await kbody(), '|: C D E F | G A B c |1 d e f g :|2 c4 |]');
+  assert.equal(await page.locator('#notation .abcjs-ending').count(), 2, 'Both endings are engraved');
+  assert.equal(await page.locator('#warnings').textContent(), '');
+  await page.locator('[data-palette="form:D.C."]').click();
+  await page.locator('[data-palette="rehearsal:mark"]').click();
+  assert.ok(
+    await page.evaluate(() => [...document.querySelectorAll('#notation .abcjs-part')].some(e => e.textContent === 'A')),
+    'The rehearsal mark is engraved'
+  );
+  // A key change by keyboard: the menu, then Keep notes; Escape on the choice cancels another.
+  await page.locator('#notation .abcjs-notehead').nth(8).click({force: true});
+  await page.selectOption('#measure-key', 'D');
+  await page.locator('#measure-key-keep').focus();
+  await page.keyboard.press('Enter');
+  assert.match(await kbody(), /\|1 \[K:D\] d e f g :\|2/, 'Keep notes writes the key at measure 3');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'measure-key');
+  await page.selectOption('#measure-key', 'F');
+  await page.locator('#measure-key-transpose').focus();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#measure-key-choice').isHidden(), true);
+  assert.equal(await page.locator('#measure-key').inputValue(), 'D', 'Escape cancels the key change');
+  await page.locator('[data-palette="measure"]').click();
   // Slurs and hairpins with real clicks and keys: Shift+click selects four notes, S slurs them and S again takes the
   // slur off; Cresc. draws a hairpin and hands the keyboard back to the score; one note and S slur to the next note;
   // the Lines buttons work from the keyboard; each is one undo step.
@@ -658,6 +715,78 @@ const {chromium} = require('playwright'),
     await embed.waitForSelector('#notation .trill-line', {state: 'attached'});
     assert.equal(await embed.evaluate(() => renderedTune.engraver.selectables.length), 0, 'Nothing is selectable');
     await embed.close();
+  }
+  // Tuplets and grace notes with real clicks and keys: T makes a triplet whose rests letters fill, the Tuplet menu
+  // opens from the toolbar, and Grace and Grace ↑ work by pointer and from the keyboard; each is one undo step.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:T\nM:4/4\nL:1/4\nK:C\nC D E F | G4 |]', instrument: 'Flute'});
+    window.scrollTo({top: 0, behavior: 'instant'});
+  });
+  {
+    const head = i => page.locator('#notation .abcjs-notehead').nth(i),
+      status = () => page.locator('#selection-status').textContent();
+    await head(0).click({force: true});
+    await page.keyboard.press('t');
+    assert.equal(await kbody(), '(3C/2 z/2 z/2 D E F | G4 |]', 'T makes a triplet');
+    assert.equal(await page.locator('#notation .abcjs-triplet').count(), 1, 'The 3 is engraved');
+    assert.equal(await page.locator('[data-palette="tuplet:3"]').getAttribute('aria-pressed'), 'true');
+    await page.keyboard.press('d');
+    await page.keyboard.press('e');
+    assert.equal(await kbody(), '(3C/2D/2E/2 D E F | G4 |]', 'Letters fill the rests');
+    assert.equal(await page.locator('#notation .abcjs-beam-elem').count(), 1, 'The filled triplet is beamed');
+    assert.equal(await status(), 'Triplet filled.');
+    assert.match(await page.locator('#bar-check').textContent(), /Every bar has the right number of beats/);
+    await page.keyboard.press('Control+z');
+    await page.keyboard.press('Control+z');
+    await page.keyboard.press('Control+z');
+    assert.equal(await kbody(), 'C D E F | G4 |]', 'One undo step each');
+    // Staccato twice on the triplet's note puts the dot on and takes it off; Delete on a rest takes the triplet off.
+    await head(0).click({force: true});
+    await page.keyboard.press('t');
+    await head(0).click({force: true});
+    await page.keyboard.press(';');
+    assert.equal(await kbody(), '(3.C/2 z/2 z/2 D E F | G4 |]', 'Staccato on the first note');
+    await page.keyboard.press(';');
+    assert.equal(await kbody(), '(3C/2 z/2 z/2 D E F | G4 |]', 'and off again');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Delete');
+    assert.equal(await kbody(), 'C D E F | G4 |]', 'Delete on its rest takes the triplet off');
+    assert.equal(await status(), 'Triplet removed.');
+    // The Tuplet menu by pointer: a quintuplet on the half note, five eighths.
+    await page.evaluate(() => {
+      dirty = false;
+      openScore({abc: 'X:1\nT:T\nM:4/4\nL:1/4\nK:C\nC2 D2 | G4 |]', instrument: 'Flute'});
+    });
+    await head(0).click({force: true});
+    await page.locator('[data-palette="tuplets"]').click();
+    assert.equal(await page.locator('[data-palette="tuplets"]').getAttribute('aria-expanded'), 'true');
+    await page.locator('[data-palette="tuplet:5"]').click();
+    assert.equal(await kbody(), '(5:4:5C/2 z/2 z/2 z/2 z/2 D2 | G4 |]', 'Quintuplet from the menu');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'notation', 'The press returns to the score');
+    await page.keyboard.type('defg');
+    assert.equal(await kbody(), '(5:4:5C/2D/2E/2F/2G/2 D2 | G4 |]');
+    await page.locator('[data-palette="tuplets"]').click();
+    assert.equal(await page.locator('#palette-tuplets').isHidden(), true, 'The menu closes again');
+    // Grace notes: Grace by pointer, Grace ↑ from the keyboard (arrow keys move along the toolbar, Enter presses).
+    await head(5).click({force: true});
+    await page.locator('[data-palette="grace"]').click();
+    assert.equal(await kbody(), '(5:4:5C/2D/2E/2F/2G/2 {E}D2 | G4 |]', 'Grace adds a grace note a step above');
+    assert.equal(await status(), 'Grace note added.');
+    assert.equal(await page.locator('#notation .abcjs-notehead').count(), 8, 'The grace note is engraved');
+    await page.locator('[data-palette="grace"]').focus();
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.palette), 'grace:up');
+    await page.keyboard.press('Enter');
+    assert.equal(await kbody(), '(5:4:5C/2D/2E/2F/2G/2 {F}D2 | G4 |]', 'Grace ↑ moves only the grace note');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.palette), 'grace:up', 'Focus stays');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('Enter');
+    assert.equal(await kbody(), '(5:4:5C/2D/2E/2F/2G/2 {/F}D2 | G4 |]', 'Slashed from the keyboard');
+    await page.keyboard.press('Control+z');
+    assert.equal(await kbody(), '(5:4:5C/2D/2E/2F/2G/2 {F}D2 | G4 |]');
+    assert.equal(await page.locator('#warnings').textContent(), '');
   }
   // Chord symbols with real keys: K opens a box just above the note, Enter saves, Tab moves on; the symbols are
   // engraved and undo one at a time; the toolbar button works from the keyboard; clicking another note saves the box
@@ -3089,6 +3218,8 @@ const {chromium} = require('playwright'),
   });
   {
     await page.locator('[data-palette="more"]').click();
+    await page.locator('[data-palette="tuplets"]').click();
+    await page.locator('[data-palette="measure"]').click();
     const boxes = await page.evaluate(() =>
       [...document.querySelectorAll('#palette [data-palette]')].map(b => {
         const r = b.getBoundingClientRect();
@@ -3099,6 +3230,13 @@ const {chromium} = require('playwright'),
       boxes.every(([l, r, wd, h]) => l >= 0 && r <= 390 && wd >= 40 && h >= 40),
       'Palette buttons fit a phone and are at least 40px'
     );
+    assert.ok(
+      await page.evaluate(() =>
+        [...document.querySelectorAll('#palette-measure select')].every(s => s.getBoundingClientRect().right <= 390)
+      ),
+      'The Measure menus fit a phone'
+    );
+    await page.locator('[data-palette="measure"]').click();
     const note = page.locator('#notation .abcjs-notehead').nth(1);
     await note.scrollIntoViewIfNeeded();
     await page.waitForTimeout(100);
@@ -3431,7 +3569,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), WAV export (keyboard and pointer, a real download as long as playback at the chosen speed, 16-bit stereo at 44.1 kHz, sound from the first note, scaling, INFO credits, metronome, a summary that follows the Speed slider and the Instrument menu, the same file with progress checkpoints, Escape, a progress bar on a long score and closing the panel stopping its render at once, phone width), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
+    'PASS: dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), tuplets and grace notes (T and letters filling and beaming the rests, staccato on and off and Delete in a triplet, the Tuplet menu by pointer, Grace, Grace ↑ and Slashed by pointer and keyboard, undo), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), WAV export (keyboard and pointer, a real download as long as playback at the chosen speed, 16-bit stereo at 44.1 kHz, sound from the first note, scaling, INFO credits, metronome, a summary that follows the Speed slider and the Instrument menu, the same file with progress checkpoints, Escape, a progress bar on a long score and closing the panel stopping its render at once, phone width), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);
