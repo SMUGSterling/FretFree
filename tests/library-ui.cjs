@@ -40,6 +40,7 @@ for (const file of [
   'catalog-expanded.js',
   'score-tools.js',
   'rights-tools.js',
+  'musicxml.js',
   'catalog-licensed.js',
   'catalog-lieder.js',
   'catalog-quartets.js',
@@ -299,6 +300,38 @@ assert.equal(
   2,
   'Saved scores persist under the legacy key'
 );
+// MusicXML export from the export bar: a .musicxml download that keeps the edition's credits and the GPL text. A
+// concert-pitch instrument names a one-part score; a transposing one does not, since the file is at concert pitch.
+{
+  const realDownload = run('download');
+  w.__downloads = [];
+  run('download = (data, name, type) => __downloads.push({data, name, type})');
+  run("openScore(catalog.find(x => scoreLicense(x).startsWith('GPL-')))");
+  $('instrument').value = 'Violin';
+  $('export-musicxml').click();
+  const [file] = w.__downloads;
+  assert.match(file.name, /\.musicxml$/);
+  assert.equal(file.type, 'application/vnd.recordare.musicxml+xml');
+  const doc = new w.DOMParser().parseFromString(file.data, 'application/xml');
+  assert.equal(doc.querySelector('parsererror'), null);
+  assert.equal(doc.querySelector('part-name').textContent, 'Violin');
+  assert.ok(doc.querySelector('rights').textContent.includes('GPL-2.0-or-later'));
+  assert.ok(file.data.includes('GNU GENERAL PUBLIC LICENSE'));
+  assert.equal(doc.querySelector('work-title').textContent, run("field('T')"));
+  $('instrument').value = 'Clarinet in B♭';
+  $('export-musicxml').click();
+  assert.equal(
+    new w.DOMParser().parseFromString(w.__downloads[1].data, 'application/xml').querySelector('part-name').textContent,
+    'Music'
+  );
+  run("$('abc').value = 'X:1\\nT:Empty\\nK:C\\n'");
+  $('export-musicxml').click();
+  assert.equal(w.__downloads.length, 2, 'Nothing to export: no file');
+  assert.match($('toast').textContent, /no music to export/);
+  w.__realDownload = realDownload;
+  run('download = __realDownload');
+  $('new-score').click();
+}
 // Share by link without CompressionStream (jsdom): the plain-encoded link opens as a shared copy with the edition's credits.
 (async () => {
   const link = await run(
@@ -315,7 +348,7 @@ assert.equal(
   assert.equal($('next-up').hidden, true, 'No suggestions for a shared copy');
   assert.equal(await run('openSharedLink("s=1garbage")'), false, 'A damaged link is refused');
   console.log(
-    'PASS (jsdom): backup and restore, blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, and save/update.'
+    'PASS (jsdom): backup and restore, blank sheets and add bars, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
   );
 })().catch(e => {
   console.error(e);

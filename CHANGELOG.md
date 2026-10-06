@@ -1,3 +1,11 @@
+# MusicXML export · 2026-10-06
+
+- **Studio → MusicXML** downloads the score as MusicXML 4.0 for MuseScore, Noteflight, Finale, Sibelius or Dorico, at concert pitch. The converter (`musicxml.js`) walks the abcjs parse: each staff is a part, and staves braced with `%%score {RH | LH}` share one part. It writes key (with mode), time and clef changes, pickups, notes, rests, chords, ties, tuplets, grace notes, multi-bar rests, chord symbols as harmony, lyrics (syllables and extenders), dynamics, hairpins, articulations, ornaments, fingerings, slurs, segno/coda/D.C. text, repeats with numbered endings, and tempo marks.
+- Credits travel as in every other export: the license and credit text in `<rights>` and as a page-1 credit, the rights metadata as JSON in a `fretfree-rights` field, and for GPL editions the full GPL text and the editable ABC.
+- `tests/check.cjs` exports the FretFree scores and a 200-score library sample and checks that every voice's notes, pitches and lengths match the parse. Fixtures check each notation feature's element. Run by hand over all 6,150 library scores, the same check matched everywhere except nine notes where abcjs's own player carries an accidental or key change back over a repeat, and one O’Neill tune whose `L: a/8` line abcjs cannot read (its export says so). The exports of the fixtures and 308 library scores were also validated against the MusicXML 4.0 schema. Opening the files in MuseScore 4 could not be tried in the build environment and still needs a manual check.
+
+---
+
 # Backup and restore · 2026-10-06
 
 - **My scores → ⬇ Back up** writes every saved score, favorite, played mark and practice setting to one JSON file. Where the browser offers a Save As dialog (Chrome, Edge) the file can go in a synced folder and is remembered for one-click repeat backups; elsewhere it downloads.

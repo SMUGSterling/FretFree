@@ -8,24 +8,25 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=bffa221202e1" />
-    <script defer src="vendor/abcjs-basic-min.js?v=bffa221202e1"></script>
-    <script defer src="catalog.js?v=bffa221202e1"></script>
-    <script defer src="catalog-expanded.js?v=bffa221202e1"></script>
-    <script defer src="score-tools.js?v=bffa221202e1"></script>
-    <script defer src="rights-tools.js?v=bffa221202e1"></script>
-    <script defer src="catalog-licensed.js?v=bffa221202e1"></script>
-    <script defer src="catalog-lieder.js?v=bffa221202e1"></script>
-    <script defer src="catalog-quartets.js?v=bffa221202e1"></script>
-    <script defer src="catalog-pgh.js?v=bffa221202e1"></script>
-    <script defer src="catalog-skills.js?v=bffa221202e1"></script>
-    <script defer src="prompts.js?v=bffa221202e1"></script>
-    <script defer src="shared.js?v=bffa221202e1"></script>
-    <script defer src="library.js?v=bffa221202e1"></script>
-    <script defer src="backup.js?v=bffa221202e1"></script>
-    <script defer src="editor.js?v=bffa221202e1"></script>
-    <script defer src="playback.js?v=bffa221202e1"></script>
-    <script defer src="app.js?v=bffa221202e1"></script>
+    <link rel="stylesheet" href="style.css?v=2c1b972a94a8" />
+    <script defer src="vendor/abcjs-basic-min.js?v=2c1b972a94a8"></script>
+    <script defer src="catalog.js?v=2c1b972a94a8"></script>
+    <script defer src="catalog-expanded.js?v=2c1b972a94a8"></script>
+    <script defer src="score-tools.js?v=2c1b972a94a8"></script>
+    <script defer src="rights-tools.js?v=2c1b972a94a8"></script>
+    <script defer src="musicxml.js?v=2c1b972a94a8"></script>
+    <script defer src="catalog-licensed.js?v=2c1b972a94a8"></script>
+    <script defer src="catalog-lieder.js?v=2c1b972a94a8"></script>
+    <script defer src="catalog-quartets.js?v=2c1b972a94a8"></script>
+    <script defer src="catalog-pgh.js?v=2c1b972a94a8"></script>
+    <script defer src="catalog-skills.js?v=2c1b972a94a8"></script>
+    <script defer src="prompts.js?v=2c1b972a94a8"></script>
+    <script defer src="shared.js?v=2c1b972a94a8"></script>
+    <script defer src="library.js?v=2c1b972a94a8"></script>
+    <script defer src="backup.js?v=2c1b972a94a8"></script>
+    <script defer src="editor.js?v=2c1b972a94a8"></script>
+    <script defer src="playback.js?v=2c1b972a94a8"></script>
+    <script defer src="app.js?v=2c1b972a94a8"></script>
   </head>
   <body>
     <header>
@@ -362,7 +363,10 @@
             <div class="export-bar">
               <span>Take your music with you</span><button id="print">Print / PDF</button
               ><button id="export-abc">ABC</button><button id="export-midi">MIDI</button
-              ><button id="export-svg">SVG</button><button id="share-link" class="primary">Share link</button>
+              ><button id="export-svg">SVG</button
+              ><button id="export-musicxml" title="Opens in MuseScore, Noteflight, Finale, Sibelius and Dorico">
+                MusicXML</button
+              ><button id="share-link" class="primary">Share link</button>
             </div>
             <div id="share-panel" class="share-panel" hidden>
               <label for="share-url">Link to this score</label>
@@ -438,8 +442,9 @@
         <h2>Write, practice, and take it with you.</h2>
         <p>
           Use ABC notation or the note buttons to write music. Hear it with built-in synthesized tones, change tempo,
-          loop playback, and export ABC, MIDI, or SVG. Use Print / PDF to produce a paper score. Choose a B♭ or E♭
-          instrument for written-pitch transposition with concert-pitch playback.
+          loop playback, and export ABC, MIDI, SVG, or MusicXML (to keep working in MuseScore, Noteflight, Finale,
+          Sibelius or Dorico). Use Print / PDF to produce a paper score. Choose a B♭ or E♭ instrument for written-pitch
+          transposition with concert-pitch playback.
         </p>
         <h2>Privacy and school access</h2>
         <p>

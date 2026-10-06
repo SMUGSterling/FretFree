@@ -52,6 +52,7 @@ vm.runInContext(
   context
 );
 vm.runInContext(fs.readFileSync(require.resolve('../score-tools.js'), 'utf8'), context);
+vm.runInContext(fs.readFileSync(require.resolve('../musicxml.js'), 'utf8'), context);
 assert.ok(context.library.length >= 200, 'Expanded library should contain at least 200 scores');
 assert.equal(new Set(context.library.map(x => x.id)).size, context.library.length, 'Unique score IDs');
 for (const score of context.library) {
@@ -244,8 +245,250 @@ for (const prompt of context.writingPrompts) {
     `Prompt ${prompt.id}: changing the meter must not satisfy the bars goal`
   );
 }
+// MusicXML export. The notes of every voice must match the parse: count, sounding length in divisions, and pitch as
+// abcjs plays it (midiPitches). abcjs's player loses an accidental written on a note it does not sound (a tied-over
+// note, or one its tie handling swallows), but the ABC rule (and the export) keeps it for the rest of the bar, so later
+// notes of that pitch in that bar are not compared.
+{
+  const {JSDOM} = require(process.env.JSDOM_PATH || 'jsdom');
+  const {DOMParser} = new JSDOM('').window,
+    SEMITONES = {C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11};
+  const parseXML = xml => {
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    assert.equal(doc.getElementsByTagName('parsererror').length, 0, 'Well-formed MusicXML');
+    return doc;
+  };
+  const kid = (n, name) => [...n.children].find(c => c.tagName === name) || null;
+  const exportedVoices = doc => {
+    const voices = [];
+    for (const part of doc.getElementsByTagName('part')) {
+      const byNumber = new Map();
+      for (const n of part.getElementsByTagName('note')) {
+        if (kid(n, 'grace')) continue;
+        const v = +kid(n, 'voice').textContent,
+          p = kid(n, 'pitch'),
+          midi = p
+            ? 12 * (+kid(p, 'octave').textContent + 1) +
+              SEMITONES[kid(p, 'step').textContent] +
+              +(kid(p, 'alter')?.textContent || 0)
+            : null;
+        if (!byNumber.has(v)) byNumber.set(v, []);
+        const list = byNumber.get(v);
+        if (kid(n, 'chord')) list.at(-1).pitches.push(midi);
+        else list.push({pitches: midi == null ? [] : [midi], duration: +kid(n, 'duration').textContent});
+      }
+      voices.push(...[...byNumber.keys()].sort((a, b) => a - b).map(k => byNumber.get(k)));
+    }
+    return voices;
+  };
+  const matchesParse = (source, item, label) => {
+    const xml = context.abcToMusicXML(source, {item}),
+      doc = parseXML(xml),
+      divisions = +doc.getElementsByTagName('divisions')[0].textContent,
+      tune = ABCJS.parseOnly(source)[0];
+    tune.setUpAudio();
+    const events = context.scoreEvents(tune),
+      lengths = context.effectiveDurations(events),
+      expected = new Map(),
+      retied = new Map();
+    for (const {element: e, key} of events) {
+      const voice = key.split(':').slice(0, 2).join(':');
+      if (!expected.has(voice)) expected.set(voice, []);
+      if (e.el_type === 'bar' || !retied.has(voice)) retied.set(voice, new Set());
+      if (e.el_type !== 'note' || !(e.duration > 0) || e.rest?.type === 'spacer') continue;
+      const skip = (e.pitches || []).some(p => retied.get(voice).has(p.pitch));
+      for (const p of e.pitches || [])
+        if (p.accidental && (p.endTie || !e.midiPitches?.length)) retied.get(voice).add(p.pitch);
+      if (/multimeasure/.test(e.rest?.type || ''))
+        for (let i = 0; i < (Math.round(+e.rest.text) || 1); i++) expected.get(voice).push({rest: true});
+      else
+        expected.get(voice).push({
+          rest: !!e.rest,
+          duration: Math.round(lengths.get(e) * 4 * divisions),
+          pitches:
+            e.rest || skip || e.pitches.some(p => p.endTie)
+              ? null
+              : e.midiPitches.map(x => x.pitch).sort((a, b) => a - b)
+        });
+    }
+    const got = exportedVoices(doc),
+      order = [...expected.keys()].sort(
+        (a, b) => a.split(':')[0] - b.split(':')[0] || a.split(':')[1] - b.split(':')[1]
+      );
+    assert.equal(got.length, order.length, `${label}: one MusicXML voice per ABC voice`);
+    order.forEach((voice, i) => {
+      const want = expected.get(voice);
+      assert.equal(got[i].length, want.length, `${label} voice ${voice}: note count`);
+      want.forEach((x, j) => {
+        const at = `${label} voice ${voice} note ${j + 1}`;
+        if (x.duration != null) assert.equal(got[i][j].duration, x.duration, at + ': duration');
+        if (x.rest) assert.deepEqual(got[i][j].pitches, [], at + ': rest');
+        else if (x.pitches?.length)
+          assert.deepEqual(
+            [...got[i][j].pitches].sort((a, b) => a - b),
+            x.pitches,
+            at
+          );
+      });
+    });
+    return {xml, doc};
+  };
+  const own = context.library.filter(x => /^FretFree /.test(context.scoreCollection(x))),
+    others = context.library.filter(x => !own.includes(x)),
+    sample = others.filter((x, i) => i % Math.floor(others.length / 200) === 0).slice(0, 200);
+  assert.ok(own.length >= 12 && sample.length === 200);
+  const licenses = new Set();
+  for (const score of [...own, ...sample]) {
+    // One O'Neill tune has "L: a/8", which abcjs reads as no note lengths at all; the export says so instead.
+    if (
+      ABCJS.parseOnly(score.abc)[0].lines.some(l =>
+        l.staff?.some(s => s.voices.flat().some(e => Number.isNaN(e.duration)))
+      )
+    ) {
+      assert.throws(() => context.abcToMusicXML(score.abc, {item: score}), /note lengths/);
+      continue;
+    }
+    const {xml, doc} = matchesParse(score.abc, score, score.id),
+      license = context.scoreLicense(score),
+      field = name => [...doc.getElementsByTagName('miscellaneous-field')].find(f => f.getAttribute('name') === name);
+    licenses.add(license);
+    const rights = doc.getElementsByTagName('rights')[0]?.textContent || '';
+    assert.ok(rights.includes(license) && rights.includes(score.rights), `${score.id}: license and credit in <rights>`);
+    assert.equal(
+      [...doc.getElementsByTagName('credit')]
+        .find(c => kid(c, 'credit-type').textContent === 'rights')
+        ?.querySelector('credit-words').textContent,
+      context.exportCredit(score),
+      `${score.id}: page-1 credit`
+    );
+    const {abc, ...meta} = score;
+    assert.deepEqual(JSON.parse(field('fretfree-rights').textContent), JSON.parse(JSON.stringify(meta)));
+    if (license.startsWith('GPL-')) {
+      assert.ok(field('fretfree-license-text').textContent.includes('GNU GENERAL PUBLIC LICENSE'), score.id);
+      assert.ok(
+        field('fretfree-abc-source').textContent.includes(abc.split('\n').at(-1)),
+        'GPL editions carry the ABC'
+      );
+    } else assert.ok(!xml.includes('GNU GENERAL PUBLIC LICENSE'));
+  }
+  assert.ok(licenses.size >= 5, 'The sample covers several licenses');
+  // Fixtures: each notation feature becomes the matching MusicXML element.
+  const fixture = [
+    'X:1',
+    'T:Fixture & <friends>',
+    'C:Ann Composer',
+    'M:6/8',
+    'L:1/8',
+    'Q:"Allegro" 3/8=80',
+    'K:F',
+    '|: "F"!f!(3FG^A c2-c | {/g}A3 !<(! z3 !<)! |1 "Bb7/D"[CEG]2 .d _B=B B :|2 "Am"c6 |]',
+    'w: Hel- lo there_ friend, sing'
+  ].join('\n');
+  const {doc} = matchesParse(fixture, null, 'fixture'),
+    all = name => [...doc.getElementsByTagName(name)],
+    text = name => all(name).map(n => n.textContent);
+  assert.equal(text('work-title')[0], 'Fixture & <friends>');
+  assert.equal(text('creator')[0], 'Ann Composer');
+  assert.equal(all('rights').length + all('miscellaneous').length, 0, 'A personal score has no rights notice');
+  assert.equal(text('fifths')[0], '-1');
+  assert.deepEqual([text('beats')[0], text('beat-type')[0]], ['6', '8']);
+  assert.deepEqual(
+    all('harmony').map(h => [h.querySelector('root-step').textContent, h.querySelector('kind').textContent]),
+    [
+      ['F', 'major'],
+      ['B', 'dominant'],
+      ['A', 'minor']
+    ],
+    'Chord symbols become harmony'
+  );
+  assert.equal(all('harmony')[1].querySelector('root-alter').textContent, '-1');
+  assert.equal(all('harmony')[1].querySelector('bass-step').textContent, 'D');
+  assert.deepEqual(
+    all('lyric').map(l => l.querySelector('syllabic').textContent + ':' + l.querySelector('text').textContent),
+    ['begin:Hel', 'end:lo', 'single:there', 'single:friend,', 'single:sing']
+  );
+  assert.equal(all('extend').length, 1, 'An underscore holds the syllable');
+  assert.deepEqual(
+    all('tied').map(t => t.getAttribute('type')),
+    ['start', 'stop']
+  );
+  assert.equal(all('time-modification').length, 3);
+  assert.equal(
+    all('tuplet')
+      .map(t => t.getAttribute('type'))
+      .join(),
+    'start,stop'
+  );
+  assert.equal(all('grace')[0].getAttribute('slash'), 'yes');
+  assert.ok(all('dynamics')[0].querySelector('f'));
+  assert.deepEqual(
+    all('wedge').map(w => w.getAttribute('type')),
+    ['crescendo', 'stop']
+  );
+  assert.ok(all('staccato').length === 1 && all('accidental').length === 3);
+  assert.deepEqual(
+    all('repeat').map(r => r.getAttribute('direction')),
+    ['forward', 'backward']
+  );
+  assert.deepEqual(
+    all('ending').map(e => e.getAttribute('number') + ':' + e.getAttribute('type')),
+    ['1:start', '1:stop', '2:start', '2:discontinue']
+  );
+  assert.equal(all('per-minute')[0].textContent, '80');
+  assert.equal(all('sound')[0].getAttribute('tempo'), '120', 'Q:3/8=80 is 120 quarter notes a minute');
+  assert.equal(all('measure')[0].getAttribute('implicit'), 'yes', 'A short first bar is a pickup');
+  // Two staves braced in %%score make one part; key, meter and clef changes and Z rests line up across the staves.
+  const piano = [
+    'X:1',
+    'T:Two hands',
+    '%%score {RH | LH}',
+    'M:3/4',
+    'L:1/4',
+    'K:Dm',
+    'V:RH name="Piano"',
+    'V:LH clef=bass',
+    'V:Tenor name="Tenor" clef=treble-8',
+    '[V:RH] d e f |[K:G] g a b |[M:2/4] Z2 |]',
+    '[V:LH] D, E, F, |[K:G] G, A, B, |[M:2/4] C,2 |[K:clef=treble] D2 |]',
+    '[V:Tenor] c3 |[K:G] c3 |[M:2/4] c2 | c2 |]'
+  ].join('\n');
+  const two = matchesParse(piano, null, 'piano').doc,
+    parts = [...two.getElementsByTagName('part')];
+  assert.deepEqual(
+    [...two.getElementsByTagName('part-name')].map(n => n.textContent),
+    ['Piano', 'Tenor']
+  );
+  assert.equal(parts[0].querySelector('staves').textContent, '2');
+  assert.deepEqual(
+    [...parts[0].querySelectorAll('clef')].map(c => c.getAttribute('number') + c.querySelector('sign').textContent),
+    ['1G', '2F', '2G']
+  );
+  assert.equal(parts[0].querySelectorAll('backup').length, 4);
+  assert.equal(parts[0].querySelector('multiple-rest').textContent, '2');
+  assert.deepEqual(
+    parts.map(p => p.querySelectorAll('measure').length),
+    [4, 4],
+    'Parts have the same measures'
+  );
+  assert.equal(parts[1].querySelector('clef-octave-change').textContent, '-1');
+  assert.equal(parts[1].querySelector('octave').textContent, '4', 'treble-8 sounds an octave down, as abcjs plays it');
+  assert.deepEqual(
+    [...parts[0].querySelectorAll('fifths')].map(n => n.textContent),
+    ['-1', '1']
+  );
+  assert.throws(() => context.abcToMusicXML('X:1\nT:Empty\nK:C\n'), /no music/);
+  assert.ok(
+    !/[\f]/.test(
+      context.abcToMusicXML(context.library.find(x => context.scoreLicense(x).startsWith('GPL-')).abc, {
+        item: context.library.find(x => context.scoreLicense(x).startsWith('GPL-'))
+      })
+    ),
+    'Form feeds in the GPL text are dropped; XML 1.0 forbids them'
+  );
+  console.log(`MusicXML: ${own.length} FretFree scores, a ${sample.length}-score library sample and fixtures passed`);
+}
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, and source-file hashes.'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, MIDI export/decoding, source-pitch fidelity, transposition, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
 );

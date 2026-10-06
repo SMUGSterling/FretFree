@@ -294,6 +294,20 @@ $('export-midi').onclick = () => {
     toast(e.message);
   }
 };
+// MusicXML is written at concert pitch from the ABC; a transposing instrument's name would mislead, so only a
+// concert-pitch instrument names the part.
+$('export-musicxml').onclick = () => {
+  try {
+    const instrument = currentInstrument();
+    download(
+      abcToMusicXML($('abc').value, {item: current, instrument: instruments[instrument]?.shift ? '' : instrument}),
+      safeName() + '.musicxml',
+      'application/vnd.recordare.musicxml+xml'
+    );
+  } catch (e) {
+    toast(e.message);
+  }
+};
 $('export-svg').onclick = () => {
   try {
     clearTimeout(renderTimer);

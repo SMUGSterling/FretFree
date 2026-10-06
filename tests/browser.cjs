@@ -846,10 +846,24 @@ const {chromium} = require('playwright'),
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
     'Mobile page fits viewport'
   );
+  // MusicXML export at phone width, from the keyboard: the button is on screen and Enter downloads the file.
+  await page.evaluate(() => {
+    window.__downloads = [];
+    download = (data, name, type) => __downloads.push({data, name, type});
+  });
+  const exportButton = page.locator('#export-musicxml');
+  await exportButton.scrollIntoViewIfNeeded();
+  const box = await exportButton.boundingBox();
+  assert.ok(box && box.x >= 0 && box.x + box.width <= 390, 'MusicXML button fits a phone screen');
+  await exportButton.focus();
+  await page.keyboard.press('Enter');
+  const mxl = await page.evaluate(() => __downloads[0]);
+  assert.match(mxl.name, /^Ode-to-Joy\.musicxml$/);
+  assert.match(mxl.data, /<work-title>Ode to Joy<\/work-title>[\s\S]*<rights>[^<]*CC0-1\.0/);
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.'
+    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

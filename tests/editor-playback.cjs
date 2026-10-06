@@ -57,6 +57,7 @@ for (const f of [
   'catalog-expanded.js',
   'score-tools.js',
   'rights-tools.js',
+  'musicxml.js',
   'catalog-licensed.js',
   'catalog-lieder.js',
   'catalog-quartets.js',
@@ -93,6 +94,19 @@ for (const instrument of Object.keys(run('instruments'))) {
   );
   assert.equal(run("$('abc').selectionStart"), source.indexOf(' C D E F'));
   assert.equal(run("$('warnings').textContent"), '');
+}
+// MusicXML follows the edited ABC at concert pitch, however the chosen instrument transposes the staff on screen.
+for (const instrument of ['Clarinet in B♭', 'Cello']) {
+  run(`openScore({abc:${JSON.stringify(source)},instrument:${JSON.stringify(instrument)}})`);
+  assert.notEqual(run('writtenABC()'), source, instrument + ' is shown transposed');
+  run('scoreClick(scoreEvents(renderedTune).find(e=>e.element.pitches).element,0,[],{},{step:-1})');
+  const xml = run("abcToMusicXML($('abc').value, {item: current})");
+  assert.equal(
+    [...xml.matchAll(/<step>(\w)<\/step><octave>(\d)/g)].map(m => m[1] + m[2]).join(' '),
+    'D4 D4 E4 F4 G4 C5',
+    instrument + ': concert pitch, with the dragged note'
+  );
+  assert.match(xml, /<repeat direction="forward"\/>[\s\S]*<repeat direction="backward"\/>/);
 }
 assert.equal(run(`moveNoteText('"Am"!accent!{a}[=CEG]2-',1)`), '"Am"!accent!{a}[=DFA]2-');
 assert.equal(run(`moveNoteText('B,2 c/2 ^f-',1)`), 'C2 d/2 ^g-');
@@ -228,7 +242,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, bar checks, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, bar checks, MusicXML at concert pitch, and legacy storage.'
   );
   w.close();
 }
