@@ -1359,10 +1359,34 @@ const {chromium} = require('playwright'),
   const mxl = await page.evaluate(() => __downloads[0]);
   assert.match(mxl.name, /^Ode-to-Joy\.musicxml$/);
   assert.match(mxl.data, /<work-title>Ode to Joy<\/work-title>[\s\S]*<rights>[^<]*CC0-1\.0/);
+  // MusicXML import at phone width, from the keyboard: Enter on the open button picks a MuseScore .mxl, which the
+  // browser's own DecompressionStream unpacks; the parts are engraved and the page still fits the screen.
+  await page.evaluate(() => (dirty = false));
+  const importButton = page.locator('#import');
+  await importButton.scrollIntoViewIfNeeded();
+  const importBox = await importButton.boundingBox();
+  assert.ok(importBox && importBox.x >= 0 && importBox.x + importBox.width <= 390, 'Open button fits a phone screen');
+  // Other tabs were opened above; the file chooser opens only from the tab in front.
+  await page.bringToFront();
+  await importButton.focus();
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Enter')]);
+  await chooser.setFiles(require('node:path').join(__dirname, 'fixtures/morning-walk.mxl'));
+  await page.waitForFunction(() => /^Imported from MusicXML/.test($('save-status').textContent));
+  assert.equal(
+    await page.locator('#save-status').textContent(),
+    'Imported from MusicXML (3 parts, 5 measures). Save or export to keep a copy.'
+  );
+  assert.equal(await page.inputValue('#title'), 'Morning Walk');
+  assert.match(await page.inputValue('#abc'), /^%%score 1 2 \{\(3 4\) \| 5\}$/m);
+  assert.equal(await page.locator('#notation .abcjs-staff').count(), 8, 'Two systems of four staves');
+  assert.ok(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    'An imported score fits a phone screen'
+  );
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
+    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, notation palette (state, pointer, keyboard, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

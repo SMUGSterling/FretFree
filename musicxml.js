@@ -835,6 +835,8 @@ function abcToMusicXML(source, meta = {}) {
     title = tune.metaText?.title || item?.title || 'Untitled',
     composer = tune.metaText?.composer || '',
     credit = typeof exportCredit === 'function' ? exportCredit(item) : '',
+    // A copyright line kept from an imported file (%%abc-copyright) travels when there is no FretFree credit.
+    copyright = credit ? '' : tune.metaText?.['abc-copyright'] || '',
     gpl = credit && scoreLicense(item).startsWith('GPL-') && typeof GPL_LICENSE === 'string',
     metadata = {...item},
     date = meta.date || new Date().toISOString().slice(0, 10);
@@ -853,7 +855,11 @@ function abcToMusicXML(source, meta = {}) {
   const credits = [
     ['title', title, 'default-x="612" default-y="1504" justify="center" valign="top" font-size="22"'],
     composer && ['composer', composer, 'default-x="1140" default-y="1424" justify="right" valign="bottom"'],
-    credit && ['rights', credit, 'default-x="612" default-y="80" justify="center" valign="bottom" font-size="7"']
+    (credit || copyright) && [
+      'rights',
+      credit || copyright,
+      'default-x="612" default-y="80" justify="center" valign="bottom" font-size="7"'
+    ]
   ].filter(Boolean);
   return (
     '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n' +
@@ -863,7 +869,7 @@ function abcToMusicXML(source, meta = {}) {
     `<work>${xmlTag('work-title', title)}</work>\n` +
     '<identification>' +
     (composer ? xmlTag('creator', composer, ' type="composer"') : '') +
-    (credit ? xmlTag('rights', credit) : '') +
+    (credit || copyright ? xmlTag('rights', credit || copyright) : '') +
     `<encoding><software>FretFree</software><encoding-date>${date}</encoding-date>` +
     '<supports element="accidental" type="yes"/><supports element="beam" type="yes"/>' +
     '<supports element="print" attribute="new-system" type="yes" value="yes"/>' +
@@ -891,4 +897,1269 @@ function abcToMusicXML(source, meta = {}) {
     body.join('\n') +
     '\n</score-partwise>\n'
   );
+}
+
+// MusicXML import: musicXMLToABC() turns a parsed MusicXML document (partwise or timewise, from MuseScore, Noteflight,
+// Finale, Sibelius, Dorico or FretFree) into ABC at concert pitch. Each staff becomes an ABC voice, voices that share a
+// staff are merged with %%score (…), and the staves of a part are braced. Timing comes from <duration>, so a gap in a
+// voice becomes a rest and every voice has the same bars. What ABC or abcjs cannot show is listed in plain words.
+// Only standard DOM calls are used, so the tests run it on jsdom documents.
+const MXI_TYPES = {
+    maxima: 8,
+    long: 4,
+    breve: 2,
+    whole: 1,
+    half: 1 / 2,
+    quarter: 1 / 4,
+    eighth: 1 / 8,
+    '16th': 1 / 16,
+    '32nd': 1 / 32,
+    '64th': 1 / 64,
+    '128th': 1 / 128,
+    '256th': 1 / 256
+  },
+  MXI_STEPS = 'CDEFGAB',
+  MXI_ACC = {'-2': '__', '-1': '_', 0: '=', 1: '^', 2: '^^'},
+  MXI_MODES = {
+    major: '',
+    ionian: '',
+    minor: 'm',
+    aeolian: 'm',
+    dorian: 'Dor',
+    phrygian: 'Phr',
+    lydian: 'Lyd',
+    mixolydian: 'Mix',
+    locrian: 'Loc'
+  },
+  MXI_ARTICULATIONS = {
+    staccato: '.',
+    tenuto: '!tenuto!',
+    accent: '!accent!',
+    'strong-accent': '!marcato!',
+    staccatissimo: '!wedge!',
+    spiccato: '!wedge!',
+    'detached-legato': '!tenuto!.',
+    'breath-mark': '!breath!'
+  },
+  MXI_ORNAMENTS = {
+    'trill-mark': '!trill!',
+    mordent: '!mordent!',
+    'inverted-mordent': '!uppermordent!',
+    turn: '!turn!',
+    'delayed-turn': '!turn!',
+    'inverted-turn': '!invertedturn!',
+    'delayed-inverted-turn': '!invertedturn!',
+    shake: '!uppermordent!'
+  },
+  MXI_TECHNICAL = {
+    'up-bow': '!upbow!',
+    'down-bow': '!downbow!',
+    'open-string': '!open!',
+    'thumb-position': '!thumb!',
+    'snap-pizzicato': '!snap!',
+    stopped: '!plus!'
+  },
+  // abcjs draws these dynamics; strong accents become sfz, and anything else is shown as text below the staff.
+  MXI_DYNAMICS = new Set(['pppp', 'ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'ffff', 'sfz']),
+  MXI_ACCENTS = new Set(['sf', 'sffz', 'fz', 'rfz', 'rf', 'sfzp']),
+  // Chord-symbol suffixes for a <kind> that has no text of its own.
+  MXI_KINDS = {
+    major: '',
+    minor: 'm',
+    augmented: '+',
+    diminished: 'dim',
+    dominant: '7',
+    'major-seventh': 'maj7',
+    'minor-seventh': 'm7',
+    'diminished-seventh': 'dim7',
+    'augmented-seventh': '7#5',
+    'half-diminished': 'm7b5',
+    'major-minor': 'm(maj7)',
+    'major-sixth': '6',
+    'minor-sixth': 'm6',
+    'dominant-ninth': '9',
+    'major-ninth': 'maj9',
+    'minor-ninth': 'm9',
+    'dominant-11th': '11',
+    'major-11th': 'maj11',
+    'minor-11th': 'm11',
+    'dominant-13th': '13',
+    'major-13th': 'maj13',
+    'minor-13th': 'm13',
+    'suspended-second': 'sus2',
+    'suspended-fourth': 'sus4',
+    power: '5'
+  },
+  // Road-map words abcjs draws as marks.
+  MXI_WORDS = {
+    fine: '!fine!',
+    'd.c.': '!D.C.!',
+    'd.s.': '!D.S.!',
+    'd.c. al fine': '!D.C.alfine!',
+    'd.c. al coda': '!D.C.alcoda!',
+    'd.s. al fine': '!D.S.alfine!',
+    'd.s. al coda': '!D.S.alcoda!'
+  },
+  // What is left out, in plain words, by MusicXML element name or reason. Several names share one description.
+  MXI_LEFT_OUT = {
+    pedal: 'pedal marks',
+    'octave-shift': '8va lines (the notes keep their pitch)',
+    'figured-bass': 'figured bass',
+    tremolo: 'tremolos',
+    bracket: 'lines and brackets over the staff',
+    dashes: 'lines and brackets over the staff',
+    image: 'pictures',
+    'string-mute': 'mute marks',
+    'harp-pedals': 'harp pedal diagrams',
+    'accordion-registration': 'accordion registrations',
+    percussion: 'percussion pictograms',
+    fingering: 'fingerings above 5',
+    string: 'string numbers',
+    fret: 'fret numbers',
+    harmonic: 'harmonics',
+    bend: 'bends',
+    'hammer-on': 'hammer-ons and pull-offs',
+    'pull-off': 'hammer-ons and pull-offs',
+    caesura: 'caesuras',
+    doit: 'jazz articulations',
+    falloff: 'jazz articulations',
+    plop: 'jazz articulations',
+    scoop: 'jazz articulations',
+    notehead: 'special noteheads',
+    slash: 'slash notation',
+    cue: 'cue notes (left as space)',
+    unpitched: 'percussion notes (written and played as pitched notes)',
+    tab: 'tablature staves (the notation staff is kept)',
+    'tab-only': 'tablature (shown as standard notation)',
+    quarter: 'quarter tones (rounded to the nearest note)',
+    'grace-chord': 'chords in grace notes (the first note is kept)',
+    overlap: 'notes that overlap in one voice',
+    'time-mix': 'combined time signatures (written as one meter)',
+    repeat: 'repeat counts other than two',
+    verses: 'lyrics after verse 8'
+  },
+  // FretFree instruments a part name can choose; a B♭ or E♭ one only when the part is written for it.
+  MXI_INSTRUMENTS = [
+    [/flute|piccolo/i, 'Flute'],
+    [/violin|fiddle/i, 'Violin'],
+    [/recorder/i, 'Recorder'],
+    [/clarinet/i, 'Clarinet in B♭', 10],
+    [/trumpet|cornet/i, 'Trumpet in B♭', 10],
+    [/alto sax/i, 'Alto sax in E♭', 3],
+    [/piano|keyboard/i, 'Piano'],
+    [/guitar/i, 'Guitar']
+  ];
+// Element children are listed once per element: the lookups below run many times on each note.
+const xmlChildList = new WeakMap(),
+  xmlChildren = el => {
+    let list = xmlChildList.get(el);
+    if (!list) xmlChildList.set(el, (list = [...el.children]));
+    return list;
+  },
+  xmlKids = (el, name) => (el ? xmlChildren(el).filter(c => c.localName === name) : []),
+  xmlKid = (el, name) => (el ? xmlChildren(el).find(c => c.localName === name) || null : null),
+  xmlValue = (el, name) => xmlKid(el, name)?.textContent.trim() ?? '',
+  // Text for an ABC field: one line, with % (a comment in ABC) escaped. Inside quotes, a quote becomes an apostrophe.
+  abcText = text =>
+    String(text ?? '')
+      .replace(/\s+/g, ' ')
+      .replace(/%/g, '\\%')
+      .trim(),
+  abcQuoted = text => abcText(text).replace(/"/g, "'");
+// A written pitch moved by a <transpose>: its letter by `diatonic` steps and its sound by `chromatic` semitones.
+function mxiTranspose({step, alter, octave}, diatonic, chromatic) {
+  const index = MXI_STEPS.indexOf(step) + 7 * octave + diatonic,
+    semitone = LETTER_SEMIS[MXI_STEPS.indexOf(step)] + 12 * octave + alter + chromatic,
+    newOctave = Math.floor(index / 7);
+  return {
+    step: MXI_STEPS[posMod(index, 7)],
+    octave: newOctave,
+    alter: semitone - LETTER_SEMIS[posMod(index, 7)] - 12 * newOctave
+  };
+}
+// The key signature's alter for each letter: from the circle of fifths, or the steps of a non-traditional key.
+function mxiKeyAlters(key) {
+  const alters = {};
+  if (key.steps) for (const [step, alter] of key.steps) alters[step] = alter;
+  else
+    for (let i = 0; i < Math.abs(key.fifths); i++)
+      alters[(key.fifths > 0 ? 'FCGDAEB' : 'BEADGCF')[i]] = Math.sign(key.fifths);
+  return alters;
+}
+function mxiKeyText(key) {
+  const steps = (key.steps || []).filter(([, alter]) => alter);
+  if (steps.length) return 'C exp ' + steps.map(([step, alter]) => MXI_ACC[alter] + step.toLowerCase()).join(' ');
+  if (key.steps) return 'C';
+  const mode = KEY_MODES.find(m => m.mode === key.mode) || KEY_MODES[0];
+  return tonicName(key.fifths - mode.offset) + mode.mode;
+}
+// abcjs clef names. An octave clef's letters are drawn an octave from its sound; abcjs plays them back down.
+function mxiClef(el) {
+  const sign = xmlValue(el, 'sign').toUpperCase(),
+    line = +xmlValue(el, 'line') || 0,
+    change = Math.sign(Math.round(+xmlValue(el, 'clef-octave-change') || 0));
+  let name = 'treble';
+  if (sign === 'F') name = line === 3 ? 'bass3' : 'bass';
+  else if (sign === 'C') name = {1: 'alto1', 2: 'alto2', 4: 'tenor'}[line] || 'alto';
+  else if (sign === 'PERCUSSION') name = 'perc';
+  else if (sign === 'NONE') name = 'none';
+  const octave = change && /^(treble|bass|alto|tenor)$/.test(name) ? (change < 0 ? '-8' : '+8') : '';
+  return {name: name + octave, shift: octave ? change : 0, tab: sign === 'TAB'};
+}
+function mxiMeter(el) {
+  if (xmlKid(el, 'senza-misura')) return {text: 'none', length: 0};
+  const symbol = el.getAttribute('symbol'),
+    beats = xmlKids(el, 'beats').map(b => b.textContent.trim()),
+    types = xmlKids(el, 'beat-type').map(b => Math.round(+b.textContent.trim()));
+  if (!beats.length || types.length !== beats.length || !types.every(t => t > 0)) return null;
+  const count = text => text.split('+').reduce((sum, n) => sum + (+n || 0), 0);
+  if (beats.length === 1) {
+    if (!/^\d+(\+\d+)*$/.test(beats[0]) || !count(beats[0])) return null;
+    const length = count(beats[0]) / types[0];
+    if (symbol === 'common' && beats[0] === '4' && types[0] === 4) return {text: 'C', length};
+    if (symbol === 'cut' && beats[0] === '2' && types[0] === 2) return {text: 'C|', length};
+    return {text: `${beats[0]}/${types[0]}`, length};
+  }
+  // 2/4 + 3/8 is written as the meter of the whole bar, 7/8.
+  const den = Math.max(...types),
+    num = beats.reduce((sum, b, i) => sum + (count(b) * den) / types[i], 0);
+  return Number.isInteger(num) && num > 0 ? {text: `${num}/${den}`, length: num / den, mixed: true} : null;
+}
+// A Q: field: the beat from <metronome> (a quarter for a bare <sound tempo>) and the words beside it.
+function mxiTempo(words, metronome, sound) {
+  let beat = '',
+    speed = 0;
+  if (metronome && xmlKid(metronome, 'per-minute')) {
+    const unit = MXI_TYPES[xmlValue(metronome, 'beat-unit')],
+      dots = xmlKids(metronome, 'beat-unit-dot').length;
+    speed = parseFloat(xmlValue(metronome, 'per-minute').replace(/^[^\d.]*/, ''));
+    if (unit && speed > 0) {
+      const [n, d] = mxlFraction(unit * (2 - 1 / 2 ** dots));
+      beat = `${n}/${d}`;
+    }
+  }
+  if (!beat && sound > 0) [beat, speed] = ['1/4', sound];
+  const text = words.map(abcQuoted).filter(Boolean).join(' ');
+  return [text && `"${text}"`, beat && `${beat}=${+speed.toFixed(2)}`].filter(Boolean).join(' ');
+}
+
+function musicXMLToABC(doc, {name = ''} = {}) {
+  const root = doc?.documentElement;
+  if (!root || doc.getElementsByTagName('parsererror').length)
+    throw Error('This file could not be read as MusicXML. It may be damaged, or it may be another kind of file.');
+  if (root.localName === 'opus') throw Error('This MusicXML file is a list of scores. Open one of its scores instead.');
+  if (!/^score-(partwise|timewise)$/.test(root.localName)) throw Error('This file is not a MusicXML score.');
+  const skipped = new Set(),
+    skip = what => skipped.add(MXI_LEFT_OUT[what] || what.replace(/-/g, ' '));
+
+  // Parts in part-list order, each with its measures; a timewise file is turned around.
+  const partInfo = new Map(),
+    partOf = id => {
+      if (!partInfo.has(id)) partInfo.set(id, {name: '', abbreviation: '', instrument: '', measures: []});
+      return partInfo.get(id);
+    };
+  for (const sp of xmlKids(xmlKid(root, 'part-list'), 'score-part')) {
+    const nameEl = xmlKid(sp, 'part-name'),
+      shown = nameEl?.getAttribute('print-object') !== 'no';
+    Object.assign(partOf(sp.getAttribute('id')), {
+      name: shown ? abcQuoted(nameEl?.textContent) : '',
+      abbreviation: shown ? abcQuoted(xmlValue(sp, 'part-abbreviation')) : '',
+      instrument: (nameEl?.textContent || '') + ' ' + xmlValue(xmlKid(sp, 'score-instrument'), 'instrument-name')
+    });
+  }
+  if (root.localName === 'score-partwise')
+    for (const p of xmlKids(root, 'part'))
+      partOf(p.getAttribute('id')).measures.push(...xmlKids(p, 'measure').map(m => ({el: m, measure: m})));
+  else
+    for (const m of xmlKids(root, 'measure'))
+      for (const p of xmlKids(m, 'part')) partOf(p.getAttribute('id')).measures.push({el: p, measure: m});
+  // One tick grid for the whole file: the least common multiple of every <divisions>.
+  let ticks = 1;
+  for (const d of doc.getElementsByTagName('divisions')) {
+    const n = Math.round(+d.textContent);
+    if (n > 0 && n <= 1e5 && ticks <= 1e9) ticks = (ticks / mxlGcd(ticks, n)) * n;
+  }
+  const whole = t => t / (4 * ticks),
+    tempos = [];
+  let parts = [...partInfo.values()].filter(p => p.measures.length).map(readPart);
+  // A part that is only tablature repeats the notes of a notation part; it stays only when nothing else is there.
+  if (parts.some(p => p.tabOnly) && parts.some(p => !p.tabOnly)) {
+    parts = parts.filter(p => !p.tabOnly);
+    skip('tab');
+  } else if (parts.some(p => p.tabOnly)) skip('tab-only');
+  if (!parts.some(p => p.hasNotes)) throw Error('There is no music in this MusicXML file.');
+  const count = Math.max(...parts.map(p => p.measures.length));
+
+  // ABC voices: each staff's voices in number order, and one voice for a staff without notes.
+  const voices = [];
+  for (const part of parts)
+    for (let s = 1; s <= part.staves; s++) {
+      if (part.dropStaves.has(s)) continue;
+      const keys = [...part.voiceOrder.entries()]
+        .filter(([, v]) => v.staff === s)
+        .sort((a, b) => (parseInt(a[1].voice) || 0) - (parseInt(b[1].voice) || 0) || a[1].order - b[1].order)
+        .map(([key]) => key);
+      if (!keys.length) keys.push(s + ':');
+      keys.forEach((key, index) =>
+        voices.push({
+          part,
+          staff: s,
+          key,
+          index,
+          shared: keys.length > 1,
+          id: String(voices.length + 1),
+          first: !voices.some(v => v.part === part)
+        })
+      );
+    }
+  // Every measure lasts as long as its longest voice in any part; an empty one lasts a bar of its meter.
+  const lengths = [];
+  let meterLength = 0;
+  for (let i = 0; i < count; i++) {
+    for (const c of parts[0].measures[i]?.changes || []) if (c.type === 'meter') meterLength = c.length;
+    lengths.push(
+      Math.max(...parts.map(p => p.measures[i]?.length || 0)) || Math.round(meterLength * 4 * ticks) || 4 * ticks
+    );
+  }
+  for (const v of voices) {
+    let graces = [];
+    v.items = lengths.map((length, i) => {
+      const events = [...(v.part.measures[i]?.voices.get(v.key) || [])].sort((a, b) => a.t - b.t),
+        items = [];
+      let pos = 0;
+      const gap = (t, span) =>
+        span > 0 && items.push({gap: true, t, ticks: span, rest: true, pitches: [], pre: [], chords: [], inline: []});
+      for (const e of events) {
+        if (e.grace) {
+          graces.push(e);
+          continue;
+        }
+        if (e.t < pos) {
+          skip('overlap');
+          continue;
+        }
+        gap(pos, e.t - pos);
+        e.graces = graces;
+        graces = [];
+        items.push(e);
+        pos = e.t + e.ticks;
+      }
+      gap(pos, length - pos);
+      // A voice with nothing in a measure shows a whole-bar rest on its staff's first voice and space elsewhere.
+      if (!v.index && items.every(x => x.gap)) items.forEach(x => (x.shown = true));
+      return items;
+    });
+  }
+  // Directions and chord symbols go on the voice they name (or the staff's first voice), on the first note or rest
+  // at or after their time. A hairpin ends on the note it reaches; one that ends between notes ends on the one before.
+  for (const part of parts)
+    part.measures.forEach((m, i) => {
+      for (const mark of m.marks) {
+        const staffVoices = voices.filter(v => v.part === part && v.staff === mark.staff),
+          v = staffVoices.find(x => x.key === mark.staff + ':' + mark.voice) || staffVoices[0];
+        if (!v) continue;
+        const items = v.items[i],
+          after = items.find(x => x.t >= mark.t),
+          target =
+            mark.stop && after?.t !== mark.t ? items.findLast(x => x.t < mark.t) || after : after || items.at(-1);
+        if (!target) continue;
+        if (mark.chord) target.chords.push(mark.chord);
+        if (mark.pre) target.pre.push(mark.pre);
+        if (mark.part) target.inline.push(`[P:${mark.part}]`);
+        if (mark.wedge) {
+          if (mark.wedge === 'stop') {
+            if (v.wedge) target.pre.push(`!${v.wedge})!`);
+            v.wedge = null;
+          } else {
+            if (v.wedge) target.pre.push(`!${v.wedge})!`);
+            target.pre.push(`!${mark.wedge}(!`);
+            v.wedge = mark.wedge;
+          }
+        }
+      }
+    });
+  // Tempo marks from any part, once each: the first one is the Q: header when it comes before any note.
+  const seen = new Set();
+  let headerTempo = '';
+  for (const tempo of tempos.sort((a, b) => a.measure - b.measure || a.t - b.t || a.part - b.part)) {
+    const id = tempo.measure + ':' + tempo.t + ':' + tempo.q;
+    if (seen.has(id) || !tempo.q) continue;
+    seen.add(id);
+    if (!tempo.measure && !tempo.t && !headerTempo) headerTempo = tempo.q;
+    else {
+      const items = voices[0].items[tempo.measure];
+      (items?.find(x => x.t >= tempo.t) || items?.at(-1))?.inline.push(`[Q:${tempo.q}]`);
+    }
+  }
+
+  // Lines: the file's system breaks when it has them (at most 8 bars a line), otherwise 4 bars a line.
+  const hinted = parts.some(p => p.measures.some(m => m.newSystem)),
+    lineStarts = [0];
+  for (let i = 1, since = 1; i < count; i++, since++)
+    if (hinted ? parts.some(p => p.measures[i]?.newSystem) || since >= 8 : since >= 4) {
+      lineStarts.push(i);
+      since = 0;
+    }
+
+  // Each voice's starting key, meter and clef come from its part's first changes; the header uses the first voice's.
+  for (const v of voices) {
+    v.start = {key: {fifths: 0, mode: ''}, meter: null, clef: 'treble'};
+    for (const c of v.part.measures[0]?.changes || [])
+      if (c.t === 0 && applies(c, v)) v.start[c.type] = c.type === 'clef' ? c.text : c.type === 'key' ? c.key : c;
+  }
+  const head = voices[0].start,
+    header = {key: mxiKeyText(head.key), meter: head.meter?.text || 'none'};
+  for (const v of voices) {
+    v.state = {
+      key: header.key,
+      alters: mxiKeyAlters(head.key),
+      meter: header.meter,
+      beat: beatOf(head.meter),
+      clef: v.start.clef,
+      bar: new Map(),
+      tied: new Map(),
+      slurs: new Map(),
+      hold: new Map()
+    };
+    v.verses = Math.max(0, ...v.items.flat().flatMap(x => [...(x.lyric?.keys() || [])]));
+  }
+  // abcjs keeps one key for the whole score and starts each voice's line in its V: clef, so when the parts' keys
+  // differ, or a voice has changed clef, each line of that voice starts by naming them again.
+  const keyTrail = v =>
+      [
+        mxiKeyText(v.start.key),
+        ...v.part.measures.flatMap((m, i) =>
+          m.changes.filter(c => c.type === 'key' && applies(c, v)).map(c => `${i}:${c.t}:${mxiKeyText(c.key)}`)
+        )
+      ].join(),
+    keysDiffer = voices.some(v => keyTrail(v) !== keyTrail(voices[0])),
+    multi = voices.length > 1 || voices[0].start.clef !== 'treble',
+    body = [];
+  lineStarts.forEach((from, li) => {
+    const to = lineStarts[li + 1] ?? count;
+    for (const v of voices) {
+      const st = v.state,
+        before = {key: st.key, clef: st.clef};
+      for (const c of (v.part.measures[from]?.changes || []).filter(c => !c.t && applies(c, v) && c.type !== 'meter')) {
+        (c.done ??= new Set()).add(v);
+        if (c.type === 'clef') st.clef = c.text;
+        else {
+          st.key = mxiKeyText(c.key);
+          st.alters = mxiKeyAlters(c.key);
+        }
+      }
+      const key = keysDiffer || st.key !== before.key ? st.key : '',
+        clef = (li && st.clef !== v.start.clef) || st.clef !== before.clef ? 'clef=' + st.clef : '';
+      v.lyrics = Array.from({length: v.verses}, () => []);
+      let line = key || clef ? `[K:${[key, clef].filter(Boolean).join(' ')}] ` : '';
+      const left = v.part.measures[from]?.left || {};
+      if (left.forward) line += '|:';
+      if (left.ending) line += '[' + left.ending + ' ';
+      for (let i = from; i < to; i++) line += measureText(v, i) + barToken(v.part, i, i === to - 1);
+      if (multi) body.push('V:' + v.id);
+      body.push(line.replace(/ +/g, ' ').trim());
+      v.lyrics.forEach((tokens, n) => {
+        while (tokens.at(-1) === '*') tokens.pop();
+        if (tokens.length || v.lyrics.slice(n + 1).some(t => t.some(x => x !== '*')))
+          body.push('w: ' + (tokens.join(' ') || '*'));
+      });
+    }
+  });
+
+  // Header: titles, people, rights, meter, unit, tempo, voices and key.
+  const work = xmlKid(root, 'work'),
+    identification = xmlKid(root, 'identification'),
+    credits = xmlKids(root, 'credit').map(c => ({
+      type: xmlValue(c, 'credit-type'),
+      words: xmlKids(c, 'credit-words'),
+      text: xmlKids(c, 'credit-words')
+        .map(w => w.textContent)
+        .join(' ')
+    })),
+    creators = xmlKids(identification, 'creator'),
+    creator = type =>
+      creators.filter(c => (c.getAttribute('type') || 'composer') === type).map(c => abcText(c.textContent)),
+    fields = xmlKids(xmlKid(identification, 'miscellaneous'), 'miscellaneous-field'),
+    rightsField = fields.find(f => f.getAttribute('name') === 'fretfree-rights');
+  let metadata = {};
+  if (rightsField)
+    try {
+      const value = JSON.parse(rightsField.textContent);
+      if (value && typeof value === 'object' && !Array.isArray(value)) metadata = value;
+    } catch {}
+  delete metadata.abc;
+  const largest = credits
+      .filter(c => !c.type || c.type === 'title')
+      .sort(
+        (a, b) =>
+          (b.type === 'title') - (a.type === 'title') ||
+          +b.words[0]?.getAttribute('font-size') - +a.words[0]?.getAttribute('font-size')
+      )[0],
+    // Titles from <work> and <movement-title>; a file with neither uses its largest title credit or its name.
+    named = [...new Set([xmlValue(work, 'work-title'), xmlValue(root, 'movement-title')].map(abcText).filter(Boolean))],
+    titles = named.length ? named : [abcText(largest?.text) || abcText(name.replace(/\.[^.]*$/, '')) || 'Untitled'],
+    composers = creator('composer').length
+      ? creator('composer')
+      : credits.filter(c => c.type === 'composer').map(c => abcText(c.text)),
+    rights = metadata.rights
+      ? []
+      : (xmlKids(identification, 'rights').length
+          ? xmlKids(identification, 'rights').map(r => r.textContent)
+          : credits.filter(c => c.type === 'rights').map(c => c.text)
+        ).flatMap(text => text.split(/\n+/).map(abcText).filter(Boolean));
+  const lines = [
+    'X:1',
+    ...titles.map(t => 'T:' + t),
+    ...composers.map(c => 'C:' + c),
+    ...creator('lyricist').map(c => 'C:Words: ' + c),
+    ...creator('arranger').map(c => 'C:Arranged by ' + c),
+    ...rights.map(r => '%%abc-copyright ' + r),
+    'M:' + header.meter,
+    'L:1/8'
+  ];
+  if (headerTempo) lines.push('Q:' + headerTempo);
+  if (voices.length > 1 && voices.some(v => v.shared || v.part.staves - v.part.dropStaves.size > 1))
+    lines.push(
+      '%%score ' +
+        parts
+          .map(part => {
+            const staves = [...new Set(voices.filter(v => v.part === part).map(v => v.staff))].map(s => {
+              const ids = voices.filter(v => v.part === part && v.staff === s).map(v => v.id);
+              return ids.length > 1 ? `(${ids.join(' ')})` : ids[0];
+            });
+            return staves.length > 1 ? `{${staves.join(' | ')}}` : staves[0];
+          })
+          .join(' ')
+    );
+  if (multi)
+    for (const v of voices) {
+      const info = v.part.info;
+      lines.push(
+        `V:${v.id}` +
+          (v.first && info.name ? ` name="${info.name}"` : '') +
+          (v.first && info.abbreviation ? ` snm="${info.abbreviation}"` : '') +
+          ` clef=${v.start.clef}` +
+          (v.shared ? (v.index % 2 ? ' stem=down' : ' stem=up') : '')
+      );
+    }
+  lines.push('K:' + header.key);
+  const transposed = parts[0].transposed,
+    instrument = MXI_INSTRUMENTS.find(
+      ([pattern, , chromatic]) =>
+        pattern.test(parts[0].info.instrument) && (chromatic ?? 0) === posMod(transposed || 0, 12)
+    )?.[1];
+  return {
+    abc: lines.join('\n') + '\n' + body.join('\n') + '\n',
+    metadata,
+    skipped: [...skipped],
+    parts: parts.length,
+    measures: count,
+    instrument: instrument || ''
+  };
+
+  // Whether a key, meter or clef change applies to a voice: meters to all, keys to the part or one staff.
+  function applies(c, v) {
+    return (
+      c.type === 'meter' ||
+      (c.type === 'key' && (!c.staff || c.staff === v.staff)) ||
+      (c.type === 'clef' && c.staff === v.staff)
+    );
+  }
+  function beatOf(meter) {
+    const [num, den] = String(meter?.text || '')
+      .split('/')
+      .map(Number);
+    return den === 8 && num % 3 === 0 && num > 3 ? 3 / 8 : 1 / 4;
+  }
+  // One bar line; at the end of a line it leaves the next measure's repeat and ending to the start of the next line.
+  // abcjs ends an ending's bracket only at a bar line other than a plain one, so a stop there becomes a double bar.
+  function barToken(part, i, lineEnd) {
+    const right = part.measures[i]?.right || {},
+      next = (!lineEnd && part.measures[i + 1]?.left) || {};
+    let token =
+      right.backward && next.forward
+        ? '::'
+        : next.forward
+          ? '|:'
+          : right.backward
+            ? ':|'
+            : {
+                'light-light': '||',
+                'light-heavy': '|]',
+                'heavy-light': '[|',
+                'heavy-heavy': '|]',
+                dotted: '.|',
+                dashed: '.|',
+                none: '[|]'
+              }[right.style] || '|';
+    if (right.endingStop && token === '|' && !part.measures[i + 1]?.left.ending) token = '||';
+    return ' ' + token + (next.ending ? '[' + next.ending : '') + ' ';
+  }
+  // A measure of one voice: its key, meter and clef changes, then each note, chord or rest with what goes on it.
+  function measureText(v, i) {
+    const st = v.state,
+      changes = (v.part.measures[i]?.changes || []).filter(c => applies(c, v)),
+      items = v.items[i];
+    st.bar = new Map();
+    const out = [];
+    tuplets(items);
+    items.forEach((x, k) => {
+      let text = '';
+      for (const c of changes.filter(c => c.t <= x.t && !c.done?.has(v))) {
+        (c.done ??= new Set()).add(v);
+        if (c.type === 'key' && mxiKeyText(c.key) !== st.key) {
+          st.key = mxiKeyText(c.key);
+          st.alters = mxiKeyAlters(c.key);
+          text += `[K:${st.key}] `;
+        } else if (c.type === 'meter' && c.text !== st.meter) {
+          st.meter = c.text;
+          st.beat = beatOf(c);
+          text += `[M:${st.meter}] `;
+        } else if (c.type === 'clef' && c.text !== st.clef) {
+          st.clef = c.text;
+          text += `[K:clef=${st.clef}] `;
+        }
+      }
+      text += x.inline.map(f => f + ' ').join('');
+      text += itemText(v, x);
+      const next = items[k + 1],
+        beamed = !x.rest && x.notated < 1 / 4 && next && !next.rest && next.notated < 1 / 4;
+      out.push(
+        text +
+          (beamed &&
+          (v.part.beams
+            ? x.beam === 'begin' || x.beam === 'continue'
+            : Math.floor(whole(x.t) / st.beat + 1e-9) === Math.floor(whole(next.t) / st.beat + 1e-9))
+            ? ''
+            : ' ')
+      );
+    });
+    // Changes after the last note (a clef at the end of a bar) come at the end.
+    for (const c of changes.filter(c => !c.done?.has(v))) {
+      (c.done ??= new Set()).add(v);
+      if (c.type === 'clef' && c.text !== st.clef) out.push(`[K:clef=${(st.clef = c.text)}]`);
+      else if (c.type === 'key' && mxiKeyText(c.key) !== st.key) {
+        st.key = mxiKeyText(c.key);
+        st.alters = mxiKeyAlters(c.key);
+        out.push(`[K:${st.key}]`);
+      } else if (c.type === 'meter' && c.text !== st.meter) {
+        st.meter = c.text;
+        st.beat = beatOf(c);
+        out.push(`[M:${st.meter}]`);
+      }
+    }
+    return ' ' + out.join('').trim();
+  }
+  // Notes with a time modification form a tuplet until the bracket stops or the ratio changes; (p:q:r counts them.
+  function tuplets(items) {
+    const flag = (x, type) => x.notations?.some(n => xmlKids(n, 'tuplet').some(t => t.getAttribute('type') === type));
+    for (const x of items) {
+      x.notated = x.gap ? whole(x.ticks) : whole(x.ticks) * (x.ratio ? x.ratio.actual / x.ratio.normal : 1);
+      if (!x.gap && x.type && !x.measureRest && !mxlPieces(x.notated)) x.notated = x.type;
+      x.pieces = mxlPieces(x.notated) || [x.notated];
+    }
+    for (let k = 0; k < items.length; k++) {
+      const x = items[k];
+      if (!x.ratio) continue;
+      let j = k;
+      while (
+        !flag(items[j], 'stop') &&
+        items[j + 1]?.ratio?.actual === x.ratio.actual &&
+        items[j + 1].ratio.normal === x.ratio.normal &&
+        !flag(items[j + 1], 'start')
+      )
+        j++;
+      x.tuplet = `(${x.ratio.actual}:${x.ratio.normal}:${items.slice(k, j + 1).reduce((n, y) => n + y.pieces.length, 0)}`;
+      k = j;
+    }
+  }
+  // A pitch as ABC spells it in this bar: an accidental lasts to the bar line at that octave, a tie carries the
+  // tied-from note's accidental over the bar line, and otherwise the key signature applies.
+  function pitchText(p, shift, st, carried) {
+    const octave = Math.max(0, Math.min(9, p.octave - shift)),
+      id = p.step + octave;
+    let acc = '';
+    if (carried !== p.alter) {
+      const effective = st.bar.has(id) ? st.bar.get(id) : st.alters[p.step] || 0;
+      if (p.alter !== effective || p.shown) {
+        acc = MXI_ACC[p.alter] ?? '';
+        st.bar.set(id, p.alter);
+      }
+    }
+    return {
+      id,
+      text: acc + (octave >= 5 ? p.step.toLowerCase() + "'".repeat(octave - 5) : p.step + ','.repeat(4 - octave))
+    };
+  }
+  function itemText(v, x) {
+    const st = v.state,
+      len = value => lengthText(value * 8);
+    if (x.gap || x.rest) {
+      st.tied = new Map();
+      lyricTokens(v, x, 0);
+      const r = x.gap ? (x.shown ? 'z' : 'x') : x.hidden ? 'x' : 'z',
+        {pre, open, close} = marks(v, x);
+      return (
+        (x.tuplet || '') +
+        x.chords.map(c => `"${c}"`).join('') +
+        [...x.pre, ...pre].join('') +
+        open +
+        x.pieces.map(piece => r + len(piece)).join(' ') +
+        close
+      );
+    }
+    const {pre, open, close} = marks(v, x),
+      graces = x.graces.length
+        ? '{' +
+          (x.graces[0].grace.slash ? '/' : '') +
+          x.graces.map(g => pitchText(g.pitches[0], g.shift, st).text + len(g.type || 1 / 8)).join('') +
+          '}'
+        : '',
+      spelled = x.pitches.map(p => ({
+        ...pitchText(
+          p,
+          x.shift,
+          st,
+          p.tieStop ? st.tied.get(p.step + Math.max(0, Math.min(9, p.octave - x.shift))) : undefined
+        ),
+        p
+      }));
+    st.tied = new Map(spelled.filter(s => s.p.tieStart).map(s => [s.id, s.p.alter]));
+    lyricTokens(v, x, x.pieces.length);
+    const last = x.pieces.length - 1;
+    return (
+      (x.tuplet || '') +
+      x.chords.map(c => `"${c}"`).join('') +
+      [...x.pre, ...pre].join('') +
+      graces +
+      open +
+      x.pieces
+        .map((piece, k) => {
+          const tie = s => (k < last || s.p.tieStart ? '-' : ''),
+            // Later pieces are tied on from the first, so they need no accidental of their own.
+            names = spelled.map(s => (k ? s.text.replace(/^[_^=]+/, '') : s.text));
+          return spelled.length > 1
+            ? '[' + spelled.map((s, n) => names[n] + tie(s)).join('') + ']' + len(piece)
+            : names[0] + len(piece) + tie(spelled[0]);
+        })
+        .join(' ') +
+      close
+    );
+  }
+  // Slurs, articulations, ornaments, fermatas and the like from a note's <notations>.
+  function marks(v, x) {
+    const pre = [];
+    let open = '',
+      close = '';
+    for (const n of x.notations || [])
+      for (const c of xmlChildren(n)) {
+        const name = c.localName,
+          type = c.getAttribute('type');
+        if (name === 'slur') {
+          const number = c.getAttribute('number') || '1';
+          if (type === 'start' && !v.state.slurs.get(number)) {
+            v.state.slurs.set(number, true);
+            open += '(';
+          } else if (type === 'stop' && v.state.slurs.get(number)) {
+            v.state.slurs.delete(number);
+            close += ')';
+          }
+        } else if (name === 'articulations' || name === 'ornaments' || name === 'technical')
+          for (const a of xmlChildren(c)) {
+            const mark = {articulations: MXI_ARTICULATIONS, ornaments: MXI_ORNAMENTS, technical: MXI_TECHNICAL}[name][
+              a.localName
+            ];
+            if (mark) pre.push(mark);
+            else if (a.localName === 'wavy-line') {
+              const t = a.getAttribute('type');
+              if (t === 'start') pre.push('!trill(!');
+              else if (t === 'stop') pre.push('!trill)!');
+            } else if (a.localName === 'fingering' && /^[0-5]$/.test(a.textContent.trim()))
+              pre.push(`!${a.textContent.trim()}!`);
+            else if (!/^(accidental-mark|other-articulation|other-ornament|other-technical)$/.test(a.localName))
+              skip(a.localName);
+          }
+        else if (name === 'fermata') pre.push(type === 'inverted' ? '!invertedfermata!' : '!fermata!');
+        else if (name === 'arpeggiate') pre.push('!arpeggio!');
+        else if (name === 'glissando' || name === 'slide') {
+          if (type === 'start') pre.push('!glissando(!');
+          else if (type === 'stop') pre.push('!glissando)!');
+        } else if (name === 'dynamics')
+          for (const d of xmlChildren(c))
+            pre.push(
+              MXI_DYNAMICS.has(d.localName)
+                ? `!${d.localName}!`
+                : MXI_ACCENTS.has(d.localName)
+                  ? '!sfz!'
+                  : `"_${abcQuoted(d.textContent || d.localName)}"`
+            );
+        else if (!/^(tied|tuplet|accidental-mark|other-notation|non-arpeggiate)$/.test(name)) skip(name);
+      }
+    return {pre: [...new Set(pre)], open, close};
+  }
+  // w: tokens: a syllable (with - inside a word or _ for a melisma), _ to hold it over the next note, * to skip one.
+  // ABC aligns lyrics to notes, not rests, and each tied piece is a note.
+  function lyricTokens(v, x, notes) {
+    v.lyrics.forEach((tokens, n) => {
+      const verse = n + 1,
+        l = x.lyric?.get(verse);
+      if (!notes) {
+        if (x.lyric) v.state.hold.delete(verse);
+        return;
+      }
+      for (let k = 0; k < notes; k++)
+        if (l && !k) {
+          const word = /^(begin|middle)$/.test(l.syllabic);
+          tokens.push((l.text || '*') + (word ? '-' : l.extend ? '_' : ''));
+          v.state.hold.set(verse, l.extend);
+        } else tokens.push(v.state.hold.get(verse) ? '_' : '*');
+    });
+  }
+
+  // One part: its measures, each with the events of every staff:voice, the directions to place, the key, meter and
+  // clef changes, and the bar lines.
+  function readPart(info, pi) {
+    let divTicks = ticks,
+      staves = 1,
+      transpose = null,
+      transposed = null,
+      hasNotes = false,
+      beams = false,
+      lastNote = null;
+    const clefShift = {},
+      tabStaves = new Set(),
+      voiceOrder = new Map(),
+      measures = [];
+    for (const [mi, {el, measure}] of info.measures.entries()) {
+      const m = {
+        voices: new Map(),
+        marks: [],
+        changes: [],
+        left: {},
+        right: {},
+        length: 0,
+        newSystem: xmlKids(el, 'print').some(
+          p => p.getAttribute('new-system') === 'yes' || p.getAttribute('new-page') === 'yes'
+        )
+      };
+      measures.push(m);
+      let t = 0;
+      const offset = child => t + Math.round((+xmlValue(child, 'offset') || 0) * divTicks);
+      for (const child of xmlChildren(el)) {
+        const name = child.localName;
+        if (name === 'attributes') attributes(child, m, t);
+        else if (name === 'note') t += note(child, m, t);
+        else if (name === 'backup') t = Math.max(0, t - Math.round((+xmlValue(child, 'duration') || 0) * divTicks));
+        else if (name === 'forward') t += Math.max(0, Math.round((+xmlValue(child, 'duration') || 0) * divTicks));
+        else if (name === 'direction') direction(child, m, offset(child), mi);
+        else if (name === 'harmony') harmony(child, m, offset(child));
+        else if (name === 'sound' && +child.getAttribute('tempo') > 0)
+          tempos.push({measure: mi, t, part: pi, q: mxiTempo([], null, +child.getAttribute('tempo'))});
+        else if (name === 'figured-bass') skip(name);
+        else if (name === 'barline') barline(child, m);
+        m.length = Math.max(m.length, t);
+      }
+    }
+    const allTab = tabStaves.size >= staves;
+    return {
+      info,
+      measures,
+      hasNotes,
+      beams,
+      staves,
+      transposed,
+      voiceOrder,
+      tabOnly: allTab,
+      dropStaves: allTab ? new Set() : tabStaves
+    };
+
+    function attributes(el, m, t) {
+      for (const child of xmlChildren(el)) {
+        const name = child.localName;
+        if (name === 'divisions' && Math.round(+child.textContent) > 0)
+          divTicks = ticks / Math.round(+child.textContent);
+        else if (name === 'staves') staves = Math.max(1, Math.min(8, Math.round(+child.textContent) || 1));
+        else if (name === 'transpose' && !(+child.getAttribute('number') > 1)) {
+          const octave = Math.round(+xmlValue(child, 'octave-change') || 0),
+            diatonic = Math.round(+xmlValue(child, 'diatonic') || 0) + 7 * octave,
+            chromatic = Math.round(+xmlValue(child, 'chromatic') || 0) + 12 * octave;
+          transpose = diatonic || chromatic ? {diatonic, chromatic} : null;
+          transposed ??= chromatic;
+          // A key given earlier in this measure was written for the old transposition.
+          for (const c of m.changes) if (c.type === 'key') c.key = concertKey(c.written);
+        } else if (name === 'key') {
+          const written = readKey(child);
+          m.changes.push({
+            t,
+            type: 'key',
+            staff: +child.getAttribute('number') || 0,
+            written,
+            key: concertKey(written)
+          });
+        } else if (name === 'time') {
+          const meter = mxiMeter(child);
+          if (meter?.mixed) skip('time-mix');
+          if (meter) m.changes.push({t, type: 'meter', ...meter});
+        } else if (name === 'clef') {
+          const staff = +child.getAttribute('number') || 1,
+            clef = mxiClef(child);
+          clefShift[staff] = clef.shift;
+          if (clef.tab) tabStaves.add(staff);
+          else m.changes.push({t, type: 'clef', staff, text: clef.name});
+        } else if (name === 'measure-style' && xmlKid(child, 'slash')) skip('slash');
+      }
+    }
+    function readKey(el) {
+      if (xmlKid(el, 'fifths'))
+        return {
+          fifths: Math.max(-7, Math.min(7, Math.round(+xmlValue(el, 'fifths') || 0))),
+          mode: MXI_MODES[xmlValue(el, 'mode').toLowerCase()] ?? ''
+        };
+      const alters = xmlKids(el, 'key-alter');
+      return {
+        steps: xmlKids(el, 'key-step')
+          .map((s, i) => [
+            s.textContent.trim().toUpperCase(),
+            Math.max(-2, Math.min(2, Math.round(+alters[i]?.textContent || 0)))
+          ])
+          .filter(([step]) => MXI_STEPS.includes(step) && step.length === 1)
+      };
+    }
+    // A transposing part's written key at concert pitch: a semitone up adds seven fifths, a letter up takes twelve.
+    function concertKey(key) {
+      if (!transpose) return key;
+      if (key.steps)
+        return {
+          steps: key.steps.map(([step, alter]) => {
+            const p = mxiTranspose({step, alter, octave: 4}, transpose.diatonic, transpose.chromatic);
+            return [p.step, p.alter];
+          })
+        };
+      let fifths = key.fifths + 7 * transpose.chromatic - 12 * transpose.diatonic;
+      while (fifths > 7) fifths -= 12;
+      while (fifths < -7) fifths += 12;
+      return {fifths, mode: key.mode};
+    }
+    // A note: returns how far it moves the time on. A <chord/> note joins the note before it.
+    function note(n, m, t) {
+      const grace = xmlKid(n, 'grace'),
+        rest = xmlKid(n, 'rest'),
+        pitchEl = xmlKid(n, 'pitch') || xmlKid(n, 'unpitched'),
+        cue = !!xmlKid(n, 'cue'),
+        notations = xmlKids(n, 'notations'),
+        type = MXI_TYPES[xmlValue(n, 'type')],
+        dots = xmlKids(n, 'dot').length,
+        mod = xmlKid(n, 'time-modification'),
+        actual = Math.round(+xmlValue(mod, 'actual-notes')),
+        normal = Math.round(+xmlValue(mod, 'normal-notes')),
+        ratio = actual > 0 && normal > 0 && actual !== normal ? {actual, normal} : null,
+        notated = type ? type * (2 - 1 / 2 ** dots) : 0;
+      let span = grace ? 0 : Math.max(0, Math.round((+xmlValue(n, 'duration') || 0) * divTicks));
+      if (!grace && !span && notated)
+        span = Math.round(notated * 4 * ticks * (ratio ? ratio.normal / ratio.actual : 1));
+      if (cue) skip('cue');
+      const notehead = xmlValue(n, 'notehead');
+      if (notehead && !/^(normal|none)$/.test(notehead)) skip('notehead');
+      let pitch = null;
+      if (pitchEl && !rest && !cue && n.getAttribute('print-object') !== 'no') {
+        const unpitched = pitchEl.localName === 'unpitched',
+          step = xmlValue(pitchEl, unpitched ? 'display-step' : 'step').toUpperCase(),
+          octave = Math.round(+xmlValue(pitchEl, unpitched ? 'display-octave' : 'octave'));
+        let alter = unpitched ? 0 : +xmlValue(pitchEl, 'alter') || 0;
+        if (unpitched) skip('unpitched');
+        if (alter !== Math.round(alter)) skip('quarter');
+        if (
+          step.length === 1 &&
+          MXI_STEPS.includes(step) &&
+          xmlValue(pitchEl, unpitched ? 'display-octave' : 'octave') !== '' &&
+          Number.isFinite(octave)
+        ) {
+          pitch = {step, alter: Math.round(alter), octave};
+          if (transpose && !unpitched) pitch = mxiTranspose(pitch, transpose.diatonic, transpose.chromatic);
+          pitch.alter = Math.max(-2, Math.min(2, pitch.alter));
+          const accidental = xmlKid(n, 'accidental');
+          pitch.shown = !!accidental && accidental.getAttribute('print-object') !== 'no';
+          const ties = [
+            ...xmlKids(n, 'tie').map(x => x.getAttribute('type')),
+            ...notations.flatMap(x => xmlKids(x, 'tied')).map(x => x.getAttribute('type'))
+          ];
+          pitch.tieStart = ties.includes('start') || ties.includes('continue');
+          pitch.tieStop = ties.includes('stop') || ties.includes('continue');
+        }
+      }
+      if (xmlKid(n, 'chord') && lastNote?.measure === m) {
+        if (pitch && lastNote.pitches.length) {
+          if (lastNote.grace) skip('grace-chord');
+          else lastNote.pitches.push(pitch);
+        }
+        lastNote.notations.push(...notations);
+        lyrics(n, lastNote);
+        return 0;
+      }
+      const staff = Math.max(1, Math.min(staves, Math.round(+xmlValue(n, 'staff')) || 1)),
+        voice = xmlValue(n, 'voice') || '1',
+        key = staff + ':' + voice;
+      if (!voiceOrder.has(key)) voiceOrder.set(key, {staff, voice, order: voiceOrder.size});
+      const e = {
+        t,
+        measure: m,
+        ticks: span,
+        rest: !pitch,
+        hidden: n.getAttribute('print-object') === 'no' || cue || (!pitch && !rest),
+        measureRest: rest?.getAttribute('measure') === 'yes',
+        pitches: pitch ? [pitch] : [],
+        shift: clefShift[staff] || 0,
+        type: notated,
+        ratio,
+        grace: grace ? {slash: grace.getAttribute('slash') === 'yes'} : null,
+        notations,
+        beam: xmlKids(n, 'beam')
+          .find(b => (b.getAttribute('number') || '1') === '1')
+          ?.textContent.trim(),
+        lyric: new Map(),
+        pre: [],
+        chords: [],
+        inline: [],
+        graces: []
+      };
+      if (e.beam) beams = true;
+      if (pitch) hasNotes = true;
+      // A grace note without a pitch is dropped; a rest has no grace form in ABC.
+      if (!(grace && !pitch)) {
+        if (!m.voices.has(key)) m.voices.set(key, []);
+        m.voices.get(key).push(e);
+      }
+      lastNote = e;
+      lyrics(n, e);
+      return span;
+    }
+    function lyrics(n, e) {
+      for (const [i, l] of xmlKids(n, 'lyric').entries()) {
+        const number =
+          Math.round(+l.getAttribute('number')) || +(/\d+/.exec(l.getAttribute('name') || '')?.[0] || 0) || i + 1;
+        if (number > 8) skip('verses');
+        if (e.lyric.has(number) || number > 8 || number < 1) continue;
+        e.lyric.set(number, {
+          text: xmlKids(l, 'text')
+            .map(x =>
+              x.textContent
+                .trim()
+                .replace(/[\\_*|~%"]/g, '')
+                .replace(/-/g, '\\-')
+                .replace(/\s+/g, '~')
+            )
+            .filter(Boolean)
+            .join('~'),
+          syllabic: xmlValue(l, 'syllabic') || 'single',
+          extend: xmlKid(l, 'extend')?.getAttribute('type') !== 'stop' && !!xmlKid(l, 'extend')
+        });
+      }
+    }
+    function mark(m, t, el, item) {
+      const staff = Math.max(1, Math.min(staves, Math.round(+xmlValue(el, 'staff')) || 1));
+      m.marks.push({t, staff, voice: xmlValue(el, 'voice'), ...item});
+    }
+    function direction(el, m, t, mi) {
+      const placement = el.getAttribute('placement'),
+        sound = xmlKid(el, 'sound'),
+        speed = +sound?.getAttribute('tempo') || 0,
+        words = [];
+      let metronome = null;
+      for (const type of xmlKids(el, 'direction-type'))
+        for (const d of xmlChildren(type)) {
+          const name = d.localName;
+          if (name === 'dynamics')
+            for (const dyn of xmlChildren(d)) {
+              const value = dyn.localName === 'other-dynamics' ? dyn.textContent.trim() : dyn.localName;
+              if (value)
+                mark(m, t, el, {
+                  pre: MXI_DYNAMICS.has(value)
+                    ? `!${value}!`
+                    : MXI_ACCENTS.has(value)
+                      ? '!sfz!'
+                      : `"_${abcQuoted(value)}"`
+                });
+            }
+          else if (name === 'wedge') {
+            const type = d.getAttribute('type');
+            if (type === 'crescendo' || type === 'diminuendo') mark(m, t, el, {wedge: type});
+            else if (type === 'stop') mark(m, t, el, {wedge: 'stop', stop: true});
+          } else if (name === 'words') words.push(d.textContent);
+          else if (name === 'rehearsal' && abcText(d.textContent))
+            mark(m, t, el, {part: abcText(d.textContent).replace(/[\]]/g, '')});
+          else if (name === 'segno') mark(m, t, el, {pre: '!segno!'});
+          else if (name === 'coda') mark(m, t, el, {pre: '!coda!'});
+          else if (name === 'metronome') metronome = d;
+          else if (
+            !/^(other-direction|swing|staff-divide|eyeglasses|damp|damp-all|principal-voice|scordatura|rehearsal)$/.test(
+              name
+            )
+          )
+            skip(name);
+        }
+      // Words beside a metronome mark or a playback tempo are the tempo's text.
+      if (metronome || speed) {
+        const q = mxiTempo(words, metronome, speed);
+        if (q) tempos.push({measure: mi, t, part: pi, q});
+        if (metronome || words.length) return;
+      }
+      for (const w of words) {
+        const text = abcQuoted(w);
+        if (text)
+          mark(m, t, el, {pre: MXI_WORDS[text.toLowerCase()] || `"${placement === 'below' ? '_' : '^'}${text}"`});
+      }
+    }
+    function harmony(el, m, t) {
+      const rootEl = xmlKid(el, 'root'),
+        step = xmlValue(rootEl, 'root-step').toUpperCase(),
+        kind = xmlKid(el, 'kind'),
+        kindValue = kind?.textContent.trim() || '';
+      if (kindValue === 'none') return mark(m, t, el, {chord: 'N.C.'});
+      if (step.length !== 1 || !MXI_STEPS.includes(step)) return;
+      const spell = (s, alter) => {
+        let p = {step: s, alter: Math.round(+alter || 0), octave: 4};
+        if (transpose) p = mxiTranspose(p, transpose.diatonic, transpose.chromatic);
+        return p.step + (p.alter > 0 ? '#'.repeat(p.alter) : 'b'.repeat(-p.alter));
+      };
+      let suffix = kind?.hasAttribute('text') ? kind.getAttribute('text') : (MXI_KINDS[kindValue] ?? '');
+      if (!kind?.hasAttribute('text'))
+        for (const d of xmlKids(el, 'degree')) {
+          const value = xmlValue(d, 'degree-value'),
+            alter = +xmlValue(d, 'degree-alter') || 0,
+            sign = alter > 0 ? '#' : alter < 0 ? 'b' : '',
+            type = xmlValue(d, 'degree-type');
+          suffix += type === 'subtract' ? `no${value}` : type === 'alter' ? sign + value : `add${sign}${value}`;
+        }
+      const bass = xmlKid(el, 'bass'),
+        bassStep = xmlValue(bass, 'bass-step').toUpperCase();
+      mark(m, t, el, {
+        chord: abcQuoted(
+          spell(step, xmlValue(rootEl, 'root-alter')) +
+            suffix +
+            (bass && MXI_STEPS.includes(bassStep) && bassStep.length === 1
+              ? '/' + spell(bassStep, xmlValue(bass, 'bass-alter'))
+              : '')
+        )
+      });
+    }
+    function barline(el, m) {
+      const location = el.getAttribute('location') || 'right';
+      if (location === 'middle') return;
+      const side = location === 'left' ? m.left : m.right,
+        style = xmlValue(el, 'bar-style'),
+        repeat = xmlKid(el, 'repeat'),
+        ending = xmlKid(el, 'ending');
+      if (style) side.style = style;
+      if (repeat) {
+        side[repeat.getAttribute('direction') === 'forward' ? 'forward' : 'backward'] = true;
+        const times = +repeat.getAttribute('times');
+        if (times && times !== 2 && !ending) skip('repeat');
+      }
+      if (ending) {
+        const numbers = (ending.getAttribute('number') || '').match(/\d+/g)?.join(',');
+        if (ending.getAttribute('type') === 'start') m.left.ending = numbers || '1';
+        else m.right.endingStop = true;
+      }
+    }
+  }
+}
+
+// Reading a chosen file. MusicXML bytes become text by their byte-order mark (UTF-16) or the encoding their XML
+// declaration names, UTF-8 otherwise.
+function musicXMLText(bytes) {
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes);
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder('utf-16be').decode(bytes);
+  const declared = /^\s*<\?xml[^>]*encoding\s*=\s*["']([\w.:-]+)["']/.exec(
+    String.fromCharCode(...bytes.subarray(0, 200))
+  )?.[1];
+  try {
+    return new TextDecoder(declared || 'utf-8').decode(bytes);
+  } catch {
+    return new TextDecoder().decode(bytes);
+  }
+}
+// A compressed .mxl file is a zip archive whose META-INF/container.xml names the score. This reads the archive's
+// central directory and inflates the score with the browser's DecompressionStream; nothing leaves the device.
+const MXL_UNZIPPED_LIMIT = 30 * 1024 * 1024,
+  MXL_DAMAGED = 'This .mxl file could not be opened. It may be damaged.';
+async function mxlInflate(data) {
+  let stream;
+  try {
+    stream = new DecompressionStream('deflate-raw');
+  } catch {
+    throw Error(
+      'This browser can’t open compressed .mxl files. Export the score as uncompressed MusicXML (.musicxml) and open that.'
+    );
+  }
+  const writer = stream.writable.getWriter(),
+    reader = stream.readable.getReader(),
+    chunks = [];
+  writer.write(data).catch(() => {});
+  writer.close().catch(() => {});
+  let size = 0;
+  try {
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > MXL_UNZIPPED_LIMIT) {
+        reader.cancel().catch(() => {});
+        throw Error('This .mxl file holds more music than FretFree can open.');
+      }
+      chunks.push(value);
+    }
+  } catch (e) {
+    throw /holds more/.test(e.message) ? e : Error(MXL_DAMAGED);
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.length;
+  }
+  return out;
+}
+async function mxlScore(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+    u16 = i => view.getUint16(i, true),
+    u32 = i => view.getUint32(i, true),
+    entries = new Map();
+  let end = -1;
+  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557) && end < 0; i--)
+    if (u32(i) === 0x06054b50) end = i;
+  if (end < 0) throw Error(MXL_DAMAGED);
+  for (let n = u16(end + 10), at = u32(end + 16); n > 0 && at + 46 <= bytes.length && u32(at) === 0x02014b50; n--) {
+    const length = u16(at + 28);
+    entries.set(new TextDecoder().decode(bytes.subarray(at + 46, at + 46 + length)), {
+      flags: u16(at + 8),
+      method: u16(at + 10),
+      size: u32(at + 20),
+      offset: u32(at + 42)
+    });
+    at += 46 + length + u16(at + 30) + u16(at + 32);
+  }
+  const read = name => {
+    const e = entries.get(name);
+    if (e.flags & 1) throw Error('This .mxl file is password-protected, so it can’t be opened.');
+    if (e.offset + 30 > bytes.length || u32(e.offset) !== 0x04034b50) throw Error(MXL_DAMAGED);
+    const start = e.offset + 30 + u16(e.offset + 26) + u16(e.offset + 28),
+      data = bytes.subarray(start, start + e.size);
+    if (data.length < e.size || (e.method !== 0 && e.method !== 8)) throw Error(MXL_DAMAGED);
+    return e.method ? mxlInflate(data) : data;
+  };
+  // The first rootfile is the score; without a container, the first MusicXML file in the archive.
+  const container = entries.has('META-INF/container.xml') ? musicXMLText(await read('META-INF/container.xml')) : '',
+    named = /<rootfile\b[^>]*\bfull-path\s*=\s*["']([^"']+)["']/.exec(container)?.[1]?.replace(/&amp;/g, '&'),
+    path = entries.has(named)
+      ? named
+      : [...entries.keys()].find(k => !k.startsWith('META-INF/') && /\.(musicxml|xml)$/i.test(k));
+  if (!path) throw Error('This .mxl file has no MusicXML score inside.');
+  return read(path);
+}
+// A chosen File: compressed or not (by its first bytes, whatever its extension), then converted.
+async function readMusicXMLFile(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer()),
+    zipped = bytes[0] === 0x50 && bytes[1] === 0x4b;
+  const text = musicXMLText(zipped ? await mxlScore(bytes) : bytes);
+  return musicXMLToABC(new DOMParser().parseFromString(text, 'application/xml'), {name: file.name});
 }

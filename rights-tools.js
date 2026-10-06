@@ -79,8 +79,11 @@ function vlqBytes(n) {
   while ((n >>= 7)) a.unshift((n & 127) | 128);
   return a;
 }
+// Without a FretFree credit, a copyright line kept from an imported file (%%abc-copyright) is the notice.
 function creditedMidi(bytes, source, item) {
-  const credit = exportCredit(item);
+  const credit =
+    exportCredit(item) ||
+    [...String(source).matchAll(/^%%abc-copyright[ \t]+(.+)$/gm)].map(m => m[1].trim()).join('\n');
   if (!credit) return bytes;
   const encoder = new TextEncoder();
   const event = (type, text) => {

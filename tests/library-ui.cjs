@@ -802,8 +802,65 @@ assert.equal(
     );
     assert.equal(page.run('current.kind'), 'shared', 'Discard leaves the open score alone');
   }
+  // Opening MusicXML: .mxl and .musicxml files become an editable personal copy, with a report of what was left out,
+  // a guessed instrument, and a FretFree export's rights metadata restored. Damaged and oversized files say so.
+  {
+    const page = boot(),
+      fixture = name => fs.readFileSync(path.join(root, 'tests/fixtures', name));
+    Object.assign(page.w, {DecompressionStream, TextDecoder});
+    const choose = async (data, name) => {
+      Object.defineProperty(page.$('import-file'), 'files', {
+        value: [new page.w.File([data], name)],
+        configurable: true
+      });
+      await page.$('import-file').onchange();
+    };
+    await choose(fixture('morning-walk.mxl'), 'morning-walk.mxl');
+    assert.equal(page.$('title').value, 'Morning Walk');
+    assert.equal(page.$('instrument').value, 'Flute', 'The first part names the instrument');
+    assert.equal(
+      page.$('save-status').textContent,
+      'Imported from MusicXML (3 parts, 5 measures). Save or export to keep a copy.'
+    );
+    assert.deepEqual([page.run('current.kind'), page.run('dirty')], ['personal', true]);
+    assert.ok(page.$('abc').value.includes('%%score 1 2 {(3 4) | 5}'));
+    assert.equal(page.$('notation').querySelectorAll('svg').length > 0, true, 'The imported score is engraved');
+    await choose(fixture('left-out.musicxml'), 'left-out.musicxml');
+    assert.equal(page.$('instrument').value, 'Trumpet in B♭', 'A part written for B♭ trumpet chooses it');
+    assert.match(page.$('save-status').textContent, /^Imported from MusicXML \(2 parts, 2 measures\)\. .* Left out: /);
+    assert.match(page.$('save-status').textContent, /Left out: pedal marks, .*, tremolos, .* and string numbers\.$/);
+    assert.ok(page.$('abc').value.includes('%%abc-copyright © 2026 Sam Writer. CC BY 4.0'), 'The copyright is kept');
+    // A FretFree export comes back with its edition's rights metadata, so later exports carry the same credit.
+    const item = page.run("catalog.find(x => scoreLicense(x).startsWith('CC-BY-SA'))"),
+      exported = page.run(
+        `abcToMusicXML(catalog.find(x => x.id === ${JSON.stringify(item.id)}).abc, {item: catalog.find(x => x.id === ${JSON.stringify(item.id)})})`
+      );
+    await choose(exported, 'edition.musicxml');
+    assert.equal(page.run('current.rights'), item.rights);
+    assert.equal(
+      page.run('exportCredit(current)'),
+      page.run(`exportCredit(catalog.find(x => x.id === ${JSON.stringify(item.id)}))`)
+    );
+    assert.ok(page.run("creditedABC($('abc').value, current)").includes('Notation/edition license: CC-BY-SA'));
+    assert.equal(page.run('current.kind'), 'personal', 'An imported edition is a personal copy');
+    // Problems: the open score stays, and the message is shown and kept in the status line.
+    const before = page.$('abc').value;
+    await choose('X:1\nK:C\nCDE|', 'not-really.xml');
+    assert.match(page.$('toast').textContent, /could not be read as MusicXML/);
+    assert.match(page.$('save-status').textContent, /could not be read as MusicXML/);
+    await choose(fixture('morning-walk.mxl').subarray(0, 900), 'cut-short.mxl');
+    assert.match(page.$('toast').textContent, /could not be opened/);
+    await choose(new Uint8Array(5 * 1024 * 1024 + 1), 'huge.musicxml');
+    assert.equal(page.$('toast').textContent, 'Please use a MusicXML file smaller than 5 MB.');
+    delete page.w.DecompressionStream;
+    await choose(fixture('morning-walk.mxl'), 'morning-walk.mxl');
+    assert.match(page.$('toast').textContent, /can’t open compressed \.mxl files/);
+    assert.equal(page.$('abc').value, before, 'A file that cannot be opened changes nothing');
+    assert.equal(page.$('import-file').value, '', 'The same file can be chosen again');
+    assert.match(page.$('import-file').accept, /\.musicxml,\.xml,\.mxl/);
+  }
   console.log(
-    'PASS (jsdom): unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore, blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, and MusicXML export.'
+    'PASS (jsdom): unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), backup and restore, blank sheets and add bars, notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, and opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, damaged and oversized files).'
   );
 })().catch(e => {
   console.error(e);
