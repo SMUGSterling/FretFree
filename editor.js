@@ -34,6 +34,7 @@ function syncFields() {
   $('bpm-value').textContent = $('bpm').value;
 }
 function setHeader(name, value) {
+  if (name === 'K') $('abc').value = withKey($('abc').value);
   const lines = $('abc').value.split('\n'),
     i = lines.findIndex(x => x.startsWith(name + ':'));
   let text = name + ':' + String(value).replace(/[\r\n]/g, ' ');
@@ -167,6 +168,7 @@ function render() {
     updateCaption();
     updateSourceEdition();
     updateRights();
+    refreshTranspose();
   } catch (e) {
     $('warnings').textContent = 'Could not render this score: ' + e.message;
   }
@@ -715,8 +717,9 @@ function drawNote(t) {
     toast('Score updated. Click again to add the note.');
     return;
   }
-  const config = instruments[currentInstrument()];
-  const token = pitchToken(t.written - Math.round((config.shift * 7) / 12)) + lengthText(beatLength() / unitLength());
+  // The staff shows written pitch; the source takes the concert note, as many letters away as the key at that point.
+  const concert = at =>
+    pitchToken(t.written - writtenSteps($('abc').value, at, instruments[currentInstrument()].shift));
   // Neighbours on the clicked staff, in reading order; the new note goes before the first one to the right of the click.
   const staffs = staffList(),
     items = [];
@@ -742,7 +745,7 @@ function drawNote(t) {
     ),
     nearest = rests.reduce((best, i) => (!best || Math.abs(i.x - t.x) < Math.abs(best.x - t.x) ? i : best), null);
   if (nearest) {
-    fillRest(nearest.entry, pitchToken(t.written - Math.round((config.shift * 7) / 12)), beatLength());
+    fillRest(nearest.entry, concert(nearest.entry.element.startChar), beatLength());
     $('selection-status').textContent =
       `Added ${pitchName(t.written)} on the rest · right-click it to change accidental or length`;
     return;
@@ -750,22 +753,26 @@ function drawNote(t) {
   const next = items.find(i => i.x > t.x),
     last = items.at(-1),
     value = $('abc').value;
-  let at, text;
+  let at,
+    lead = '',
+    trail = '';
   const tuneEnd = Math.max(...[...noteSources.values()].filter(Boolean).map(e => e.element.startChar));
   // Past the closing barline: add the note inside the tune, before that barline.
   if (!next && last?.entry.element.el_type === 'bar' && last.entry.element.startChar === tuneEnd) {
     at = last.entry.element.startChar;
-    text = token + ' ';
+    trail = ' ';
   } else if (next) {
     at = next.entry.element.startChar;
-    text = token + ' ';
+    trail = ' ';
   } else if (last) {
     at = last.entry.element.endChar;
-    text = ' ' + token;
+    lead = ' ';
   } else {
     at = value.length;
-    text = (value.endsWith('\n') ? '' : '\n') + token;
+    lead = value.endsWith('\n') ? '' : '\n';
   }
+  const token = concert(at) + lengthText(beatLength() / unitLength());
+  let text = lead + token + trail;
   if (at > 0 && !/\s/.test(value[at - 1]) && !text.startsWith(' ') && !text.startsWith('\n')) text = ' ' + text;
   const start = at + text.indexOf(token);
   applyNoteEdit(at, at, text, [start, start + token.length]);
@@ -844,7 +851,7 @@ function writtenNote(display) {
   const w = writtenABC();
   return {
     text: w.slice(display.startChar, display.endChar).replace(noteNamesMode() === 'off' ? /^$/ : /^"_[^"]*"/, ''),
-    key: (w.match(/^K:(.*)$/m) || [, 'C'])[1].replace(/\s+clef=\S+/g, '').trim()
+    key: keyAt(w, display.startChar)
   };
 }
 function accidentalEdit(entry, display, acc) {
@@ -853,8 +860,15 @@ function accidentalEdit(entry, display, acc) {
   if (!shift) return editNoteText(old, {accidental: acc});
   const {text, key} = writtenNote(display),
     mini = `X:1\nL:1/8\nK:${key}\n${editNoteText(text, {accidental: acc})}\n`;
-  const lines = ABCJS.strTranspose(mini, ABCJS.parseOnly(mini), -shift).split('\n'),
-    note = lines[lines.findIndex(l => l.startsWith('K:')) + 1];
+  // Back to concert pitch by the letters the written key moved, so a plain note means what the source's key says
+  // (a plain C in written Ab major is A# in concert F# major, not the Bb that abcjs's own Gb major would give).
+  let lines;
+  try {
+    lines = transposeABC(mini, -shift, -writtenSteps($('abc').value, entry.element.startChar, shift), 7).split('\n');
+  } catch {
+    return old;
+  }
+  const note = lines[lines.findIndex(l => l.startsWith('K:')) + 1];
   return note == null ? old : note;
 }
 // A note joined to its neighbour by > or < (broken rhythm), as [first, second] source entries.
@@ -1089,7 +1103,7 @@ function insertNote(letter, sel) {
 // Written-pitch note token for a letter, in the octave nearest the last note before a source position.
 function letterToken(letter, at) {
   if (letter === 'z') return 'z';
-  const steps = Math.round((instruments[currentInstrument()].shift * 7) / 12),
+  const steps = writtenSteps($('abc').value, at, instruments[currentInstrument()].shift),
     prev = scoreNotes()
       .filter(n => n.element.startChar < at && n.element.pitches?.length)
       .pop();
@@ -1379,9 +1393,13 @@ function intervalWords(semitones, letters) {
   if (i) return `${way} ${/^[aeiou]/.test(i.name) ? 'an' : 'a'} ${i.name}`;
   return `${way} ${Math.abs(semitones)} semitone${Math.abs(semitones) === 1 ? '' : 's'}`;
 }
-// Replace the whole source as one undo step.
-function commitSource(text, message) {
-  $('abc').value = text;
+// Record a rewrite of the whole source, made from before, as one undo step. A rewrite that changed nothing is not an edit.
+function commitSource(before, message) {
+  if ($('abc').value === before) {
+    syncFields();
+    toast('Nothing to change.');
+    return;
+  }
   dirty = true;
   $('save-status').textContent = 'Unsaved changes';
   selectedRange = null;
@@ -1394,7 +1412,8 @@ function commitSource(text, message) {
 function changeKey(value, transpose) {
   flushTyping();
   hideKeyChoice();
-  const move = transpose ? keyInterval(sourceKey(), value) : null;
+  const before = $('abc').value,
+    move = transpose ? keyInterval(sourceKey(), value) : null;
   try {
     if (move) $('abc').value = transposeABC($('abc').value, move.semitones, move.letters, 7);
   } catch (e) {
@@ -1408,10 +1427,18 @@ function changeKey(value, transpose) {
     : move.semitones
       ? `The notes moved ${intervalWords(move.semitones, move.letters)}.`
       : 'The notes keep their pitches.';
-  commitSource($('abc').value, `Key: ${keyLabel(value)}. ${words}`);
+  commitSource(before, `Key: ${keyLabel(value)}. ${words}`);
 }
-$('key-transpose').onclick = () => keyPending && changeKey(keyPending, true);
-$('key-keep').onclick = () => keyPending && changeKey(keyPending, false);
+// The choice's buttons hide with it, so focus goes back to the Key menu.
+for (const [id, transpose] of [
+  ['key-transpose', true],
+  ['key-keep', false]
+])
+  $(id).onclick = () => {
+    if (!keyPending) return;
+    changeKey(keyPending, transpose);
+    $('key').focus();
+  };
 $('key-cancel').onclick = () => {
   cancelKeyChoice();
   $('key').focus();
@@ -1434,18 +1461,22 @@ function transposeTarget() {
   return sel ? {from: sel.entry.measure, to: sel.entry.measure} : null;
 }
 const measuresText = t => (t.from === t.to ? `measure ${t.from}` : `measures ${t.from}–${t.to}`);
+// What the panel would do, or null when the score's key cannot move (K:HP).
 function transposePlan() {
   if ($('transpose-by-key').checked) {
     const to = $('transpose-key').value,
       move = keyInterval(sourceKey(), to);
     return move && {...move, to};
   }
+  if (keyFifths(sourceKey()) == null) return null;
   const i = TRANSPOSE_INTERVALS.find(x => x.id === $('transpose-interval').value),
     way = +$('transpose-direction').value;
   return {semitones: i.semitones * way, letters: i.letters * way};
 }
+// Bring the open panel up to date with the score, its key and the selection; render() calls this after every change,
+// so a new score, an undo or a key change never leaves a stale summary or a stale Selection only box.
 function refreshTranspose() {
-  if ($('transpose-panel').hidden) return;
+  if ($('transpose-panel')?.hidden !== false) return;
   const byKey = $('transpose-by-key').checked,
     target = transposeTarget(),
     only = $('transpose-selection');
@@ -1453,29 +1484,39 @@ function refreshTranspose() {
   $('transpose-key-row').hidden = !byKey;
   only.disabled = !target;
   if (!target) only.checked = false;
-  $('transpose-selection-label').textContent = target
-    ? `Selection only: ${measuresText(target)}`
-    : 'Selection only (click a note, or Shift+click to choose measures)';
   const plan = transposePlan(),
     key = sourceKey();
   let note;
-  if (!plan) note = 'This key cannot be transposed.';
-  else {
-    const moved = intervalWords(plan.semitones, plan.letters);
-    if (plan.to === key) note = `The score is already in ${keyLabel(key)}.`;
-    else if (only.checked)
-      note = plan.semitones
-        ? `The notes in ${measuresText(target)} move ${moved}. The key signature stays.`
-        : 'The selected notes keep their pitches.';
-    else if (!plan.semitones) note = `${keyLabel(key)} becomes ${keyLabel(plan.to)}: the same pitches, spelled anew.`;
+  try {
+    if (!plan) note = 'This key cannot be transposed.';
     else {
-      const head = transposeABC(`X:1\nK:${key}\n`, plan.semitones, plan.letters, plan.to ? 7 : 6),
-        next = plan.to || keyParts(keyFields(head)[0].value).key;
-      note = `${keyLabel(key)} becomes ${keyLabel(next)}: the notes move ${moved}. Chord symbols move too.`;
+      const moved = intervalWords(plan.semitones, plan.letters);
+      if (plan.to === key) note = `The score is already in ${keyLabel(key)}.`;
+      else if (only.checked)
+        note = plan.semitones
+          ? `The notes in ${measuresText(target)} move ${moved}. The key signature stays.`
+          : 'The selected notes keep their pitches.';
+      else if (!plan.semitones) note = `${keyLabel(key)} becomes ${keyLabel(plan.to)}: the same pitches, spelled anew.`;
+      else {
+        const head = transposeABC(`X:1\nK:${key}\n`, plan.semitones, plan.letters, plan.to ? 7 : 6),
+          next = plan.to || keyParts(keyFields(head)[0].value).key;
+        note =
+          canonicalKey(next) === key
+            ? `The notes move ${moved}. The key stays ${keyLabel(key)}. Chord symbols move too.`
+            : `${keyLabel(key)} becomes ${keyLabel(next)}: the notes move ${moved}. Chord symbols move too.`;
+      }
+      if (transposing()) note += ` Keys are concert pitch; the score shows written pitch for ${currentInstrument()}.`;
     }
-    if (transposing()) note += ` Keys are concert pitch; the score shows written pitch for ${currentInstrument()}.`;
+  } catch {
+    note = 'This key cannot be transposed.';
   }
-  $('transpose-note').textContent = note;
+  // Only changed text is written, so screen readers do not hear the same summary after every edit.
+  const label = target
+    ? `Selection only: ${measuresText(target)}`
+    : 'Selection only (click a note, or Shift+click to choose measures)';
+  if ($('transpose-selection-label').textContent !== label) $('transpose-selection-label').textContent = label;
+  if ($('transpose-note').textContent !== note) $('transpose-note').textContent = note;
+  $('transpose-apply').disabled = !plan || (!plan.semitones && !posMod(plan.letters, 7));
 }
 function toggleTranspose(open) {
   $('transpose-panel').hidden = !open;
@@ -1488,16 +1529,24 @@ function toggleTranspose(open) {
   $('transpose-panel').querySelector('input:checked')?.focus();
 }
 function applyTranspose() {
+  // Read the box first: a render refreshes the panel, and an emptied selection clears the box.
+  const only = $('transpose-selection').checked;
   if (renderedSource !== $('abc').value) {
     clearTimeout(renderTimer);
     render();
   }
   flushTyping();
   const plan = transposePlan(),
-    target = $('transpose-selection').checked ? transposeTarget() : null,
+    target = only ? transposeTarget() : null,
     value = $('abc').value;
   if (!plan) {
     toast('This key cannot be transposed.');
+    return;
+  }
+  // Selection only with nothing selected must not fall back to moving the whole score.
+  if (only && !target) {
+    refreshTranspose();
+    toast('No measures are selected. Click a note, or clear Selection only.');
     return;
   }
   let text = value;
@@ -1524,7 +1573,7 @@ function applyTranspose() {
   const moved = plan.semitones ? `moved ${intervalWords(plan.semitones, plan.letters)}` : 'kept their pitches';
   toggleTranspose(false);
   commitSource(
-    $('abc').value,
+    value,
     target ? `The notes in ${measuresText(target)} ${moved}.` : `The notes ${moved}. Key: ${keyLabel(field('K', 'C'))}.`
   );
   $('transpose-open').focus();
@@ -1588,14 +1637,15 @@ $('bar-check').addEventListener('click', e => {
   applyNoteEdit(at, at, text, null);
 });
 // Undo/redo buttons and shortcuts (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or Ctrl+Y). In the ABC box they replace the browser's
-// own undo, which doesn't know about edits made on the score.
+// own undo, which doesn't know about edits made on the score. Other text fields keep their own; menus, sliders and
+// boxes have none, so a key change made from the Key menu undoes from there.
 $('undo').onclick = () => stepHistory(-1);
 $('redo').onclick = () => stepHistory(1);
 document.addEventListener('keydown', e => {
   if (!(e.ctrlKey || e.metaKey) || e.altKey || $('studio').hidden) return;
   const key = e.key.toLowerCase(),
     field = e.target.closest?.('input,select,textarea');
-  if (field && field.id !== 'abc') return;
+  if (field && field.id !== 'abc' && !/^(select-one|checkbox|radio|range)$/.test(field.type)) return;
   if (key === 'z' && !e.shiftKey) {
     e.preventDefault();
     stepHistory(-1);

@@ -24,6 +24,7 @@ function openScore(item, id = null) {
   savedId = id;
   dirty = false;
   selectedRange = null;
+  toggleTranspose(false);
   $('selection-status').textContent =
     'Click a note to select its ABC text; Shift+click another to practice from the first to the second. Drag up/down to change pitch; chords move together.';
   $('start-measure').value = 1;

@@ -296,12 +296,58 @@ async function checkPlayback() {
   assert.equal(run('writtenABC().match(/^K:(.*)$/m)[1]'), 'A clef=treble', 'The written display follows');
   run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:E\nE F G A |]')},instrument:'Clarinet in B♭'})`);
   assert.equal(run('writtenABC().match(/^K:(\\S+)/m)[1]'), 'F#', 'Written keys are spelled by the interval');
+  // The panel follows the score: another score closes it, and key changes and undo refresh the summary.
+  const fScore = JSON.stringify('X:1\nM:4/4\nL:1/4\nK:F\nF G A B | c d e f |]'),
+    gScore = JSON.stringify('X:1\nM:4/4\nL:1/4\nK:G\nG A B c | d e f g |]');
+  run(`openScore({abc:${fScore},instrument:'Flute'});selectEntry(scoreNotes()[4]);toggleTranspose(true)`);
+  run("$('transpose-selection').checked=true;refreshTranspose()");
+  assert.match(run("$('transpose-note').textContent"), /measure 2 move up/);
+  run(`dirty=false;openScore({abc:${gScore},instrument:'Flute'})`);
+  assert.ok(run("$('transpose-panel').hidden"), 'Opening another score closes the panel');
+  run("toggleTranspose(true);$('transpose-selection').checked=true;applyTranspose()");
+  assert.equal(body(), 'G A B c | d e f g |]', 'Selection only with nothing selected moves nothing');
+  assert.match(run("$('toast').textContent"), /No measures are selected/);
+  assert.equal(run('dirty'), false);
+  run("selectEntry(scoreNotes()[4]);$('transpose-selection').checked=true;refreshTranspose();selectedRange=null");
+  run("$('notation').dispatchEvent(new Event('click'))");
+  assert.equal(run("$('transpose-selection').checked"), false, 'A cleared selection clears Selection only');
+  run("changeKey('D',false)");
+  assert.match(run("$('transpose-note').textContent"), /^D major \(2♯\) becomes E major/, 'A key change refreshes it');
+  run('stepHistory(-1)');
+  assert.match(run("$('transpose-note').textContent"), /^G major \(1♯\) becomes A major/, 'and so does undo');
+  run("$('transpose-by-key').checked=true;$('transpose-key').value='G';refreshTranspose()");
+  assert.ok(run("$('transpose-apply').disabled"), 'Transposing to the same key is not offered');
+  stepAt = steps();
+  run('applyTranspose()');
+  assert.equal(run('dirty') + ' ' + steps(), 'false ' + stepAt, 'and changes nothing if run');
+  run("$('transpose-by-interval').checked=true;toggleTranspose(false)");
+  // Bagpipe keys do not transpose; the panel says so instead of failing.
+  run(`openScore({abc:${JSON.stringify('X:1\nL:1/8\nK:HP\nA B c d |]')}});toggleTranspose(true)`);
+  assert.equal(run("$('transpose-note').textContent"), 'This key cannot be transposed.');
+  assert.ok(run("$('transpose-apply').disabled"));
+  run('toggleTranspose(false)');
+  // A tune with no K: line is in C: transposing adds the key, and a key change goes after the header.
+  run(`openScore({abc:${JSON.stringify('X:1\nT:t\nL:1/4\nC D E F|]')}});toggleTranspose(true);applyTranspose()`);
+  assert.equal(run("$('abc').value"), 'X:1\nT:t\nL:1/4\nK:D\nD E F G|]', 'No K: transposes from C major');
+  run(`dirty=false;openScore({abc:${JSON.stringify('X:1\nT:t\nL:1/4\nC D E F|]')}})`);
+  run("$('key').value='G';$('key').dispatchEvent(new Event('input'));$('key-keep').click()");
+  assert.equal(run("$('abc').value"), 'X:1\nT:t\nL:1/4\nK:G\nC D E F|]', 'Keep notes adds K: after the header');
+  // Typed letters, drawn notes and accidentals use the written key's letters: concert F# on a B-flat clarinet is
+  // written in Ab, two letters up, and concert C# on an E-flat alto sax in Bb, six.
+  run(
+    `dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:F#\nF G ^A B |]')},instrument:'Clarinet in B♭'})`
+  );
+  assert.equal(run("letterToken('A', $('abc').value.length - 2)"), 'F', 'Typed A is written A-flat: concert F#');
+  assert.equal(run("(e => accidentalEdit(e, displayOf(e), ''))(scoreNotes()[2])"), 'A ', 'A plain written C is A#');
+  assert.equal(run("(e => accidentalEdit(e, displayOf(e), '^'))(scoreNotes()[2])"), '^^A ');
+  run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C#\nC D E F |]')},instrument:'Alto sax in E♭'})`);
+  assert.equal(run("letterToken('A', $('abc').value.length - 2)"), 'B', 'Typed A on alto sax is concert B#');
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-scores-v1')), [legacy]);
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-favorites-v1')), ['ode', 'mutopia-263']);
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, bar checks, transposing (whole score, selected measures, to a key, transposing instruments), key changes that keep clef=, the key and meter menus, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, Unicode offsets, drag direction, chord/rhythm preservation, repeats, pickups, ties, tempo changes, speed scaling, practice ranges, count-in, metronome, bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, the key and meter menus, and legacy storage.'
   );
   w.close();
 }

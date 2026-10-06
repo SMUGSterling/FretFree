@@ -520,6 +520,12 @@ function mapMusic(text, pitch, chord = name => name) {
       (c === '[' && /^[A-Za-z]:/.test(text.slice(i + 1, i + 3)))
     ) {
       let end = text.indexOf({'[': ']', '%': '\n'}[c] || c, i + 1);
+      // A ! or + with no partner later on its line is not a decoration: abcjs reads a lone ! as the old line break.
+      if ((c === '!' || c === '+') && (end < 0 || text.slice(i, end).includes('\n'))) {
+        out += c;
+        i++;
+        continue;
+      }
       if (end < 0) end = text.length;
       const inner = text.slice(i + 1, end);
       if (c === '"' && !/^[_^<>@]/.test(inner)) {
@@ -570,19 +576,34 @@ function respellMusic(text, d) {
     }
   );
 }
+// A tune without a K: line is read in C major. Transposing it needs a key to move, so K:C closes its header.
+function withKey(source) {
+  if (/(^|\n)K:/.test(source)) return source;
+  const lines = source.split('\n'),
+    i = lines.findIndex(x => !/^([A-Za-z]:|%)/.test(x));
+  lines.splice(i < 0 ? lines.length : i, 0, 'K:C');
+  return lines.join('\n');
+}
 // Transpose a whole tune by semitones, spelled letters names away (by default the usual interval for the distance:
 // 2 is a major 2nd, 6 a diminished 5th). abcjs's strTranspose moves the notes, keys and chord symbols; around it, K:
 // modifiers such as clef= are set aside (strTranspose garbles them), and each key it spells differently from the
 // interval is respelled, F# rather than Gb for an augmented 4th up from C, unless that needs more than maxAccidentals.
+// strTranspose also moves some keys an octave off (F# major asked up 12 semitones stays put, Bb major asked down 11
+// goes up 1, Cb major asked for 0 goes up 12), so whole octaves move here, and each note it moves is checked against
+// the source and put back in the octave the interval calls for.
 function transposeABC(source, semitones, letters = Math.round((semitones * 7) / 12), maxAccidentals = 6) {
   if (!semitones && !posMod(letters, 7)) return source;
+  source = withKey(source);
+  const octaves = Math.trunc(semitones / 12),
+    within = semitones - 12 * octaves;
   const fields = keyFields(source).map((f, i) => ({...f, ...keyParts(f.value), first: i === 0}));
   if (fields.some(f => keyFifths(f.value) == null)) throw new Error('Bagpipe keys (K:HP) cannot be transposed.');
   // A header K: without a key means C; strTranspose needs to see it. Inline clef-only fields keep the key in force.
   let stripped = source;
   for (const f of fields.slice().reverse())
     if (f.tonic || f.first) stripped = stripped.slice(0, f.start) + (f.key || 'C') + stripped.slice(f.end);
-  const moved = ABCJS.strTranspose(stripped, ABCJS.parseOnly(stripped), semitones),
+  const tune = ABCJS.parseOnly(stripped),
+    moved = within ? ABCJS.strTranspose(stripped, tune, within) : stripped,
     after = keyFields(moved);
   if (after.length !== fields.length) throw new Error('Could not transpose the key signatures.');
   const regions = fields.map((f, i) => {
@@ -603,24 +624,67 @@ function transposeABC(source, semitones, letters = Math.round((semitones * 7) / 
     return {...region, key: key + rest, plain: res.key + rest, d};
   });
   const edits = regions.map(r => ({start: r.start, end: r.end, text: r.key}));
-  if (regions.some(r => r.d)) {
-    const starts = regions.filter(r => r.keyed);
-    for (const line of ABCJS.parseOnly(moved)[0].lines || [])
-      for (const staff of line.staff || [])
-        for (const voice of staff.voices || [])
-          for (const e of voice) {
-            if (e.el_type !== 'note') continue;
-            const region = starts.filter(r => r.start < e.startChar).at(-1);
-            if (!region?.d) continue;
-            const text = respellMusic(moved.slice(e.startChar, e.endChar), region.d);
-            // A pitch that would need a triple sharp or flat: keep abcjs's spelling everywhere.
-            if (text == null) return transposeABC(source, semitones, letters, -1);
-            edits.push({start: e.startChar, end: e.endChar, text});
-          }
+  const notesOf = t =>
+      (t.lines || []).flatMap(line =>
+        (line.staff || []).flatMap(staff => (staff.voices || []).flat().filter(e => e.el_type === 'note'))
+      ),
+    pitchesOf = text => {
+      const list = [];
+      mapMusic(text, ({pitch}) => (list.push(pitch), ''));
+      return list;
+    };
+  const starts = regions.filter(r => r.keyed),
+    was = notesOf(tune[0]),
+    now = within ? notesOf(ABCJS.parseOnly(moved)[0]) : was,
+    steps = Math.round((within * 7) / 12);
+  if (was.length !== now.length) throw new Error('Could not transpose the notes.');
+  for (const [n, e] of now.entries()) {
+    const region = starts.filter(r => r.start < e.startChar).at(-1);
+    if (!within && !octaves && !region?.d) continue;
+    const old = pitchesOf(stripped.slice(was[n].startChar, was[n].endChar));
+    let j = 0,
+      text = mapMusic(moved.slice(e.startChar, e.endChar), ({acc, pitch}) => {
+        // A note moved a whole octave off the interval's letters is abcjs's octave slip; move it back.
+        const slip = j < old.length ? Math.round((pitch - old[j] - steps) / 7) : 0;
+        j++;
+        return (acc == null ? '' : ACC_TEXT[acc]) + pitchToken(pitch + 7 * (octaves - slip));
+      });
+    if (region?.d) text = respellMusic(text, region.d);
+    // A pitch that would need a triple sharp or flat: keep abcjs's spelling everywhere.
+    if (text == null) return transposeABC(source, semitones, letters, -1);
+    if (text !== moved.slice(e.startChar, e.endChar)) edits.push({start: e.startChar, end: e.endChar, text});
   }
-  let out = moved;
-  for (const e of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.text + out.slice(e.end);
-  return out;
+  let out = '',
+    at = 0;
+  for (const e of edits.sort((a, b) => a.start - b.start)) {
+    out += moved.slice(at, e.start) + e.text;
+    at = e.end;
+  }
+  return out + moved.slice(at);
+}
+// Letter names from concert to written pitch at a position in a concert source, for an instrument whose written notes
+// sound semitones lower. Plain notes move by the letters between the keys transposeABC writes: usually the shift's own
+// interval, but F# major on a B-flat clarinet is written in Ab (G# major would need 8 sharps), 2 letters up, not 1.
+function writtenSteps(source, at, semitones) {
+  const usual = Math.round((semitones * 7) / 12);
+  if (!semitones) return 0;
+  const keyed = withKey(source),
+    from = keyFields(keyed);
+  let to;
+  try {
+    to = keyFields(transposeABC(keyed, semitones));
+  } catch {
+    return usual;
+  }
+  at += keyed.length - source.length;
+  const i = from
+    .map((f, n) => (f.start < at && (!n || keyParts(f.value).tonic) ? n : -1))
+    .reduce((a, b) => Math.max(a, b));
+  if (i < 0 || to.length !== from.length) return usual;
+  const a = keyParts(from[i].value).tonic || 'C',
+    b = keyParts(to[i].value).tonic;
+  if (!/^[A-G]/.test(a) || !/^[A-G]/.test(b || '')) return usual;
+  return usual + posMod('CDEFGAB'.indexOf(b[0]) - 'CDEFGAB'.indexOf(a[0]) - usual + 3, 7) - 3;
 }
 // Write each pitch of a tune under another key signature at the same pitch: accidentals are added where the new
 // signature (or an accidental earlier in the bar) would change a note, and written accidentals are kept.
