@@ -18,6 +18,8 @@ function allowReplace() {
 }
 function openScore(item, id = null) {
   if (!allowReplace()) return;
+  // The assignment builder describes the score it was opened on, so it closes with it.
+  toggleAssignmentBuilder(false);
   stop();
   stopPreview();
   current = item;
@@ -159,7 +161,7 @@ $('instrument').onchange = () => {
   const before = instruments[instrumentShown]?.shift || 0,
     after = instruments[currentInstrument()].shift || 0,
     source = $('abc').value;
-  if (current?.prompt && promptById(current.prompt) && before !== after) {
+  if (activePrompt() && before !== after) {
     flushTyping();
     $('abc').value = ABCJS.strTranspose(source, ABCJS.parseOnly(source), before - after);
     selectedRange = null;

@@ -747,6 +747,89 @@ const {chromium} = require('playwright'),
   await broken.waitForFunction(() => !$('library').hidden);
   assert.match(await broken.evaluate(() => $('toast').textContent), /did not contain a readable score/);
   await broken.close();
+  // Teacher-written assignment: build it with the keyboard on a 4-bar sheet, share it, open the link as a student,
+  // write to meet every goal, and check that the instructions print above the score while the checklist does not.
+  await page.evaluate(() => {
+    dirty = false;
+    $('instrument').value = 'Flute';
+    newScore(4);
+  });
+  await page.click('#open-assignment');
+  assert.equal(
+    await page.evaluate(() => document.activeElement.id),
+    'assignment-title',
+    'The builder focuses its title'
+  );
+  await page.keyboard.press('Control+a');
+  await page.keyboard.type('Step <b>up</b>');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Move by step.\nEnd on C.');
+  await page.focus('#goal-steps');
+  await page.keyboard.press('Space');
+  assert.deepEqual(
+    await page.evaluate(() => [...document.querySelectorAll('#assignment-goals [data-goal]:checked')].map(b => b.id)),
+    ['goal-bars', 'goal-end', 'goal-steps', 'goal-inKey']
+  );
+  // With the clipboard allowed, the link is copied and focus returns to ✎ Assignment instead of being lost.
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.focus('#assignment-form button[type="submit"]');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => $('share-url').value.includes('#s='));
+  const assignmentUrl = await page.inputValue('#share-url');
+  assert.equal(await page.locator('#assignment-builder').isHidden(), true);
+  await page.waitForFunction(() => $('toast').textContent.includes('Link copied'));
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'open-assignment', 'Focus is not lost');
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), assignmentUrl);
+  const student = await browser.newPage({viewport: {width: 1280, height: 900}});
+  student.on('pageerror', e => errors.push(e.message));
+  await student.goto(assignmentUrl);
+  await student.waitForFunction(() => current?.kind === 'shared' && !$('prompt-check').hidden);
+  assert.deepEqual(
+    await student.evaluate(() => [
+      document.querySelector('#prompt-check strong').textContent,
+      document.querySelector('#prompt-check .prompt-text').textContent,
+      document.querySelectorAll('#prompt-check li').length,
+      document.querySelectorAll('#prompt-check b').length
+    ]),
+    ['Assignment · Step <b>up</b>', 'Move by step.\nEnd on C.', 4, 0],
+    'The link opens with escaped instructions and a checklist of the chosen goals'
+  );
+  for (const k of ['c', 'd', 'e', 'f', 'g', 'f', 'e', 'd', 'c', 'd', 'e', 'f', 'e', 'd', 'c', 'c'])
+    await student.keyboard.press(k);
+  await student.waitForFunction(() => document.querySelectorAll('#prompt-check li.met').length === 4);
+  assert.match(await student.locator('#prompt-check').innerText(), /All goals met/);
+  await student.emulateMedia({media: 'print'});
+  assert.deepEqual(
+    await student.evaluate(() => {
+      const box = $('prompt-check'),
+        visible = el => !!el && getComputedStyle(el).display !== 'none';
+      return [
+        visible(box.querySelector('.prompt-text')),
+        visible(box.querySelector('ul')),
+        visible(box.querySelector('.prompt-done')),
+        box.getBoundingClientRect().bottom <= $('notation').getBoundingClientRect().top
+      ];
+    }),
+    [true, false, false, true],
+    'Instructions print above the score; the checklist does not'
+  );
+  await student.emulateMedia({media: 'screen'});
+  await student.setViewportSize({width: 390, height: 844});
+  await student.click('#open-assignment');
+  assert.ok(
+    await student.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    'The assignment builder fits a phone'
+  );
+  await student.keyboard.press('Escape');
+  assert.deepEqual(
+    await student.evaluate(() => [$('assignment-builder').hidden, document.activeElement.id]),
+    [true, 'open-assignment'],
+    'Escape closes the builder and returns focus'
+  );
+  await student.close();
+  await page.evaluate(() => {
+    dirty = false;
+  });
   await page.evaluate(() => {
     dirty = false;
   });
@@ -1104,7 +1187,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), legacy storage, mobile width, and no browser errors.'
+    'PASS: unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), legacy storage, mobile width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);
