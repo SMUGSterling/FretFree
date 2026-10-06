@@ -416,6 +416,17 @@ const {chromium} = require('playwright'),
   await page.locator('#notation .abcjs-notehead').nth(1).click({button: 'right', force: true});
   await page.locator('#note-menu button', {hasText: 'Rest'}).click();
   assert.equal(await kbody(), 'C D- z E F G | G4 |]', 'Menu ties and inserts a rest');
+  // Notes that open a slur or tuplet take menu and key edits and keep the ( or (3.
+  await page.evaluate(() => {
+    dirty = false;
+    openScore({abc: 'X:1\nT:K\nM:4/4\nL:1/8\nK:C\n(C D E F) (3GAB c2 |]', instrument: 'Flute'});
+  });
+  await page.locator('#notation .abcjs-notehead').nth(0).click({button: 'right', force: true});
+  await page.locator('#note-menu button', {hasText: 'Quarter'}).click();
+  await page.locator('#notation .abcjs-notehead').nth(4).click({force: true});
+  await page.keyboard.press('#');
+  await page.keyboard.press('.');
+  assert.equal(await kbody(), '(C2 D E F) (3^G3/2AB c2 |]', 'Slur- and tuplet-start notes are editable');
   // Writing prompts: blank bars of rests, typing writes over them, goals tick off live; keys follow written pitch.
   await page.evaluate(() => {
     dirty = false;
@@ -849,7 +860,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.'
+    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, legacy storage, mobile width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

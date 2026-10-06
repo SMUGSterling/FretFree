@@ -118,9 +118,10 @@ function lengthValue(text) {
   const num = m[1] ? +m[1] : 1;
   return m[2] ? num / (m[3] ? +m[3] : 2 ** m[2].length) : num;
 }
-// Decorations/annotations, then a note, chord or rest, then its length, then ties or broken rhythm.
+// Decorations/annotations, slur openings and tuplet specs ((3, (3:2, (3:2:3) in any order, then a note, chord or
+// rest, then its length, then ties, slur ends or broken rhythm.
 const NOTE_PARTS =
-  /^((?:"[^"]*"|![^!]*!|\+[^+]*\+|\{[^}]*\}|[.~HLMOPSTuv]|\s)*)(\[[^\]]*\]|(?:\^{1,2}|_{1,2}|=)?[A-Ga-g][,']*|[zx])(\d*\/*\d*)([^]*)$/;
+  /^((?:"[^"]*"|![^!]*!|\+[^+]*\+|\{[^}]*\}|\((?:\d+(?::\d*){0,2})?|[.~HLMOPSTuv]|\s)*)(\[[^\]]*\]|(?:\^{1,2}|_{1,2}|=)?[A-Ga-g][,']*|[zx])(\d*\/*\d*)([^]*)$/;
 function noteParts(text) {
   const m = String(text).match(NOTE_PARTS);
   return m && {pre: m[1], core: m[2], length: lengthValue(m[3]), post: m[4]};
