@@ -642,6 +642,23 @@ for (const prompt of context.writingPrompts) {
     ['treble', 'Melody'],
     ['bass', 'Bass']
   ]);
+  // A duet keeps the student's instrument: its staves name no clef, so both take the one the app puts on K: for a
+  // bass instrument.
+  const duet = context.templateSource({template: 'duet', key: 'F', bars: 1});
+  assert.equal(
+    duet,
+    'X:1\nT:Untitled\nC:\nM:4/4\nL:1/4\nQ:1/4=100\n%%score [1 2]\nK:F\n' +
+      'V:1 name="Part 1" snm="1"\nz4 |]\nV:2 name="Part 2" snm="2"\nz4 |]\n'
+  );
+  assert.deepEqual(json(staves('duet')), [
+    ['treble', 'Part 1'],
+    ['treble', 'Part 2']
+  ]);
+  assert.deepEqual(
+    json(ABCJS.parseOnly(duet.replace('K:F', 'K:F clef=bass'))[0].lines[0].staff.map(st => st.clef.type)),
+    ['bass', 'bass'],
+    'Both duet staves follow the clef on K:'
+  );
   // The quick 8-bar melody and the Melody template write the same bars; a lead sheet puts the tonic chord on the
   // first full bar, after the pickup.
   assert.match(context.templateSource({}), /^K:C\nz4 \| z4 \| z4 \| z4 \|\nz4 \| z4 \| z4 \| z4 \|]\n$/m);

@@ -335,6 +335,61 @@ $('new-bars').value = '8';
     $('abc').value.includes('V:RH clef=treble name="Piano" snm="Pno."\nz4 | z4 | z4 | z4 G |]'),
     'With nothing selected a letter goes to the end of the top staff'
   );
+  // Guitar tab adds a staff under the top one, which the caption does not count; a one-staff library score on
+  // guitar still names its clef.
+  const instrumentBefore = $('instrument').value,
+    setInstrument = name => {
+      $('instrument').value = name;
+      $('instrument').dispatchEvent(new w.Event('change'));
+      run('clearTimeout(renderTimer); render()');
+    };
+  setInstrument('Guitar');
+  assert.equal(run('fingeringShown()'), 'guitar');
+  assert.equal($('score-caption').textContent, 'Guitar · 2 staves · Concert pitch.', 'The tab staff is not a staff');
+  run('dirty = false; openScore({...catalog.find(x => x.id === "skipping"), instrument: "Guitar"})');
+  assert.equal($('score-caption').textContent, 'Guitar · treble clef · Concert pitch melody part.');
+  // An & overlay is a voice of its own but shares its staff's bar lines, so ＋ 4 bars adds four bars once.
+  const addToOverlay = body => {
+    run(
+      `dirty = false; openScore({kind: 'personal', instrument: 'Piano', title: 't', abc: ${JSON.stringify(`X:1\nT:t\nM:4/4\nL:1/4\n${body}`)}})`
+    );
+    $('add-bars').click();
+    return staffBars();
+  };
+  assert.deepEqual(addToOverlay('K:C\nC D E F & E4 | G4 | A4 | B4 |]\n'), {'0:0': 8, '0:1': 8}, 'One staff, overlay');
+  assert.equal($('abc').value.trim().split('\n').pop(), 'C D E F & E4 | G4 | A4 | B4 | z4 | z4 | z4 | z4 |]');
+  assert.deepEqual(addToOverlay('K:C\nC D E F & z4 | G4 & E4 |]\n'), {'0:0': 6, '0:1': 6});
+  assert.deepEqual(
+    addToOverlay('%%score {RH LH}\nK:C\nV:RH\nC D E F & E4 | G4 |]\nV:LH clef=bass\nC,4 | C,4 |]\n'),
+    {'0:0': 6, '0:1': 6, '1:0': 6},
+    'Piano with an overlay in the right hand'
+  );
+  assert.deepEqual(
+    addToOverlay('%%score {RH LH}\nK:C\nV:RH\nC D E F & E4\nV:LH clef=bass\nC,4 |]\n'),
+    {'0:0': 5, '0:1': 5, '1:0': 5},
+    'An overlay before any bar line'
+  );
+  assert.deepEqual(
+    addToOverlay('%%score (S A)\nK:C\nV:S\nC D E F | G4 |]\nV:A\nC4 & E4 | C4 |]\n'),
+    {'0:0': 6, '0:1': 6, '0:2': 6},
+    'Two voices on one staff, the second with an overlay'
+  );
+  assert.equal(run('barProblems(ABCJS.parseOnly($("abc").value)[0]).length'), 0);
+  // A duet keeps the student's instrument, so on cello both staves are bass staves and c d types C D, as on the
+  // Melody template.
+  setInstrument('Cello');
+  run('dirty = false');
+  $('new-score-open').click();
+  choose('new-template', 'duet');
+  choose('new-bars', '2');
+  assert.match($('new-score-summary').textContent, /^Duet: two staves for the current instrument\./);
+  submitNewScore();
+  assert.equal($('instrument').value, 'Cello');
+  assert.deepEqual([...run('renderedTune.lines[0].staff.map(st => st.clef.type)')], ['bass', 'bass']);
+  run("scoreKey({key:'c'}); scoreKey({key:'d'})");
+  assert.equal($('abc').value.split('\nV:2')[0].split('\n').pop(), 'C D z2 | z4 |]', 'Cello octave on a duet staff');
+  assert.equal($('score-caption').textContent, 'Cello · 2 staves · Parts lowered one octave for bass range.');
+  setInstrument(instrumentBefore);
   // A lead sheet starts its chord line with the tonic chord, which stays when a note is written over the rest.
   run('dirty = false');
   $('new-score-open').click();

@@ -541,8 +541,9 @@ function promptSource(prompt, key = prompt.key, body = null) {
   return `X:1\nT:${prompt.title}\nC:\nM:${prompt.meter}\nL:${prompt.unit}\nQ:1/4=${prompt.tempo}\nK:${key}\n${body ?? Array(prompt.bars).fill(rest).join(' | ')} |]`;
 }
 // New score templates. Each staff is one voice block (V: with clef, name and short name) after K:; %%score groups
-// them with a brace (piano) or a bracket. instrument is the sound and clef the app picks for a template with several
-// staves, which must not transpose; one-staff templates keep the student's instrument.
+// them with a brace (piano) or a bracket. instrument is the sound the app picks for a template whose staves have
+// fixed clefs, which must not transpose. The others keep the student's instrument: a duet's staves have no clef=, so
+// both take the clef the instrument puts on K: (bass for cello) and its transposition.
 const SCORE_TEMPLATES = [
   {id: 'melody', name: 'Melody', words: 'one staff', staves: [{}]},
   {id: 'lead', name: 'Lead sheet', words: 'one staff with chord symbols', staves: [{}], chords: true},
@@ -560,11 +561,11 @@ const SCORE_TEMPLATES = [
   {
     id: 'duet',
     name: 'Duet',
-    words: 'two treble staves',
+    words: 'two staves for the current instrument',
     score: '[1 2]',
     staves: [
-      {id: '1', clef: 'treble', name: 'Part 1', snm: '1'},
-      {id: '2', clef: 'treble', name: 'Part 2', snm: '2'}
+      {id: '1', name: 'Part 1', snm: '1'},
+      {id: '2', name: 'Part 2', snm: '2'}
     ]
   },
   {
@@ -652,7 +653,7 @@ function templateSource({
     head = `X:1\nT:${oneLine(title).trim() || 'Untitled'}\nC:\nM:${oneLine(meter)}\nL:${un}/${ud}\nQ:1/4=${speed}\n`;
   if (t.staves.length === 1) return `${head}K:${oneLine(key)}\n${body}\n`;
   const voices = t.staves.map(
-    s => `V:${s.id} clef=${s.clef}${s.name ? ` name="${s.name}" snm="${s.snm}"` : ''}\n${body}`
+    s => `V:${s.id}${s.clef ? ` clef=${s.clef}` : ''}${s.name ? ` name="${s.name}" snm="${s.snm}"` : ''}\n${body}`
   );
   return `${head}%%score ${t.score}\nK:${oneLine(key)}\n${voices.join('\n')}\n`;
 }

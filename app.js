@@ -66,7 +66,8 @@ function newScore(bars) {
     `Blank sheet of ${bars} bars. Click a bar and type A–G, or turn on Draw notes and click the staff; each bar fills from its rest. ＋ 4 bars adds more.`;
 }
 // The New score panel: a template with title, key, time signature, tempo, pickup and bars. templateSource
-// (score-tools.js) writes the ABC; a template with several staves brings its own non-transposing instrument.
+// (score-tools.js) writes the ABC. Templates with fixed clefs bring their own non-transposing instrument; Melody,
+// Lead sheet and Duet keep the current one.
 for (const t of SCORE_TEMPLATES) $('new-template').add(new Option(t.name, t.id));
 fillKeySelect($('new-key'));
 for (const o of $('meter').options) if (o.value !== 'none') $('new-meter').add(new Option(o.text, o.value));

@@ -950,6 +950,35 @@ const {chromium} = require('playwright'),
     [8, 8],
     '＋ 4 bars adds four bars to both staves'
   );
+  // Guitar tab goes under the right hand. It is not counted as a staff, and a click on the left hand's middle line
+  // still reads the bass clef (D,).
+  await page.selectOption('#instrument', 'Guitar');
+  await page.waitForFunction(() => renderedTune?.engraver?.staffgroups[0].staffs.some(s => s.isTabStaff));
+  assert.equal(await page.locator('#score-caption').textContent(), 'Guitar · 2 staves · Concert pitch.');
+  const rightHand = await page.evaluate(() => $('abc').value.split('V:LH')[0]);
+  await page.click('#draw-mode');
+  {
+    const [x, y] = await page.evaluate(() => {
+      $('notation').scrollIntoView({block: 'center', behavior: 'instant'});
+      const svg = $('notation').querySelector('svg'),
+        lh = staffList().at(-1),
+        rest = [...$('notation').querySelectorAll('.abcjs-rest')]
+          .map(e => e.getBBox())
+          .filter(r => Math.abs(r.y + r.height / 2 - (lh.y - 6 * STAFF_STEP)) < 6 * STAFF_STEP)
+          .at(-1),
+        p = new DOMPoint(rest.x + rest.width / 2, lh.y - 6 * STAFF_STEP).matrixTransform(svg.getScreenCTM());
+      return [p.x, p.y];
+    });
+    await page.mouse.click(x, y);
+  }
+  assert.match(
+    await page.evaluate(() => $('abc').value.split('V:LH')[1]),
+    /D, z2 \|\]\n$/,
+    'Drawing on the left hand under guitar tab writes in the bass clef'
+  );
+  assert.equal(await page.evaluate(() => $('abc').value.split('V:LH')[0]), rightHand, 'The right hand is unchanged');
+  await page.click('#draw-mode');
+  await page.selectOption('#instrument', 'Piano');
   // At phone width the panel's fields fit without a sideways scroll; Escape closes it and returns focus.
   await page.setViewportSize({width: 390, height: 844});
   await page.evaluate(() => (dirty = false));
@@ -2037,7 +2066,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
+    'PASS: zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, writing prompts, teacher-written assignment links (keyboard builder, student copy, print), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), legacy storage, mobile width, MusicXML export by keyboard, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

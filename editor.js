@@ -310,9 +310,10 @@ function indexDisplay(display) {
   noteDurations = new Map(shown.map(e => [e.element.startChar, lengths.get(e.element) || 0]));
   shownElements = new Map(shown.map(e => [e.element.startChar, e.element]));
   // Clefs per drawn line. abcjs re-parses a re-flowed score, so its lines (not the display's) match the staff groups.
+  // Guitar tablature adds a TAB staff to the line; it is left out, so these are the notation staves only.
   staffClefs = (renderedTune?.lines || display.lines)
     .filter(l => l.staff)
-    .map(l => l.staff.map(st => st.clef?.verticalPos || 0));
+    .map(l => l.staff.filter(st => st.clef?.type !== 'TAB').map(st => st.clef?.verticalPos || 0));
 }
 // Keep the selected note highlighted across a re-render.
 function restoreSelection(display) {
@@ -340,7 +341,7 @@ function updateCaption() {
     config.shift === 2 || config.shift === 9
       ? 'Written pitch shown; ABC source and MIDI are concert pitch.'
       : config.shift === -12
-        ? 'Melody lowered one octave for bass range.'
+        ? `${staves > 1 ? 'Parts' : 'Melody'} lowered one octave for bass range.`
         : staves > 1
           ? 'Concert pitch.'
           : 'Concert pitch melody part.';
@@ -775,11 +776,13 @@ function scorePoint(e) {
   const svg = $('notation').querySelector('svg');
   return svg && new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
 }
+// The drawn notation staves with their clefs. A tab staff sits under the staff it belongs to, so the notation staves
+// are counted without it to find their clefs.
 function staffList() {
   return (renderedTune?.engraver?.staffgroups || []).flatMap((g, gi) =>
     g.staffs
-      .map((st, si) => (st.isTabStaff ? null : {id: gi + ':' + si, y: st.absoluteY, clef: staffClefs[gi]?.[si] ?? 0}))
-      .filter(Boolean)
+      .filter(st => !st.isTabStaff)
+      .map((st, si) => ({id: gi + ':' + si, y: st.absoluteY, clef: staffClefs[gi]?.[si] ?? 0}))
   );
 }
 const nearestStaff = (staffs, y) =>
@@ -1024,7 +1027,9 @@ function addBars(count = 4) {
   $('selection-status').textContent = `Added ${count} blank bars at the end.`;
 }
 // With several voices, every voice gets the bars in one edit: before its closing |], or after its last note or bar
-// line, each sized by that voice's meter. Returns false for a one-voice score, which addBars handles as before.
+// line, each sized by that voice's meter. An & overlay is a voice of its own in abcjs, but it is written inside its
+// staff's voice and shares that voice's bar lines, so it goes with that voice and gets no bars of its own. Returns
+// false for a score with one voice (and any overlays), which addBars handles as before.
 function addVoiceBars(count) {
   const value = $('abc').value;
   let tune;
@@ -1033,9 +1038,37 @@ function addVoiceBars(count) {
   } catch {
     return false;
   }
-  const last = new Map(),
+  const events = scoreEvents(tune),
+    owner = new Map(),
+    barVoice = new Map(),
+    last = new Map(),
     meters = new Map();
-  for (const e of scoreEvents(tune)) last.set(voiceOf(e), e.element);
+  // An overlay meets the bar lines of the voice it is written in. One with no bar line of its own follows an &, so
+  // it goes with the voice of the nearest earlier note on its staff.
+  const staffOf = e => voiceOf(e).split(':')[0];
+  for (const e of events.filter(x => x.element.el_type === 'bar')) {
+    const at = staffOf(e) + '@' + e.element.startChar,
+      first = barVoice.get(at);
+    if (!first) barVoice.set(at, voiceOf(e));
+    else if (first !== voiceOf(e) && !owner.has(voiceOf(e))) owner.set(voiceOf(e), first);
+  }
+  for (const e of events) {
+    const voice = voiceOf(e),
+      at = e.element.startChar;
+    if (owner.has(voice) || !/&\s*$/.test(value.slice(Math.max(0, at - 40), at))) continue;
+    const before = events
+      .filter(x => staffOf(x) === staffOf(e) && voiceOf(x) !== voice && x.element.startChar < at)
+      .reduce((a, x) => (!a || x.element.startChar > a.element.startChar ? x : a), null);
+    if (before) owner.set(voice, owner.get(voiceOf(before)) ?? voiceOf(before));
+  }
+  // Each voice's last element in the source, its overlays included; a bar line wins over a rest at the same place.
+  for (const e of events) {
+    const voice = owner.get(voiceOf(e)) ?? voiceOf(e),
+      prev = last.get(voice),
+      el = e.element;
+    if (!prev || el.startChar > prev.startChar || (el.startChar === prev.startChar && el.el_type === 'bar'))
+      last.set(voice, el);
+  }
   for (const m of barLengths(tune)) meters.set(m.voice, m.meter);
   if (last.size < 2) return false;
   const inserts = [...last].map(([voice, e]) => {
