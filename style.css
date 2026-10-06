@@ -1491,16 +1491,13 @@ input[type='range'] {
     display: none !important;
   }
 }
-/* Copy, cut, paste and duplicate for the selected notes; the same commands as Ctrl+C, X, V and D, for touch screens. */
+/* Copy, cut, paste and duplicate for the selected notes; the same commands as Ctrl+C, X, V and D, for touch screens.
+   The buttons keep the full button size, as big a target as Undo and Play. */
 .selection-tools {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 6px;
   margin: 6px 0;
-}
-.selection-tools button {
-  padding: 7px 10px;
-  font-size: 11px;
 }
 @media print {
   .selection-tools {

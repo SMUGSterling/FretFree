@@ -917,29 +917,48 @@ const transposing = () => {
   return shift % 12 !== 0 ? shift : 0;
 };
 // Accidentals are what the player sees, so read and edit them in written pitch, then transpose back to the concert source.
-function writtenNote(display) {
-  const w = writtenABC();
+function writtenNote(display, w = writtenABC()) {
   return {
     text: w.slice(display.startChar, display.endChar).replace(noteNamesMode() === 'off' ? /^$/ : /^"_[^"]*"/, ''),
     key: keyAt(w, display.startChar)
   };
 }
-function accidentalEdit(entry, display, acc) {
+// For an accidental on many notes (a range selection): the written score and the letters each key moved are worked
+// out once, not once per note, and each different written note goes back to concert pitch once.
+function writtenBatch() {
+  const source = $('abc').value,
+    shift = transposing(),
+    fields = keyFields(source).map(f => f.start),
+    steps = new Map();
+  return {
+    written: shift ? writtenABC() : null,
+    // The letters depend only on which key is in force, so on how many K: fields come before the note.
+    steps: at => {
+      const n = fields.filter(start => start < at).length;
+      if (!steps.has(n)) steps.set(n, writtenSteps(source, at, shift));
+      return steps.get(n);
+    },
+    notes: new Map()
+  };
+}
+function accidentalEdit(entry, display, acc, batch = null) {
   const old = $('abc').value.slice(entry.element.startChar, entry.element.endChar),
     shift = transposing();
   if (!shift) return editNoteText(old, {accidental: acc});
-  const {text, key} = writtenNote(display),
-    mini = `X:1\nL:1/8\nK:${key}\n${editNoteText(text, {accidental: acc})}\n`;
+  const {text, key} = writtenNote(display, batch?.written),
+    steps = batch ? batch.steps(entry.element.startChar) : writtenSteps($('abc').value, entry.element.startChar, shift),
+    mini = `X:1\nL:1/8\nK:${key}\n${editNoteText(text, {accidental: acc})}\n`,
+    done = batch?.notes.get(steps + mini);
+  if (done !== undefined) return done ?? old;
   // Back to concert pitch by the letters the written key moved, so a plain note means what the source's key says
   // (a plain C in written Ab major is A# in concert F# major, not the Bb that abcjs's own Gb major would give).
-  let lines;
+  let note = null;
   try {
-    lines = transposeABC(mini, -shift, -writtenSteps($('abc').value, entry.element.startChar, shift), 7).split('\n');
-  } catch {
-    return old;
-  }
-  const note = lines[lines.findIndex(l => l.startsWith('K:')) + 1];
-  return note == null ? old : note;
+    const lines = transposeABC(mini, -shift, -steps, 7).split('\n');
+    note = lines[lines.findIndex(l => l.startsWith('K:')) + 1] ?? null;
+  } catch {}
+  batch?.notes.set(steps + mini, note);
+  return note ?? old;
 }
 // A note joined to its neighbour by > or < (broken rhythm), as [first, second] source entries.
 function brokenPair(entry) {
@@ -1120,9 +1139,15 @@ function scoreNotes() {
     .filter(e => e?.element.el_type === 'note')
     .sort((a, b) => a.element.startChar - b.element.startChar);
 }
+// The displayed element of a source entry, from a reverse index kept for each render (a range edit asks for many).
+let displayIndex = null;
 function displayOf(entry) {
-  for (const [key, e] of noteSources) if (e === entry) return shownElements.get(key);
-  return null;
+  if (displayIndex?.sources !== noteSources || displayIndex.shown !== shownElements) {
+    const map = new Map();
+    for (const [key, e] of noteSources) if (!map.has(e)) map.set(e, shownElements.get(key));
+    displayIndex = {sources: noteSources, shown: shownElements, map};
+  }
+  return displayIndex.map.get(entry) ?? null;
 }
 // The selected note, or the first note of a range selection.
 function selectedNote() {
@@ -1398,7 +1423,7 @@ function selectNotesBetween(a, b) {
   const where =
     first.measure === last.measure ? `measure ${first.measure}` : `measures ${first.measure}–${last.measure}`;
   $('selection-status').textContent =
-    `${run.length} notes selected in ${where} · Ctrl+C copy · Ctrl+X cut · Ctrl+D duplicate · ↑↓, # and [ ] change them all`;
+    `${run.length} notes selected in ${where} · Copy, Cut or Duplicate them (Ctrl+C, X, D) · ↑↓, # and [ ] change them all`;
   refreshTranspose();
   return run;
 }
@@ -1429,7 +1454,8 @@ function selectAllNotes() {
   while (j < notes.length - 1 && voiceOf(notes[j + 1]) === voiceOf(from)) j++;
   selectNotesBetween(notes[i], notes[j]);
 }
-// The bar lines around a run in its voice. A run of whole measures has a bar line after it and starts a measure.
+// The bar lines around a run in its voice. A run of whole measures starts a measure and ends at a bar line or at the
+// end of the voice's music (open: no bar line closes it).
 function runBars(run) {
   const voice = voiceOf(run[0]),
     items = [...new Set(noteSources.values())]
@@ -1439,12 +1465,120 @@ function runBars(run) {
     j = items.indexOf(run.at(-1)),
     bar = e => (e?.element.el_type === 'bar' ? e : null),
     before = bar(items[i - 1]),
-    after = bar(items[j + 1]);
-  return {before, after, whole: !!after && (i === 0 || !!before), items: items.slice(i, j + 1)};
+    after = bar(items[j + 1]),
+    open = j === items.length - 1;
+  return {before, after, open, whole: (!!after || open) && (i === 0 || !!before), items: items.slice(i, j + 1)};
 }
-const plainBar = b => b.element.type === 'bar_thin' && !b.element.startEnding;
+const plainBar = b => !!b && b.element.type === 'bar_thin' && !b.element.startEnding;
+// Accidentals last to the end of their measure, so an edit that adds, removes or moves one can change the pitch of
+// notes after it that it never touched. pitchWalk reads each pitch as noteLabels does: a written accidental, else the
+// accidental carried through a tie or earlier in the measure (at that octave), else the key signature, inline key
+// changes included. It gives each note's alterations (semitones off the plain letter, chord pitches in source order,
+// grace notes aside) by startChar. want(element) may name the alterations a note should have; a pitch that reads
+// otherwise is listed in fixes with the accidental it needs, and the reading goes on as if it had it.
+function pitchWalk(tune, want = () => null) {
+  const alters = new Map(),
+    fixes = [],
+    voices = new Map();
+  for (const line of tune?.lines || [])
+    for (const [s, staff] of (line.staff || []).entries())
+      for (const [v, voice] of (staff.voices || []).entries()) {
+        const id = s + ':' + v,
+          state = voices.get(id) || {key: {}, carried: {}, tied: {}};
+        voices.set(id, state);
+        if (staff.key) state.key = keyAlters(staff.key);
+        for (const e of voice) {
+          if (e.el_type === 'key') state.key = keyAlters(e);
+          if (e.el_type === 'bar') state.carried = {};
+          if (e.el_type !== 'note' || !e.pitches?.length || e.rest) continue;
+          const wanted = want(e),
+            tied = {},
+            fix = [];
+          const read = e.pitches.map((p, k) => {
+            let alter = p.accidental
+              ? (ALTER[p.accidental] ?? 0)
+              : ((p.endTie ? state.tied[p.pitch] : null) ??
+                state.carried[p.pitch] ??
+                state.key['CDEFGAB'[posMod(p.pitch, 7)]] ??
+                0);
+            if (wanted?.[k] != null && wanted[k] !== alter) alter = fix[k] = wanted[k];
+            if (p.accidental || fix[k] != null) state.carried[p.pitch] = alter;
+            if (p.startTie) tied[p.pitch] = alter;
+            return alter;
+          });
+          alters.set(e.startChar, read);
+          state.tied = tied;
+          if (fix.length) fixes.push({start: e.startChar, end: e.endChar, fix});
+        }
+      }
+  return {alters, fixes};
+}
+// Write the accidentals a note needs (fix: alterations by pitch, in source order) into its text.
+function setAccidentals(text, fix) {
+  let k = 0;
+  return text.replace(/"[^"]*"|![^!]*!|\+[^+]*\+|\{[^}]*\}|(\^{1,2}|_{1,2}|=)?([A-Ga-g])/g, (m, acc, letter) => {
+    if (!letter) return m;
+    const alter = fix[k++];
+    return alter == null ? m : ACC_TEXT[alter] + letter;
+  });
+}
+const solidAt = (text, at) => {
+  while (/[ \t]/.test(text[at] || '')) at++;
+  return at;
+};
+// applyNoteEdit for edits that move notes about (paste, duplicate, cut, delete and the multi-note edits): every note
+// outside start..end keeps the pitch it had, with an accidental of its own where it now needs one. pasted ({start,
+// end, alters}, positions in the new text) gives the notes pasted there the pitches they had where they were copied,
+// spelled for the key and the accidentals around them. The fixes go into the same undo step.
+function editKeepingPitches(start, end, text, select, hear = null, anchor = null, pasted = null) {
+  const v = $('abc').value,
+    delta = text.length - (end - start),
+    shifts = [];
+  let next = v.slice(0, start) + text + v.slice(end);
+  try {
+    // Notes are matched by where their music starts, as abcjs counts a space before a note after a bar line as its own.
+    const kept = new Map(),
+      copied = new Map();
+    for (const [at, alters] of pitchWalk(ABCJS.parseOnly(v)[0]).alters) {
+      const p = solidAt(v, at);
+      if (p < start) kept.set(p, alters);
+      else if (p >= end) kept.set(p + delta, alters);
+    }
+    const tune = ABCJS.parseOnly(next)[0];
+    if (pasted?.alters) {
+      const notes = scoreEvents(tune)
+        .map(e => e.element)
+        .filter(e => e.el_type === 'note' && e.pitches?.length && !e.rest)
+        .filter(e => solidAt(next, e.startChar) >= pasted.start && solidAt(next, e.startChar) < pasted.end)
+        .sort((a, b) => a.startChar - b.startChar);
+      if (notes.length === pasted.alters.length) notes.forEach((e, i) => copied.set(e.startChar, pasted.alters[i]));
+    }
+    const {fixes} = pitchWalk(tune, e => copied.get(e.startChar) ?? kept.get(solidAt(next, e.startChar)));
+    for (const f of fixes.sort((a, b) => b.start - a.start)) {
+      const fixed = setAccidentals(next.slice(f.start, f.end), f.fix);
+      next = next.slice(0, f.start) + fixed + next.slice(f.end);
+      shifts.push([f.start, fixed.length - (f.end - f.start)]);
+    }
+  } catch {
+    shifts.length = 0;
+  }
+  if (!shifts.length) return applyNoteEdit(start, end, text, select, hear, anchor);
+  // Positions in the new text move by the fixes before them; a fix at a position belongs to the note starting there.
+  const moved = at => at + shifts.reduce((sum, [from, d]) => sum + (from < at ? d : 0), 0);
+  let same = 0;
+  while (same < Math.min(v.length, next.length) - start && v.at(-1 - same) === next.at(-1 - same)) same++;
+  applyNoteEdit(
+    start,
+    v.length - same,
+    next.slice(start, next.length - same),
+    select && select.map(moved),
+    hear == null ? null : moved(hear),
+    anchor
+  );
+}
 // One edit over several notes: change(entry, text) gives each note's new source text and the text between them stays.
-// The selection becomes the rewritten picked notes, keeping its anchor; hear (an entry) sounds that note.
+// The selection becomes the rewritten picked notes, keeping its anchor; hear (an entry) sounds that note. Notes after
+// them keep their pitch.
 function editNotes(entries, change, picked = entries, hear = null) {
   const v = $('abc').value,
     list = [...new Set([...entries, ...picked])].sort((a, b) => a.element.startChar - b.element.startChar),
@@ -1461,7 +1595,7 @@ function editNotes(entries, change, picked = entries, hear = null) {
   }
   const first = spans.get(picked[0]),
     last = spans.get(picked.at(-1));
-  applyNoteEdit(
+  editKeepingPitches(
     from,
     at,
     text,
@@ -1524,7 +1658,8 @@ function rangeKey(e, picked) {
   }
   const accidental = {'#': '^', '-': '_', '=': '='}[key];
   if (accidental) {
-    each(n => accidentalEdit(n, displayOf(n), accidental));
+    const batch = writtenBatch();
+    each(n => accidentalEdit(n, displayOf(n), accidental, batch));
     return true;
   }
   if (key === '+') {
@@ -1545,15 +1680,17 @@ function rangeKey(e, picked) {
   }
   return false;
 }
-// Delete a run. Whole measures go with one of their bar lines, so no empty measure is left behind. Anything else
-// between the notes (a line break, an inline field, a comment) stays, and then only the notes go.
+// Delete a run. Whole measures go with one of their bar lines, so no empty measure is left behind, and a line left
+// with nothing on it goes with its line break: a blank line ends the tune in ABC, which would drop every measure
+// after it. A line break between notes that stay is kept. Anything else between the notes (an inline field, a
+// comment) stays, and then only the notes go. The notes after the run keep their pitch.
 function deleteRun(picked) {
   const v = $('abc').value,
     {before, after, whole, items} = runBars(picked);
   let start = picked[0].element.startChar,
     end = picked.at(-1).element.endChar;
   if (whole && plainBar(after)) end = after.element.endChar;
-  else if (whole && before && plainBar(before)) start = before.element.startChar;
+  else if (whole && plainBar(before)) start = before.element.startChar;
   const parts = [
     ...items,
     ...[before, after].filter(b => b && b.element.startChar >= start && b.element.endChar <= end)
@@ -1562,8 +1699,6 @@ function deleteRun(picked) {
   for (const n of parts.sort((a, b) => b.element.startChar - a.element.startChar))
     rest = rest.slice(0, n.element.startChar - start) + rest.slice(n.element.endChar - start);
   let text = '';
-  // abcjs starts a note after a bar line at the space before it; that space stays.
-  while (/\s/.test(v[start]) && start < end) start++;
   if (rest.trim()) {
     // Keep what is not a note: remove each note's text only.
     start = picked[0].element.startChar;
@@ -1571,33 +1706,60 @@ function deleteRun(picked) {
     text = v.slice(start, end);
     for (const n of [...picked].reverse())
       text = text.slice(0, n.element.startChar - start) + text.slice(n.element.endChar - start);
-  } else if (v[end] === ' ') end++;
+  } else {
+    // Close the gap over the spaces on both sides: a whole line goes with one line break, a line's start or end
+    // closes up, and in the middle of a line one space stays (none between beamed notes).
+    let a = start,
+      b = end;
+    while (a > 0 && /[ \t]/.test(v[a - 1])) a--;
+    while (b < v.length && /[ \t]/.test(v[b])) b++;
+    const lineStart = a === 0 || v[a - 1] === '\n',
+      lineEnd = b === v.length || v[b] === '\n';
+    if (lineStart && lineEnd) {
+      if (b < v.length) b++;
+      else if (a > 0) a--;
+    } else if (!lineStart && !lineEnd) text = rest.includes('\n') && !whole ? '\n' : a < start || b > end ? ' ' : '';
+    start = a;
+    end = b;
+  }
   const prev = scoreNotes()
     .filter(
       n => n.element.startChar < Math.min(start, picked[0].element.startChar) && voiceOf(n) === voiceOf(picked[0])
     )
     .pop();
-  applyNoteEdit(start, end, text, prev ? [prev.element.startChar, prev.element.endChar] : null);
+  editKeepingPitches(start, end, text, prev ? [prev.element.startChar, Math.min(prev.element.endChar, start)] : null);
   $('selection-status').textContent = `Deleted ${countWords(picked.length)}.`;
 }
 // The clipboard. Copy keeps the selection's source text in memory (and offers it to the system clipboard when the
-// browser allows), with what it needs to paste elsewhere: its total length, the unit length and key it was written
-// in, and whether it is whole measures (then the bar line after it comes along).
+// browser allows), with what it needs to paste elsewhere: its total length, the unit length it was written in, the
+// pitch each note sounded (accidentals carry through a measure, so a note's text alone does not say), and whether it
+// is whole measures (then the bar line after it comes along).
 let clip = null;
+// Fields inside the music: inline ones such as [K:D] or [L:1/8], and field or %% lines between lines of music.
+const MUSIC_FIELDS = /[ \t]*\[[A-Za-z]:[^\]\n]*\]|\n(?:[A-Za-z+]:|%%)[^\n]*/g;
 function clipOf(picked) {
   const v = $('abc').value,
     start = picked[0].element.startChar,
-    {whole} = runBars(picked);
+    unit = unitLengthAt(start),
+    {whole} = runBars(picked),
+    alters = pitchWalk(ABCJS.parseOnly(v)[0]).alters;
+  let notes = v.slice(start, picked.at(-1).element.endChar).trim();
+  // A field in the clip would go on applying to the music after the paste. The notes keep the lengths (written out
+  // in the clip's unit length) and pitches (in alters) it gave them, and the fields stay behind.
+  if (notes.search(MUSIC_FIELDS) >= 0) {
+    if (/\[L:|\nL:/.test(notes)) notes = rescaleMusic(notes, unit, unit);
+    notes = notes.replace(MUSIC_FIELDS, '').trim();
+  }
   return {
-    notes: v.slice(start, picked.at(-1).element.endChar).trim(),
+    notes,
     bar: whole,
     count: picked.length,
     length: picked.reduce((sum, n) => {
       const shown = displayOf(n);
       return sum + ((shown && noteDurations.get(shown.startChar)) ?? (n.element.duration || 0));
     }, 0),
-    unit: unitLengthAt(start),
-    key: keyAt(v, start)
+    unit,
+    alters: picked.filter(pitched).map(n => alters.get(n.element.startChar) || [])
   };
 }
 const unitText = unit => {
@@ -1618,58 +1780,51 @@ function rescaleMusic(text, from, to) {
       out.slice(n.endChar);
   return out.slice(head.length);
 }
-// The clip's text for a place in the open score: rewritten for that place's unit length, and spelled for its key so
-// every note keeps its pitch.
+// The clip's text for a place in the open score, rewritten for that place's unit length so every note keeps its
+// length. Pitches are spelled for the place's key and bar as it goes in (see pasteText).
 function clipText(c, at) {
-  const v = $('abc').value,
-    unit = unitLengthAt(at),
-    key = keyAt(v, at);
-  let text = c.notes;
+  const unit = unitLengthAt(at);
   try {
-    if (Math.abs(unit - c.unit) > 1e-9) text = rescaleMusic(text, c.unit, unit);
-    const from = keyFifths(c.key),
-      to = keyFifths(key);
-    if (from != null && to != null && from !== to) {
-      const head = `X:1\nL:${unitText(unit)}\nK:${c.key}\n`;
-      text = rekeyMusic(head + text, from, to).slice(head.length);
-    }
+    if (Math.abs(unit - c.unit) > 1e-9) return rescaleMusic(c.notes, c.unit, unit);
   } catch {}
-  return text;
+  return c.notes;
+}
+// Put the clip's text in place of start..end and select it, its notes at the pitches they were copied at (and the
+// notes after them at theirs). lead and tail go around it.
+function pasteText(c, start, end, lead, notes, tail) {
+  const at = start + lead.length;
+  editKeepingPitches(start, end, lead + notes + tail, [at, at + notes.length], at, c.count > 1 ? 'first' : null, {
+    start: at,
+    end: at + notes.length,
+    alters: c.alters
+  });
 }
 // Put a clip after a note (at the end of the music without one), then select it. Whole measures go after the bar
-// line that ends the note's measure, or before it when it is a closing or repeat bar line.
+// line that ends the note's measure, or before it when it is a closing or repeat bar line, or after a new bar line
+// at the end of music that has none.
 function pasteAfter(last, c, verb) {
   const v = $('abc').value,
-    after = last && runBars([last]).after;
+    bars = last && runBars([last]);
   let at = last ? last.element.endChar : tuneEndPosition(),
     before = '',
     behind = '';
-  if (c.bar && after && plainBar(after)) {
-    at = after.element.endChar;
+  if (c.bar && plainBar(bars?.after)) {
+    at = bars.after.element.endChar;
     behind = ' |';
-  } else if (c.bar && after) {
-    at = after.element.startChar;
+  } else if (c.bar && (bars?.after || bars?.open)) {
+    if (bars.after) at = bars.after.element.startChar;
     before = '| ';
   }
-  const notes = clipText(c, at),
-    lead = at > 0 && !/\s/.test(v[at - 1]) ? ' ' : '',
-    trail = v[at] && !/\s/.test(v[at]) ? ' ' : '',
-    start = at + lead.length + before.length;
-  applyNoteEdit(
-    at,
-    at,
-    lead + before + notes + behind + trail,
-    [start, start + notes.length],
-    start,
-    c.count > 1 ? 'first' : null
-  );
+  const lead = at > 0 && !/\s/.test(v[at - 1]) ? ' ' : '',
+    trail = v[at] && !/\s/.test(v[at]) ? ' ' : '';
+  pasteText(c, at, at, lead + before, clipText(c, at), behind + trail);
   $('selection-status').textContent = `${verb} ${countWords(c.count)}.`;
 }
 // Ctrl+V: a selected rest at least as long as the clip is written over from its start, keeping what is left as a
 // rest; otherwise the clip goes after the selection. Pasting never re-bars; the bar check reports any overflow.
 function pasteClip(picked) {
   if (!clip) {
-    $('selection-status').textContent = 'Nothing to paste yet. Select notes and copy them first (Ctrl+C).';
+    $('selection-status').textContent = 'Nothing to paste yet. Select notes, then Copy (Ctrl+C).';
     return;
   }
   const v = $('abc').value,
@@ -1683,13 +1838,17 @@ function pasteClip(picked) {
   }
   const start = rest.element.startChar,
     unit = unitLengthAt(start),
-    notes = clipText(clip, start),
     left = room - clip.length,
     lead = old.match(/^\s*/)[0] || (start > 0 && !/\s/.test(v[start - 1]) ? ' ' : ''),
-    trail = old.match(/\s*$/)[0] || (/[A-Za-z^_=[(]/.test(v[rest.element.endChar] || '') ? ' ' : ''),
-    text = lead + notes + (left > 1e-6 ? ' z' + lengthText(left / unit) : '') + trail,
-    at = start + lead.length;
-  applyNoteEdit(start, rest.element.endChar, text, [at, at + notes.length], at, clip.count > 1 ? 'first' : null);
+    trail = old.match(/\s*$/)[0] || (/[A-Za-z^_=[(]/.test(v[rest.element.endChar] || '') ? ' ' : '');
+  pasteText(
+    clip,
+    start,
+    rest.element.endChar,
+    lead,
+    clipText(clip, start),
+    (left > 1e-6 ? ' z' + lengthText(left / unit) : '') + trail
+  );
   $('selection-status').textContent = `Pasted ${countWords(clip.count)} over the rest.`;
 }
 // A rest as long as a note, for Cut: the length as written, so tuplets and broken rhythm still add up. Slurs, tuplet
@@ -1708,7 +1867,8 @@ function copySelection(picked, verb = 'Copied') {
   try {
     navigator.clipboard?.writeText?.(clip.notes + (clip.bar ? ' |' : ''))?.catch?.(() => {});
   } catch {}
-  $('selection-status').textContent = `${verb} ${countWords(picked.length)}. Ctrl+V pastes after the selection.`;
+  $('selection-status').textContent =
+    `${verb} ${countWords(picked.length)}. Paste (Ctrl+V) puts them after the selection.`;
 }
 // Ctrl/Cmd with A (select all), C (copy), X (cut to rests), V (paste) and D (duplicate after itself, then select the
 // copy). Each edit is one undo step.
@@ -1728,7 +1888,7 @@ function selectionCommand(command) {
   }
   if (!picked.length) {
     $('selection-status').textContent =
-      'Select notes first: click a note, then Shift+click another or press Shift+→ to select more.';
+      'Select notes first: click a note, then Select ▸ (Shift+→) or Shift+click another to select more.';
     return;
   }
   if (command === 'c') copySelection(picked);
@@ -1736,7 +1896,7 @@ function selectionCommand(command) {
     copySelection(picked);
     editNotes(picked, (n, text) => restText(text), picked);
     $('selection-status').textContent =
-      `Cut ${countWords(picked.length)}; rests keep their place. Ctrl+V pastes them after the selection.`;
+      `Cut ${countWords(picked.length)}; rests keep their place. Paste (Ctrl+V) puts the notes after the selection.`;
   }
   if (command === 'd') pasteAfter(picked.at(-1), clipOf(picked), 'Duplicated');
 }
