@@ -2357,3 +2357,154 @@ body.embed .practice-controls .speed-control {
 body.embed #speed-reset {
   padding: 7px 12px;
 }
+/* Turning in and Submissions: the student's Turn in panel and the teacher's feedback above the checklist; the bar over a
+   turned-in score, with Previous, Next and the feedback box; and the inbox in My scores. None of it prints. */
+.turn-in-panel h2 {
+  font-size: 20px;
+}
+#turn-in-result {
+  margin-top: 12px;
+}
+#turn-in-download {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.feedback-note {
+  margin: 12px 0 0;
+  padding: 12px 16px;
+  border-left: 3px solid var(--orange);
+  background: var(--warn-bg);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.feedback-note p {
+  margin: 4px 0 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.submission-bar {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 24px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--green);
+  border-radius: 7px;
+  background: var(--paper);
+  padding: 12px 16px;
+}
+.submission-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.submission-head p {
+  margin: 0;
+  flex: 1 1 240px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.submission-nav,
+.inbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.submission-nav button,
+.inbox-actions button,
+.feedback-form button {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.feedback-form label {
+  display: block;
+}
+.feedback-form .share-row {
+  flex-wrap: wrap;
+}
+.feedback-form .share-row textarea {
+  flex: 1 1 240px;
+  min-height: 0;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--field);
+}
+.feedback-form .share-row button {
+  align-self: flex-start;
+}
+.inbox-panel textarea {
+  margin-top: 6px;
+  min-height: 0;
+}
+.inbox-actions {
+  margin-top: 8px;
+}
+.inbox-actions select {
+  width: auto;
+  padding: 7px 9px;
+}
+.inbox-group h3 {
+  margin: 18px 0 0;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.inbox-group h3 .small {
+  font-weight: 400;
+}
+.inbox-goals.met {
+  color: var(--green);
+  font-weight: 650;
+}
+.inbox-bars.fix {
+  color: var(--danger);
+}
+/* My scores' buttons (Back up, Restore, Submissions, New score) wrap on a phone instead of widening the page. */
+@media (max-width: 720px) {
+  #saved .studio-actions {
+    flex: 1 1 100%;
+  }
+}
+@media print {
+  .submission-bar,
+  .turn-in-panel,
+  .inbox-panel,
+  .feedback-note {
+    display: none !important;
+  }
+}
+/* Offline notice and Install app sit with the theme choice in the header. When they do not fit beside the nav they
+   move to a row of their own, on the right, and the nav labels stay on one line. At 820px and below they sit above
+   the nav, beside the logo when there is room. */
+header {
+  flex-wrap: wrap;
+}
+.header-tools {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 16px;
+  margin-left: auto;
+}
+@media (min-width: 721px) {
+  .nav {
+    white-space: nowrap;
+  }
+}
+.offline-status:empty {
+  display: none;
+}
+.offline-status {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--danger);
+  background: var(--warn-bg);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+.install-app {
+  font-size: 12px;
+  padding: 7px 12px;
+}

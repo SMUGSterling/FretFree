@@ -11,6 +11,26 @@
 
 ---
 
+# Turn in and Submissions · 2026-10-06
+
+- **Turn in** appears next to Share link on a score with an assignment or a writing prompt. The student writes their name once (it is remembered on the device, and selected so the next student on a shared computer types over it) and gets a link to paste where the teacher collects work, plus a `.json` file to attach. The link adds the name, the time, the assignment's id and which goals were met to the usual payload (`n`, `t`, `x`, `g`; `v` stays 1). Editing after turning in takes the link away, so the newest work is what goes in. The file carries the credited ABC, so library credits and licences travel with it.
+- **My scores → Submissions** is the teacher's inbox. Paste the links, one per line, or drop the files: each is decoded and checked, goals and bar checks are worked out again from the music, and lines that are not turn-in links are listed by number (files over 1 MB by name) while the rest are added. Submissions are grouped by assignment, with the student, time, goals met and bars to fix, and sort by name, goals met or time.
+- **Open** shows a submission in Compose under "Turned in by …", with the checklist, **Previous** and **Next** through the class and a feedback box. Feedback is kept per student as it is typed, even if the tab closes with the box still focused, and recovering unsaved work brings a submission back with its bar. **Save** makes a copy of your own, without the bar, that can be turned in. **Copy return link** sends the music back with the feedback (`c`); the student sees it above the checklist, keeps it when saving, and can revise and turn in again. A turned-in link opened directly shows the same bar with **Add to submissions**, after which stepping through the class no longer asks about unsaved changes.
+- The inbox keeps up to 200 submissions (`fretfree-inbox`) with Delete and Clear all, and backups now include it and the remembered name. Names, feedback and everything else from links, files and backups are checked field by field and shown escaped.
+- My scores' buttons wrap on a phone instead of widening the page.
+
+---
+
+# Install as an app and work offline · 2026-10-06
+
+- After one visit FretFree opens and works without internet: the library, saved scores, a score opened before, the editor and playback. A PDF or MIDI file from the library works offline once it has been opened; one never opened does not.
+- New `sw.js` service worker (scope `./`). The page is network-first with the last complete copy as the offline fallback, so a new deploy shows within one reload. `?v=`-stamped scripts and styles are cache-first: the small ones are cached at install and the large catalogs at runtime, with the page handing over the files it loaded before the worker took charge, so the first visit is enough. A newly fetched page replaces the offline copy only once every stamped file it loads is cached, and only then are the files the old page alone loaded dropped, so an update cut short by lost Wi-Fi or a closed lid leaves the previous copy working. Files under `scores/` are cached only when opened, and are fetched again when online, so a corrected edition reaches students. Older FretFree caches for the same folder are dropped; other projects' caches on a shared github.io origin are left alone. It never fetches from another site.
+- New `manifest.webmanifest` (relative URLs, standalone display, theme colors) with local icons in `icons/` (192 and 512 px, maskable, Apple touch icon and an SVG favicon), drawn from the SVGs by `node scripts/make-icons.cjs`. Chrome's installability check passes.
+- **Install app** appears in the header when the browser offers installing (Chrome and Edge) and works from the keyboard. A **Working offline** notice in the header, announced to screen readers, shows while the device is offline, with a toast when the connection drops. They sit with the theme choice: above the nav at iPad and phone widths, and on a row below the nav at narrow laptop widths when they do not fit beside it, so the nav labels stay on one line. The About page explains offline use and installing on iPads and iPhones, and says whether this browser has an offline copy or whether part of it is missing; a copy cut short is finished when the connection comes back.
+- Registration runs only on https and localhost, after the page has loaded, and never in an embedded score, which keeps nothing on the visitor's device; without service workers the site works online as before.
+
+---
+
 # Slurs, hairpins and trill lines · 2026-10-06
 
 - Select notes and press **S** to slur them; **S** again takes the slur off. With one note selected the slur goes to the next note in the same voice, and **S** on that note again removes it.
