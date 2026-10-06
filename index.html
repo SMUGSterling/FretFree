@@ -12,34 +12,35 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-    <script src="theme.js?v=13c67eee5b0b"></script>
-    <link rel="stylesheet" href="style.css?v=13c67eee5b0b" />
-    <script defer src="vendor/abcjs-basic-min.js?v=13c67eee5b0b"></script>
-    <script defer src="vendor/qrcode.js?v=13c67eee5b0b"></script>
-    <script defer src="catalog.js?v=13c67eee5b0b"></script>
-    <script defer src="catalog-expanded.js?v=13c67eee5b0b"></script>
-    <script defer src="score-tools.js?v=13c67eee5b0b"></script>
-    <script defer src="rights-tools.js?v=13c67eee5b0b"></script>
-    <script defer src="musicxml.js?v=13c67eee5b0b"></script>
-    <script defer src="catalog-licensed.js?v=13c67eee5b0b"></script>
-    <script defer src="catalog-lieder.js?v=13c67eee5b0b"></script>
-    <script defer src="catalog-quartets.js?v=13c67eee5b0b"></script>
-    <script defer src="catalog-pgh.js?v=13c67eee5b0b"></script>
-    <script defer src="catalog-skills.js?v=13c67eee5b0b"></script>
-    <script defer src="prompts.js?v=13c67eee5b0b"></script>
-    <script defer src="shared.js?v=13c67eee5b0b"></script>
-    <script defer src="library.js?v=13c67eee5b0b"></script>
-    <script defer src="backup.js?v=13c67eee5b0b"></script>
-    <script defer src="editor.js?v=13c67eee5b0b"></script>
-    <script defer src="measure-tools.js?v=13c67eee5b0b"></script>
-    <script defer src="palette.js?v=13c67eee5b0b"></script>
-    <script defer src="shortcuts.js?v=13c67eee5b0b"></script>
-    <script defer src="playback.js?v=13c67eee5b0b"></script>
-    <script defer src="keyboard.js?v=13c67eee5b0b"></script>
-    <script defer src="assignments.js?v=13c67eee5b0b"></script>
-    <script defer src="turn-in.js?v=13c67eee5b0b"></script>
-    <script defer src="record.js?v=13c67eee5b0b"></script>
-    <script defer src="app.js?v=13c67eee5b0b"></script>
+    <script src="theme.js?v=5dc15c42bd27"></script>
+    <link rel="stylesheet" href="style.css?v=5dc15c42bd27" />
+    <script defer src="vendor/abcjs-basic-min.js?v=5dc15c42bd27"></script>
+    <script defer src="vendor/qrcode.js?v=5dc15c42bd27"></script>
+    <script defer src="catalog.js?v=5dc15c42bd27"></script>
+    <script defer src="catalog-expanded.js?v=5dc15c42bd27"></script>
+    <script defer src="score-tools.js?v=5dc15c42bd27"></script>
+    <script defer src="rights-tools.js?v=5dc15c42bd27"></script>
+    <script defer src="musicxml.js?v=5dc15c42bd27"></script>
+    <script defer src="catalog-licensed.js?v=5dc15c42bd27"></script>
+    <script defer src="catalog-lieder.js?v=5dc15c42bd27"></script>
+    <script defer src="catalog-quartets.js?v=5dc15c42bd27"></script>
+    <script defer src="catalog-pgh.js?v=5dc15c42bd27"></script>
+    <script defer src="catalog-skills.js?v=5dc15c42bd27"></script>
+    <script defer src="prompts.js?v=5dc15c42bd27"></script>
+    <script defer src="shared.js?v=5dc15c42bd27"></script>
+    <script defer src="library.js?v=5dc15c42bd27"></script>
+    <script defer src="backup.js?v=5dc15c42bd27"></script>
+    <script defer src="editor.js?v=5dc15c42bd27"></script>
+    <script defer src="measure-tools.js?v=5dc15c42bd27"></script>
+    <script defer src="palette.js?v=5dc15c42bd27"></script>
+    <script defer src="shortcuts.js?v=5dc15c42bd27"></script>
+    <script defer src="playback.js?v=5dc15c42bd27"></script>
+    <script defer src="mixer.js?v=5dc15c42bd27"></script>
+    <script defer src="keyboard.js?v=5dc15c42bd27"></script>
+    <script defer src="assignments.js?v=5dc15c42bd27"></script>
+    <script defer src="turn-in.js?v=5dc15c42bd27"></script>
+    <script defer src="record.js?v=5dc15c42bd27"></script>
+    <script defer src="app.js?v=5dc15c42bd27"></script>
   </head>
   <body>
     <header>
@@ -500,10 +501,29 @@
               ><label class="inline"><input type="checkbox" id="count-in" /> Count-in</label
               ><label class="inline" title="Play the chord symbols as an accompaniment"
                 ><input type="checkbox" id="chords" checked /> Chords</label
+              ><button
+                id="mixer-toggle"
+                type="button"
+                aria-expanded="false"
+                aria-controls="mixer-panel"
+                title="Mute, solo, volume and pan for each voice, the chords and the metronome"
+              >
+                Mixer</button
               ><label class="volume"
                 >Volume<input id="volume" type="range" min="0" max="1" step="0.05" value="0.3" /></label
               ><span id="play-status" role="status">Ready to play</span>
             </div>
+            <section id="mixer-panel" class="share-panel mixer-panel" aria-labelledby="mixer-heading" hidden>
+              <div class="share-head">
+                <h2 id="mixer-heading">Mixer</h2>
+                <span class="mixer-head-buttons"
+                  ><button id="mixer-reset" type="button">Reset</button
+                  ><button id="mixer-close" type="button" aria-label="Close mixer">✕</button></span
+                >
+              </div>
+              <div id="mixer-tracks" class="mixer-tracks"></div>
+              <p id="mixer-note" class="small"></p>
+            </section>
             <div class="practice-controls">
               <label
                 >Measures
@@ -1380,9 +1400,10 @@
           in noteheads help beginners read, and both print. Theme in the header switches to a dark theme, or follows
           your device; the score stays black on white unless you tick Dark paper, and prints stay black on white. WAV
           makes an audio file of the score as playback sounds it, made on your device, to hand in or to practice along
-          with. Press L on a note to type lyrics under it, a syllable at a time, with more verses below. On new scores,
-          Keep bars full leaves a rest when a note gets shorter or is deleted, and lets a note grow only into the rests
-          after it, so every bar keeps its beats.
+          with. Press L on a note to type lyrics under it, a syllable at a time, with more verses below. Mixer mutes,
+          solos, sets the volume of or pans each voice, the chords and the metronome, to practice one part against the
+          others. On new scores, Keep bars full leaves a rest when a note gets shorter or is deleted, and lets a note
+          grow only into the rests after it, so every bar keeps its beats.
         </p>
         <h2>Privacy and school access</h2>
         <p>
