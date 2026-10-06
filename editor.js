@@ -34,6 +34,15 @@ function syncFields() {
   const m = field('Q', '100').match(/(\d+)\s*$/);
   $('bpm').value = m ? Math.max(40, Math.min(200, +m[1])) : 100;
   $('bpm-value').textContent = $('bpm').value;
+  syncFeel();
+}
+// Feel menu: Straight or a swing amount read from the score; an amount typed into the ABC gets its own entry.
+function syncFeel() {
+  if (!$('feel')) return;
+  const amount = swingAmount($('abc').value),
+    [, d] = meterParts();
+  assignSelect('feel', String(amount), `Swing (${amount})`);
+  $('feel-note').hidden = !(amount && d !== 2 && d !== 4);
 }
 function setHeader(name, value) {
   if (name === 'K') $('abc').value = withKey($('abc').value);
@@ -42,6 +51,9 @@ function setHeader(name, value) {
   let text = name + ':' + String(value).replace(/[\r\n]/g, ' ');
   // A new key keeps the clef and other modifiers written after the old one.
   if (name === 'K' && i >= 0) text += keyParts(lines[i].slice(2)).rest.replace(/^(?=\S)/, ' ');
+  // A new tempo keeps the tempo text printed with it, such as "Swing".
+  const words = name === 'Q' && i >= 0 && !text.includes('"') && lines[i].match(/"[^"]*"/)?.[0];
+  if (words) text = 'Q:' + words + ' ' + text.slice(2);
   if (i >= 0) lines[i] = text;
   else
     lines.splice(

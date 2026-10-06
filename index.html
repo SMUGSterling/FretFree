@@ -8,28 +8,28 @@
       content="Public-domain and freely licensed music, with credited editable practice parts. Find, practice and write sheet music privately."
     />
     <title>FretFree · Music belongs in your hands</title>
-    <link rel="stylesheet" href="style.css?v=59ff6a2e14a7" />
-    <script defer src="vendor/abcjs-basic-min.js?v=59ff6a2e14a7"></script>
-    <script defer src="catalog.js?v=59ff6a2e14a7"></script>
-    <script defer src="catalog-expanded.js?v=59ff6a2e14a7"></script>
-    <script defer src="score-tools.js?v=59ff6a2e14a7"></script>
-    <script defer src="rights-tools.js?v=59ff6a2e14a7"></script>
-    <script defer src="musicxml.js?v=59ff6a2e14a7"></script>
-    <script defer src="catalog-licensed.js?v=59ff6a2e14a7"></script>
-    <script defer src="catalog-lieder.js?v=59ff6a2e14a7"></script>
-    <script defer src="catalog-quartets.js?v=59ff6a2e14a7"></script>
-    <script defer src="catalog-pgh.js?v=59ff6a2e14a7"></script>
-    <script defer src="catalog-skills.js?v=59ff6a2e14a7"></script>
-    <script defer src="prompts.js?v=59ff6a2e14a7"></script>
-    <script defer src="shared.js?v=59ff6a2e14a7"></script>
-    <script defer src="library.js?v=59ff6a2e14a7"></script>
-    <script defer src="backup.js?v=59ff6a2e14a7"></script>
-    <script defer src="editor.js?v=59ff6a2e14a7"></script>
-    <script defer src="palette.js?v=59ff6a2e14a7"></script>
-    <script defer src="playback.js?v=59ff6a2e14a7"></script>
-    <script defer src="keyboard.js?v=59ff6a2e14a7"></script>
-    <script defer src="assignments.js?v=59ff6a2e14a7"></script>
-    <script defer src="app.js?v=59ff6a2e14a7"></script>
+    <link rel="stylesheet" href="style.css?v=3e67d59b0750" />
+    <script defer src="vendor/abcjs-basic-min.js?v=3e67d59b0750"></script>
+    <script defer src="catalog.js?v=3e67d59b0750"></script>
+    <script defer src="catalog-expanded.js?v=3e67d59b0750"></script>
+    <script defer src="score-tools.js?v=3e67d59b0750"></script>
+    <script defer src="rights-tools.js?v=3e67d59b0750"></script>
+    <script defer src="musicxml.js?v=3e67d59b0750"></script>
+    <script defer src="catalog-licensed.js?v=3e67d59b0750"></script>
+    <script defer src="catalog-lieder.js?v=3e67d59b0750"></script>
+    <script defer src="catalog-quartets.js?v=3e67d59b0750"></script>
+    <script defer src="catalog-pgh.js?v=3e67d59b0750"></script>
+    <script defer src="catalog-skills.js?v=3e67d59b0750"></script>
+    <script defer src="prompts.js?v=3e67d59b0750"></script>
+    <script defer src="shared.js?v=3e67d59b0750"></script>
+    <script defer src="library.js?v=3e67d59b0750"></script>
+    <script defer src="backup.js?v=3e67d59b0750"></script>
+    <script defer src="editor.js?v=3e67d59b0750"></script>
+    <script defer src="palette.js?v=3e67d59b0750"></script>
+    <script defer src="playback.js?v=3e67d59b0750"></script>
+    <script defer src="keyboard.js?v=3e67d59b0750"></script>
+    <script defer src="assignments.js?v=3e67d59b0750"></script>
+    <script defer src="app.js?v=3e67d59b0750"></script>
   </head>
   <body>
     <header>
@@ -283,6 +283,15 @@
               ><button id="key-keep" title="Change only the key signature">Keep notes</button
               ><button id="key-cancel" aria-label="Cancel the key change">✕</button>
             </div>
+            <label
+              >Feel<select id="feel" aria-describedby="feel-note">
+                <option value="0">Straight</option>
+                <option value="60">Light swing (60)</option>
+                <option value="66">Swing (66)</option>
+                <option value="75">Hard swing (75)</option>
+              </select></label
+            >
+            <p id="feel-note" class="small" hidden>Swing changes playback only in meters such as 4/4, 3/4 and 2/2.</p>
             <button id="transpose-open" class="transpose-open" aria-expanded="false" aria-controls="transpose-panel">
               Transpose…
             </button>
@@ -766,12 +775,12 @@
           MIDI keyboard (in browsers with Web MIDI, such as Chrome and Edge) to write music and chords, with
           articulations, dynamics and ornaments; dynamics, accents and staccato change the playback. Press Z or Respell
           to respell a note, such as C♯ as D♭. Hear each note as you enter it, play the score with built-in synthesized
-          tones, change tempo, loop playback, and export ABC, MIDI, SVG, or MusicXML (for MuseScore, Noteflight, Finale,
-          Sibelius or Dorico). Select a passage to copy, cut, paste or repeat it, or to move or lengthen every note in
-          it at once. Zoom in for larger notation, or choose how many measures go on each line. Use Print / PDF to
-          produce a paper score, in large print if you zoom in first. Transpose a score or a few measures by any
-          interval or to a new key. Choose a B♭ or E♭ instrument for written-pitch transposition with concert-pitch
-          playback. Classroom colors and letters in noteheads help beginners read, and both print.
+          tones, change tempo, play with a swing feel, loop playback, and export ABC, MIDI, SVG, or MusicXML (for
+          MuseScore, Noteflight, Finale, Sibelius or Dorico). Select a passage to copy, cut, paste or repeat it, or to
+          move or lengthen every note in it at once. Zoom in for larger notation, or choose how many measures go on each
+          line. Use Print / PDF to produce a paper score, in large print if you zoom in first. Transpose a score or a
+          few measures by any interval or to a new key. Choose a B♭ or E♭ instrument for written-pitch transposition
+          with concert-pitch playback. Classroom colors and letters in noteheads help beginners read, and both print.
         </p>
         <h2>Privacy and school access</h2>
         <p>

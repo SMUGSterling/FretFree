@@ -1,3 +1,12 @@
+# Swing feel · 2026-10-06
+
+- **Feel** in Score settings plays a score straight or with a swing feel: Light swing (60), Swing (66) or Hard swing (75). The off-beat eighth of each quarter beat starts late, at that percent of the beat, and the on-beat eighth before it lasts longer, so at Swing and 120 BPM the second of two eighths starts at 2/3 of the beat instead of halfway.
+- Only beats made of eighths swing: a beat with sixteenths, triplets or other off-beat notes plays as written, each voice on its own, and a pickup eighth swings as an off-beat. Each measure swings at its own tempo, through tempo changes and repeats. Meters that are not x/4 or x/2 play straight, and the menu says so.
+- The feel is written into the ABC, where it prints and travels with saved scores and share links: `Q:"Swing" 1/4=120` (the tempo text abcjs prints above the staff) and `%%MIDI swing 66` (the abc2midi directive). Straight removes both, and other tempo text such as "Allegro" stays. The Tempo slider and `setHeader('Q')` keep the tempo text. Each change is one undo step.
+- Straight scores play exactly as before. The note highlight, metronome, count-in and MIDI export keep the straight beat. The pure `swingAmount()`, `setSwing()`, `swingNotes()` and `swingPlayback()` are in score-tools.js.
+
+---
+
 # MIDI keyboard input and respelling · 2026-10-06
 
 - **MIDI input** (next to Piano keys) enters notes and chords from a USB MIDI keyboard. The button shows only where the browser has Web MIDI (Chrome, Edge and other Chromium browsers, and Firefox); it asks for MIDI access without SysEx, listens to every connected input, and the status line names the keyboards and follows them being plugged in or out. Blocked access gets a plain message, and the button stays off.

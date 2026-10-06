@@ -86,6 +86,22 @@ function clickTimes(from, until, end = until) {
   }
   return out;
 }
+// Swing grid for playback: each measure as played, with its quarter-note length from its real start and end, so
+// swing follows repeats and tempo changes. A pickup's beats are counted back from its end. Only x/4 and x/2 meters swing.
+function swingBars(end) {
+  if (![2, 4].includes(meterParts()[1])) return [];
+  const bar = renderedTune?.getBarLength?.() || 1,
+    lengths = measureLengths(),
+    starts = (renderedTune?.noteTimings || []).filter(e => e.type === 'event' && e.measureStart);
+  return starts.map((e, i) => {
+    const time = e.milliseconds / 1000,
+      next = starts[i + 1] ? starts[i + 1].milliseconds / 1000 : end;
+    const measure = (e.startCharArray || []).map(c => noteSources.get(c)?.measure).find(Boolean);
+    const length = lengths.get(measure) || bar,
+      quarter = (next - time) / length / 4;
+    return {time, quarter, origin: i === 0 && length < bar - 1e-9 ? next : time};
+  });
+}
 // Master bus: every note and click goes through one gain node that follows the Volume slider live, then a limiter
 // (where the browser has one) so chords and accompaniment do not clip. Built once per audio context, on first use.
 const masterBuses = new WeakMap();
@@ -222,7 +238,9 @@ async function play(resumeFrom = null, {countIn = false} = {}) {
     audio ||= new (window.AudioContext || window.webkitAudioContext)();
     await audio.resume();
     if (generation !== playGeneration) return;
-    const full = parseMidi(midiBytes($('abc').value)),
+    // Swing moves note times only; measure starts, clicks and the note highlight keep the written beat.
+    const midi = parseMidi(midiBytes($('abc').value)),
+      full = swingPlayback(midi, swingAmount($('abc').value), swingBars(midi.duration)),
       range = measureRange(),
       start = measureStarts.get(range.from);
     const from = resumeFrom ?? start;

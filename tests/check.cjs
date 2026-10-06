@@ -257,6 +257,69 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     );
   }
 }
+// Swing feel: the setting round-trips through Q: text and %%MIDI swing, and playback delays off-beat eighths only.
+{
+  const head = 'X:1\nT:Blues\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\n',
+    swung = context.setSwing(head + 'CDEF GABc|]', 66);
+  assert.equal(swung, 'X:1\nT:Blues\nM:4/4\nL:1/8\nQ:"Swing" 1/4=120\n%%MIDI swing 66\nK:C\nCDEF GABc|]');
+  assert.deepEqual(ABCJS.parseOnly(swung)[0].warnings, undefined, 'Swing tempo text and directive parse cleanly');
+  assert.equal(ABCJS.parseOnly(swung)[0].metaText.tempo.preString, 'Swing', '"Swing" prints with the tempo');
+  assert.equal(context.swingAmount(swung), 66);
+  assert.equal(context.swingAmount(context.setSwing(swung, 75)), 75, 'A new amount replaces the directive');
+  assert.equal(context.setSwing(swung, 75).match(/%%MIDI swing/g).length, 1);
+  assert.equal(context.setSwing(swung, 0), head + 'CDEF GABc|]', 'Straight removes both');
+  assert.equal(
+    context.setSwing('X:1\nQ:"Allegro" 1/4=120\nK:C\nC|]', 0),
+    'X:1\nQ:"Allegro" 1/4=120\nK:C\nC|]',
+    'Straight keeps other tempo text'
+  );
+  assert.equal(context.setSwing('X:1\nK:C\nC|]', 60), 'X:1\nQ:"Swing"\n%%MIDI swing 60\nK:C\nC|]');
+  assert.equal(context.setSwing('X:1\nQ:"Swing"\n%%MIDI swing 60\nK:C\nC|]', 0), 'X:1\nK:C\nC|]');
+  assert.equal(context.swingAmount('X:1\nQ:"Medium swing" 1/4=120\nK:C\n'), 66, 'Swing text alone means 66');
+  assert.equal(context.swingAmount('X:1\n%%MIDI swing 90\nK:C\n'), 75, 'Amounts stop at 75');
+  assert.equal(context.swingAmount('X:1\nQ:"Swing"\n%%MIDI swing 50\nK:C\n'), 0, '50 is straight');
+  assert.equal(context.swingAmount(head), 0);
+  const note = (start, duration, ch = 0) => ({start, duration, ch, note: 60, velocity: 80}),
+    times = notes => notes.map(n => +n.start.toFixed(4) + '+' + +n.duration.toFixed(4)).join(' ');
+  const eighths = [note(0, 0.25), note(0.25, 0.25), note(0.5, 0.25), note(0.75, 0.25)];
+  assert.equal(times(context.swingNotes(eighths, 0.5, 66)), '0+0.33 0.33+0.17 0.5+0.33 0.83+0.17');
+  assert.equal(times(context.swingNotes(eighths, 0.5, 75)), '0+0.375 0.375+0.125 0.5+0.375 0.875+0.125');
+  assert.equal(context.swingNotes(eighths, 0.5, 50), eighths, 'Straight returns the notes untouched');
+  assert.equal(
+    times(context.swingNotes([note(0, 0.125), note(0.125, 0.125), note(0.25, 0.25)], 0.5, 66)),
+    '0+0.125 0.125+0.125 0.25+0.25',
+    'A beat with sixteenths stays straight'
+  );
+  assert.equal(
+    times(context.swingNotes([note(0, 0.5), note(0, 0.25, 1), note(0.25, 0.75, 1), note(1, 0.25, 1)], 0.5, 66)),
+    '0+0.5 0+0.33 0.33+0.67 1+0.25',
+    'Each channel swings on its own, and a syncopated note keeps its end'
+  );
+  assert.equal(
+    times(context.swingNotes([note(0, 0.15), note(0.25, 0.15)], 0.5, 66)),
+    '0+0.198 0.33+0.102',
+    'Staccato eighths keep their proportions'
+  );
+  assert.equal(
+    times(context.swingNotes([note(0, 0.25), note(0.25, 0.25)], 0.5, 66, 0.25)),
+    '0.08+0.17 0.25+0.25',
+    'origin puts a pickup eighth on the off-beat'
+  );
+  const data = context.parseMidi(context.midiBytes(head + 'CDEF GABc|[Q:1/4=60] CDEF GABc|]'));
+  assert.equal(
+    times(
+      context
+        .swingPlayback(data, 66, [
+          {time: 0, quarter: 0.5, origin: 0},
+          {time: 2, quarter: 1, origin: 2}
+        ])
+        .notes.slice(6, 10)
+    ),
+    '1.5+0.33 1.83+0.17 2+0.66 2.66+0.34',
+    'Each measure swings at its own tempo'
+  );
+  assert.equal(context.swingPlayback(data, 0, [{time: 0, quarter: 0.5, origin: 0}]), data);
+}
 // FretFree's own teaching notation must pass the bar check; imported historic editions may keep their irregular bars.
 // Share links: the payload round-trips through deflate+base64url, and through plain base64url where
 // CompressionStream is missing; damaged links decode to null.
@@ -1059,5 +1122,5 @@ for (const prompt of context.writingPrompts) {
 console.log(
   'PASS: ' +
     context.library.length +
-    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
+    ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, assignment building and validation, slur and tuplet note edits, note-to-rest edits, articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding, swing feel (tempo text, directive, off-beat eighths per channel and tempo), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, chords, public-domain declarations, source-file hashes, and MusicXML export (notes, pitches, durations, notation elements and credits).'
 );

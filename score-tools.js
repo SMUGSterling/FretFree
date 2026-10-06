@@ -1563,6 +1563,91 @@ function parseMidi(bytes) {
   for (const n of active.values()) notes.push({...n, duration: Math.max(0.1, time - n.start)});
   return {notes, duration: Math.max(time, ...notes.map(n => n.start + n.duration), 0)};
 }
+// Swing feel, a score setting written as tempo text and an abc2midi directive: Q:"Swing" 1/4=120 and %%MIDI swing 66.
+// The amount is the on-beat eighth's share of the quarter beat in percent: 66 is a triplet feel, 50 or less is
+// straight. A "swing" tempo text without the directive means 66; amounts stop at 75, as in abcjs.
+const SWING_LINE = /^%%MIDI[ \t]+swing\b.*$/im,
+  SWING_TEXT = /"[^"]*swing[^"]*"/i;
+function swingAmount(source) {
+  const directive = source.match(SWING_LINE)?.[0].match(/swing\s+(\d+(?:\.\d+)?)/i);
+  if (directive) return +directive[1] > 50 ? Math.min(75, Math.round(+directive[1])) : 0;
+  return SWING_TEXT.test(source.match(/^Q:.*$/m)?.[0] || '') ? 66 : 0;
+}
+// Set the feel: "Swing" replaces any tempo text and the directive goes just above K:. Straight removes both, and only
+// tempo text that says swing.
+function setSwing(source, amount) {
+  amount = Math.min(75, Math.round(+amount) || 0);
+  const lines = source.split('\n').filter(line => !SWING_LINE.test(line)),
+    q = lines.findIndex(line => /^Q:/.test(line));
+  if (amount > 50) {
+    const tempo =
+      q >= 0
+        ? lines[q]
+            .slice(2)
+            .replace(/"[^"]*"/g, '')
+            .trim()
+        : '';
+    const text = 'Q:"Swing"' + (tempo ? ' ' + tempo : '');
+    if (q >= 0) lines[q] = text;
+    const k = lines.findIndex(line => /^K:/.test(line)),
+      at = k >= 0 ? k : lines.length;
+    lines.splice(at, 0, ...(q >= 0 ? [] : [text]), '%%MIDI swing ' + amount);
+  } else if (q >= 0) {
+    const text = lines[q]
+      .replace(SWING_TEXT, '')
+      .replace(/^Q:\s+/, 'Q:')
+      .trimEnd();
+    if (text === 'Q:') lines.splice(q, 1);
+    else lines[q] = text;
+  }
+  return lines.join('\n');
+}
+// Swung playback times. Within a quarter beat, times before the half-beat stretch and times after it shrink, so the
+// off-beat eighth starts late (at amount% of the beat) and its on-beat partner lasts longer. A beat is swung only in a
+// channel where it has an off-beat note and every note starts on the beat or halfway through it: sixteenths, triplets
+// and other channels' notes stay as written. origin is a time that falls on a beat (after a pickup).
+function swingNotes(notes, beatSeconds, amount, origin = 0) {
+  if (!(amount > 50) || !(beatSeconds > 0)) return notes;
+  const a = Math.min(75, amount) / 100,
+    eps = 1e-6,
+    place = t => {
+      const p = (t - origin) / beatSeconds,
+        beat = Math.floor(p + eps);
+      return {beat, f: Math.max(0, p - beat)};
+    };
+  const offbeat = new Set(),
+    uneven = new Set();
+  for (const n of notes) {
+    const {beat, f} = place(n.start),
+      key = (n.ch ?? 0) + ':' + beat;
+    if (Math.abs(f - 0.5) < eps) offbeat.add(key);
+    else if (f > eps) uneven.add(key);
+  }
+  const warp = (ch, t) => {
+    const {beat, f} = place(t),
+      key = ch + ':' + beat;
+    if (!offbeat.has(key) || uneven.has(key)) return t;
+    const g = f <= 0.5 ? (f * a) / 0.5 : a + ((f - 0.5) * (1 - a)) / 0.5;
+    return origin + (beat + g) * beatSeconds;
+  };
+  return notes.map(n => {
+    const ch = n.ch ?? 0,
+      start = warp(ch, n.start);
+    return {...n, start, duration: Math.max(0.025, warp(ch, n.start + n.duration) - start)};
+  });
+}
+// Swing decoded MIDI (parseMidi). bars lists each measure as played, {time, quarter, origin}: where it starts, its
+// quarter-note length in seconds and a time on its beat grid. Tempo changes stretch abcjs's MIDI ticks rather than
+// change its tempo, so the bars come from the score's timing, not from the MIDI tempo.
+function swingPlayback(data, amount, bars) {
+  if (!(amount > 50) || !bars?.length) return data;
+  const parts = bars.map(() => []);
+  for (const n of data.notes) {
+    const i = bars.findLastIndex(b => b.time <= n.start + 1e-6);
+    parts[Math.max(0, i)].push(n);
+  }
+  return {...data, notes: parts.flatMap((part, i) => swingNotes(part, bars[i].quarter, amount, bars[i].origin))};
+}
 
 // Share links: the whole score rides in the URL hash (#s=…), so no server ever holds student work.
 // Payload {v, a: abc, i: instrument, s: library source id, p: built-in prompt id,
