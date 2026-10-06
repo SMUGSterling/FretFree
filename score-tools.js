@@ -1138,6 +1138,145 @@ function barProblems(tune) {
   }
   return problems;
 }
+// Keep bars full (Noteflight's duration rules). The rests that fill a gap from a position in its bar (whole notes from
+// the downbeat): each is the longest plain value that starts on a multiple of itself and fits, so rests fall on the
+// beat as engravers write them (C z z2 in 4/4, not C z3). In 6/8, 9/8 and 12/8 the beat is a dotted quarter.
+function restValues(from, length, meter) {
+  const eighths = meter?.den === 8 ? Math.round(meter.length * 8) : 0,
+    values = eighths > 3 && eighths % 3 === 0 ? [3 / 4, 3 / 8] : [1, 1 / 2, 1 / 4],
+    out = [];
+  values.push(1 / 8, 1 / 16, 1 / 32, 1 / 64);
+  let at = from,
+    left = length;
+  while (left > 1e-9 && out.length < 16) {
+    const v = values.find(v => v <= left + 1e-9 && Math.abs(at / v - Math.round(at / v)) < 1e-6) ?? left;
+    out.push(v);
+    at += v;
+    left -= v;
+  }
+  return out;
+}
+// Change the lengths of notes in one bar (a measure of barLengths) and keep the bar's length. lengths holds a new
+// length (whole notes) for each note of bar.notes to change, null for the others. Shorter notes leave rests after the
+// last changed note for the difference, merged with the rests already there; longer ones take their time from plain
+// rests after it in the bar, nearest first, and the notes in between move later. slack is time the bar is missing (a
+// bar left short), which a longer note may take before it is refused. In an overfull bar, shorter notes first take
+// off the extra time. Returns {edits ({start, end, text}, for spliceAll), added, taken} or {why}: 'room' (with room,
+// the time there is), 'tuplet', 'broken' (a dotted pair written with > or <) or 'multi' (a multi-measure rest).
+// unit is the unit length (L:) the bar starts in, and an inline [L:] in the bar changes it from there. rests counts the
+// rests written for a shorter note.
+function fitBar(source, bar, lengths, unit, slack = 0) {
+  const notes = bar.notes,
+    near = (a, b) => Math.abs(a - b) < 1e-9,
+    text = i => source.slice(notes[i].element.startChar, notes[i].element.endChar),
+    parts = i => noteParts(text(i)),
+    duration = i => notes[i].element.duration || 0,
+    inTuplet = i => !near(notes[i].at - (i ? notes[i - 1].at : 0), duration(i)),
+    // A rest that can give or take time: a plain z with nothing on it, outside a tuplet.
+    free = i => {
+      const p = parts(i);
+      return (
+        notes[i].element.rest?.type === 'rest' &&
+        !inTuplet(i) &&
+        !!p &&
+        p.core === 'z' &&
+        !p.pre.trim() &&
+        !noteHead(p.post).trim()
+      );
+    },
+    // A note's music without the spaces around it, and where it starts and ends in the source.
+    head = i => {
+      const t = text(i),
+        lead = t.match(/^\s*/)[0].length;
+      return {start: notes[i].element.startChar + lead, end: notes[i].element.startChar + noteHead(t).length};
+    };
+  const changed = notes.map((n, i) => i).filter(i => lengths[i] != null && !near(lengths[i], duration(i)));
+  if (!changed.length) return {edits: [], added: 0, taken: 0, rests: 0};
+  for (const i of changed) {
+    if (notes[i].element.rest?.type === 'multimeasure') return {why: 'multi'};
+    if (inTuplet(i) || !parts(i)) return {why: 'tuplet'};
+    if (/[<>]/.test(parts(i).post) || (i && /[<>]/.test(parts(i - 1)?.post || ''))) return {why: 'broken'};
+  }
+  const delta = changed.reduce((sum, i) => sum + lengths[i] - duration(i), 0),
+    last = changed.at(-1),
+    // Rests are placed from the downbeat; a pickup bar ends on one.
+    shift = bar.measure === 1 && bar.length < bar.expected ? bar.expected - bar.length : 0,
+    unitAt = at => (/\[L:/.test(source.slice(notes[0].element.startChar, at)) ? unitLengthIn(source, at) : unit),
+    restText = (values, at) => values.map(v => 'z' + lengthText(v / unitAt(at))).join(' '),
+    edits = [];
+  let added = 0,
+    taken = 0,
+    rests = 0,
+    tail = '';
+  if (delta < 0) {
+    // The new rests take in the rests after the note while only spaces come between: an inline field ([K:], [L:]),
+    // a comment, a line break or a line of words there stays, and the rests after it keep their place.
+    const spaced = k => /^[ \t]*$/.test(source.slice(head(k - 1).end, head(k).start));
+    let gap = Math.max(0, -delta - Math.max(0, bar.length - bar.expected)),
+      k = last + 1;
+    for (; k < notes.length && free(k) && spaced(k); k++) gap += duration(k);
+    added = gap;
+    if (gap > 1e-9) {
+      const values = restValues(notes[last].at + delta + shift, gap, bar.meter);
+      rests = values.length;
+      tail = ' ' + restText(values, head(last).end);
+    }
+    if (k > last + 1 || tail) {
+      const from = head(last).end,
+        to = k > last + 1 ? head(k - 1).end : from;
+      edits.push({start: from, end: to, text: tail});
+    }
+  } else {
+    let need = delta;
+    for (let k = last + 1; k < notes.length && need > 1e-9; k++) {
+      if (!free(k)) continue;
+      const take = Math.min(need, duration(k)),
+        left = duration(k) - take,
+        h = head(k);
+      need -= take;
+      taken += take;
+      if (left > 1e-9)
+        edits.push({
+          start: h.start,
+          end: h.end,
+          text: restText(restValues(notes[k].at - left + shift, left, bar.meter), h.start)
+        });
+      else {
+        let end = h.end;
+        while (/[ \t]/.test(source[end] || '')) end++;
+        edits.push({start: h.start, end, text: ''});
+      }
+    }
+    if (need > slack + 1e-9) {
+      const room = notes.reduce((sum, n, k) => sum + (k > last && free(k) ? duration(k) : 0), 0) + slack;
+      return {why: 'room', room};
+    }
+  }
+  for (const i of changed) {
+    const h = head(i),
+      // A note that a rest now follows cannot stay tied.
+      untie = i === last && !!tail && /^-/.test(parts(i).post);
+    edits.push({
+      start: h.start,
+      end: h.end,
+      text: editNoteText(source.slice(h.start, h.end), {
+        length: lengths[i] / unitAt(h.start),
+        tie: untie ? false : undefined
+      })
+    });
+  }
+  return {edits: edits.sort((a, b) => a.start - b.start), added, taken, rests};
+}
+// One note's length, keeping its bar full: fitBar for the note at index in bar.
+function fitLength(source, bar, index, length, unit, slack = 0) {
+  return fitBar(
+    source,
+    bar,
+    bar.notes.map((n, i) => (i === index ? length : null)),
+    unit,
+    slack
+  );
+}
 // A first measure (of barLengths) shaped like a pickup: shorter than the meter and closed by a bar line.
 const shortStart = m => m.measure === 1 && m.meter !== 'free' && !!m.bar && m.length < m.expected - 1e-6;
 // The voices (barLengths' ids) that open with that shape and have more music after it.
@@ -3247,6 +3386,8 @@ function settleTempo(tune) {
 // it out, so files keep the accompaniment.
 function midiBytes(source, {chordsOff = false} = {}) {
   const tune = ABCJS.parseOnly(source)[0];
+  // Each voice keeps its MIDI channel on every line, as the mixer expects.
+  if (tune) tune.lines = steadyLines(tune, source);
   for (const line of tune?.lines || [])
     for (const staff of line.staff || [])
       for (const e of (staff.voices || []).flat()) {
@@ -3345,6 +3486,184 @@ function melodyNotes(notes) {
   if (!notes.length) return notes;
   const first = Math.min(...notes.map(n => n.ch ?? 0));
   return notes.filter(n => (n.ch ?? 0) === first);
+}
+// A tune's lines with the same staffs and voices on each. abcjs numbers the voices of each line in the order that line
+// has its staffs, and plays each number on its own MIDI channel. A voice that runs out of lines before the others
+// leaves its staff (or its & overlay) off the later systems, so the voices below it move up a place there and their
+// notes play on its channel. Here every line has every staff, in the order of the first line and with all of its
+// voices, empty where one has ended, so each voice keeps its channel. Staffs are told apart by the V: id in force where
+// their music starts on the line. A tune whose staffs cannot be told apart, or that has a staff or voice that starts
+// after the first line or comes back after a gap, is left as it is: an empty voice there would put the voice's later
+// notes out of time. midiBytes and mixerTracks both use it, so their channels agree.
+function steadyLines(tune, source = '') {
+  const lines = tune?.lines || [];
+  if (lines.every(line => !line.staff || line.staff.length === 1)) return lines;
+  const starts = linePairs(String(source)).voices,
+    ids = lines.map(line =>
+      (line.staff || []).map(staff => {
+        const at = staff.voices?.[0]?.find(e => e.startChar >= 0)?.startChar;
+        return starts.findLast(x => x.at <= at)?.voice.replace(/&\d+$/, '') ?? null;
+      })
+    ),
+    order = [],
+    size = new Map(),
+    live = new Map(),
+    model = new Map();
+  for (const [i, line] of lines.entries()) {
+    if (!line.staff) continue;
+    const here = ids[i],
+      first = !order.length;
+    if (here.includes(null) || new Set(here).size < here.length) return lines;
+    for (const id of order) if (!here.includes(id)) live.set(id, 0);
+    for (const [s, id] of here.entries()) {
+      const count = line.staff[s].voices.length;
+      if (first) {
+        order.push(id);
+        size.set(id, count);
+      } else if (!size.has(id) || count > live.get(id)) return lines;
+      live.set(id, count);
+      model.set(id, line.staff[s]);
+    }
+  }
+  const empty = n => Array.from({length: n}, () => []);
+  return lines.map((line, i) => {
+    if (!line.staff) return line;
+    const same =
+      ids[i].length === order.length &&
+      order.every((id, s) => ids[i][s] === id && line.staff[s].voices.length === size.get(id));
+    if (same) return line;
+    const staff = order.map(id => {
+      const s = ids[i].indexOf(id),
+        st = s >= 0 ? line.staff[s] : {...model.get(id), voices: []};
+      return {...st, voices: [...st.voices, ...empty(size.get(id) - st.voices.length)]};
+    });
+    return {...line, staff};
+  });
+}
+// The mixer's tracks for the first tune of a source: its voices, then Chords when a chord symbol plays (as midiBytes
+// reads them), then the Metronome. abcjs gives each voice of a line a MIDI channel, counting staff by staff in the
+// order the score draws them, and puts the chords on the channel after the last voice. An & overlay plays on a channel
+// of its own but belongs to the voice it is written in. A voice is keyed by its V: id ('V:' for a tune without one),
+// so its settings stay with it when other voices are added. It is named by its V: name, or else Voice and its number
+// (V:2 is Voice 2), or its place and id (Voice 2 (A)); the only voice is Melody. The voices of a %%score brace with
+// one name between them (a piano's {RH LH}) are one instrument, so they take its name and their ids, Piano (RH) and
+// Piano (LH), or their places in the brace when the ids are numbers (Piano 1, Piano 2). Each track is
+// {key, name, kind: 'voice' | 'chords' | 'metronome', channels}.
+function voiceNames(source) {
+  const names = new Map();
+  for (const m of String(source).matchAll(/(?:^|\n)V:[ \t]*([^\s\]]+)([^\n]*)|\[V:[ \t]*([^\s\]]+)([^\]\n]*)\]/g)) {
+    const id = m[1] ?? m[3],
+      name = (m[2] ?? m[4]).match(/\b(?:name|nm)=(?:"([^"]*)"|(\S+))/);
+    if (name && !names.has(id)) names.set(id, (name[1] ?? name[2]).replace(/\\n/g, ' ').trim());
+  }
+  for (const m of String(source).matchAll(/^%%(?:score|staves)\b[^\n]*/gm))
+    for (const brace of m[0].matchAll(/\{([^}]*)\}/g)) {
+      const ids = brace[1].match(/[^\s()[\]|*]+/g) || [],
+        named = ids.filter(id => names.has(id)),
+        name = names.get(named[0]);
+      if (ids.length > 1 && named.length === 1)
+        for (const [i, id] of ids.entries()) names.set(id, /^\d+$/.test(id) ? `${name} ${i + 1}` : `${name} (${id})`);
+    }
+  return names;
+}
+function mixerTracks(tune, source = '') {
+  // The staffs as midiBytes has abcjs number them (see steadyLines).
+  const steady = tune && {lines: steadyLines(tune, source)},
+    counts = [];
+  for (const line of steady?.lines || [])
+    for (const [s, staff] of (line.staff || []).entries())
+      counts[s] = Math.max(counts[s] || 0, staff.voices?.length || 0);
+  const channel = (s, v) => counts.slice(0, s).reduce((sum, n) => sum + (n || 0), 0) + v,
+    total = counts.reduce((sum, n) => sum + (n || 0), 0),
+    first = new Map();
+  for (const {element, key} of steady ? scoreEvents(steady) : []) {
+    const id = key.split(':').slice(0, 2).join(':');
+    if (!first.has(id)) first.set(id, element.startChar);
+  }
+  // The V: id in force where a voice's music starts (linePairs tracks V: lines and [V:] fields).
+  const starts = linePairs(String(source)).voices,
+    idAt = at => (starts.filter(x => x.at <= at).at(-1)?.voice || '').replace(/^\d*:/, '').replace(/&\d+$/, ''),
+    kept = steady ? scoreVoices(steady, source) : [],
+    names = voiceNames(source),
+    voices = [];
+  for (const id of kept) {
+    const [s, v] = id.split(':').map(Number),
+      vid = idAt(first.get(id));
+    let key = 'V:' + vid;
+    while (voices.some(t => t.key === key)) key += '+';
+    voices.push({key, id: vid, staff: s, voice: v, channels: [channel(s, v)]});
+  }
+  // An overlay goes with the voice it is written in, or else the voice before it on its staff.
+  for (const id of first.keys()) {
+    if (kept.includes(id)) continue;
+    const [s, v] = id.split(':').map(Number),
+      before = voices.filter(t => t.staff === s && t.voice < v),
+      host = before.find(t => t.id === idAt(first.get(id))) || before.at(-1);
+    host?.channels.push(channel(s, v));
+  }
+  const tracks = voices.map((t, i) => {
+    const named = names.get(t.id),
+      number = /^\d+$/.test(t.id) ? `Voice ${+t.id}` : `Voice ${i + 1}${t.id ? ` (${t.id})` : ''}`;
+    return {
+      key: t.key,
+      name: named || (voices.length === 1 ? 'Melody' : number),
+      kind: 'voice',
+      channels: t.channels
+    };
+  });
+  const chords = (tune?.lines || []).some(line =>
+    (line.staff || []).some(staff =>
+      (staff.voices || []).some(voice =>
+        voice.some(e => e.chord?.some(c => c.position === 'default' && parseChordSymbol(c.name)?.root))
+      )
+    )
+  );
+  if (chords) tracks.push({key: 'chords', name: 'Chords', kind: 'chords', channels: [total]});
+  tracks.push({key: 'metronome', name: 'Metronome', kind: 'metronome', channels: []});
+  return tracks;
+}
+// A track's mixer setting, with defaults for anything missing or out of range: volume 0–1.5 (1 is as written), pan
+// -1 (left) to 1 (right).
+const MIX_VOLUME_MAX = 1.5;
+function mixSetting(mix, key) {
+  const s = mix && typeof mix === 'object' && mix[key] && typeof mix[key] === 'object' ? mix[key] : {},
+    number = (v, low, high, fallback) => (Number.isFinite(v) ? Math.max(low, Math.min(high, v)) : fallback);
+  return {
+    mute: s.mute === true,
+    solo: s.solo === true,
+    volume: number(s.volume, 0, MIX_VOLUME_MAX, 1),
+    pan: number(s.pan, -1, 1, 0)
+  };
+}
+// A mix as it is stored and shared: only the tracks and fields that differ from the defaults, at most 64 tracks.
+// Undefined when nothing differs, so an untouched score stores and shares nothing.
+function validMixer(mix) {
+  if (!mix || typeof mix !== 'object' || Array.isArray(mix)) return undefined;
+  const out = {};
+  for (const key of Object.keys(mix).slice(0, 64)) {
+    if (key.length > 64 || key === '__proto__') continue;
+    const s = mixSetting(mix, key),
+      kept = {};
+    if (s.mute) kept.mute = true;
+    if (s.solo) kept.solo = true;
+    if (s.volume !== 1) kept.volume = Math.round(s.volume * 100) / 100;
+    if (s.pan !== 0) kept.pan = Math.round(s.pan * 100) / 100;
+    if (Object.keys(kept).length) out[key] = kept;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+// The tracks that sound: not muted, and, when any voice or Chords track is on Solo, only those. The metronome is left
+// out of Solo, so it keeps time for a soloed part.
+function audibleTracks(tracks, mix) {
+  const solo = tracks.some(t => t.kind !== 'metronome' && mixSetting(mix, t.key).solo);
+  return new Set(
+    tracks
+      .filter(t => {
+        const s = mixSetting(mix, t.key);
+        return !s.mute && (t.kind === 'metronome' || !solo || s.solo);
+      })
+      .map(t => t.key)
+  );
 }
 // Decode MIDI note and tempo events generated by abcjs, including polyphonic voices. quarter is the opening tempo,
 // in seconds per quarter note.

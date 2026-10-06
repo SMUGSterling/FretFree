@@ -41,6 +41,7 @@ function openScore(item, id = null) {
   $('end-measure').value = '';
   $('abc').value = item.abc;
   inputLength = null;
+  $('keep-bars').checked = keepBarsFor(item);
   $('instrument').value =
     item.instrument || ($('instrument-filter').value === 'all' ? 'Flute' : $('instrument-filter').value);
   resetHistory();
@@ -66,7 +67,8 @@ function newScore(bars) {
     title: 'Untitled melody',
     composer: '',
     kind: 'personal',
-    abc: promptSource({title: 'Untitled melody', meter: '4/4', unit: '1/4', tempo: 100, key: 'C', bars})
+    abc: promptSource({title: 'Untitled melody', meter: '4/4', unit: '1/4', tempo: 100, key: 'C', bars}),
+    fit: true
   });
   const first = scoreNotes()[0];
   if (first) selectEntry(first);
@@ -124,7 +126,8 @@ function createScore(choices = newScoreChoices()) {
     composer: '',
     kind: 'personal',
     abc,
-    instrument: t.instrument || currentInstrument()
+    instrument: t.instrument || currentInstrument(),
+    fit: true
   });
   toggleNewScore(false);
   $('new-title').value = '';
@@ -335,6 +338,8 @@ $('save').onclick = () => {
     composer: field('C'),
     abc: $('abc').value,
     instrument: currentInstrument(),
+    // Keep bars full stays as it was left (see keepBarsFor), even where that is the score's default.
+    fit: keepBars(),
     updated: Math.max(Date.now(), (previous?.updated || 0) + 1)
   };
   const next = saved.filter(x => x.id !== id).concat(entry);
@@ -568,6 +573,7 @@ function playsChords(source) {
 function showWavSummary() {
   $('wav-summary').textContent = offlineAudio()
     ? `The whole score in the ${currentInstrument()} sound at ${$('speed').value}% speed, as Play sounds it. ` +
+      (mixChanged() ? `The mixer’s settings apply${mixSilences() ? ': muted tracks are left out' : ''}. ` : '') +
       'The file is made on this device; nothing is uploaded.'
     : 'This browser can’t make audio files. Export MIDI instead, or try Chrome, Edge, Firefox or Safari.';
 }
@@ -774,6 +780,14 @@ $('fingering').onchange = () => {
 };
 $('audition').checked = storage.get(KEYS.audition, true) !== false;
 $('audition').onchange = () => storage.set(KEYS.audition, $('audition').checked);
+// Keep bars full belongs to the open score (see keepBarsFor), so it is not stored as a setting.
+$('keep-bars').onchange = () => {
+  closeNoteMenu();
+  refreshPalette();
+  $('selection-status').textContent = $('keep-bars').checked
+    ? 'Keep bars full is on: shorter notes leave rests, longer notes use the rests after them, and Delete leaves a rest.'
+    : 'Keep bars full is off: lengths change freely and Delete removes notes.';
+};
 $('note-names').value = storage.get(KEYS.noteNames, 'off');
 $('note-colors').value = storage.get(KEYS.noteColors, 'off');
 if (noteNamesMode() !== 'off' || lettersInHeads() || noteColorsShown()) render();

@@ -3672,6 +3672,139 @@ async function musicXMLImportFiles() {
       'voices, instrument choice, part names, percent signs, damaged transpositions and imported rights links passed'
   );
 }
+// Mixer tracks: voices in the order abcjs gives them MIDI channels (staff by staff, %%score order, overlays with the
+// voice they are written in, the same on every line), Chords on the channel after the last voice, then the Metronome.
+// The channels are checked against the decoded MIDI, so a change in abcjs's numbering fails here.
+{
+  const head = 'X:1\nT:Mix\nM:4/4\nL:1/4\nK:C\n',
+    tracks = abc =>
+      [...context.mixerTracks(ABCJS.parseOnly(abc)[0], abc)].map(t => ({...t, channels: [...t.channels]})),
+    shape = abc => tracks(abc).map(t => `${t.key}=${t.name}@${t.channels.join('+')}`),
+    heard = abc => [...new Set(context.parseMidi(context.midiBytes(abc)).notes.map(n => n.ch))].sort((a, b) => a - b),
+    plain = x => JSON.parse(JSON.stringify(x)),
+    covered = abc =>
+      tracks(abc)
+        .flatMap(t => t.channels)
+        .sort((a, b) => a - b);
+  const two = head + 'V:1\n"C"cdef|"G7"gabc\'|]\nV:2 clef=bass\nC,D,E,F,|G,A,B,C|]\n',
+    one = head + 'CDEF|GABc|]\n',
+    reordered = head + '%%score 2 1 3\nV:1\ncdef|]\nV:2\nCDEF|]\nV:3 clef=bass name="Bass"\nC,D,E,F,|]\n',
+    overlay = head + 'V:1\ncdef & CDEF|gabc\'|]\nV:2\n"C"C,D,E,F,|]\n',
+    piano =
+      'X:1\nT:P\nM:4/4\nL:1/4\nV:RH clef=treble name="Piano"\nV:LH clef=bass\n%%score {RH LH}\nK:C\nV:RH\ncdef|]\nV:LH\nC,D,E,F,|]\n';
+  assert.deepEqual(shape(two), ['V:1=Voice 1@0', 'V:2=Voice 2@1', 'chords=Chords@2', 'metronome=Metronome@']);
+  assert.deepEqual(shape(one), ['V:=Melody@0', 'metronome=Metronome@'], 'One voice without chords');
+  assert.deepEqual(shape(head + '"Am"CDEF|]\n'), ['V:=Melody@0', 'chords=Chords@1', 'metronome=Metronome@']);
+  assert.deepEqual(
+    shape(head + '"N.C."CDEF|"Coda"G4|]\n'),
+    ['V:=Melody@0', 'metronome=Metronome@'],
+    'Text that does not play as a chord makes no Chords track'
+  );
+  assert.deepEqual(shape(reordered), ['V:2=Voice 2@0', 'V:1=Voice 1@1', 'V:3=Bass@2', 'metronome=Metronome@']);
+  assert.deepEqual(shape(overlay), ['V:1=Voice 1@0+1', 'V:2=Voice 2@2', 'chords=Chords@3', 'metronome=Metronome@']);
+  assert.deepEqual(
+    shape(piano),
+    ['V:RH=Piano (RH)@0', 'V:LH=Piano (LH)@1', 'metronome=Metronome@'],
+    'The staffs of a brace share its one name'
+  );
+  assert.deepEqual(
+    tracks(
+      head.replace('K:', '%%score 1 {(2 3) | 4}\nV:1 name="Flute"\nV:2 name="Piano"\nK:') +
+        'V:1\ncdef|]\nV:2\ncdef|]\nV:3\nCDEF|]\nV:4 clef=bass\nC,D,E,F,|]\n'
+    ).map(t => t.name),
+    ['Flute', 'Piano 1', 'Piano 2', 'Piano 3', 'Metronome'],
+    'An imported piano numbers its voices'
+  );
+  // A voice (or an & overlay) that runs out of lines before the others: abcjs would move the voices below it up a
+  // channel on the later systems, so steadyLines keeps every staff and voice in place, and each voice's notes stay on
+  // its own channel at the same times.
+  const ended = head + '%%score 1 2 3\nV:1\nc4|c4|\nV:2\nG4|G4|\nV:3\nC,4|C,4|\nV:1\nd4|]\nV:3\nD,4|]\n',
+    endedOverlay = head + '%%score 1 2 3\nV:1\nc4 & e4|c4|\nV:2\nG4|G4|\nV:3\nC,4|C,4|\nV:1\nd4|]\nV:3\nD,4|]\n',
+    byChannel = abc => {
+      const out = {};
+      for (const n of context.parseMidi(context.midiBytes(abc)).notes) (out[n.ch] ||= []).push(n.note);
+      return out;
+    },
+    startOf = (abc, note) => context.parseMidi(context.midiBytes(abc)).notes.find(n => n.note === note).start;
+  assert.deepEqual(shape(ended), ['V:1=Voice 1@0', 'V:2=Voice 2@1', 'V:3=Voice 3@2', 'metronome=Metronome@']);
+  assert.deepEqual(byChannel(ended), {0: [72, 72, 74], 1: [67, 67], 2: [48, 48, 50]}, 'Voice 3 keeps its channel');
+  assert.equal(startOf(ended, 50), startOf(ended, 74), 'and plays with the voice above it');
+  assert.deepEqual(shape(endedOverlay), ['V:1=Voice 1@0+1', 'V:2=Voice 2@2', 'V:3=Voice 3@3', 'metronome=Metronome@']);
+  assert.deepEqual(byChannel(endedOverlay), {0: [72, 72, 74], 1: [76], 2: [67, 67], 3: [48, 48, 50]});
+  // A %%MIDI line before a voice's notes has no place in the source; the staff is known by its first note.
+  const midiLine = head + 'V:1\n%%MIDI program 41\nc4|\nV:2\nC,4|\nV:1\nd4|]\n';
+  assert.deepEqual(shape(midiLine), ['V:1=Voice 1@0', 'V:2=Voice 2@1', 'metronome=Metronome@']);
+  // Two voices on one staff, one ending before the other, are left as abcjs numbers them (README, Mixer).
+  const shared = head + '%%score (1 2) 3\nV:1\ncdef|\nV:2\nCDEF|]\nV:3\nC,D,E,F,|\nV:1\nc4|]\nV:3\nC,4|]\n';
+  for (const abc of [
+    two,
+    one,
+    reordered,
+    overlay,
+    piano,
+    ended,
+    endedOverlay,
+    midiLine,
+    shared,
+    head + '[V:1] cdef|]\n[V:2] "D"CDEF|]\n'
+  ])
+    assert.deepEqual(covered(abc), heard(abc), 'Every channel the MIDI plays belongs to its track');
+  // An ended staff gets an empty one in its place; a staff that starts after the first line or comes back after a gap
+  // leaves the lines as they are, since an empty one there would put the voice's later notes out of time.
+  {
+    const source = 'V:1\nc|\nV:2\nd|\n',
+      staff = at => ({clef: {type: 'treble'}, voices: [[{el_type: 'note', startChar: at}]]}),
+      tune = (...lines) => ({lines: lines.map(ats => ({staff: ats.map(staff)}))}),
+      endedTune = tune([4, 11], [4]),
+      late = tune([4], [4, 11]),
+      back = tune([4, 11], [4], [4, 11]);
+    assert.deepEqual(
+      plain(context.steadyLines(endedTune, source).map(line => line.staff.map(st => st.voices.map(v => v.length)))),
+      [
+        [[1], [1]],
+        [[1], [0]]
+      ]
+    );
+    assert.equal(context.steadyLines(late, source), late.lines);
+    assert.equal(context.steadyLines(back, source), back.lines);
+    const full = ended.replace('V:3\nD,4', 'V:2\nA4|]\nV:3\nD,4'),
+      steady = ABCJS.parseOnly(full)[0];
+    assert.ok(
+      context.steadyLines(steady, full).every((line, i) => line === steady.lines[i]),
+      'Lines that already have every staff come back as they are'
+    );
+  }
+  // Settings: defaults fill in, values are clamped, only changes are kept, and an untouched mix is nothing.
+  assert.deepEqual(plain(context.mixSetting(undefined, 'V:1')), {mute: false, solo: false, volume: 1, pan: 0});
+  assert.deepEqual(plain(context.mixSetting({'V:1': {volume: 9, pan: -4, mute: 'yes'}}, 'V:1')), {
+    mute: false,
+    solo: false,
+    volume: 1.5,
+    pan: -1
+  });
+  assert.deepEqual(
+    plain(
+      context.validMixer({
+        'V:1': {mute: true, volume: 1, pan: 0.333},
+        chords: {volume: 1},
+        x: 3,
+        ['k'.repeat(65)]: {mute: true}
+      })
+    ),
+    {'V:1': {mute: true, pan: 0.33}}
+  );
+  assert.equal(context.validMixer({chords: {volume: 1, pan: 0}}), undefined);
+  assert.equal(context.validMixer([{mute: true}]), undefined);
+  assert.equal(context.validMixer(JSON.parse('{"__proto__": {"mute": true}}')), undefined, 'No prototype keys');
+  const list = tracks(two),
+    audible = mix => [...context.audibleTracks(list, mix)].join(' ');
+  assert.equal(audible(undefined), 'V:1 V:2 chords metronome');
+  assert.equal(audible({'V:2': {mute: true}}), 'V:1 chords metronome');
+  assert.equal(audible({'V:2': {solo: true}}), 'V:2 metronome', 'Solo keeps the metronome');
+  assert.equal(audible({'V:2': {solo: true}, chords: {solo: true}, metronome: {mute: true}}), 'V:2 chords');
+  assert.equal(audible({'V:2': {solo: true, mute: true}}), 'metronome', 'Mute wins over Solo');
+  assert.equal(audible({'V:9': {solo: true}}), 'V:1 V:2 chords metronome', 'Solo on a voice no longer there');
+}
 // Record yourself: where the score sits in a take, calibration from recorded clicks, and take file names.
 {
   const take = {lead: 2.1, latencyMs: 150, from: 3, speed: 50};
@@ -3748,13 +3881,86 @@ async function musicXMLImportFiles() {
   );
   assert.equal([0.4, 9.6, 65.4, 600].map(context.clockText).join(), '0:00,0:10,1:05,10:00');
 }
+// Keep bars full: fitLength shortens with rests on the beat, lengthens into the rests after the note (moving the notes
+// between), refuses when there is no room and leaves tuplets, dotted pairs and multi-measure rests alone.
+{
+  const fit = (body, measure, index, length, head = 'M:4/4\nL:1/4', slack = 0) => {
+    const abc = `X:1\n${head}\nK:C\n${body}`,
+      tune = ABCJS.parseOnly(abc)[0],
+      bar = context.barLengths(tune).find(m => m.measure === measure && m.voice === '0:0'),
+      r = context.fitLength(abc, bar, index, length, context.unitLengthIn(abc, bar.notes[0].element.startChar), slack);
+    if (r.why) return r.why + (r.why === 'room' ? ' ' + r.room : '');
+    const out = context.spliceAll(abc, r.edits),
+      after = ABCJS.parseOnly(out)[0];
+    assert.deepEqual(after.warnings || [], [], `${body}: no warnings`);
+    const problems = m => `${m.voice} ${m.measure}`;
+    assert.deepEqual(
+      context.barProblems(after).map(problems),
+      context.barProblems(tune).map(problems),
+      `${body}: the bar check is as it was`
+    );
+    return out.slice(abc.length - body.length);
+  };
+  assert.equal(fit('C2 z2 | z4 |]', 1, 0, 1 / 4), 'C z z2 | z4 |]', 'A half note made a quarter leaves C z');
+  assert.equal(fit('C4 | z4 |]', 1, 0, 1 / 16), 'C/4 z/4 z/2 z z2 | z4 |]', 'Rests fill to the beat, then to the half');
+  assert.equal(fit('C3 z | z4 |]', 1, 0, 1 / 2), 'C2 z2 | z4 |]', 'Merged with the rest after it');
+  assert.equal(fit('C2 z2 | z4 |]', 1, 0, 3 / 4), 'C3 z | z4 |]', 'A dot takes part of the rest');
+  assert.equal(fit('C2 z2 | z4 |]', 1, 0, 1), 'C4 | z4 |]', 'A whole note takes all of it');
+  assert.equal(fit('C D z2 | z4 |]', 1, 0, 1 / 2), 'C2 D z | z4 |]', 'The note between moves later');
+  assert.equal(fit('C2 z/2 z z/2 | z4 |]', 1, 0, 3 / 4), 'C3 z/2 z/2 | z4 |]', 'Nearest rests first');
+  assert.equal(fit('C/2D/2 z3 | z4 |]', 1, 0, 1 / 4), 'CD/2 z/2 z2 | z4 |]', 'What is left is written on the beat');
+  assert.equal(fit('C2 z2 | z4 |]', 1, 0, 5 / 4), 'room 0.5', 'No room past the bar line');
+  assert.equal(fit('C D E F | z4 |]', 1, 0, 1 / 2), 'room 0', 'No rests, no room');
+  assert.equal(fit('C D "G"z2 | z4 |]', 1, 0, 1 / 2), 'room 0', 'A rest with a chord symbol keeps its place');
+  assert.equal(fit('C2- C2 | z4 |]', 1, 0, 1 / 4), 'C z C2 | z4 |]', 'A rest between ends the tie');
+  assert.equal(
+    fit('[CE]2 z2\\\n| z4 |]', 1, 0, 1 / 4),
+    '[CE] z z2\\\n| z4 |]',
+    'A chord, and the line continuation stays'
+  );
+  assert.equal(fit('C2 z2\\\n| z4 |]', 1, 0, 1), 'C4 \\\n| z4 |]');
+  // Rests merge only across spaces: what else lies between them stays, and so do the rests after it.
+  assert.equal(fit('C2 z [K:G] z | F4 |]', 1, 0, 1 / 4), 'C z z [K:G] z | F4 |]', 'An inline field stays');
+  assert.equal(fit('C2 z\nw: la\nz | z4 |]', 1, 0, 1 / 4), 'C z z\nw: la\nz | z4 |]', 'A line of words stays');
+  assert.equal(fit('C2 z % hi\nz | z4 |]', 1, 0, 1 / 4), 'C z z % hi\nz | z4 |]', 'A comment stays');
+  // Lengths are written in the unit length where they go.
+  assert.equal(fit('C2 [L:1/8] z4 | z8 |]', 1, 0, 3 / 4), 'C3 [L:1/8] z2 | z8 |]', 'A rest after [L:1/8]');
+  assert.equal(fit('C [L:1/8] D4 z2 | z8 |]', 1, 1, 1 / 4), 'C [L:1/8] D2 z4 | z8 |]', 'A note after [L:1/8]');
+  assert.equal(fit('z | C2 z2 |]', 2, 0, 1 / 4), 'z | C z z2 |]', 'After a pickup');
+  assert.equal(fit('C | D2 z2 |]', 1, 0, 1 / 2), 'room 0', 'A pickup stays a pickup');
+  assert.equal(fit('C D E F G | z4 |]', 1, 0, 1 / 8), 'C/2 D E F G | z4 |]', 'An overfull bar first loses its extra');
+  assert.equal(fit('C D E | z4 |]', 1, 0, 1 / 2, 'M:4/4\nL:1/4', 1 / 4), 'C2 D E | z4 |]', 'A short bar has slack');
+  assert.equal(fit('C6 | z6 |]', 1, 0, 1 / 8, 'M:6/8\nL:1/8'), 'C z z z3 | z6 |]', 'Dotted-quarter beats in 6/8');
+  assert.equal(fit('C3 z3 | z6 |]', 1, 0, 1 / 4, 'M:6/8\nL:1/8'), 'C2 z z3 | z6 |]');
+  assert.equal(fit('(3CDE z2 | z4 |]', 1, 0, 1 / 2), 'tuplet');
+  assert.equal(fit('C>D z2 | z4 |]', 1, 1, 1 / 4), 'broken');
+  assert.deepEqual(
+    [
+      [0, 3 / 4],
+      [1 / 4, 3 / 4],
+      [1 / 8, 7 / 8],
+      [0, 3 / 4, {den: 8, length: 3 / 4}],
+      [1 / 8, 5 / 8, {den: 8, length: 3 / 4}]
+    ].map(([from, length, meter = {den: 4, length: 1}]) => context.restValues(from, length, meter).join()),
+    ['0.5,0.25', '0.25,0.5', '0.125,0.25,0.5', '0.75', '0.125,0.125,0.375']
+  );
+  // A range: every bar it touches keeps its length; the rests go after the last changed note of each bar.
+  {
+    const abc = 'X:1\nM:3/4\nL:1/4\nK:C\nC D E | F G A |]',
+      tune = ABCJS.parseOnly(abc)[0],
+      [one] = context.barLengths(tune),
+      r = context.fitBar(abc, one, [1 / 8, 1 / 8, null], 1 / 4);
+    assert.equal(context.spliceAll(abc, r.edits).split('\n').pop(), 'C/2 D/2 z E | F G A |]');
+    assert.equal(r.added, 1 / 4);
+  }
+}
 musicXMLImportFiles()
   .then(offlineWorker)
   .then(() =>
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), road-map playback (marks from decorations and text, the order of play through D.C., D.S., Fine, coda signs and To Coda, repeats after a jump, a fermata over a double bar line ending a D.C., multi-measure rests counted in bars, fermata holds, notes and timing events in the order of play, library tunes that follow their road map), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, key and time changes at line starts, voices after &, typing keys, every note of the lieder with line-start changes), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files), recording takes (offsets, calibration from recorded clicks, lining a take up within 50 ms, refusing noise and silence, file names) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, keeping bars full (rests on the beat for a shorter note, a longer one taking the rests after it or refused, tuplets and dotted pairs left alone), screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), road-map playback (marks from decorations and text, the order of play through D.C., D.S., Fine, coda signs and To Coda, repeats after a jump, a fermata over a double bar line ending a D.C., multi-measure rests counted in bars, fermata holds, notes and timing events in the order of play, library tunes that follow their road map), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, key and time changes at line starts, voices after &, typing keys, every note of the lieder with line-start changes), mixer tracks (voices in MIDI channel order, overlays, names, a voice that ends early keeping its channel, Chords and Metronome, settings and Solo), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files), recording takes (offsets, calibration from recorded clicks, lining a take up within 50 ms, refusing noise and silence, file names) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {
