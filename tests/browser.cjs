@@ -950,6 +950,28 @@ const {chromium} = require('playwright'),
   assert.match(await page.evaluate(() => $('abc').value), /\| B z3 \|\]/, 'Drawing writes over the rest');
   assert.deepEqual(await heard(), [493.88], 'Drawing a note sounds it');
   await page.click('#draw-mode');
+  // Note buttons: a ♯ ♭ ♮ button and then a letter sound the altered note once; letters follow the key signature.
+  const cursorAfter = (abc, after) =>
+    page.evaluate(
+      ([abc, after]) => {
+        dirty = false;
+        openScore({abc, instrument: 'Flute'});
+        const a = $('abc'),
+          at = a.value.lastIndexOf(after) + after.length;
+        a.focus();
+        a.setSelectionRange(at, at);
+        __heard.length = 0;
+      },
+      [abc, after]
+    );
+  await cursorAfter('X:1\nM:4/4\nL:1/4\nK:C\nC D E F | z4 |]', 'F ');
+  await page.click('[data-token="^"]');
+  await page.click('[data-token="C"]');
+  assert.match(await page.evaluate(() => $('abc').value), /F \^C \| z4/);
+  assert.deepEqual(await heard(), [277.18], 'Sharp then C on the note buttons sounds C sharp once');
+  await cursorAfter('X:1\nM:4/4\nL:1/4\nK:D\nD E | z2 |]', 'E ');
+  await page.click('[data-token="F"]');
+  assert.deepEqual(await heard(), [369.99], 'A note button follows the key signature');
   await page.uncheck('#audition');
   await page.locator('#notation .abcjs-notehead').nth(0).click({force: true});
   await page.keyboard.press('ArrowUp');
@@ -971,7 +993,7 @@ const {chromium} = require('playwright'),
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, arrows, draw, off, quiet during playback), legacy storage, mobile width, and no browser errors.'
+    'PASS: backup and restore, blank sheets and draw-on-rest, try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, writing prompts, play from a note, note names, guitar tab, recorder fingering, measure playback, live percent speed, master volume bus and limiter, live volume, note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), legacy storage, mobile width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

@@ -118,6 +118,11 @@ assert.equal(
   'F♯ G♯ G♯ F F♯ G G♯ G♯',
   'Every voice is labelled with its own accidentals'
 );
+assert.equal(
+  labels('X:1\nL:1/4\nK:C\nC D E ^F-|F F [^G_B]-|[GB] B|]', 'letters'),
+  'C D E F♯ F♯ F G♯ G♯ B',
+  'A note tied across a bar line keeps its accidental; the next note in the bar does not'
+);
 assert.equal(run(`labelSource('X:1\\nL:1/4\\nK:G\\nG A|]','letters')`), 'X:1\nL:1/4\nK:G\n"_G"G "_A"A|]');
 const flaggedBars = abc => run(`barProblems(ABCJS.parseOnly(${JSON.stringify(abc)})[0]).map(m=>m.measure).join()`);
 assert.equal(flaggedBars('X:1\nM:4/4\nL:1/4\nK:C\nC D E | F G A B | c4 |]'), '', 'Short opening bar is a pickup');
@@ -180,7 +185,12 @@ async function checkAudio() {
   run(`scoreKey({key:'ArrowRight'})`);
   assert.deepEqual(heard(), [hz(64)], 'Arrow keys sound the newly selected note');
   oscillators.length = 0;
+  // The note sounds before the render, so engraving a long score does not delay it.
+  w.__sounded = () => oscillators.length;
+  run('var engrave=render;render=()=>{window.__soundedAtRender=__sounded();engrave()}');
   run(`scoreKey({key:'ArrowUp'})`);
+  run('render=engrave');
+  assert.equal(run('__soundedAtRender'), 1, 'An edit sounds the note before the score is redrawn');
   assert.match(run("$('abc').value"), /\[EG\] F F/);
   assert.deepEqual(heard(), [hz(65)], 'Up arrow sounds the new pitch');
   oscillators.length = 0;
@@ -219,6 +229,15 @@ async function checkAudio() {
   oscillators.length = 0;
   clickNote(0);
   assert.deepEqual(heard(), [hz(72)], 'Transposing instruments sound the concert source');
+  // A note tied across a bar line sounds the sharp playback holds; an octave clef sounds an octave down, as in playback.
+  run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\nC D E ^F-|F G A B|]')},instrument:'Flute'})`);
+  oscillators.length = 0;
+  clickNote(4);
+  assert.deepEqual(heard(), [hz(66)], 'A tied note after the bar line keeps its sharp');
+  run(`openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:G clef=treble-8\nG A B c|]')},instrument:'Guitar'})`);
+  oscillators.length = 0;
+  clickNote(0);
+  assert.deepEqual(heard(), [hz(55)], 'An octave clef sounds an octave down');
   // Off: nothing sounds, and the choice is saved and backed up.
   run("$('audition').checked=false;$('audition').dispatchEvent(new Event('change'))");
   oscillators.length = 0;
@@ -230,12 +249,29 @@ async function checkAudio() {
   w.localStorage.setItem('fretfree-audition', 'true');
   run('applyStoredSettings()');
   assert.equal(run("$('audition').checked"), true, 'Restored settings apply Hear notes');
-  // Audition pitches match playback pitches note for note, through key signatures, bar accidentals and chords.
-  const tricky = 'X:1\nM:4/4\nL:1/4\nK:A\n[FA] ^G =G G | [C=E] c G, g |]';
-  assert.equal(
-    run(`noteLabels(ABCJS.parseOnly(${JSON.stringify(tricky)})[0],'letters').flatMap(l=>l.midis).join()`),
-    run(`parseMidi(midiBytes(${JSON.stringify(tricky)})).notes.map(n=>n.note).join()`),
-    'Audition MIDI equals playback MIDI'
+  // Audition pitches match playback pitches note for note, through key signatures, bar accidentals, chords, octave
+  // clefs (on a line or inline), transpose= on K: and V: lines, and %%MIDI transpose for the tune or from a line on.
+  const sounds = abc => [
+    run(`noteLabels(ABCJS.parseOnly(${JSON.stringify(abc)})[0],'letters').flatMap(l=>l.midis).join()`),
+    run(`parseMidi(midiBytes(${JSON.stringify(abc)})).notes.map(n=>n.note).join()`)
+  ];
+  for (const abc of [
+    'X:1\nM:4/4\nL:1/4\nK:A\n[FA] ^G =G G | [C=E] c G, g |]',
+    'X:1\nL:1/4\nK:G clef=treble-8\nG A B c|\nd e f g|]',
+    'X:1\nL:1/4\nK:C clef=bass-8\nC, D, [K:clef=treble+8] E F|]',
+    'X:1\nL:1/4\nK:C clef=treble-8\nC D|\n[K:clef=treble] E F|]',
+    'X:1\nL:1/4\nK:C transpose=-2\nC D|\nE F|]',
+    'X:1\nL:1/4\nK:C\nV:1 transpose=-2\nC D E F|]',
+    'X:1\nL:1/4\n%%MIDI transpose -2\nK:C\nC D|\n%%MIDI transpose 3\nE F|]'
+  ]) {
+    const [heard, played] = sounds(abc);
+    assert.equal(heard, played, 'Audition MIDI equals playback MIDI: ' + JSON.stringify(abc));
+  }
+  // Playback holds a tied note, so the note after the bar line sounds the pitch it was tied from.
+  assert.deepEqual(
+    sounds('X:1\nM:4/4\nL:1/4\nK:C\nC D E ^F-|F F A B|]'),
+    ['60,62,64,66,66,65,69,71', '60,62,64,66,65,69,71'],
+    'A note tied across a bar line sounds the held sharp'
   );
 }
 async function checkPlayback() {

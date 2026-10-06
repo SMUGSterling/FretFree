@@ -2,7 +2,8 @@
 
 - **Hear notes** (on by default, next to Draw notes): clicking, typing, drawing or moving a note plays it once, as does changing its accidental or stepping to it with ←→. Chords play every pitch. It uses the chosen instrument's sound at concert pitch with playback's octave rule, stays silent during playback, and is remembered and backed up (`fretfree-audition`).
 - **Volume** no longer stops playback: it changes loudness live. All notes and metronome clicks now pass through one master gain and, where the browser supports it, a limiter, so chords and accompaniment do not clip. This bus is the base for a later mixer, audio export and recording.
-- Note names and audition now apply bar accidentals from every pitch of a chord, not only the first.
+- Note names and audition now apply bar accidentals from every pitch of a chord, not only the first, and a note tied across a bar line keeps the accidental it was tied from.
+- Audition follows the same pitch rules as playback: octave clefs (`clef=treble-8`, `bass-8`, `treble+8`), `transpose=` on K: and V: lines, and `%%MIDI transpose`. The note sounds before the score redraws, so long scores do not delay it.
 
 ---
 
