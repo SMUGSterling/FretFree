@@ -32,6 +32,7 @@ function openScore(item, id = null) {
   current = item;
   savedId = id;
   if (typeof takesOpened === 'function') takesOpened(item);
+  if (typeof checksOpened === 'function') checksOpened();
   dirty = false;
   selectedRange = null;
   toggleTranspose(false);
@@ -266,6 +267,7 @@ document.addEventListener('click', e => {
       renderSaved();
       if (savedId === b.dataset.delete) savedId = null;
       if (typeof deleteTakesOf === 'function') deleteTakesOf(['saved:' + b.dataset.delete]);
+      if (typeof deleteChecksOf === 'function') deleteChecksOf('saved:' + b.dataset.delete);
     } else toast('Deletion could not be saved.');
   }
   if (b.dataset.token) insertToken(b.dataset.token);
@@ -361,8 +363,9 @@ $('save').onclick = () => {
     // The copy this save replaced goes into the score's History, if its music changed.
     if (previous && previous.abc !== entry.abc) keepVersion(previous);
     savedId = id;
-    // Takes recorded before the first save stay with the score.
+    // Takes recorded and play-along checks made before the first save stay with the score.
     if (takesKey) rekeyTakes(takesKey, recordKey());
+    if (takesKey && typeof rekeyChecks === 'function') rekeyChecks(takesKey, recordKey());
     dirty = false;
     markClean();
     if (submission) {
@@ -459,6 +462,7 @@ function applyStoredSettings() {
   $('note-colors').value = storage.get(KEYS.noteColors, 'off');
   $('audition').checked = storage.get(KEYS.audition, true) !== false;
   if (typeof applyRecordSettings === 'function') applyRecordSettings();
+  if (typeof applyCheckSettings === 'function') applyCheckSettings();
   if (typeof setPiano === 'function') setPiano(storage.get(KEYS.piano, false) === true, false);
   applyStoredLayout();
   applyTheme();

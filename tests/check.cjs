@@ -906,6 +906,17 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     [9, 4, 8.5],
     'Swing ends move with the notes'
   );
+  assert.equal(
+    context
+      .planNotes(plan, {
+        duration: 4,
+        notes: [{note: 64, start: 3.6, duration: 0.4, straightStart: 3.5, straightEnd: 4}]
+      })
+      .notes.map(n => `${+n.start.toFixed(3)}/${+n.straightStart.toFixed(3)}`)
+      .join(' '),
+    '4.1/4 8.6/8.5',
+    'and so do their written starts, which a play-along check finds them by'
+  );
   const events = context.planEvents(plan, [
     {type: 'event', milliseconds: 0, measureStart: true},
     {type: 'event', milliseconds: 2000, measureStart: true},
@@ -4031,13 +4042,480 @@ async function musicXMLImportFiles() {
     assert.equal(r.added, 1 / 4);
   }
 }
+// Play-along check: YIN pitch detection on synthetic tones, noise and silence; the notes a check listens for; marking
+// an attempt; the words for each problem; and checks as kept and carried in turn-in links.
+{
+  const cents = (f, target) => Math.abs(1200 * Math.log2(f / target)),
+    wave = (shape, f, rate, n = 2048) =>
+      Float32Array.from({length: n}, (_, i) => {
+        const phase = (f * i) / rate + 0.13;
+        return shape === 'sine' ? 0.4 * Math.sin(2 * Math.PI * phase) : 0.4 * (2 * (phase % 1) - 1);
+      });
+  for (const rate of [44100, 48000])
+    for (const shape of ['sine', 'sawtooth']) {
+      const a = context.detectPitch(wave(shape, 440, rate), rate),
+        g = context.detectPitch(wave(shape, 196, rate), rate);
+      assert.ok(cents(a.freq, 440) <= 3, `440 Hz ${shape} at ${rate}: ${a.freq.toFixed(2)} Hz`);
+      assert.ok(cents(g.freq, 196) <= 5, `196 Hz ${shape} at ${rate}: ${g.freq.toFixed(2)} Hz`);
+      assert.ok(a.clarity > 0.9 && g.clarity > 0.9);
+    }
+  let seed = 11;
+  const noise = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648 - 0.5) * 0.8;
+  for (let k = 0; k < 20; k++)
+    assert.equal(context.detectPitch(Float32Array.from({length: 2048}, noise), 48000), null, 'Noise has no pitch');
+  assert.equal(context.detectPitch(new Float32Array(2048), 48000), null, 'Silence has no pitch');
+  assert.equal(
+    context.detectPitch(
+      wave('sine', 440, 48000).map(v => v / 100),
+      48000
+    ),
+    null,
+    'Nor a whisper'
+  );
+  assert.equal(context.detectPitch(new Float32Array(0), 48000), null);
+  // The lowest notes: a bass guitar's E (41 Hz) and A (55 Hz) strings, and a tuba's, repeat too slowly for detectPitch,
+  // so a check on an instrument that sounds them listens with detectLowPitch, on twice the window halved. It finds
+  // them, and higher notes too, and still hears no pitch in noise or silence.
+  const partials = (list, f, rate, n) =>
+    Float32Array.from({length: n}, (_, i) =>
+      list.reduce((v, a, k) => v + 0.2 * a * Math.sin(2 * Math.PI * f * (k + 1) * (i / rate) + k), 0)
+    );
+  for (const rate of [44100, 48000])
+    for (const [name, list] of Object.entries({bass: [1, 0.55, 0.25, 0.12, 0.05], tuba: [1, 0.45, 0.2, 0.08, 0.03]})) {
+      for (const f of [41.2, 55]) {
+        assert.equal(context.detectPitch(partials(list, f, rate, 2048), rate), null, `${f} Hz is under detectPitch`);
+        const low = context.detectLowPitch(partials(list, f, rate, 4096), rate);
+        assert.ok(low && cents(low.freq, f) <= 5, `${f} Hz ${name} at ${rate}: ${low?.freq.toFixed(2)} Hz`);
+      }
+      for (const f of [27.5, 98, 196, 440]) {
+        const low = context.detectLowPitch(partials(list, f, rate, 4096), rate);
+        assert.ok(low && cents(low.freq, f) <= 5, `${f} Hz ${name} at ${rate}, low: ${low?.freq.toFixed(2)} Hz`);
+      }
+    }
+  for (let k = 0; k < 10; k++)
+    assert.equal(context.detectLowPitch(Float32Array.from({length: 4096}, noise), 48000), null, 'Noise is still noise');
+  assert.equal(context.detectLowPitch(new Float32Array(4096), 48000), null);
+  // A check's click is a burst of noise (highpassed: each sample less the one before), with no pitch for the
+  // microphone to hear as a note, and a note played through it keeps its pitch.
+  const burst = (n, at, level) => {
+    let before = 0;
+    return Float32Array.from({length: n}, (_, i) => {
+      const t = (i - at) / 48000;
+      if (t < 0 || t > 0.035) return 0;
+      const x = noise(),
+        v = level * Math.exp(-t / 0.0033) * (x - before);
+      before = x;
+      return v;
+    });
+  };
+  for (const at of [-400, 0, 500, 1000, 1500, 2000]) {
+    assert.equal(context.detectPitch(burst(2048, at, 0.6), 48000), null, `A click ${at} samples in has no pitch`);
+    assert.equal(context.detectLowPitch(burst(4096, 2 * at, 0.6), 48000), null);
+    const a = context.detectPitch(
+      burst(2048, at, 0.3).map((v, i) => v + 0.3 * Math.sin((2 * Math.PI * 880 * i) / 48000)),
+      48000
+    );
+    assert.ok(a && cents(a.freq, 880) <= 5, `An A played through a click is an A: ${a?.freq.toFixed(2)} Hz`);
+  }
+  // Which notes a check listens for, and how: a bass guitar (two octaves under the ABC) sounds E, as E1, which needs
+  // detectLowPitch, and G,, as G0, under the piano's lowest A, which is too low to hear; a flute needs neither.
+  {
+    const events = [52, 43, 57].map((m, i) => ({start: i, time: i, end: i + 1, midis: [m]})),
+      bass = context.checkListening(events, -24),
+      flute = context.checkListening(events, 0);
+    assert.deepEqual(
+      [bass.expected.map(e => e.midis[0]).join(), bass.left, bass.low],
+      ['52,57', 1, true],
+      'Bass guitar: E, is low, G,, too low'
+    );
+    assert.deepEqual([flute.expected.length, flute.left, flute.low], [3, 0, false]);
+    assert.equal(context.checkListening(events, -12).low, true, 'A tuba’s G,, sounds G1');
+  }
+  // The notes listened for: the melody channel only (not the chords), chords in the melody as one event, the range's
+  // notes only, timed at the speed, and notes too short to hear left out.
+  const midiOf = abc => context.parseMidi(context.midiBytes(abc)),
+    tune = midiOf('X:1\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\n"C"C D [EG] F | G4 |]'),
+    melody = context.melodyNotes(tune.notes),
+    all = context.expectedEvents(melody, 0, tune.duration, 1);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(all.map(e => [e.time, e.midis]))),
+    [
+      [0, [60]],
+      [0.5, [62]],
+      [1, [64, 67]],
+      [1.5, [65]],
+      [2, [67]]
+    ],
+    'Melody notes, a chord as one event'
+  );
+  assert.deepEqual(
+    JSON.parse(
+      JSON.stringify(
+        context.expectedEvents(
+          [
+            {note: 72, start: 0, duration: 0.04},
+            {note: 71, start: 0.04, duration: 0.46}
+          ],
+          0,
+          1
+        )
+      )
+    ),
+    [{start: 0.04, time: 0.04, end: 0.5, midis: [71]}],
+    'A 40 ms grace note is too short to hear'
+  );
+  const slow = context.expectedEvents(melody, 0.5, 2, 0.5);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(slow.map(e => [e.start, e.time, e.end]))),
+    [
+      [0.5, 0, 1],
+      [1, 1, 2],
+      [1.5, 2, 3]
+    ],
+    'From 0.5 s to 2 s at half speed'
+  );
+  const swung = context.swingNotes(
+    [
+      {note: 60, start: 0, duration: 0.25, ch: 0},
+      {note: 62, start: 0.25, duration: 0.25, ch: 0}
+    ],
+    0.5,
+    66
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(context.expectedEvents(swung, 0, 1).map(e => [e.start, e.time]))),
+    [
+      [0, 0],
+      [0.25, 0.33]
+    ],
+    'A swung note is heard late but found where it is written'
+  );
+  // Marking. Frames every 20 ms, between the 20 ms marks, sound each note until just before the next.
+  const hz = m => 440 * 2 ** ((m - 69) / 12),
+    events = context.expectedEvents(melody, 0, tune.duration, 1).filter(e => e.midis.length === 1),
+    frames = (changes = {}) => {
+      const out = [];
+      for (let t = -0.49; t < 3; t += 0.02) {
+        let freq = 0;
+        for (const [i, e] of events.entries()) {
+          const c = changes[i] || {},
+            start = e.time + (c.late || 0);
+          if (t >= start && t < e.end - 0.03 && !c.silent)
+            freq = hz(e.midis[0] + (c.cents || 0) / 100 + (c.octave || 0) * 12);
+          // Coming in late, the student holds the note before.
+          if (c.late > 0 && t >= e.time && t < start && i) freq = hz(events[i - 1].midis[0]);
+        }
+        out.push({t, freq, level: freq ? 0.3 : 0.002});
+      }
+      return out;
+    },
+    medium = {cents: 35, onsetMs: 100},
+    marks = r => r.notes.map(n => n.mark).join();
+  const perfect = context.scoreAttempt(events, frames(), medium);
+  assert.deepEqual(
+    [perfect.pitch, perfect.rhythm, perfect.stars, marks(perfect)],
+    [100, 100, 5, 'green,green,green,green'],
+    'A perfect run scores 100/100'
+  );
+  const flat = context.scoreAttempt(events, frames({1: {cents: -100}}), medium);
+  assert.deepEqual(
+    [flat.pitch, flat.rhythm, marks(flat)],
+    [75, 100, 'green,red,green,green'],
+    'A semitone flat is red'
+  );
+  assert.equal(flat.notes[1].cents, -100);
+  const late = context.scoreAttempt(events, frames({2: {late: 0.12}}), medium);
+  assert.deepEqual(
+    [late.pitch, late.rhythm, marks(late)],
+    [100, 75, 'green,green,yellow,green'],
+    '120 ms late is yellow'
+  );
+  assert.equal(late.notes[2].offsetMs, 120);
+  assert.equal(late.notes[2].timing, 'late');
+  assert.equal(
+    marks(context.scoreAttempt(events, frames({2: {late: 0.12}}), {cents: 50, onsetMs: 150})),
+    'green,green,green,green',
+    'but on time on Easy'
+  );
+  assert.equal(
+    marks(context.scoreAttempt(events, frames({2: {late: 0.08}}), {cents: 25, onsetMs: 70})),
+    'green,green,yellow,green',
+    'and 80 ms is late on Hard'
+  );
+  const early = context.scoreAttempt(events, frames({3: {late: -0.12}}), medium);
+  assert.deepEqual(
+    [marks(early), early.notes[3].timing, early.notes[3].offsetMs],
+    ['green,green,green,yellow', 'early', -120]
+  );
+  const missed = context.scoreAttempt(events, frames({1: {silent: true}, 3: {octave: -1}}), medium);
+  assert.deepEqual(
+    [missed.pitch, missed.rhythm, marks(missed), missed.notes[1].heard],
+    [75, 75, 'green,red,green,green', false],
+    'A note not heard is red; an octave lower is right'
+  );
+  assert.deepEqual(
+    [context.scoreAttempt(events, [], medium).heard, context.scoreAttempt(events, [], medium).pitch],
+    [false, 0],
+    'Nothing heard'
+  );
+  assert.equal(context.scoreAttempt([], frames(), medium).notes.length, 0);
+  // A chord's event is answered by any of its pitches; a stray frame in a held note does not split it.
+  const chord = [{start: 0, time: 0, end: 0.5, midis: [64, 67]}];
+  assert.equal(
+    marks(
+      context.scoreAttempt(
+        chord,
+        [0, 0.02, 0.04, 0.06, 0.08, 0.1, 0.12].map(t => ({t, freq: hz(67), level: 0.3})),
+        medium
+      )
+    ),
+    'green'
+  );
+  const held = [0.01, 0.03, 0.05, 0.07, 0.09, 0.11, 0.13, 0.15].map((t, i) => ({
+    t,
+    freq: hz(i === 4 ? 72 : 60),
+    level: 0.3
+  }));
+  assert.equal(context.soundSegments(held).length, 1, 'A stray frame is passed over');
+  assert.equal(
+    context.soundSegments(held.map((f, i) => (i >= 4 ? {...f, level: 0.9} : f))).length,
+    2,
+    'A note played again'
+  );
+  assert.equal(
+    context.soundSegments(held.filter((f, i) => i < 3 || i > 5)).length,
+    1,
+    'Frames that never came (a busy device) leave a held note going'
+  );
+  assert.equal(
+    context.soundSegments(held.map((f, i) => (i >= 3 && i <= 5 ? {...f, freq: 0, level: 0.002} : f))).length,
+    2,
+    'but a quiet gap ends it'
+  );
+  // Far off time is never right: four quarter notes, each sounding from its start (moved by `off`) for `sound` of a
+  // beat, or until the next starts (legato). 250 and 400 ms early or late are yellow with their offset, never green,
+  // and a run that is late throughout is late on every note, not a cascade of wrong notes.
+  const beats = [60, 62, 64, 65].map((m, i) => ({start: i * 0.5, time: i * 0.5, end: i * 0.5 + 0.5, midis: [m]})),
+    played = (offs, sound) => {
+      const out = [];
+      for (let k = 0; k < 160; k++) {
+        const t = -0.49 + k * 0.02;
+        let freq = 0;
+        for (const [i, e] of beats.entries()) {
+          const start = e.time + (offs[i] || 0),
+            stop = sound ? start + sound * 0.5 : i < 3 ? beats[i + 1].time + (offs[i + 1] || 0) : start + 0.45;
+          if (t >= start && t < stop) freq = hz(e.midis[0]);
+        }
+        out.push({t, freq, level: freq ? 0.3 : 0.002});
+      }
+      return out;
+    };
+  for (const sound of [0.6, 0])
+    for (const off of [0.25, 0.4, -0.25, -0.4]) {
+      const r = context.scoreAttempt(beats, played({2: off}, sound), medium),
+        note = r.notes[2];
+      assert.deepEqual(
+        [marks(r), note.timing],
+        ['green,green,yellow,green', off > 0 ? 'late' : 'early'],
+        `${off * 1000} ms off (${sound ? 'detached' : 'legato'}) is not on time`
+      );
+      assert.ok(Math.abs(note.offsetMs - off * 1000) <= 20, `and is ${note.offsetMs} ms off`);
+    }
+  for (const off of [0.25, 0.3, 0.4]) {
+    const r = context.scoreAttempt(beats, played([off, off, off, off], 0.6), medium);
+    assert.deepEqual(
+      [marks(r), r.pitch, r.rhythm, r.stars],
+      ['yellow,yellow,yellow,yellow', 100, 0, 2],
+      `${off * 1000} ms late throughout`
+    );
+  }
+  // On a busy device the frames stop for a moment: the note held through the gap is not taken for the next one.
+  for (const from of [0.35, 0.45]) {
+    const r = context.scoreAttempt(
+      beats,
+      played([0.25, 0.25, 0.25, 0.25], 0.6).filter(f => f.t < from || f.t >= from + 0.07),
+      medium
+    );
+    assert.equal(marks(r), 'yellow,yellow,yellow,yellow', `No frames from ${from * 1000} ms for 70 ms`);
+  }
+  // A repeated note held on, with no new attack to hear, is on time; one that comes in late after it is late.
+  const repeated = beats.map((e, i) => ({...e, midis: [i === 2 ? 62 : e.midis[0]]})),
+    smooth = played({}, 0).map(f => (f.t >= 0.5 && f.t < 1.5 ? {...f, freq: hz(62)} : f));
+  assert.equal(marks(context.scoreAttempt(repeated, smooth, medium)), 'green,green,green,green');
+  // Short notes, as long as the reach: eighths at 100 bpm on Easy (0.3 s) and at 150 bpm on Medium (0.2 s), c c B A G
+  // F E D C with the c played again too smoothly to hear, each note sounding until the next starts. Wherever the 20 ms
+  // frames fall, the second c is the first held on, and B keeps its own sound: every note is right, not a run of wrong
+  // notes from there on. A note left out (D, with C held on through it) is the only one marked.
+  for (const [level, length] of [
+    [{cents: 50, onsetMs: 150}, 0.3],
+    [medium, 0.2]
+  ]) {
+    const tune = [72, 72, 71, 69, 67, 65, 64, 62, 60].map((m, i) => ({
+        start: i * length,
+        time: i * length,
+        end: (i + 1) * length,
+        midis: [m]
+      })),
+      legato = (phase, sounding = i => tune[i].midis[0]) => {
+        const out = [];
+        for (let t = phase; t < tune.length * length; t += 0.02)
+          out.push({t, freq: hz(sounding(Math.floor(t / length))), level: 0.2});
+        return out;
+      };
+    for (const phase of [0, 0.005, 0.01, 0.015]) {
+      const r = context.scoreAttempt(tune, legato(phase), level);
+      assert.deepEqual([r.pitch, r.rhythm], [100, 100], `Legato eighths of ${length} s, frames from ${phase} s`);
+      const missed = context.scoreAttempt(
+        tune,
+        legato(phase, i => tune[i === 7 ? 6 : i].midis[0]),
+        level
+      );
+      assert.equal(
+        marks(missed),
+        'green,green,green,green,green,green,green,red,green',
+        `A note left out, frames from ${phase} s`
+      );
+    }
+  }
+  // Marking as the frames come in does the same work per note at the end of a long check as at its start (counted in
+  // reads of the frames' times, which do not depend on the machine), and gives what marking them all at once gives.
+  // 750 notes and 15,000 frames: a 5-minute check.
+  const long = Array.from({length: 750}, (_, i) => ({
+      start: i * 0.4,
+      time: i * 0.4,
+      end: i * 0.4 + 0.4,
+      midis: [60 + (i % 12)]
+    })),
+    heard = Array.from({length: 15000}, (_, k) => {
+      const t = k * 0.02,
+        i = Math.floor(t / 0.4);
+      return {t, freq: t - i * 0.4 < 0.37 ? hz(60 + (i % 12) + (i % 7 === 3 ? 1 : 0)) : 0, level: 0.3};
+    });
+  let reads = 0;
+  const counted = heard.map(({t, freq, level}) => ({
+    get t() {
+      reads++;
+      return t;
+    },
+    freq,
+    level
+  }));
+  const once = context.scoreAttempt(long, counted, medium);
+  assert.ok(reads < 10 * heard.length, `Marked all at once with ${reads} reads of 15,000 frames`);
+  const marker = context.attemptMarker(long, medium),
+    work = [];
+  for (let k = 0; k < counted.length; k += 10) {
+    reads = 0;
+    for (const f of counted.slice(k, k + 10)) marker.add(f);
+    const now = heard[Math.min(k + 9, heard.length - 1)].t;
+    let done = marker.mark(0).length;
+    while (done < long.length && long[done].end + marker.reach < now) done++;
+    marker.mark(done);
+    work.push(reads);
+  }
+  const sum = list => list.reduce((a, b) => a + b, 0),
+    [first, last] = [sum(work.slice(0, 150)), sum(work.slice(-150))];
+  assert.ok(
+    last < first * 1.5,
+    `Marking as it goes stays flat: ${first} reads in the first tenth, ${last} in the last`
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(marker.result())),
+    JSON.parse(JSON.stringify(once)),
+    'Marked as it goes or all at once'
+  );
+  assert.deepEqual([once.pitch, once.rhythm, once.notes[3].mark], [86, 100, 'red']);
+  assert.deepEqual(
+    [
+      [100, 100],
+      [96, 94],
+      [85, 85],
+      [80, 60],
+      [55, 45],
+      [20, 30]
+    ].map(([p, r]) => context.checkStars(p, r)),
+    [5, 5, 4, 3, 2, 1]
+  );
+  const words = (note, shift) => vm.runInContext('checkProblem', context)(note, shift),
+    base = {heard: true, pitchOk: false, target: 67, midis: [67], timing: 'on', offsetMs: 0};
+  assert.deepEqual(
+    [
+      words({...base, cents: -40}),
+      words({...base, cents: 22}),
+      words({...base, cents: -100}),
+      words({...base, cents: 300}),
+      words({...base, cents: 200}, 2),
+      words({...base, pitchOk: true, cents: 0, timing: 'late', offsetMs: 120}),
+      words({...base, pitchOk: true, cents: 0, timing: 'early', offsetMs: -95}),
+      words({...base, heard: false}),
+      words({...base, pitchOk: true, cents: 3}),
+      words({...base, pitchOk: true, cents: 3, timing: null, offsetMs: null})
+    ],
+    [
+      'about 40 cents flat',
+      'about 20 cents sharp',
+      'about a semitone flat',
+      'heard B♭, not G',
+      'heard B, not A',
+      '120 ms late',
+      '95 ms early',
+      'not heard',
+      '',
+      'no clear start'
+    ]
+  );
+  // Checks as kept and in turn-in links (h): checked field by field, the latest ten.
+  const kept = {at: 1760000000000, level: 'hard', speed: 80, from: 2, to: 5, pitch: 92, rhythm: 85, stars: 4};
+  assert.deepEqual({...context.cleanCheck(kept)}, kept);
+  for (const damaged of [{at: 0}, {level: 'expert'}, {speed: 300}, {to: 1}, {pitch: 101}, {rhythm: 1.5}, {stars: 0}])
+    assert.equal(context.cleanCheck({...kept, ...damaged}), null, `A damaged check: ${Object.keys(damaged)[0]}`);
+  const link = context.checksForLink(Array.from({length: 12}, (_, i) => ({...kept, at: kept.at + i})));
+  assert.equal(link.length, 10, 'A link carries the latest ten');
+  assert.deepEqual([...link[0]], [kept.at + 2, 92, 85, 4, 2, 80, 2, 5]);
+  assert.deepEqual(
+    JSON.parse(
+      JSON.stringify(context.readChecks([...link.slice(0, 2), [1, 2], 'x', [kept.at, 50, 50, 2, 7, 100, 1, 1]]))
+    ),
+    [
+      {...kept, at: kept.at + 2},
+      {...kept, at: kept.at + 3}
+    ],
+    'Damaged checks in a link are dropped'
+  );
+  assert.deepEqual([...context.readChecks('x')], []);
+  // A check made with the melody playing says so, in storage and in a link.
+  const along = {...kept, melody: true};
+  assert.deepEqual({...context.cleanCheck(along)}, along);
+  assert.deepEqual({...context.cleanCheck({...kept, melody: 'yes'})}, kept);
+  assert.deepEqual([...context.checksForLink([along])[0]], [kept.at, 92, 85, 4, 2, 80, 2, 5, 1]);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.readChecks(context.checksForLink([along, kept])))), [along, kept]);
+  const best = vm.runInContext('bestCheck', context),
+    settings = vm.runInContext('checkSettings', context);
+  assert.equal(
+    best([kept, {...kept, at: kept.at + 1, pitch: 60}, {...kept, at: kept.at + 2}]).at,
+    kept.at + 2,
+    'The best check, the latest of equals'
+  );
+  assert.equal(
+    best([kept, {...along, at: kept.at + 1, pitch: 100, rhythm: 100}]).at,
+    kept.at,
+    'One made without the melody first'
+  );
+  assert.equal(best([{...along, pitch: 50}, along]), along);
+  assert.equal(vm.runInContext('checkWords', context)(kept), 'pitch 92%, rhythm 85%, 4 stars');
+  assert.deepEqual(
+    [settings(kept), settings({...along, level: 'easy', speed: 25, from: 3, to: 3})],
+    ['Hard, 80% speed, measures 2–5', 'Easy, 25% speed, measure 3, melody on'],
+    'How a check was made, for the teacher'
+  );
+}
 musicXMLImportFiles()
   .then(offlineWorker)
   .then(() =>
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, keeping bars full (rests on the beat for a shorter note, a longer one taking the rests after it or refused, tuplets and dotted pairs left alone), screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), road-map playback (marks from decorations and text, the order of play through D.C., D.S., Fine, coda signs and To Coda, repeats after a jump, a fermata over a double bar line ending a D.C., multi-measure rests counted in bars, fermata holds, notes and timing events in the order of play, library tunes that follow their road map), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, key and time changes at line starts, voices after &, typing keys, every note of the lieder with line-start changes), mixer tracks (voices in MIDI channel order, overlays, names, a voice that ends early keeping its channel, Chords and Metronome, settings and Solo), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files), recording takes (offsets, calibration from recorded clicks, lining a take up within 50 ms, refusing noise and silence, file names) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, keeping bars full (rests on the beat for a shorter note, a longer one taking the rests after it or refused, tuplets and dotted pairs left alone), screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), road-map playback (marks from decorations and text, the order of play through D.C., D.S., Fine, coda signs and To Coda, repeats after a jump, a fermata over a double bar line ending a D.C., multi-measure rests counted in bars, fermata holds, notes and timing events in the order of play, library tunes that follow their road map), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, key and time changes at line starts, voices after &, typing keys, every note of the lieder with line-start changes), mixer tracks (voices in MIDI channel order, overlays, names, a voice that ends early keeping its channel, Chords and Metronome, settings and Solo), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files), recording takes (offsets, calibration from recorded clicks, lining a take up within 50 ms, refusing noise and silence, file names), play-along checks (YIN within 3 cents at 440 Hz and 5 cents at 196 Hz for sine and sawtooth tones at 44.1 and 48 kHz, no pitch in noise or silence, a bass guitar’s and a tuba’s 41 and 55 Hz found by detectLowPitch, noise clicks with no pitch and a note heard through one, the notes a bass guitar can be heard on, the melody’s notes in a range at a speed with chords as one and notes too short to hear left out, swung notes found where written, a perfect run at 100/100, semitone-flat red, 120 ms late yellow on Medium and green on Easy, early, missed and octave notes, 250 and 400 ms off yellow and never green, detached or legato, a run late throughout, a repeated note held on, legato eighths as long as the reach on Easy and Medium at four frame phases with no run of wrong notes, a note left out marked alone, swung starts through a road map, marking as the frames come in at a flat cost and as all at once, stars, the words for each problem, checks cleaned and carried in links with the melody labeled, the best check and how it was made) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {
