@@ -3836,6 +3836,15 @@ const {chromium} = require('playwright'),
     await tab.waitForFunction(() => /has an offline copy/.test($('offline-ready').textContent), null, {timeout: 60000});
     const cdp = await context.newCDPSession(tab);
     assert.deepEqual((await cdp.send('Page.getInstallabilityErrors')).installabilityErrors, [], 'Installable');
+    // Offline as a student's device sees it: requests fail and navigator.onLine is false. Playwright's setOffline uses
+    // the deprecated Network.emulateNetworkConditions, which newer Chromium no longer lets change navigator.onLine;
+    // Network.overrideNetworkState does that where the browser has it (older Chromium lacks it and needs no help).
+    const goOffline = async offline => {
+      await context.setOffline(offline);
+      await cdp
+        .send('Network.overrideNetworkState', {offline, latency: 0, downloadThroughput: -1, uploadThroughput: -1})
+        .catch(() => {});
+    };
     const item = await tab.evaluate(() => catalog.find(x => x.pdf).id),
       pdf = await tab.evaluate(id => catalog.find(x => x.id === id).pdf, item),
       unopened = await tab.evaluate(id => catalog.find(x => x.pdf && x.id !== id).pdf, item);
@@ -3854,7 +3863,7 @@ const {chromium} = require('playwright'),
     );
     // Offline: the server is gone, and the browser says so.
     await halt();
-    await context.setOffline(true);
+    await goOffline(true);
     await tab.reload();
     assert.equal(await tab.locator('#cards .card').count(), 24, 'The library opens offline');
     assert.equal(await tab.locator('#offline-status').textContent(), '● Working offline');
@@ -3890,13 +3899,13 @@ const {chromium} = require('playwright'),
     deploy = html => html.replace(/\?v=\w+/g, '?v=cutshort').replace('<title>', '<title>Cut short · ');
     refuse = /\/catalog-[^/]*\.js\?v=cutshort/;
     await listen(port);
-    await context.setOffline(false);
+    await goOffline(false);
     await tab.evaluate(() => (dirty = false));
     await tab.reload();
     assert.match(await tab.title(), /^Cut short · /);
     await tab.waitForFunction(() => /^Part of the offline copy is missing;/.test($('offline-ready').textContent));
     await halt();
-    await context.setOffline(true);
+    await goOffline(true);
     await tab.reload();
     assert.equal(await tab.title(), oldTitle, 'Offline, the last complete version opens');
     assert.equal(await tab.locator('#cards .card').count(), 24, 'with its whole library');
@@ -3906,7 +3915,7 @@ const {chromium} = require('playwright'),
     refuse = null;
     deploy = html => html.replace(/\?v=\w+/g, '?v=newdeploy').replace('<title>', '<title>New deploy · ');
     await listen(port);
-    await context.setOffline(false);
+    await goOffline(false);
     await tab.reload();
     assert.match(await tab.title(), /^New deploy · /, 'A new deploy shows after one reload');
     assert.ok(await tab.evaluate(() => [...document.scripts].every(s => !s.src || s.src.endsWith('?v=newdeploy'))));
@@ -3936,7 +3945,7 @@ const {chromium} = require('playwright'),
     // At phone width, with the offline notice showing, Install app fits above the nav and works from the keyboard.
     // Headless Chromium never offers installing, so the browser's offer is stood in for.
     await tab.setViewportSize({width: 390, height: 844});
-    await context.setOffline(true);
+    await goOffline(true);
     await tab.waitForFunction(() => $('offline-status').textContent === '● Working offline');
     assert.match(await tab.locator('#toast').textContent(), /^You are offline\./);
     await tab.evaluate(() => {
@@ -3993,7 +4002,7 @@ const {chromium} = require('playwright'),
     assert.ok(
       await tab.evaluate(() => window.__prompted && document.activeElement === document.querySelector('.nav.active'))
     );
-    await context.setOffline(false);
+    await goOffline(false);
     await tab.waitForFunction(() => $('offline-status').textContent === '');
     assert.deepEqual(
       requests.filter(url => !url.startsWith(origin)),

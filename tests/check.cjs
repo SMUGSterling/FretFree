@@ -993,6 +993,19 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     null,
     'A payload without a key line is rejected'
   );
+  // Decoding is bounded: a few kilobytes of deflate that would expand to megabytes is refused part way, a code past the
+  // length limit is refused unread, and a large real score just under the limit still opens.
+  const max = vm.runInContext('SHARE_BYTES_MAX', context),
+    bomb = await context.encodeShare({...payload, a: payload.a + '\n%' + 'C'.repeat(max * 4)});
+  assert.ok(bomb[0] === '1' && bomb.length < 40000, `A ${max * 4}-byte payload packs into ${bomb.length} characters`);
+  assert.equal(await context.decodeShare(bomb), null, 'Decompression stops past the byte limit');
+  assert.equal(
+    await context.decodeShare('0' + 'A'.repeat(vm.runInContext('SHARE_CODE_MAX', context))),
+    null,
+    'A code past the length limit is refused'
+  );
+  const near = {...payload, a: payload.a + '\n%' + 'C'.repeat(max - 4096)};
+  assert.equal((await context.decodeShare(await context.encodeShare(near))).a, near.a, 'Just under the limit opens');
   console.log('Share links: compressed and plain round trips passed');
 })().catch(e => {
   console.error(e);

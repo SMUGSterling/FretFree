@@ -4218,11 +4218,32 @@ async function encodeShare(payload) {
 }
 // A link opens only if its marker is known, its payload is version 1, and the ABC has real X: and K: header lines.
 const SHARE_ABC = /^X:[^\n]*\n[\s\S]*^K:/m;
+// Codes arrive in links and pasted text, so decoding is bounded: a longer code is refused, and decompression stops
+// past SHARE_BYTES_MAX, so a crafted deflate stream cannot fill the tab's memory. Real scores are far smaller.
+const SHARE_CODE_MAX = 3 * 1024 * 1024,
+  SHARE_BYTES_MAX = 2 * 1024 * 1024;
+async function inflateLimited(bytes, max) {
+  const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader(),
+    chunks = [];
+  let size = 0;
+  for (let part = await reader.read(); !part.done; part = await reader.read()) {
+    size += part.value.length;
+    if (size > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(part.value);
+  }
+  const out = new Uint8Array(size);
+  chunks.reduce((at, chunk) => (out.set(chunk, at), at + chunk.length), 0);
+  return out;
+}
 async function decodeShare(text) {
   try {
-    if (text[0] !== '1' && text[0] !== '0') return null;
+    if ((text[0] !== '1' && text[0] !== '0') || text.length > SHARE_CODE_MAX) return null;
     const packed = base64url.decode(text.slice(1));
-    const bytes = text[0] === '1' ? await streamBytes(packed, DecompressionStream, 'deflate-raw') : packed;
+    const bytes = text[0] === '1' ? await inflateLimited(packed, SHARE_BYTES_MAX) : packed;
+    if (!bytes || bytes.length > SHARE_BYTES_MAX) return null;
     const payload = JSON.parse(new TextDecoder().decode(bytes));
     return payload?.v === 1 && typeof payload.a === 'string' && SHARE_ABC.test(payload.a) ? payload : null;
   } catch {

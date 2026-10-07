@@ -1,3 +1,10 @@
+# Bounded share-link decoding · 2026-10-07
+
+- Share, assignment, return and turn-in codes are decoded within limits: a code over 3 MB is refused, and decompression stops past 2 MB. A crafted link a few kilobytes long could otherwise expand to many megabytes and freeze the tab, for example when a teacher pastes turn-ins. Real scores are far smaller; the largest library score is about 12 KB.
+- The offline browser test also tells newer Chromium that the network is down (`Network.overrideNetworkState`), as a real device does, since Playwright's offline switch no longer changes `navigator.onLine` there.
+
+---
+
 # Feedback marks on notes · 2026-10-07
 
 - A teacher can point at one note without rewriting the student's music, as Noteflight's annotations and feedback colors do. Right-click a note for the new **Feedback** items in the note menu: **💬 Comment…** and four colors (red, orange, green, blue). **💬 Comment**, in the notation toolbar's new Feedback group (under **More** on narrow screens), and *Comment on the note* in All shortcuts do the same for the selected note, also from the keyboard. While turned-in work is open, the note-entry bar has a **Feedback** group (the studio's teacher-tools slot) with 💬 Comment and the four colors for the selected note: one press colors it, the pressed color shows the note's mark, and after a pointer press the arrow keys go on to the next note.
