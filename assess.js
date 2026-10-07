@@ -7,8 +7,12 @@
 // Rhythm %, stars and the notes to work on) stays in the panel, and each check is kept in the score's history
 // (fretfree-attempts), which a turn-in link carries. Nothing is recorded or uploaded. The pitch detection, the notes
 // listened for and the marking are in score-tools.js; the microphone and latency helpers are record.js's.
+// The check's clicks (count-in and metronome) are bursts of noise, which the microphone cannot hear as notes. The
+// analyser keeps 4096 samples: the latest 2048 are a frame, or all of them, halved, for an instrument that sounds
+// notes below C2 (detectLowPitch).
 const CHECK_FRAME_MS = 20,
-  CHECK_FFT = 2048,
+  CHECK_FFT = 4096,
+  CHECK_WINDOW = 2048,
   CHECK_TAIL_MS = 300,
   CHECK_HISTORY = 20,
   CHECK_SCORES = 100,
@@ -70,10 +74,13 @@ function checksOpened() {
 }
 
 // Where each checked note is on the score: its timing event's box, and its measure and place in the measure in the
-// first voice (the melody), counting notes, not rests. start is the note's written start in score seconds.
+// first voice (the melody), counting notes, not rests. start is the note's written start in score seconds as played,
+// so it is looked for among the timing events as played (playEvents): after a fermata's hold, and again on each pass
+// through a D.C. or D.S.
 let notePlaces = null;
 function notePlace(start) {
-  if (notePlaces?.tune !== renderedTune) {
+  const timings = playEvents();
+  if (notePlaces?.tune !== renderedTune || notePlaces.timings !== timings) {
     const counts = new Map(),
       numbers = new Map();
     const melody = [...new Set(noteSources.values())]
@@ -84,14 +91,19 @@ function notePlace(start) {
       counts.set(e.measure, n);
       numbers.set(e, n);
     }
-    notePlaces = {tune: renderedTune, numbers};
+    const events = timings
+      .filter(e => e.type === 'event' && e.left != null)
+      .sort((a, b) => a.milliseconds - b.milliseconds);
+    notePlaces = {tune: renderedTune, timings, numbers, events};
   }
+  const events = notePlaces.events;
   let best = null;
-  for (const e of renderedTune?.noteTimings || []) {
-    if (e.type !== 'event' || e.left == null || Math.abs(e.milliseconds / 1000 - start) > 0.03) continue;
+  for (let i = firstAfter(events, e => e.milliseconds / 1000 < start - 0.03); i < events.length; i++) {
+    const e = events[i],
+      off = Math.abs(e.milliseconds / 1000 - start);
+    if (e.milliseconds / 1000 > start + 0.03) break;
     const entry = (e.startCharArray || []).map(c => noteSources.get(c)).find(x => notePlaces.numbers.has(x));
-    if (entry && (!best || Math.abs(e.milliseconds / 1000 - start) < best.off))
-      best = {off: Math.abs(e.milliseconds / 1000 - start), e, entry};
+    if (entry && (!best || off < best.off)) best = {off, e, entry};
   }
   if (!best) return null;
   const {e, entry} = best;
@@ -155,6 +167,9 @@ function updateCheckMarks() {
 // tail for the last note.
 let check = null,
   lastCheck = null;
+// While a check runs, the controls that would restart its playback (speed, Chords, the trainer) are off, and a change
+// that would carry playback on (playPosition) waits for the next Play.
+const checkRunning = () => !!check;
 function checkUnavailable() {
   if (!navigator.mediaDevices?.getUserMedia)
     return 'This browser can’t use a microphone here. The check needs a recent Chrome, Edge, Firefox or Safari, on a secure (https) page.';
@@ -199,13 +214,24 @@ async function startCheck() {
     countInBars: 1,
     once: true,
     melodyOff: !melody,
+    noiseClicks: true,
     onStart: ({clock, from, until, percent, full}) => {
-      const expected = expectedEvents(melodyNotes(full.notes), from, until, percent / 100);
+      const {expected, left, low} = checkListening(
+        expectedEvents(melodyNotes(full.notes), from, until, percent / 100),
+        instrumentSound(instruments[currentInstrument()])
+      );
+      // A range whose notes all sound below A0 has nothing to listen for.
+      if (!expected.length && left) {
+        stop();
+        return endCheck(session, 'These notes are too low for the microphone to hear, so they can’t be checked.');
+      }
       Object.assign(session, {
         state: 'live',
         clock,
         percent,
         expected,
+        left,
+        low,
         marker: attemptMarker(expected, CHECK_LEVELS[level]),
         places: placesOf(expected),
         source: $('abc').value
@@ -223,13 +249,14 @@ async function startCheck() {
 function listen(session) {
   if (check !== session) return;
   const analyser = session.analyser,
-    samples = session.buffer;
-  if (typeof analyser.getFloatTimeDomainData === 'function') analyser.getFloatTimeDomainData(samples);
+    buffer = session.buffer;
+  if (typeof analyser.getFloatTimeDomainData === 'function') analyser.getFloatTimeDomainData(buffer);
   else {
-    const bytes = new Uint8Array(samples.length);
+    const bytes = new Uint8Array(buffer.length);
     analyser.getByteTimeDomainData(bytes);
-    for (let i = 0; i < bytes.length; i++) samples[i] = (bytes[i] - 128) / 128;
+    for (let i = 0; i < bytes.length; i++) buffer[i] = (bytes[i] - 128) / 128;
   }
+  const samples = session.low ? buffer : buffer.subarray(buffer.length - CHECK_WINDOW);
   let energy = 0;
   for (const v of samples) energy += v * v;
   const level = Math.sqrt(energy / samples.length);
@@ -241,7 +268,7 @@ function listen(session) {
   if (session.state !== 'live' && session.state !== 'finishing') return;
   const t = audio.currentTime - samples.length / 2 / audio.sampleRate - session.clock - session.latency;
   if (t < -0.5) return;
-  const pitch = detectPitch(samples, audio.sampleRate);
+  const pitch = (session.low ? detectLowPitch : detectPitch)(samples, audio.sampleRate);
   session.marker.add({t, freq: pitch?.freq || 0, level});
   if (++session.ticks % 10 === 0) markPassed(session, t);
 }
@@ -296,13 +323,17 @@ function finishCheck(session) {
     clearMarks();
     return checkStatus('FretFree heard nothing from the microphone. Check that it’s on and not muted, then try again.');
   }
-  const last = session.places.slice(0, count).filter(Boolean).at(-1),
+  // The last measure reached, which after a D.C. or D.S. is not the last one played.
+  const measures = session.places
+      .slice(0, count)
+      .filter(Boolean)
+      .map(place => place.measure),
     entry = {
       at: Date.now(),
       level: session.level,
       speed: Math.round(session.percent),
       from: session.range.from,
-      to: Math.max(session.range.from, last?.measure || session.range.to),
+      to: measures.length ? measures.reduce((a, b) => Math.max(a, b), session.range.from) : session.range.to,
       pitch: result.pitch,
       rhythm: result.rhythm,
       stars: result.stars,
@@ -328,6 +359,9 @@ function finishCheck(session) {
   checkStatus(
     `Checked ${count} ${count === 1 ? 'note' : 'notes'}: ${checkWords(entry)}.` +
       (count < session.expected.length ? ' Stopped early, so only the notes played so far are marked.' : '') +
+      (session.left
+        ? ` ${session.left} ${session.left === 1 ? 'note sounds' : 'notes sound'} too low to hear, so ${session.left === 1 ? 'it isn’t' : 'they aren’t'} checked.`
+        : '') +
       (kept ? '' : ' This browser couldn’t keep it in the history.')
   );
 }
@@ -342,6 +376,7 @@ function showChecking() {
   $('assess').textContent = live ? '● Listening' : '✓ Check';
   $('assess-level').disabled = live;
   $('assess-melody').disabled = live;
+  for (const id of ['speed', 'speed-reset', 'chords', 'trainer', 'trainer-goal']) $(id).disabled = live;
 }
 
 // The result: percentages, stars and the notes to work on, in written pitch as the score shows it.

@@ -30,8 +30,12 @@ function stop() {
   // A play-along check stops listening with it.
   if (typeof checkStopped === 'function') checkStopped();
 }
-// Where playback is, in score seconds, so a speed change or the Chords switch can carry on from there.
-const playPosition = () => (playing ? playOrigin + Math.max(0, audio.currentTime - playClock) * playSpeed : null);
+// Where playback is, in score seconds, so a speed change or the Chords switch can carry on from there. A play-along
+// check plays its range once, as it started, so it has nowhere to carry on from: a change waits for the next Play.
+const playPosition = () =>
+  playing && !(typeof checkRunning === 'function' && checkRunning())
+    ? playOrigin + Math.max(0, audio.currentTime - playClock) * playSpeed
+    : null;
 const atAudioTime = (time, fn) => playTimers.push(setTimeout(fn, Math.max(0, (time - audio.currentTime) * 1000)));
 function measureRange() {
   const total = +$('start-measure').max || 1,
@@ -264,6 +268,38 @@ function click(time, down, ctx = audio, out = outputNode(ctx), into = nodes) {
   osc.onended = () => (osc.done = true);
   into.push(osc);
 }
+// A play-along check's click: a short burst of noise above 1 kHz (higher off the beat). It has no pitch, so the
+// microphone does not hear it as a note, as it can a square-wave click (a 1760 Hz click reads as an A). Without noise
+// (a browser with no audio buffers) it is the usual click.
+const noiseBuffers = new WeakMap();
+function noiseClick(time, down, ctx = audio, out = outputNode(ctx), into = nodes) {
+  if (typeof ctx.createBufferSource !== 'function' || typeof ctx.createBiquadFilter !== 'function')
+    return click(time, down, ctx, out, into);
+  let buffer = noiseBuffers.get(ctx);
+  if (!buffer) {
+    buffer = ctx.createBuffer(1, Math.round(ctx.sampleRate * 0.04), ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    noiseBuffers.set(ctx, buffer);
+  }
+  const source = ctx.createBufferSource(),
+    filter = ctx.createBiquadFilter(),
+    gain = ctx.createGain(),
+    level = down ? 0.7 : 0.45;
+  source.buffer = buffer;
+  filter.type = 'highpass';
+  filter.frequency.value = down ? 1000 : 2500;
+  gain.gain.setValueAtTime(0, time);
+  gain.gain.linearRampToValueAtTime(level, time + 0.001);
+  gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.03);
+  source.connect(filter);
+  filter.connect(gain);
+  gain.connect(out);
+  source.start(time);
+  source.stop(time + 0.035);
+  source.onended = () => (source.done = true);
+  into.push(source);
+}
 // Each instrument's partials (catalog.js) as a periodic wave, made once per audio context. Without
 // createPeriodicWave (or if it fails) the instrument falls back to its basic `wave`.
 const periodicWaves = new WeakMap();
@@ -354,7 +390,7 @@ function schedulePass(p, from, percent, base, pass) {
   const clicks = ($('metronome').checked || p.muted != null) && mixClick();
   if (clicks)
     for (const c of clickTimes(from, p.until, p.full.duration))
-      click(base + (c.time - from) / speed, c.down, audio, clicks);
+      (p.noiseClicks ? noiseClick : click)(base + (c.time - from) / speed, c.down, audio, clicks);
   atAudioTime(base, () => {
     if (p.generation !== playGeneration) return;
     playOrigin = from;
@@ -399,11 +435,11 @@ function schedulePass(p, from, percent, base, pass) {
 }
 // Options for recording, takes and play-along checks: countInBars counts in that many bars whatever the Count-in box
 // says, once plays the range a single time (no loop or trainer), percent and until replace the speed and the end,
-// melodyOff leaves the melody (the lowest channel) out and keeps the metronome on, and onStart gets the audio time where
-// score time `from` sounds, with the notes as played (full).
+// melodyOff leaves the melody (the lowest channel) out and keeps the metronome on, noiseClicks makes every click a
+// noiseClick, and onStart gets the audio time where score time `from` sounds, with the notes as played (full).
 async function play(
   resumeFrom = null,
-  {countIn = false, countInBars = 0, once = false, percent, until, melodyOff = false, onStart} = {}
+  {countIn = false, countInBars = 0, once = false, percent, until, melodyOff = false, noiseClicks = false, onStart} = {}
 ) {
   if (playing) {
     stop();
@@ -452,7 +488,8 @@ async function play(
         down = grid.findIndex((c, i) => c.down && grid[i + 1]);
       const step = (down >= 0 ? grid[down + 1].unheld - grid[down].unheld : 0.5) / (percent / 100);
       const clicks = mixClick(audio, outputNode(), {countIn: true});
-      for (let k = 0; k < beats * bars; k++) click(base + k * step, k % beats === 0, audio, clicks);
+      for (let k = 0; k < beats * bars; k++)
+        (noiseClicks ? noiseClick : click)(base + k * step, k % beats === 0, audio, clicks);
       const counting = left => (bars > 1 ? `Count-in: ${left} ${left === 1 ? 'bar' : 'bars'} to go…` : 'Count-in…');
       $('play-status').textContent = counting(bars);
       for (let b = 1; b < bars; b++)
@@ -465,7 +502,13 @@ async function play(
     playClock = base;
     playSpeed = percent / 100;
     const muted = melodyOff && full.notes.length ? Math.min(...full.notes.map(n => n.ch ?? 0)) : null;
-    schedulePass({full, range, start: past ? from : start, until, generation, once, muted}, from, percent, base, 1);
+    schedulePass(
+      {full, range, start: past ? from : start, until, generation, once, muted, noiseClicks},
+      from,
+      percent,
+      base,
+      1
+    );
     onStart?.({clock: base, from, until, percent, full});
   } catch (e) {
     stop();

@@ -906,6 +906,17 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     [9, 4, 8.5],
     'Swing ends move with the notes'
   );
+  assert.equal(
+    context
+      .planNotes(plan, {
+        duration: 4,
+        notes: [{note: 64, start: 3.6, duration: 0.4, straightStart: 3.5, straightEnd: 4}]
+      })
+      .notes.map(n => `${+n.start.toFixed(3)}/${+n.straightStart.toFixed(3)}`)
+      .join(' '),
+    '4.1/4 8.6/8.5',
+    'and so do their written starts, which a play-along check finds them by'
+  );
   const events = context.planEvents(plan, [
     {type: 'event', milliseconds: 0, measureStart: true},
     {type: 'event', milliseconds: 2000, measureStart: true},
@@ -3985,6 +3996,64 @@ async function musicXMLImportFiles() {
     'Nor a whisper'
   );
   assert.equal(context.detectPitch(new Float32Array(0), 48000), null);
+  // The lowest notes: a bass guitar's E (41 Hz) and A (55 Hz) strings, and a tuba's, repeat too slowly for detectPitch,
+  // so a check on an instrument that sounds them listens with detectLowPitch, on twice the window halved. It finds
+  // them, and higher notes too, and still hears no pitch in noise or silence.
+  const partials = (list, f, rate, n) =>
+    Float32Array.from({length: n}, (_, i) =>
+      list.reduce((v, a, k) => v + 0.2 * a * Math.sin(2 * Math.PI * f * (k + 1) * (i / rate) + k), 0)
+    );
+  for (const rate of [44100, 48000])
+    for (const [name, list] of Object.entries({bass: [1, 0.55, 0.25, 0.12, 0.05], tuba: [1, 0.45, 0.2, 0.08, 0.03]})) {
+      for (const f of [41.2, 55]) {
+        assert.equal(context.detectPitch(partials(list, f, rate, 2048), rate), null, `${f} Hz is under detectPitch`);
+        const low = context.detectLowPitch(partials(list, f, rate, 4096), rate);
+        assert.ok(low && cents(low.freq, f) <= 5, `${f} Hz ${name} at ${rate}: ${low?.freq.toFixed(2)} Hz`);
+      }
+      for (const f of [27.5, 98, 196, 440]) {
+        const low = context.detectLowPitch(partials(list, f, rate, 4096), rate);
+        assert.ok(low && cents(low.freq, f) <= 5, `${f} Hz ${name} at ${rate}, low: ${low?.freq.toFixed(2)} Hz`);
+      }
+    }
+  for (let k = 0; k < 10; k++)
+    assert.equal(context.detectLowPitch(Float32Array.from({length: 4096}, noise), 48000), null, 'Noise is still noise');
+  assert.equal(context.detectLowPitch(new Float32Array(4096), 48000), null);
+  // A check's click is a burst of noise (highpassed: each sample less the one before), with no pitch for the
+  // microphone to hear as a note, and a note played through it keeps its pitch.
+  const burst = (n, at, level) => {
+    let before = 0;
+    return Float32Array.from({length: n}, (_, i) => {
+      const t = (i - at) / 48000;
+      if (t < 0 || t > 0.035) return 0;
+      const x = noise(),
+        v = level * Math.exp(-t / 0.0033) * (x - before);
+      before = x;
+      return v;
+    });
+  };
+  for (const at of [-400, 0, 500, 1000, 1500, 2000]) {
+    assert.equal(context.detectPitch(burst(2048, at, 0.6), 48000), null, `A click ${at} samples in has no pitch`);
+    assert.equal(context.detectLowPitch(burst(4096, 2 * at, 0.6), 48000), null);
+    const a = context.detectPitch(
+      burst(2048, at, 0.3).map((v, i) => v + 0.3 * Math.sin((2 * Math.PI * 880 * i) / 48000)),
+      48000
+    );
+    assert.ok(a && cents(a.freq, 880) <= 5, `An A played through a click is an A: ${a?.freq.toFixed(2)} Hz`);
+  }
+  // Which notes a check listens for, and how: a bass guitar (two octaves under the ABC) sounds E, as E1, which needs
+  // detectLowPitch, and G,, as G0, under the piano's lowest A, which is too low to hear; a flute needs neither.
+  {
+    const events = [52, 43, 57].map((m, i) => ({start: i, time: i, end: i + 1, midis: [m]})),
+      bass = context.checkListening(events, -24),
+      flute = context.checkListening(events, 0);
+    assert.deepEqual(
+      [bass.expected.map(e => e.midis[0]).join(), bass.left, bass.low],
+      ['52,57', 1, true],
+      'Bass guitar: E, is low, G,, too low'
+    );
+    assert.deepEqual([flute.expected.length, flute.left, flute.low], [3, 0, false]);
+    assert.equal(context.checkListening(events, -12).low, true, 'A tuba’s G,, sounds G1');
+  }
   // The notes listened for: the melody channel only (not the chords), chords in the melody as one event, the range's
   // notes only, timed at the speed, and notes too short to hear left out.
   const midiOf = abc => context.parseMidi(context.midiBytes(abc)),
@@ -4177,6 +4246,41 @@ async function musicXMLImportFiles() {
   const repeated = beats.map((e, i) => ({...e, midis: [i === 2 ? 62 : e.midis[0]]})),
     smooth = played({}, 0).map(f => (f.t >= 0.5 && f.t < 1.5 ? {...f, freq: hz(62)} : f));
   assert.equal(marks(context.scoreAttempt(repeated, smooth, medium)), 'green,green,green,green');
+  // Short notes, as long as the reach: eighths at 100 bpm on Easy (0.3 s) and at 150 bpm on Medium (0.2 s), c c B A G
+  // F E D C with the c played again too smoothly to hear, each note sounding until the next starts. Wherever the 20 ms
+  // frames fall, the second c is the first held on, and B keeps its own sound: every note is right, not a run of wrong
+  // notes from there on. A note left out (D, with C held on through it) is the only one marked.
+  for (const [level, length] of [
+    [{cents: 50, onsetMs: 150}, 0.3],
+    [medium, 0.2]
+  ]) {
+    const tune = [72, 72, 71, 69, 67, 65, 64, 62, 60].map((m, i) => ({
+        start: i * length,
+        time: i * length,
+        end: (i + 1) * length,
+        midis: [m]
+      })),
+      legato = (phase, sounding = i => tune[i].midis[0]) => {
+        const out = [];
+        for (let t = phase; t < tune.length * length; t += 0.02)
+          out.push({t, freq: hz(sounding(Math.floor(t / length))), level: 0.2});
+        return out;
+      };
+    for (const phase of [0, 0.005, 0.01, 0.015]) {
+      const r = context.scoreAttempt(tune, legato(phase), level);
+      assert.deepEqual([r.pitch, r.rhythm], [100, 100], `Legato eighths of ${length} s, frames from ${phase} s`);
+      const missed = context.scoreAttempt(
+        tune,
+        legato(phase, i => tune[i === 7 ? 6 : i].midis[0]),
+        level
+      );
+      assert.equal(
+        marks(missed),
+        'green,green,green,green,green,green,green,red,green',
+        `A note left out, frames from ${phase} s`
+      );
+    }
+  }
   // Marking as the frames come in does the same work per note at the end of a long check as at its start (counted in
   // reads of the frames' times, which do not depend on the machine), and gives what marking them all at once gives.
   // 750 notes and 15,000 frames: a 5-minute check.
@@ -4315,7 +4419,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, keeping bars full (rests on the beat for a shorter note, a longer one taking the rests after it or refused, tuplets and dotted pairs left alone), screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), road-map playback (marks from decorations and text, the order of play through D.C., D.S., Fine, coda signs and To Coda, repeats after a jump, a fermata over a double bar line ending a D.C., multi-measure rests counted in bars, fermata holds, notes and timing events in the order of play, library tunes that follow their road map), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, key and time changes at line starts, voices after &, typing keys, every note of the lieder with line-start changes), mixer tracks (voices in MIDI channel order, overlays, names, a voice that ends early keeping its channel, Chords and Metronome, settings and Solo), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files), recording takes (offsets, calibration from recorded clicks, lining a take up within 50 ms, refusing noise and silence, file names), play-along checks (YIN within 3 cents at 440 Hz and 5 cents at 196 Hz for sine and sawtooth tones at 44.1 and 48 kHz, no pitch in noise or silence, the melody’s notes in a range at a speed with chords as one and notes too short to hear left out, swung notes found where written, a perfect run at 100/100, semitone-flat red, 120 ms late yellow on Medium and green on Easy, early, missed and octave notes, 250 and 400 ms off yellow and never green, detached or legato, a run late throughout, a repeated note held on, marking as the frames come in at a flat cost and as all at once, stars, the words for each problem, checks cleaned and carried in links with the melody labeled, the best check and how it was made) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, keeping bars full (rests on the beat for a shorter note, a longer one taking the rests after it or refused, tuplets and dotted pairs left alone), screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), road-map playback (marks from decorations and text, the order of play through D.C., D.S., Fine, coda signs and To Coda, repeats after a jump, a fermata over a double bar line ending a D.C., multi-measure rests counted in bars, fermata holds, notes and timing events in the order of play, library tunes that follow their road map), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, key and time changes at line starts, voices after &, typing keys, every note of the lieder with line-start changes), mixer tracks (voices in MIDI channel order, overlays, names, a voice that ends early keeping its channel, Chords and Metronome, settings and Solo), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files), recording takes (offsets, calibration from recorded clicks, lining a take up within 50 ms, refusing noise and silence, file names), play-along checks (YIN within 3 cents at 440 Hz and 5 cents at 196 Hz for sine and sawtooth tones at 44.1 and 48 kHz, no pitch in noise or silence, a bass guitar’s and a tuba’s 41 and 55 Hz found by detectLowPitch, noise clicks with no pitch and a note heard through one, the notes a bass guitar can be heard on, the melody’s notes in a range at a speed with chords as one and notes too short to hear left out, swung notes found where written, a perfect run at 100/100, semitone-flat red, 120 ms late yellow on Medium and green on Easy, early, missed and octave notes, 250 and 400 ms off yellow and never green, detached or legato, a run late throughout, a repeated note held on, legato eighths as long as the reach on Easy and Medium at four frame phases with no run of wrong notes, a note left out marked alone, swung starts through a road map, marking as the frames come in at a flat cost and as all at once, stars, the words for each problem, checks cleaned and carried in links with the melody labeled, the best check and how it was made) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {

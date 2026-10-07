@@ -4135,6 +4135,7 @@ function planNotes(plan, data, edge = 0.002) {
       if (!inPiece(plan, piece, n.start, edge)) continue;
       const start = planTime(plan, piece, n.start),
         note = {...n, start, duration: Math.max(0.025, planTime(plan, piece, n.start + n.duration) - start)};
+      if (n.straightStart != null) note.straightStart = planTime(plan, piece, n.straightStart);
       if (n.straightEnd != null) note.straightEnd = planTime(plan, piece, n.straightEnd);
       notes.push(note);
     }
@@ -4364,6 +4365,16 @@ function detectPitch(samples, sampleRate, {min = 60, max = 1600, threshold = 0.2
     shift = bend > 0 ? Math.max(-0.5, Math.min(0.5, (a - c) / (2 * bend))) : 0;
   return {freq: sampleRate / (found + shift), clarity: Math.max(0, Math.min(1, 1 - b))};
 }
+// The lowest notes (a bass guitar's open E is 41 Hz, a 5-string bass's B 31 Hz) repeat too slowly for detectPitch's
+// usual window and lowest pitch: their period needs about twice the window, which at the full rate costs four times
+// as much. So the longer window is halved first, each pair of samples made one (their mean, which keeps the highest
+// partials from folding down onto the low ones), and the pitch is looked for down to 26 Hz, under the piano's lowest
+// A. A check uses it when the instrument sounds a note below C2 (65 Hz).
+function detectLowPitch(samples, sampleRate, options = {}) {
+  const half = new Float32Array((samples?.length || 0) >> 1);
+  for (let i = 0; i < half.length; i++) half[i] = (samples[2 * i] + samples[2 * i + 1]) / 2;
+  return detectPitch(half, sampleRate / 2, {min: 26, ...options});
+}
 // The notes a check listens for: the melody's notes (melodyNotes of the decoded MIDI, swung as it plays) that start
 // from `from` up to `until`, in score seconds. Notes that start together (a chord) are one event, which any of their
 // pitches answers. time and end are seconds after `from` at the speed (1 is the written tempo); start is where the
@@ -4383,6 +4394,19 @@ function expectedEvents(melody, from, until, speed = 1) {
     } else events.push({start: n.straightStart ?? n.start, time, end, midis: [n.note]});
   }
   return events.filter(e => e.end - e.time >= CHECK_SHORTEST);
+}
+// How a check listens on an instrument that sounds `octave` semitones from the ABC (instrumentSound): a note that
+// sounds below A0 (27.5 Hz, the piano's lowest) is too low to hear and is left out, and an instrument that sounds a
+// note below C2 (65 Hz) needs detectLowPitch. Returns {expected, left (the number left out), low}.
+const CHECK_LOWEST = 21,
+  CHECK_LOW = 36;
+function checkListening(expected, octave = 0) {
+  const heard = expected.filter(e => Math.max(...e.midis) + octave >= CHECK_LOWEST);
+  return {
+    expected: heard,
+    left: expected.length - heard.length,
+    low: heard.some(e => Math.min(...e.midis) + octave < CHECK_LOW)
+  };
 }
 // Levels: how far off pitch (cents) and time (ms) a note may be and still count as right.
 const CHECK_LEVELS = {
@@ -4491,15 +4515,18 @@ function firstAfter(list, before) {
   return lo;
 }
 // Mark an attempt. expected comes from expectedEvents; frames ({t, freq, level}, t in the same seconds as the events)
-// from the microphone. Each note gets the sound that starts it: the unused one nearest its time within the reach
-// (twice the timing allowance, at least 150 ms), any at its pitch before any other; failing that, the one at its pitch
-// nearest its time that starts after the note before does and before this one ends (and is not the next note's, at
-// the same pitch, within its reach). Its pitch is the middle of what is heard after the attack. A note is green when
-// its pitch and timing are right, yellow when the pitch is right and it starts early or late, and red when the pitch is
-// wrong or nothing was heard. A note heard at its pitch with no sound of its own is on time if the sound the note before
-// started carries on through its attack (the same note held on, or played again too smoothly to hear a new start);
-// otherwise it is timed from the first frame heard at its pitch. Pitch % and Rhythm % are the notes right in each, and
-// the stars (1 to 5) follow their average.
+// from the microphone. A note is carried on when the sound the note before took is at its pitch (within a quarter
+// tone) and lasts through its attack: the same note held on, or played again too smoothly to hear a new start. Each
+// note gets the sound that starts it: the unused one nearest its time within the reach (twice the timing allowance, at
+// least 150 ms), any at its pitch before any other, and only one at its pitch for a carried note; a sound that starts
+// late in a short note at the next note's pitch is left to the next note when this one has none of its own. Failing
+// that, a note not carried on gets the one at its pitch nearest its time that starts after the note before does and
+// before this one ends (and is not the next note's, at the same pitch, within its reach). Its pitch is the middle of
+// what is heard after the attack, in its sound (or the one it carries on). A note is green when its pitch and timing
+// are right, yellow when the pitch is right and it starts early or late, and red when the pitch is wrong or nothing was
+// heard. A carried note is on time; another note heard at its pitch with no sound of its own is timed from the first
+// frame heard at its pitch. Pitch % and Rhythm % are the notes right in each, and the stars (1 to 5) follow their
+// average.
 // attemptMarker marks while the frames come in, so the notes at the end of a long check cost no more than those at its
 // start: add() takes each frame in time order, mark(count) marks the notes up to count (each once, after its time and
 // the reach have passed), and result(count) sums up the first count. scoreAttempt marks a run of frames all at once.
@@ -4513,7 +4540,7 @@ function attemptMarker(expected, {cents = 35, onsetMs = 100} = {}) {
   // A sound's pitch is the middle of its frames so far, worked out again only when it has grown.
   const pitchOf = s =>
       s.counted === s.pitches.length ? s.pitch : ((s.counted = s.pitches.length), (s.pitch = middle(s.pitches))),
-    atPitch = (s, midis) => Math.abs(octaveOff(pitchOf(s), midis)) <= 1,
+    atPitch = (s, midis, within = 1) => Math.abs(octaveOff(pitchOf(s), midis)) <= within,
     voiced = (from, to) => {
       const out = [];
       for (let j = firstAfter(frames, f => f.t < from); j < frames.length && frames[j].t <= to; j++)
@@ -4525,7 +4552,10 @@ function attemptMarker(expected, {cents = 35, onsetMs = 100} = {}) {
       prev = expected[i - 1],
       next = expected[i + 1],
       length = Math.max(0.02, e.end - e.time),
-      attack = Math.min(0.25 * length, 0.08);
+      attack = Math.min(0.25 * length, 0.08),
+      carried = sounds[used],
+      holds = !!carried && carried.start < e.time && carried.end >= e.time + attack && atPitch(carried, e.midis, 0.5),
+      late = next ? Math.max(next.time - reach, (e.time + e.end) / 2) : Infinity;
     let pick = -1,
       cost = Infinity;
     for (
@@ -4539,11 +4569,15 @@ function attemptMarker(expected, {cents = 35, onsetMs = 100} = {}) {
       const s = sounds[k];
       if (s.start > e.time + reach || s.start >= e.end) break;
       if (prev && s.start <= prev.time) continue;
-      const c = Math.abs(s.start - e.time) / reach + (atPitch(s, e.midis) ? 0 : 1);
+      // A carried note takes only a sound played again at its pitch, and a sound late in a short note at the next
+      // note's pitch is the next note's when this one has no sound of its own.
+      const right = atPitch(s, e.midis, holds ? 0.5 : 1);
+      if ((holds && !right) || (s.start >= late && atPitch(s, next.midis) && (holds || !right))) continue;
+      const c = Math.abs(s.start - e.time) / reach + (right ? 0 : 1);
       if (c < cost) [cost, pick] = [c, k];
     }
-    // Further off: a sound at its pitch only.
-    if (pick < 0)
+    // Further off: a sound at its pitch only, for a note not carried on.
+    if (pick < 0 && !holds)
       for (
         let k = Math.max(used + 1, prev ? firstAfter(sounds, s => s.start <= prev.time) : 0);
         k < sounds.length && sounds[k].start < e.end;
@@ -4556,11 +4590,9 @@ function attemptMarker(expected, {cents = 35, onsetMs = 100} = {}) {
         if (Math.abs(s.start - e.time) < cost) [cost, pick] = [Math.abs(s.start - e.time), k];
       }
     const sound = sounds[pick],
-      carried = sounds[used],
-      held =
-        !sound && !!carried && carried.start < e.time && carried.end >= e.time + attack && atPitch(carried, e.midis),
+      held = !sound && holds,
       from = sound ? sound.start : e.time,
-      to = sound ? Math.min(sound.end, from + length * 0.9) : e.time + length * 0.9;
+      to = Math.min(sound ? sound.end : held ? carried.end : Infinity, from + length * 0.9);
     if (sound) used = pick;
     let body = voiced(from + attack, to);
     if (!body.length) body = voiced(from, to);
