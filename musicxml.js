@@ -880,7 +880,7 @@ function abcToMusicXML(source, meta = {}) {
         xmlTag('miscellaneous-field', JSON.stringify(metadata), ' name="fretfree-rights"') +
         (gpl
           ? xmlTag('miscellaneous-field', GPL_LICENSE, ' name="fretfree-license-text"') +
-            xmlTag('miscellaneous-field', creditedABC(source, item), ' name="fretfree-abc-source"')
+            xmlTag('miscellaneous-field', creditedABC(unmarkedSource(source), item), ' name="fretfree-abc-source"')
           : '') +
         '</miscellaneous>'
       : '') +

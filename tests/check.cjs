@@ -4442,10 +4442,12 @@ async function musicXMLImportFiles() {
     at = source.indexOf('B G2'),
     anchor = plain(context.anchorOf(events(source), at, source));
   assert.deepEqual(
-    anchor,
-    {vo: '0:0', m: 2, n: 2, b: 4, w: ['d', 'B', 'G2']},
+    {...anchor, h: undefined, k: undefined},
+    {vo: '0:0', m: 2, n: 2, b: 4, w: ['d', 'B', 'G2'], h: undefined, k: undefined},
     'A note is anchored by measure and place'
   );
+  assert.match(anchor.h, /^[0-9a-z]{3}\.[0-9a-z]{6}$/, 'with the measures before and after its own');
+  assert.match(anchor.k, /^[0-9a-z]{3}$/, 'and the keys');
   assert.equal(context.anchorOf(events(source), at + 1, source), null, 'Only a note’s start has an anchor');
   const text = 'Should be F♯ [K:D] | !p! 100% <b>&\nnext line',
     mark = {...anchor, c: 'blue', t: text, a: 'Ms. K', at: 1790000000000, id: 'k1'},
@@ -4462,7 +4464,10 @@ async function musicXMLImportFiles() {
   assert.equal(context.transposeABC(marked, 2).split('\n').at(-2), line, 'Transposing leaves the comment line alone');
   assert.equal(context.writeMarks(marked, []), source, 'No marks leaves the score as it was');
   assert.equal(context.writeMarks(source, []), source);
-  assert.equal(context.writeMarks(source.trimEnd(), [mark]).split('\n').length, marked.split('\n').length);
+  // Marks go after the music, before blank lines that end the text, and taking them out gives the text back.
+  assert.equal(context.writeMarks(source + '\n\n', [mark]), marked + '\n\n', 'No blank line before the marks');
+  for (const text of [source, source.trimEnd(), source + '\n\n', source.replace(/\n/g, '\r\n')])
+    assert.equal(context.writeMarks(context.writeMarks(text, [mark]), []), text, 'Marks added and taken out');
   // Marks from files and links are read field by field.
   const odd = [
     '% FretFree-Mark: not json',
@@ -4471,11 +4476,15 @@ async function musicXMLImportFiles() {
     '% FretFree-Mark: {"m":1,"n":0}',
     '% FretFree-Mark: {"vo":"x","m":1,"n":1,"c":"pink","t":7,"a":"  Mr.\\n  P ","at":-1,"id":"k1","b":"4","w":[1]}',
     '% FretFree-Mark: {"m":2,"n":1,"t":"\\u0007Hi\\u2028","id":"k1"}',
+    '% FretFree-Mark: {"m":2,"n":1,"b":3,"w":["A"],"h":"abcdef.ghi","k":"Q!"}',
+    '% FretFree-Mark: {"m":2,"n":1,"b":2,"w":["A"],"h":"abc.ghi","k":"q1z"}',
     '%FretFree-Mark: {"m":3,"n":1}'
   ].join('\n');
   assert.deepEqual(plain(context.readMarks(odd)), [
     {v: '1', vo: '0:0', m: 1, n: 1, c: 'red', a: 'Mr. P', id: 'k1'},
-    {v: '1', vo: '0:0', m: 2, n: 1, c: 'red', t: 'Hi', id: 'm1'}
+    {v: '1', vo: '0:0', m: 2, n: 1, c: 'red', t: 'Hi', id: 'm1'},
+    {v: '1', vo: '0:0', m: 2, n: 1, c: 'red', b: 3, w: ['A'], id: 'm2'},
+    {v: '1', vo: '0:0', m: 2, n: 1, c: 'red', b: 2, w: ['A'], k: 'q1z', id: 'm3'}
   ]);
   assert.equal(context.readMarks('% FretFree-Mark: {"m":1,"n":1,"t":"' + 'x'.repeat(900) + '"}')[0].t.length, 500);
   // The note a mark is on after edits: elsewhere, before it in its measure, to it, and taking it out.
@@ -4499,6 +4508,35 @@ async function musicXMLImportFiles() {
   assert.equal(on(edit('G A B c |', 'z4 | G A B c |').replace('d B G2', 'd ^A G2')), '^A', 'Both at once');
   assert.equal(on(edit('| G4 |]', '| G4 | d B G2 |]')), 'B', 'A bar like it added after it');
   assert.equal(on(head + 'G4 |]\n'), null, 'Its measure gone');
+  assert.equal(on(edit('d B G2 | ', '')), null, 'Its measure taken out, with measures after it');
+  assert.equal(on(edit('d B G2 | ', '').replace('|]', '| d e f g |]')), null, 'and a bar added at the end');
+  assert.equal(on(edit('d B G2', 'd G G2')), 'G', 'Corrected to the pitch of the note after it');
+  assert.equal(on(edit('d B G2', 'd d G2')), 'd', 'or before it');
+  assert.equal(on(edit('d B G2', 'c d G2')), null, 'Taken out, with a note of the same length added before it');
+  assert.equal(on(edit('d B G2', 'e ^c A2')), '^c', 'Its measure transposed alone');
+  assert.equal(
+    on(edit('G A B c | d B G2', 'z4 | E A B c | c d B G2')),
+    'B',
+    'A bar added, the measure before changed and a note added before it'
+  );
+  // Transposing keeps each mark on its note, even where the moved measures read as others did before.
+  assert.equal(on(context.transposeABC(source, 2)), 'c', 'The score transposed up a step');
+  assert.equal(on(context.transposeABC(source, -5)), 'F', 'and down a fourth');
+  const seq = head + 'G A B c | A B c d | B c d e | c d e f | d e f g |]\n',
+    seqMark = plain(context.anchorOf(events(seq), seq.indexOf('c d e |'), seq)),
+    seqOn = s => {
+      const e = context.entryForAnchor(events(s), seqMark, s);
+      return e && [e.measure, s.slice(e.element.startChar, e.element.endChar).trim()];
+    };
+  assert.deepEqual(seqOn(context.transposeABC(seq, 2)), [3, 'd'], 'A sequence transposed up a step');
+  // In measures that read the same, a bar added before its measure or after it.
+  const same = head + 'G A B c | G A B c | G A B c |]\n',
+    sameMark = plain(context.anchorOf(events(same), same.indexOf('A B c | G A B c |]'), same)),
+    sameOn = s => context.entryForAnchor(events(s), sameMark, s)?.measure ?? null;
+  assert.equal(sameOn(same.replace('K:G\n', 'K:G\nz4 | ')), 3, 'A bar added at the start of identical measures');
+  assert.equal(sameOn(same.replace('G A B c | G A B c |]', 'z4 | G A B c | G A B c |]')), 3, 'just before it');
+  assert.equal(sameOn(same.replace('G A B c | G A B c |]', 'G A B c | z4 | G A B c |]')), 2, 'just after it');
+  assert.equal(sameOn(same.replace('|]', '| z4 |]')), 2, 'at the end');
   // Rests can be marked ("a note is missing here"), and a rest filled with a note keeps its mark.
   const rest = head + 'G z B c |]\n',
     restMark = {...plain(context.anchorOf(events(rest), rest.indexOf('z'), rest)), id: 'r'};
@@ -4512,6 +4550,19 @@ async function musicXMLImportFiles() {
   assert.deepEqual([low.vo, low.m, low.n], ['1:0', 1, 3]);
   const lowAt = context.entryForAnchor(events(two), low, two).element.startChar;
   assert.equal(lowAt, two.indexOf('E F'));
+  // Exports that carry the ABC beside a library edition's credit (MIDI, WAV, MusicXML) leave the marks out, as the
+  // SVG export does (browser.cjs); the ABC export keeps them.
+  {
+    const item = context.library.find(x => context.scoreLicense(x).startsWith('GPL-') && context.exportCredit(x)),
+      withMarks = context.writeMarks(item.abc, [{m: 1, n: 1, c: 'red', t: 'Private note', a: 'Ms. K'}]),
+      decoded = new TextDecoder().decode(context.creditedMidi(context.midiBytes(withMarks), withMarks, item)),
+      xml = context.abcToMusicXML(withMarks, {item}),
+      wav = context.creditedWavInfo(withMarks, item).comment;
+    assert.ok(decoded.includes('Corresponding editable ABC source') && xml.includes('fretfree-abc-source'));
+    for (const [what, text] of Object.entries({MIDI: decoded, MusicXML: xml, WAV: wav}))
+      assert.ok(!/Private note|Ms\. K|FretFree-Mark/.test(text), `${what} export leaves the marks out`);
+    assert.equal(context.readMarks(context.creditedABC(withMarks, item)).length, 1, 'The ABC export keeps them');
+  }
   // A mark written by hand, without the measure's notes, goes by its place.
   assert.equal(
     context.entryForAnchor(events(source), {vo: '0:0', m: 3, n: 4}, source).element.startChar,
@@ -4524,7 +4575,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, keeping bars full (rests on the beat for a shorter note, a longer one taking the rests after it or refused, tuplets and dotted pairs left alone), screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), road-map playback (marks from decorations and text, the order of play through D.C., D.S., Fine, coda signs and To Coda, repeats after a jump, a fermata over a double bar line ending a D.C., multi-measure rests counted in bars, fermata holds, notes and timing events in the order of play, library tunes that follow their road map), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, key and time changes at line starts, voices after &, typing keys, every note of the lieder with line-start changes), mixer tracks (voices in MIDI channel order, overlays, names, a voice that ends early keeping its channel, Chords and Metronome, settings and Solo), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files), recording takes (offsets, calibration from recorded clicks, lining a take up within 50 ms, refusing noise and silence, file names), play-along checks (YIN within 3 cents at 440 Hz and 5 cents at 196 Hz for sine and sawtooth tones at 44.1 and 48 kHz, no pitch in noise or silence, a bass guitar’s and a tuba’s 41 and 55 Hz found by detectLowPitch, noise clicks with no pitch and a note heard through one, the notes a bass guitar can be heard on, the melody’s notes in a range at a speed with chords as one and notes too short to hear left out, swung notes found where written, a perfect run at 100/100, semitone-flat red, 120 ms late yellow on Medium and green on Easy, early, missed and octave notes, 250 and 400 ms off yellow and never green, detached or legato, a run late throughout, a repeated note held on, legato eighths as long as the reach on Easy and Medium at four frame phases with no run of wrong notes, a note left out marked alone, swung starts through a road map, marking as the frames come in at a flat cost and as all at once, stars, the words for each problem, checks cleaned and carried in links with the melody labeled, the best check and how it was made), feedback marks (comment lines read and written field by field, escaped from ABC tools and transposition, notes found again after edits elsewhere, before them, to them and in bars added or taken out, removed notes and rests, other voices) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, keeping bars full (rests on the beat for a shorter note, a longer one taking the rests after it or refused, tuplets and dotted pairs left alone), screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), road-map playback (marks from decorations and text, the order of play through D.C., D.S., Fine, coda signs and To Coda, repeats after a jump, a fermata over a double bar line ending a D.C., multi-measure rests counted in bars, fermata holds, notes and timing events in the order of play, library tunes that follow their road map), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, key and time changes at line starts, voices after &, typing keys, every note of the lieder with line-start changes), mixer tracks (voices in MIDI channel order, overlays, names, a voice that ends early keeping its channel, Chords and Metronome, settings and Solo), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files), recording takes (offsets, calibration from recorded clicks, lining a take up within 50 ms, refusing noise and silence, file names), play-along checks (YIN within 3 cents at 440 Hz and 5 cents at 196 Hz for sine and sawtooth tones at 44.1 and 48 kHz, no pitch in noise or silence, a bass guitar’s and a tuba’s 41 and 55 Hz found by detectLowPitch, noise clicks with no pitch and a note heard through one, the notes a bass guitar can be heard on, the melody’s notes in a range at a speed with chords as one and notes too short to hear left out, swung notes found where written, a perfect run at 100/100, semitone-flat red, 120 ms late yellow on Medium and green on Easy, early, missed and octave notes, 250 and 400 ms off yellow and never green, detached or legato, a run late throughout, a repeated note held on, legato eighths as long as the reach on Easy and Medium at four frame phases with no run of wrong notes, a note left out marked alone, swung starts through a road map, marking as the frames come in at a flat cost and as all at once, stars, the words for each problem, checks cleaned and carried in links with the melody labeled, the best check and how it was made), feedback marks (comment lines read and written field by field and taken out as they went in, escaped from ABC tools and transposition, notes found again after edits elsewhere, before them, to them and to a neighbor’s pitch, in bars added or taken out among identical measures too and in transposed scores, removed notes, measures and rests, other voices, and left out of the ABC that MIDI, WAV and MusicXML exports carry) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {

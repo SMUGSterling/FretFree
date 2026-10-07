@@ -224,6 +224,13 @@ function inboxEntry(payload, prompt = linkPrompt(payload)) {
 }
 const isCount = (n, max) => Number.isInteger(n) && n >= 0 && n <= max,
   checksOf = e => (Array.isArray(e.checks) ? e.checks.map(cleanCheck).filter(Boolean).slice(-CHECKS_IN_LINK) : []);
+// The teacher's marks on an entry (keepSubmissionMarks), checked as the ABC's own are; null when it has none of its
+// own (its ABC's marks show), or when they would make the work too long.
+function inboxMarks(e) {
+  if (!Array.isArray(e.marks)) return null;
+  const marks = e.marks.map(cleanMark).filter(Boolean).slice(0, MARKS_MAX);
+  return e.abc.length + marks.reduce((n, m) => n + markLine(m).length + 1, 0) <= INBOX_ABC_MAX ? marks : null;
+}
 function cleanInboxEntry(e) {
   if (!e || typeof e !== 'object') return null;
   const prompt = resolvePrompt(e.prompt),
@@ -244,6 +251,7 @@ function cleanInboxEntry(e) {
     !isCount(e.bars, 9999)
   )
     return null;
+  const marks = inboxMarks(e);
   return {
     id: e.id,
     name,
@@ -259,7 +267,8 @@ function cleanInboxEntry(e) {
     bars: e.bars,
     ...(checksOf(e).length ? {checks: checksOf(e)} : {}),
     added: Number.isFinite(e.added) ? e.added : 0,
-    ...(readFeedback(e.feedback) ? {feedback: readFeedback(e.feedback)} : {})
+    ...(readFeedback(e.feedback) ? {feedback: readFeedback(e.feedback)} : {}),
+    ...(marks ? {marks} : {})
   };
 }
 function cleanInbox(list) {
@@ -477,7 +486,11 @@ function openSubmission(id, focus = null) {
   saveFeedback();
   dirty = false;
   openScore({
-    ...sharedItem({a: entry.abc, i: entry.instrument, s: entry.source}),
+    ...sharedItem({
+      a: entry.marks ? writeMarks(entry.abc, entry.marks) : entry.abc,
+      i: entry.instrument,
+      s: entry.source
+    }),
     prompt: entry.prompt,
     submission: {id: entry.id, name: entry.name, at: entry.at, assignment: entry.assignment}
   });
@@ -553,6 +566,33 @@ function saveFeedback() {
   if (entry) storeInbox(list);
   else scheduleDraft();
 }
+// The teacher's marks on notes (marks.js) are kept on the inbox entry as they change, so stepping away and back keeps
+// them too. While the music is as it was opened or saved, the marks are all that changed, and the inbox has them, so
+// the work is not unsaved. Work opened from a link and not added to Submissions keeps them in its ABC (its draft).
+let marksKept = null;
+function keepSubmissionMarks() {
+  const sub = current?.submission;
+  if (!sub) return;
+  const source = $('abc').value,
+    marks = readMarks(source),
+    lines = marks.map(markLine).join('\n');
+  if (marksKept?.id === sub.id && marksKept.lines === lines) return;
+  marksKept = {id: sub.id, lines};
+  const list = storedInbox(),
+    entry = list.find(e => e.id === sub.id);
+  if (!entry) return;
+  if ((entry.marks || readMarks(entry.abc)).map(markLine).join('\n') !== lines) {
+    entry.marks = marks;
+    if (!inboxMarks(entry) || !storeInbox(list)) return;
+  }
+  const [cleanABC, cleanInstrument] = cleanKey.split('\u0000');
+  if (dirty && writeMarks(source, []) === writeMarks(cleanABC, []) && currentInstrument() === cleanInstrument) {
+    dirty = false;
+    markClean();
+    scheduleDraft();
+    $('save-status').textContent = SUBMISSION_STATUS;
+  }
+}
 $('submission-prev').onclick = () => stepSubmission(-1);
 $('submission-next').onclick = () => stepSubmission(1);
 // Kept as it is typed, and when the tab is hidden or closed, so a reload with the box still focused loses nothing.
@@ -589,10 +629,13 @@ $('submission-add').onclick = () => {
     return;
   }
   toast(result.added ? `Added the work ${linkEntry.name} turned in to Submissions.` : 'Already in Submissions.');
-  // Feedback typed so far moves to the entry. Unchanged music is kept there now, so it is no longer unsaved work.
+  // Feedback typed so far moves to the entry, and so do the marks. Unchanged music is kept there now, so it is no
+  // longer unsaved work.
   saveFeedback();
   delete current.submission.feedback;
-  if ($('abc').value === linkEntry.abc) {
+  marksKept = null;
+  keepSubmissionMarks();
+  if (writeMarks($('abc').value, []) === writeMarks(linkEntry.abc, [])) {
     dirty = false;
     markClean();
     scheduleDraft();
@@ -605,14 +648,14 @@ $('submission-add').onclick = () => {
 // no name or time, so it opens as the student's own work again, ready to revise and turn in.
 async function returnLink() {
   const text = $('feedback-text').value.trim();
-  if (!text) {
-    toast('Write some feedback first.');
+  if (!text && !readMarks($('abc').value).length) {
+    toast('Write some feedback or mark a note first.');
     $('feedback-text').focus();
     return;
   }
   saveFeedback();
   flushTyping();
-  const url = `${shareBase()}#s=${await encodeShare({...sharePayload(), c: text.slice(0, FEEDBACK_MAX)})}`;
+  const url = `${shareBase()}#s=${await encodeShare({...sharePayload(), ...(text ? {c: text.slice(0, FEEDBACK_MAX)} : {})})}`;
   $('feedback-url').value = url;
   $('feedback-result').hidden = false;
   const name = cleanStudentName(current?.submission?.name) || 'the student';

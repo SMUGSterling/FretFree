@@ -64,8 +64,14 @@ function updateFeedbackMarks() {
   showFeedbackList(placed);
   drawFeedback(placed);
   updateTeacherTools();
-  // A comment taken out another way (undo, an edit to the ABC) closes its box; the keyboard stays where it is.
-  if (commentBox?.id && !placed.some(p => p.mark.id === commentBox.id)) closeCommentBox(null, false);
+  if (typeof keepSubmissionMarks === 'function') keepSubmissionMarks();
+  // Another score opened (its history starts again), or the comment taken out another way (undo, an edit to the ABC),
+  // closes the box without saving; the keyboard stays where it is.
+  if (
+    commentBox &&
+    (commentBox.history !== editHistory || (commentBox.id && !placed.some(p => p.mark.id === commentBox.id)))
+  )
+    closeCommentBox(null, false);
   else if (commentBox) placeCommentBox();
 }
 function drawFeedback(placed = placedFeedback()) {
@@ -322,7 +328,7 @@ function openCommentBox(entry, {mode = 'edit', opener = null} = {}) {
   const p = feedbackOn(entry),
     mark = p?.mark || null;
   if (mode === 'view' && !mark) mode = 'edit';
-  commentBox = {id: mark?.id || null, anchor, start: entry.element.startChar, mode, opener};
+  commentBox = {id: mark?.id || null, anchor, start: entry.element.startChar, mode, opener, history: editHistory};
   const where = feedbackWhere(anchor);
   $('mark-title').textContent = mark?.t
     ? `Comment ${p.number} on ${where.toLowerCase()}`
@@ -379,6 +385,8 @@ function closeCommentBox(focusTo = null, refocus = true) {
 function saveComment() {
   const box = commentBox;
   if (!box) return;
+  // A comment begun on another score is not saved on this one.
+  if (box.history !== editHistory) return closeCommentBox();
   if (!freshScore()) return;
   const source = $('abc').value,
     marks = readMarks(source),

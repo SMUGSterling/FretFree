@@ -127,6 +127,9 @@ function creditedABC(source, item) {
     source
   );
 }
+// The ABC a drawing or a recording carries with its credit: without the teacher's feedback marks (marks.js), which
+// are notes to one student and not part of the music. The ABC export keeps them.
+const unmarkedSource = source => (typeof writeMarks === 'function' ? writeMarks(source, []) : source);
 function vlqBytes(n) {
   const a = [n & 127];
   while ((n >>= 7)) a.unshift((n & 127) | 128);
@@ -145,7 +148,7 @@ function creditedMidi(bytes, source, item) {
   };
   const events = [
     ...event(2, credit),
-    ...event(1, 'Corresponding editable ABC source:\n' + creditedABC(source, item)),
+    ...event(1, 'Corresponding editable ABC source:\n' + creditedABC(unmarkedSource(source), item)),
     0,
     255,
     47,
@@ -179,7 +182,7 @@ function creditedWavInfo(source, item) {
   };
   if (credit) {
     info.copyright = scoreLicense(item);
-    info.comment = credit + '\nCorresponding editable ABC source:\n' + creditedABC(source, item);
+    info.comment = credit + '\nCorresponding editable ABC source:\n' + creditedABC(unmarkedSource(source), item);
   } else if (kept) info.copyright = kept;
   return info;
 }
@@ -198,6 +201,8 @@ function creditedSVG(container, source, item) {
     copy
       .querySelectorAll('.range-shade,.bar-flag,.draw-ghost,.assess-mark,.feedback-bubble')
       .forEach(el => el.remove());
+    for (const head of copy.querySelectorAll('.feedback-head'))
+      head.classList.remove('feedback-head', 'mark-red', 'mark-orange', 'mark-green', 'mark-blue');
     const vb = svg.getAttribute('viewBox')?.split(/[ ,]+/).map(Number);
     const w = vb?.[2] || parseFloat(svg.getAttribute('width')) || 800,
       h = vb?.[3] || parseFloat(svg.getAttribute('height')) || 500;
@@ -212,7 +217,8 @@ function creditedSVG(container, source, item) {
   const credit = exportCredit(item);
   if (credit) {
     const metadata = document.createElementNS(ns, 'metadata');
-    metadata.textContent = credit + '\nCorresponding editable ABC source:\n' + creditedABC(source, item);
+    metadata.textContent =
+      credit + '\nCorresponding editable ABC source:\n' + creditedABC(unmarkedSource(source), item);
     root.appendChild(metadata);
     // At most 105 characters a line, and fewer on a narrow score: 12 units of margin a side, 7.2 units a character.
     const n = Math.max(20, Math.min(105, Math.floor((width - 24) / 7.2))),
