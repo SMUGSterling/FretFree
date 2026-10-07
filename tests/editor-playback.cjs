@@ -2936,6 +2936,10 @@ async function checkPlayAlong() {
     '✓ Check opens the panel with focus on Start check'
   );
   assert.equal(run("$('assess-empty').hidden"), false);
+  // The melody is off unless the student asks for it: through speakers, the microphone would hear it.
+  assert.equal(run("$('assess-melody').checked"), false, 'The melody is off at first');
+  run("$('assess-melody').checked=true;$('assess-melody').dispatchEvent(new Event('change'))");
+  assert.equal(w.localStorage.getItem('fretfree-check-melody'), 'true');
   await run('startCheck()');
   assert.match(run("$('assess-status').textContent"), /^This browser can’t use a microphone here/);
   let mic = () => Promise.reject(Object.assign(new Error('denied'), {name: 'NotAllowedError'}));
@@ -3003,10 +3007,15 @@ async function checkPlayAlong() {
     if (e.midis[0] === 67 && t < 2.12) return hz(65);
     return hz(e.midis[0]);
   };
-  const frame = t => run(`audio.currentTime=${t};listen(check)`);
+  const frame = t => run(`audio.currentTime=${t};listen(check)`),
+    // The bars of each color are drawn as paths, each holding a number of them.
+    marked = (which = 'mark') =>
+      run(
+        `[...document.querySelectorAll('#notation .assess-${which}')].reduce((n, p) => n + +p.getAttribute('data-marks'), 0)`
+      );
   let t = clock - 0.3;
   for (; t < clock + 2.6; t += 0.02) frame(t);
-  const early = run("document.querySelectorAll('#notation .assess-mark').length");
+  const early = marked();
   assert.ok(early >= 3 && early < 6, `Notes are marked as their time passes (${early})`);
   assert.equal(run('playing'), true, 'Marking does not stop playback');
   for (; t < clock + 4.3; t += 0.02) frame(t);
@@ -3025,30 +3034,41 @@ async function checkPlayAlong() {
     'The notes to work on, in words (120 ms late, to within a frame)'
   );
   assert.equal(run("$('assess-status').textContent"), 'Checked 6 notes: pitch 83%, rhythm 83%, 3 stars.');
-  assert.equal(
-    run("[...document.querySelectorAll('#notation .assess-mark')].map(m => m.getAttribute('class').slice(19)).join()"),
-    'green,green,red,green,yellow,green',
+  assert.deepEqual(
+    [run('lastCheck.result.notes.map(n => n.mark).join()'), marked('green'), marked('yellow'), marked('red')],
+    ['green,green,red,green,yellow,green', 4, 1, 1],
     'Each note is marked green, yellow or red'
   );
-  assert.equal(
-    run("document.querySelectorAll('#notation .assess-mark')[2].textContent"),
-    'Measure 1, note 3: about a semitone flat'
+  assert.match(
+    run("document.querySelector('#notation .assess-red').getAttribute('d')"),
+    /^M[\d.]+ [\d.]+h[\d.]+v6h-[\d.]+z$/
+  );
+  // Each path holds up to 16 bars, so redrawing one stays small on a long score.
+  run(
+    'clearMarks();for (let i = 0; i < 20; i++) drawMark({mark: "green"}, {left: i * 10, top: 0, width: 8, height: 10})'
+  );
+  assert.deepEqual(
+    run("[...document.querySelectorAll('#notation .assess-green')].map(p => p.getAttribute('data-marks')).join()"),
+    '16,4'
   );
   assert.equal(run("$('assess').textContent"), '✓ Check');
   const key = run('recordKey()'),
     history = JSON.parse(w.localStorage.getItem('fretfree-attempts'))[key];
   assert.deepEqual(
-    history.map(c => [c.level, c.speed, c.from, c.to, c.pitch, c.rhythm, c.stars]),
-    [['medium', 100, 1, 2, 83, 83, 3]],
-    'The check is kept with the score'
+    history.map(c => [c.level, c.speed, c.from, c.to, c.pitch, c.rhythm, c.stars, c.melody]),
+    [['medium', 100, 1, 2, 83, 83, 3, true]],
+    'The check is kept with the score, made with the melody'
   );
-  assert.match(run("$('assess-history').textContent"), /Medium · 100% · measures 1–2 Pitch 83% · Rhythm 83% · ★★★☆☆/);
+  assert.match(
+    run("$('assess-history').textContent"),
+    /Medium · 100% · measures 1–2 · melody on Pitch 83% · Rhythm 83% · ★★★☆☆/
+  );
   // Marks stay out of SVG export, come back when the same music is drawn again, and are left off changed music.
   assert.doesNotMatch(run("creditedSVG($('notation'), $('abc').value, current)"), /assess-mark/);
   run('render()');
-  assert.equal(run("document.querySelectorAll('#notation .assess-mark').length"), 6, 'Redrawn on the same music');
+  assert.equal(marked(), 6, 'Redrawn on the same music');
   run("$('abc').value=$('abc').value.replace('A2','B2');changed();clearTimeout(renderTimer);render()");
-  assert.equal(run("document.querySelectorAll('#notation .assess-mark').length"), 0, 'Not on changed music');
+  assert.equal(marked(), 0, 'Not on changed music');
   assert.equal(run("$('assess-result').hidden"), false, 'The result stays');
   run("$('assess-clear').click()");
   assert.equal(run("$('assess-result').hidden"), true);
@@ -3080,7 +3100,8 @@ async function checkPlayAlong() {
   );
   assert.equal(run("$('assess-problems').textContent"), 'Every note was right.');
   assert.equal(run("$('assess-history').children.length"), 2, 'Newest first');
-  assert.match(run("$('assess-history').firstElementChild.textContent"), /Easy/);
+  assert.match(run("$('assess-history').firstElementChild.textContent"), /Easy · 100% · measures 1–2 Pitch/);
+  assert.equal(JSON.parse(w.localStorage.getItem('fretfree-attempts'))[key][1].melody, undefined);
   // A stop in the count-in checks nothing and keeps nothing; silence is not kept either.
   run('audio.currentTime=30');
   await run('startCheck()');
@@ -3124,7 +3145,26 @@ async function checkPlayAlong() {
   assert.equal(w.localStorage.getItem('fretfree-attempts'), '{}');
   run("$('assess-panel').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
   assert.deepEqual([run("$('assess-panel').hidden"), run('document.activeElement.id')], [true, 'assess']);
-  run("$('loop').checked=false;$('assess-melody').checked=true;$('assess-level').value='medium'");
+  // Another score opened while the browser asks for the microphone: the check stops there, and neither plays nor
+  // marks the score now open, nor keeps anything.
+  let grant;
+  mic = () => new Promise(resolve => (grant = () => resolve(stream)));
+  run('audio.currentTime=60');
+  const asking = run('startCheck()');
+  assert.equal(run('check.state'), 'starting');
+  run(`dirty=false;openScore({title:'Other',abc:${JSON.stringify(tune.replace('Check test', 'Other'))}})`);
+  assert.equal(run('check'), null);
+  assert.equal(run("$('assess-status').textContent"), 'Another score was opened, so the check was cancelled.');
+  grant();
+  await asking;
+  assert.deepEqual(
+    [run('check'), run('playing'), run("document.querySelectorAll('#notation .assess-mark').length")],
+    [null, false, 0],
+    'The other score is not played or marked'
+  );
+  assert.equal(w.localStorage.getItem('fretfree-attempts'), '{}', 'Nothing is kept');
+  assert.equal(run("$('assess-status').textContent"), 'Another score was opened, so the check was cancelled.');
+  run("$('loop').checked=false;$('assess-level').value='medium'");
   for (const k of ['fretfree-latency', 'fretfree-attempts', 'fretfree-check-level', 'fretfree-check-melody'])
     w.localStorage.removeItem(k);
   delete proto.createAnalyser;
@@ -4435,7 +4475,7 @@ async function checkPlayback() {
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, screen-reader note descriptions (selection, arrow keys, edits, typing over rests, pickups, compound and free meters, triplets, written and concert pitch), the shortcut sheet (? and the button, groups, focus trap, search, Enter running a command as one undo step, hints, Escape, tuplet and Measure panel commands), measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), lyrics (L, the Lyrics button, the shortcut sheet and the note menu, Space, -, _ and * as typed, Enter for the next verse, the box kept open past the last note, Tab, Shift+Tab and Backspace, rests passed over, saving on blur, one undo per syllable, the check after notes change (refrains too), marks kept inside a syllable, voices after &, and words kept through transposing, instruments, share links and ABC, MusicXML and SVG export), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, recording yourself (no microphone, denied, count-in bars, one pass, the take and its length, playing alone and lined up with the score, calibration applied to older takes, downloads with credits, delete, a press while saving keeps the take, each unsaved score with takes of its own, takes back with a restored draft and kept through the first save, deleting a saved score with its takes, deleting takes no score can reach but not those open in another tab, cancelling, a stop in the count-in keeping no take, a save while recording, in the tail or while the take is stored keeping the take with the saved score, a library copy taking only the takes recorded since it opened), play-along checks (no microphone, denied, no analyser, one pass after a one-bar count-in, notes marked as they pass without stopping playback, green, yellow and red marks with their words, Pitch and Rhythm % and stars, Easy timing, leaving the melody out for the metronome, a stop in the count-in, silence not kept, an edit while the last note is marked, history per score through the first save and a delete, marks redrawn on the same music, left off changed music and out of SVG export, Escape), WAV export (the notes, times, speed, clicks and chords Play has, its own full-level bus, INFO title, scaling, no offline audio, a summary that follows Speed and the instrument, a busy or filling progress bar, a closed panel cutting the render off, too long with its length and MIDI as the way out), instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, screen-reader note descriptions (selection, arrow keys, edits, typing over rests, pickups, compound and free meters, triplets, written and concert pitch), the shortcut sheet (? and the button, groups, focus trap, search, Enter running a command as one undo step, hints, Escape, tuplet and Measure panel commands), measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), lyrics (L, the Lyrics button, the shortcut sheet and the note menu, Space, -, _ and * as typed, Enter for the next verse, the box kept open past the last note, Tab, Shift+Tab and Backspace, rests passed over, saving on blur, one undo per syllable, the check after notes change (refrains too), marks kept inside a syllable, voices after &, and words kept through transposing, instruments, share links and ABC, MusicXML and SVG export), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, recording yourself (no microphone, denied, count-in bars, one pass, the take and its length, playing alone and lined up with the score, calibration applied to older takes, downloads with credits, delete, a press while saving keeps the take, each unsaved score with takes of its own, takes back with a restored draft and kept through the first save, deleting a saved score with its takes, deleting takes no score can reach but not those open in another tab, cancelling, a stop in the count-in keeping no take, a save while recording, in the tail or while the take is stored keeping the take with the saved score, a library copy taking only the takes recorded since it opened), play-along checks (no microphone, denied, no analyser, the melody off at first, one pass after a one-bar count-in, notes marked as they pass without stopping playback, green, yellow and red marks with their words, Pitch and Rhythm % and stars, Easy timing, leaving the melody out for the metronome, a stop in the count-in, silence not kept, an edit while the last note is marked, history per score through the first save and a delete with the melody labeled, marks redrawn on the same music, left off changed music and out of SVG export, Escape, another score opened while the microphone is asked for), WAV export (the notes, times, speed, clicks and chords Play has, its own full-level bus, INFO title, scaling, no offline audio, a summary that follows Speed and the instrument, a busy or filling progress bar, a closed panel cutting the render off, too long with its length and MIDI as the way out), instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   // Let the takes list that the last save refreshes finish before the window goes.
   await new Promise(r => setTimeout(r, 20));

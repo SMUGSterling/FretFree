@@ -13,11 +13,12 @@ const resolvePrompt = prompt => (typeof prompt === 'string' ? promptById(prompt)
   linkPrompt = payload => validPrompt(payload?.q) || (typeof payload?.p === 'string' && promptById(payload.p)) || null;
 const goalWords = (met, total) => (total ? `${met} of ${total} goal${total === 1 ? '' : 's'}` : 'No goals');
 const barWords = bars => (bars ? `${bars} bar${bars === 1 ? '' : 's'} to fix` : 'Bars ✓');
-// Play-along checks in a few words: the best of them, and how many there were.
-const checksWords = checks =>
-  checks?.length
-    ? `${checks.length === 1 ? 'Play-along check' : `Best of ${checks.length} play-along checks`}: ${checkWords(bestCheck(checks))}`
-    : '';
+// Play-along checks in a few words: the best of them and how it was made, and how many there were.
+const checksWords = checks => {
+  if (!checks?.length) return '';
+  const best = bestCheck(checks);
+  return `${checks.length === 1 ? 'Play-along check' : `Best of ${checks.length} play-along checks`}: ${checkWords(best)} (${checkSettings(best)})`;
+};
 const openChecks = () => (typeof storedChecks === 'function' ? storedChecks(recordKey()) : []);
 
 // Student: Turn in. The button shows on a score with an assignment or a writing prompt, but not on work someone turned

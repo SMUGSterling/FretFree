@@ -12,35 +12,35 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-    <script src="theme.js?v=8258d30be13d"></script>
-    <link rel="stylesheet" href="style.css?v=8258d30be13d" />
-    <script defer src="vendor/abcjs-basic-min.js?v=8258d30be13d"></script>
-    <script defer src="vendor/qrcode.js?v=8258d30be13d"></script>
-    <script defer src="catalog.js?v=8258d30be13d"></script>
-    <script defer src="catalog-expanded.js?v=8258d30be13d"></script>
-    <script defer src="score-tools.js?v=8258d30be13d"></script>
-    <script defer src="rights-tools.js?v=8258d30be13d"></script>
-    <script defer src="musicxml.js?v=8258d30be13d"></script>
-    <script defer src="catalog-licensed.js?v=8258d30be13d"></script>
-    <script defer src="catalog-lieder.js?v=8258d30be13d"></script>
-    <script defer src="catalog-quartets.js?v=8258d30be13d"></script>
-    <script defer src="catalog-pgh.js?v=8258d30be13d"></script>
-    <script defer src="catalog-skills.js?v=8258d30be13d"></script>
-    <script defer src="prompts.js?v=8258d30be13d"></script>
-    <script defer src="shared.js?v=8258d30be13d"></script>
-    <script defer src="library.js?v=8258d30be13d"></script>
-    <script defer src="backup.js?v=8258d30be13d"></script>
-    <script defer src="editor.js?v=8258d30be13d"></script>
-    <script defer src="measure-tools.js?v=8258d30be13d"></script>
-    <script defer src="palette.js?v=8258d30be13d"></script>
-    <script defer src="shortcuts.js?v=8258d30be13d"></script>
-    <script defer src="playback.js?v=8258d30be13d"></script>
-    <script defer src="keyboard.js?v=8258d30be13d"></script>
-    <script defer src="assignments.js?v=8258d30be13d"></script>
-    <script defer src="turn-in.js?v=8258d30be13d"></script>
-    <script defer src="record.js?v=8258d30be13d"></script>
-    <script defer src="assess.js?v=8258d30be13d"></script>
-    <script defer src="app.js?v=8258d30be13d"></script>
+    <script src="theme.js?v=3701c72b4cf5"></script>
+    <link rel="stylesheet" href="style.css?v=3701c72b4cf5" />
+    <script defer src="vendor/abcjs-basic-min.js?v=3701c72b4cf5"></script>
+    <script defer src="vendor/qrcode.js?v=3701c72b4cf5"></script>
+    <script defer src="catalog.js?v=3701c72b4cf5"></script>
+    <script defer src="catalog-expanded.js?v=3701c72b4cf5"></script>
+    <script defer src="score-tools.js?v=3701c72b4cf5"></script>
+    <script defer src="rights-tools.js?v=3701c72b4cf5"></script>
+    <script defer src="musicxml.js?v=3701c72b4cf5"></script>
+    <script defer src="catalog-licensed.js?v=3701c72b4cf5"></script>
+    <script defer src="catalog-lieder.js?v=3701c72b4cf5"></script>
+    <script defer src="catalog-quartets.js?v=3701c72b4cf5"></script>
+    <script defer src="catalog-pgh.js?v=3701c72b4cf5"></script>
+    <script defer src="catalog-skills.js?v=3701c72b4cf5"></script>
+    <script defer src="prompts.js?v=3701c72b4cf5"></script>
+    <script defer src="shared.js?v=3701c72b4cf5"></script>
+    <script defer src="library.js?v=3701c72b4cf5"></script>
+    <script defer src="backup.js?v=3701c72b4cf5"></script>
+    <script defer src="editor.js?v=3701c72b4cf5"></script>
+    <script defer src="measure-tools.js?v=3701c72b4cf5"></script>
+    <script defer src="palette.js?v=3701c72b4cf5"></script>
+    <script defer src="shortcuts.js?v=3701c72b4cf5"></script>
+    <script defer src="playback.js?v=3701c72b4cf5"></script>
+    <script defer src="keyboard.js?v=3701c72b4cf5"></script>
+    <script defer src="assignments.js?v=3701c72b4cf5"></script>
+    <script defer src="turn-in.js?v=3701c72b4cf5"></script>
+    <script defer src="record.js?v=3701c72b4cf5"></script>
+    <script defer src="assess.js?v=3701c72b4cf5"></script>
+    <script defer src="app.js?v=3701c72b4cf5"></script>
   </head>
   <body>
     <header>
@@ -627,8 +627,9 @@
               <p class="small">
                 Play or sing the practice range with the score, after a one-bar count-in, at the playback speed.
                 FretFree listens through the microphone and marks each note of the melody: green is right, yellow is the
-                right pitch at the wrong time, and red is a wrong pitch or a note it didn’t hear. Wear headphones.
-                Nothing is recorded or uploaded.
+                right pitch at the wrong time, and red is a wrong pitch or a note it didn’t hear. Wear headphones: the
+                microphone hears your speakers too. A check with the melody on says so when you turn it in. Nothing is
+                recorded or uploaded.
               </p>
               <div class="record-row">
                 <button id="assess-start" class="primary">● Start check</button
@@ -640,7 +641,7 @@
                     <option value="hard">Hard (25 cents, 70 ms)</option>
                   </select></label
                 ><label class="inline" title="Off: you hear the metronome and any chords instead"
-                  ><input type="checkbox" id="assess-melody" checked /> Play the melody</label
+                  ><input type="checkbox" id="assess-melody" /> Play the melody</label
                 ><label class="inline record-level"
                   >Microphone
                   <meter id="assess-meter" min="0" max="1" low="0.05" high="0.9" optimum="0.5" value="0"></meter

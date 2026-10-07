@@ -3749,6 +3749,95 @@ async function musicXMLImportFiles() {
     2,
     'A note played again'
   );
+  // Far off time is never right: four quarter notes, each sounding from its start (moved by `off`) for `sound` of a
+  // beat, or until the next starts (legato). 250 and 400 ms early or late are yellow with their offset, never green,
+  // and a run that is late throughout is late on every note, not a cascade of wrong notes.
+  const beats = [60, 62, 64, 65].map((m, i) => ({start: i * 0.5, time: i * 0.5, end: i * 0.5 + 0.5, midis: [m]})),
+    played = (offs, sound) => {
+      const out = [];
+      for (let k = 0; k < 160; k++) {
+        const t = -0.49 + k * 0.02;
+        let freq = 0;
+        for (const [i, e] of beats.entries()) {
+          const start = e.time + (offs[i] || 0),
+            stop = sound ? start + sound * 0.5 : i < 3 ? beats[i + 1].time + (offs[i + 1] || 0) : start + 0.45;
+          if (t >= start && t < stop) freq = hz(e.midis[0]);
+        }
+        out.push({t, freq, level: freq ? 0.3 : 0.002});
+      }
+      return out;
+    };
+  for (const sound of [0.6, 0])
+    for (const off of [0.25, 0.4, -0.25, -0.4]) {
+      const r = context.scoreAttempt(beats, played({2: off}, sound), medium),
+        note = r.notes[2];
+      assert.deepEqual(
+        [marks(r), note.timing],
+        ['green,green,yellow,green', off > 0 ? 'late' : 'early'],
+        `${off * 1000} ms off (${sound ? 'detached' : 'legato'}) is not on time`
+      );
+      assert.ok(Math.abs(note.offsetMs - off * 1000) <= 20, `and is ${note.offsetMs} ms off`);
+    }
+  for (const off of [0.25, 0.3, 0.4]) {
+    const r = context.scoreAttempt(beats, played([off, off, off, off], 0.6), medium);
+    assert.deepEqual(
+      [marks(r), r.pitch, r.rhythm, r.stars],
+      ['yellow,yellow,yellow,yellow', 100, 0, 2],
+      `${off * 1000} ms late throughout`
+    );
+  }
+  // A repeated note held on, with no new attack to hear, is on time; one that comes in late after it is late.
+  const repeated = beats.map((e, i) => ({...e, midis: [i === 2 ? 62 : e.midis[0]]})),
+    smooth = played({}, 0).map(f => (f.t >= 0.5 && f.t < 1.5 ? {...f, freq: hz(62)} : f));
+  assert.equal(marks(context.scoreAttempt(repeated, smooth, medium)), 'green,green,green,green');
+  // Marking as the frames come in does the same work per note at the end of a long check as at its start (counted in
+  // reads of the frames' times, which do not depend on the machine), and gives what marking them all at once gives.
+  // 750 notes and 15,000 frames: a 5-minute check.
+  const long = Array.from({length: 750}, (_, i) => ({
+      start: i * 0.4,
+      time: i * 0.4,
+      end: i * 0.4 + 0.4,
+      midis: [60 + (i % 12)]
+    })),
+    heard = Array.from({length: 15000}, (_, k) => {
+      const t = k * 0.02,
+        i = Math.floor(t / 0.4);
+      return {t, freq: t - i * 0.4 < 0.37 ? hz(60 + (i % 12) + (i % 7 === 3 ? 1 : 0)) : 0, level: 0.3};
+    });
+  let reads = 0;
+  const counted = heard.map(({t, freq, level}) => ({
+    get t() {
+      reads++;
+      return t;
+    },
+    freq,
+    level
+  }));
+  const once = context.scoreAttempt(long, counted, medium);
+  assert.ok(reads < 10 * heard.length, `Marked all at once with ${reads} reads of 15,000 frames`);
+  const marker = context.attemptMarker(long, medium),
+    work = [];
+  for (let k = 0; k < counted.length; k += 10) {
+    reads = 0;
+    for (const f of counted.slice(k, k + 10)) marker.add(f);
+    const now = heard[Math.min(k + 9, heard.length - 1)].t;
+    let done = marker.mark(0).length;
+    while (done < long.length && long[done].end + marker.reach < now) done++;
+    marker.mark(done);
+    work.push(reads);
+  }
+  const sum = list => list.reduce((a, b) => a + b, 0),
+    [first, last] = [sum(work.slice(0, 150)), sum(work.slice(-150))];
+  assert.ok(
+    last < first * 1.5,
+    `Marking as it goes stays flat: ${first} reads in the first tenth, ${last} in the last`
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(marker.result())),
+    JSON.parse(JSON.stringify(once)),
+    'Marked as it goes or all at once'
+  );
+  assert.deepEqual([once.pitch, once.rhythm, once.notes[3].mark], [86, 100, 'red']);
   assert.deepEqual(
     [
       [100, 100],
@@ -3772,7 +3861,8 @@ async function musicXMLImportFiles() {
       words({...base, pitchOk: true, cents: 0, timing: 'late', offsetMs: 120}),
       words({...base, pitchOk: true, cents: 0, timing: 'early', offsetMs: -95}),
       words({...base, heard: false}),
-      words({...base, pitchOk: true, cents: 3})
+      words({...base, pitchOk: true, cents: 3}),
+      words({...base, pitchOk: true, cents: 3, timing: null, offsetMs: null})
     ],
     [
       'about 40 cents flat',
@@ -3783,7 +3873,8 @@ async function musicXMLImportFiles() {
       '120 ms late',
       '95 ms early',
       'not heard',
-      ''
+      '',
+      'no clear start'
     ]
   );
   // Checks as kept and in turn-in links (h): checked field by field, the latest ten.
@@ -3805,12 +3896,31 @@ async function musicXMLImportFiles() {
     'Damaged checks in a link are dropped'
   );
   assert.deepEqual([...context.readChecks('x')], []);
-  const best = vm.runInContext(
-    'bestCheck',
-    context
-  )([kept, {...kept, at: kept.at + 1, pitch: 60}, {...kept, at: kept.at + 2}]);
-  assert.equal(best.at, kept.at + 2, 'The best check, the latest of equals');
+  // A check made with the melody playing says so, in storage and in a link.
+  const along = {...kept, melody: true};
+  assert.deepEqual({...context.cleanCheck(along)}, along);
+  assert.deepEqual({...context.cleanCheck({...kept, melody: 'yes'})}, kept);
+  assert.deepEqual([...context.checksForLink([along])[0]], [kept.at, 92, 85, 4, 2, 80, 2, 5, 1]);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.readChecks(context.checksForLink([along, kept])))), [along, kept]);
+  const best = vm.runInContext('bestCheck', context),
+    settings = vm.runInContext('checkSettings', context);
+  assert.equal(
+    best([kept, {...kept, at: kept.at + 1, pitch: 60}, {...kept, at: kept.at + 2}]).at,
+    kept.at + 2,
+    'The best check, the latest of equals'
+  );
+  assert.equal(
+    best([kept, {...along, at: kept.at + 1, pitch: 100, rhythm: 100}]).at,
+    kept.at,
+    'One made without the melody first'
+  );
+  assert.equal(best([{...along, pitch: 50}, along]), along);
   assert.equal(vm.runInContext('checkWords', context)(kept), 'pitch 92%, rhythm 85%, 4 stars');
+  assert.deepEqual(
+    [settings(kept), settings({...along, level: 'easy', speed: 25, from: 3, to: 3})],
+    ['Hard, 80% speed, measures 2–5', 'Easy, 25% speed, measure 3, melody on'],
+    'How a check was made, for the teacher'
+  );
 }
 musicXMLImportFiles()
   .then(offlineWorker)
@@ -3818,7 +3928,7 @@ musicXMLImportFiles()
     console.log(
       'PASS: ' +
         context.library.length +
-        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, key and time changes at line starts, voices after &, typing keys, every note of the lieder with line-start changes), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files), recording takes (offsets, calibration from recorded clicks, lining a take up within 50 ms, refusing noise and silence, file names), play-along checks (YIN within 3 cents at 440 Hz and 5 cents at 196 Hz for sine and sawtooth tones at 44.1 and 48 kHz, no pitch in noise or silence, the melody’s notes in a range at a speed with chords as one and notes too short to hear left out, swung notes found where written, a perfect run at 100/100, semitone-flat red, 120 ms late yellow on Medium and green on Easy, early, missed and octave notes, stars, the words for each problem, checks cleaned and carried in links) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
+        ' scores; catalog parsing, skill tags, teaching-score bar lengths, writing-prompt examples, new score templates (every template, meter and pickup), assignment building and validation, turning in (names, n/t/x checks with g ignored, feedback, written-pitch goals, pasted links), slur and tuplet note edits, note-to-rest edits, screen-reader note descriptions (lengths, spelling with octaves, beats in simple, compound, cut and free meters, pickups and triplets), articulations, ornaments and dynamics (toggling, shorthands, no stacking, every mark parses, velocity with sfz and marcato as accents, staccato at any tempo, repeated tenuto and slurred notes), tuplets (counts for plain and dotted notes, members, openings before a staccato dot, clean parses, full bars and MIDI timings), grace notes (adding, slashing, moving and removing, clean parses and playback), slurs, hairpins and trill lines (toggling, replacing covered and crossing lines, chained slurs, pairing as abcjs does, voices written in blocks, clean parses, whole note text, velocity ramps, transposition), piano spelling, chord building and later bar accidentals, enharmonic respelling (Z), MIDI export/decoding (the written tempo in every meter, through tempo and meter changes), WAV files (RIFF sizes, 16-bit PCM, stereo at 44.1 kHz, INFO text with every license and its full credit, title and composer only for your own score), swing feel (tempo text kept with other text, a written-out beat that keeps the tempo in every meter, directive, off-beat eighths per channel and tempo, rounded times), source-pitch fidelity, transposition, the key menu, intervals, slice transposition and respelling, octave-safe transposition of every listed key, written letters, measure and form tools (bars inserted and deleted on every staff, bar lines, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes from a measure, all without warnings), chords, chord symbols (parsing, tidying, setting, spelling under transposition with words left as written, only chord names playing, N.C. stopping the accompaniment, chords-off MIDI), lyrics (read as abcjs reads them, written back the same, one syllable changed, verses kept on their rows, rests and voices, key and time changes at line starts, voices after &, typing keys, every note of the lieder with line-start changes), instrument sounds (distinct timbres, no square wave, plucked decay and sustained winds and strings, envelopes, vibrato curves, playback octaves, written intervals and their names, horn and tenor and baritone sax transposition), public-domain declarations, source-file hashes, MusicXML export (notes, pitches, durations, notation elements and credits), MusicXML import (round trips, a MuseScore .mxl, left-out marks and damaged files), recording takes (offsets, calibration from recorded clicks, lining a take up within 50 ms, refusing noise and silence, file names), play-along checks (YIN within 3 cents at 440 Hz and 5 cents at 196 Hz for sine and sawtooth tones at 44.1 and 48 kHz, no pitch in noise or silence, the melody’s notes in a range at a speed with chords as one and notes too short to hear left out, swung notes found where written, a perfect run at 100/100, semitone-flat red, 120 ms late yellow on Medium and green on Easy, early, missed and octave notes, 250 and 400 ms off yellow and never green, detached or legato, a run late throughout, a repeated note held on, marking as the frames come in at a flat cost and as all at once, stars, the words for each problem, checks cleaned and carried in links with the melody labeled, the best check and how it was made) and offline use (manifest and icons, a service worker that stays on its own site, install, a deploy cut short, a new deploy, offline pages, assets, and opened PDFs fetched again online).'
     )
   )
   .catch(e => {

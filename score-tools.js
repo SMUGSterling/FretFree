@@ -3567,8 +3567,8 @@ function swingPlayback(data, amount, bars) {
 // Payload {v, a: abc, i: instrument, s: library source id, p: built-in prompt id,
 // q: teacher-written assignment, checked by validPrompt}. A turned-in assignment adds n: the student's name,
 // t: the time (ms), x: the assignment's id, g: each goal met (1) or not (0) and h: the latest play-along checks
-// (readChecks); a teacher's return link adds c: feedback text. The first character says how the rest is packed: '1' deflate-raw + base64url, '0' plain
-// base64url (for browsers without CompressionStream).
+// (readChecks); a teacher's return link adds c: feedback text. The first character says how the rest is packed:
+// '1' deflate-raw + base64url, '0' plain base64url (for browsers without CompressionStream).
 const base64url = {
   // Built in chunks: spreading a large score into String.fromCharCode overflows the call stack.
   encode: bytes => {
@@ -3814,37 +3814,52 @@ function octaveOff(pitch, targets) {
 // The sounds in a run of frames ({t, freq, level}; freq 0 when no pitch was heard). A new sound starts after a gap,
 // where the pitch moves by more than 60 cents and stays there for two frames (a single stray frame is passed over),
 // or where the level jumps to twice the quietest of the last frames (the same note played again). A sound starts
-// between the frame where it is first heard and the one before, so it is placed halfway between them.
-function soundSegments(frames, {gap = 0.045} = {}) {
-  const out = [],
-    levels = [];
+// between the frame where it is first heard and the one before, so it is placed halfway between them. soundTracker
+// takes the frames one at a time, in time order, as they come in; its sounds ({start, end, pitches}) follow each other
+// without overlapping, and the last one may still grow.
+function soundTracker({gap = 0.045} = {}) {
+  const sounds = [],
+    levels = [],
+    recent = new Float64Array(5);
   let current = null,
     stray = null,
     lastVoiced = -Infinity,
     before = null;
   const open = (f, prior) =>
-    out.push(
+    sounds.push(
       (current = {
         start: prior != null && f.t - prior <= gap ? (prior + f.t) / 2 : f.t,
         end: f.t,
         pitches: [pitchOfFreq(f.freq)]
       })
     );
-  for (const f of frames) {
-    const quiet = levels.length ? Math.min(...levels) : 0,
+  // The middle of the current sound's last five pitches, sorted in place: this runs for every frame.
+  const recentMiddle = () => {
+    const p = current.pitches,
+      n = Math.min(5, p.length);
+    for (let i = 0; i < n; i++) {
+      const v = p[p.length - n + i];
+      let j = i;
+      for (; j > 0 && recent[j - 1] > v; j--) recent[j] = recent[j - 1];
+      recent[j] = v;
+    }
+    return n % 2 ? recent[n >> 1] : (recent[n / 2 - 1] + recent[n / 2]) / 2;
+  };
+  const add = f => {
+    const quiet = levels.length ? Math.min(levels[0], levels[1] ?? Infinity, levels[2] ?? Infinity) : 0,
       prior = before;
     before = f.t;
     levels.push(f.level ?? 0);
     if (levels.length > 3) levels.shift();
     if (!(f.freq > 0)) {
       stray = null;
-      continue;
+      return;
     }
     const pitch = pitchOfFreq(f.freq);
     if (!current || f.t - lastVoiced > gap) {
       open(f, prior);
       stray = null;
-    } else if (Math.abs(pitch - middle(current.pitches.slice(-5))) > 0.6) {
+    } else if (Math.abs(pitch - recentMiddle()) > 0.6) {
       if (stray && Math.abs(pitch - pitchOfFreq(stray.f.freq)) <= 0.6) {
         open(stray.f, stray.prior);
         current.pitches.push(pitch);
@@ -3860,40 +3875,99 @@ function soundSegments(frames, {gap = 0.045} = {}) {
       }
     }
     lastVoiced = f.t;
+  };
+  return {sounds, add};
+}
+function soundSegments(frames, options) {
+  const tracker = soundTracker(options);
+  for (const f of frames) tracker.add(f);
+  return tracker.sounds.map(s => ({start: s.start, end: s.end, pitch: middle(s.pitches)}));
+}
+// The first index in a sorted list where before(item) is no longer true.
+function firstAfter(list, before) {
+  let lo = 0,
+    hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (before(list[mid])) lo = mid + 1;
+    else hi = mid;
   }
-  return out.map(s => ({start: s.start, end: s.end, pitch: middle(s.pitches)}));
+  return lo;
 }
 // Mark an attempt. expected comes from expectedEvents; frames ({t, freq, level}, t in the same seconds as the events)
-// from the microphone. Each note gets the sound that starts it, the unused one nearest its time within twice the
-// timing allowance (at least 150 ms), any at its pitch before any other; its pitch is the middle of what is heard after the
-// attack. A note is green when its pitch and timing are right, yellow when the pitch is right and it starts early or
-// late, and red when the pitch is wrong or nothing was heard. A note heard at its pitch with no start of its own (held
-// on from the note before, say) counts as on time. Pitch % and Rhythm % are the notes right in each, and the stars
-// (1 to 5) follow their average.
-function scoreAttempt(expected, frames, {cents = 35, onsetMs = 100} = {}) {
-  const sorted = [...frames].sort((a, b) => a.t - b.t),
-    segments = soundSegments(sorted),
+// from the microphone. Each note gets the sound that starts it: the unused one nearest its time within the reach
+// (twice the timing allowance, at least 150 ms), any at its pitch before any other; failing that, the one at its pitch
+// nearest its time that starts after the note before does and before this one ends (and is not the next note's, at
+// the same pitch, within its reach). Its pitch is the middle of what is heard after the attack. A note is green when
+// its pitch and timing are right, yellow when the pitch is right and it starts early or late, and red when the pitch is
+// wrong or nothing was heard. A note heard at its pitch with no sound of its own is on time if the sound the note before
+// started carries on through its attack (the same note held on, or played again too smoothly to hear a new start);
+// otherwise it is timed from the first frame heard at its pitch. Pitch % and Rhythm % are the notes right in each, and
+// the stars (1 to 5) follow their average.
+// attemptMarker marks while the frames come in, so the notes at the end of a long check cost no more than those at its
+// start: add() takes each frame in time order, mark(count) marks the notes up to count (each once, after its time and
+// the reach have passed), and result(count) sums up the first count. scoreAttempt marks a run of frames all at once.
+function attemptMarker(expected, {cents = 35, onsetMs = 100} = {}) {
+  const tracker = soundTracker(),
+    sounds = tracker.sounds,
+    frames = [],
+    notes = [],
     reach = Math.max(0.15, (2 * onsetMs) / 1000);
   let used = -1;
-  const notes = expected.map((e, i) => {
-    const prev = expected[i - 1],
-      length = Math.max(0.02, e.end - e.time);
+  // A sound's pitch is the middle of its frames so far, worked out again only when it has grown.
+  const pitchOf = s =>
+      s.counted === s.pitches.length ? s.pitch : ((s.counted = s.pitches.length), (s.pitch = middle(s.pitches))),
+    atPitch = (s, midis) => Math.abs(octaveOff(pitchOf(s), midis)) <= 1,
+    voiced = (from, to) => {
+      const out = [];
+      for (let j = firstAfter(frames, f => f.t < from); j < frames.length && frames[j].t <= to; j++)
+        if (frames[j].freq > 0) out.push(frames[j]);
+      return out;
+    };
+  function markNote(i) {
+    const e = expected[i],
+      prev = expected[i - 1],
+      next = expected[i + 1],
+      length = Math.max(0.02, e.end - e.time),
+      attack = Math.min(0.25 * length, 0.08);
     let pick = -1,
       cost = Infinity;
-    for (let k = used + 1; k < segments.length; k++) {
-      const s = segments[k];
+    for (
+      let k = Math.max(
+        used + 1,
+        firstAfter(sounds, s => s.start < e.time - reach)
+      );
+      k < sounds.length;
+      k++
+    ) {
+      const s = sounds[k];
       if (s.start > e.time + reach || s.start >= e.end) break;
-      if (s.start < e.time - reach || (prev && s.start <= prev.time)) continue;
-      const c = Math.abs(s.start - e.time) / reach + (Math.abs(octaveOff(s.pitch, e.midis)) <= 1 ? 0 : 1);
+      if (prev && s.start <= prev.time) continue;
+      const c = Math.abs(s.start - e.time) / reach + (atPitch(s, e.midis) ? 0 : 1);
       if (c < cost) [cost, pick] = [c, k];
     }
-    const segment = segments[pick],
-      from = segment ? segment.start : e.time,
-      to = segment ? Math.min(segment.end, from + length * 0.9) : e.time + length * 0.9,
-      attack = Math.min(0.25 * length, 0.08);
-    if (segment) used = pick;
-    let body = sorted.filter(f => f.freq > 0 && f.t >= from + attack && f.t <= to);
-    if (!body.length) body = sorted.filter(f => f.freq > 0 && f.t >= from && f.t <= to);
+    // Further off: a sound at its pitch only.
+    if (pick < 0)
+      for (
+        let k = Math.max(used + 1, prev ? firstAfter(sounds, s => s.start <= prev.time) : 0);
+        k < sounds.length && sounds[k].start < e.end;
+        k++
+      ) {
+        const s = sounds[k],
+          off = Math.abs(octaveOff(pitchOf(s), e.midis));
+        if (off > 1 || (next && s.start >= next.time - reach && Math.abs(octaveOff(pitchOf(s), next.midis)) <= off))
+          continue;
+        if (Math.abs(s.start - e.time) < cost) [cost, pick] = [Math.abs(s.start - e.time), k];
+      }
+    const sound = sounds[pick],
+      carried = sounds[used],
+      held =
+        !sound && !!carried && carried.start < e.time && carried.end >= e.time + attack && atPitch(carried, e.midis),
+      from = sound ? sound.start : e.time,
+      to = sound ? Math.min(sound.end, from + length * 0.9) : e.time + length * 0.9;
+    if (sound) used = pick;
+    let body = voiced(from + attack, to);
+    if (!body.length) body = voiced(from, to);
     const out = {
       ...e,
       heard: body.length > 0,
@@ -3910,16 +3984,42 @@ function scoreAttempt(expected, frames, {cents = 35, onsetMs = 100} = {}) {
     );
     out.cents = Math.round(octaveOff(heard, [out.target]) * 100);
     out.pitchOk = Math.abs(out.cents) <= cents;
-    if (segment) {
-      out.offsetMs = Math.round((segment.start - e.time) * 1000);
+    const first =
+        sound || held
+          ? null
+          : voiced(e.time - reach, to).find(f => Math.abs(octaveOff(pitchOfFreq(f.freq), [out.target])) <= 1),
+      start = sound ? sound.start : first?.t;
+    if (held) out.timing = 'on';
+    else if (start != null) {
+      out.offsetMs = Math.round((start - e.time) * 1000);
       out.timing = Math.abs(out.offsetMs) <= onsetMs ? 'on' : out.offsetMs < 0 ? 'early' : 'late';
-    } else out.timing = 'on';
+    }
     return {...out, mark: !out.pitchOk ? 'red' : out.timing === 'on' ? 'green' : 'yellow'};
-  });
-  const share = ok => (notes.length ? Math.round((100 * notes.filter(ok).length) / notes.length) : 0),
-    pitch = share(n => n.pitchOk),
-    rhythm = share(n => n.heard && n.timing === 'on');
-  return {notes, pitch, rhythm, stars: checkStars(pitch, rhythm), heard: notes.some(n => n.heard)};
+  }
+  const mark = count => {
+    while (notes.length < Math.min(count, expected.length)) notes.push(markNote(notes.length));
+    return notes;
+  };
+  return {
+    reach,
+    add(f) {
+      frames.push(f);
+      tracker.add(f);
+    },
+    mark,
+    result(count = expected.length) {
+      const marked = mark(count).slice(0, count),
+        share = ok => (marked.length ? Math.round((100 * marked.filter(ok).length) / marked.length) : 0),
+        pitch = share(n => n.pitchOk),
+        rhythm = share(n => n.heard && n.timing === 'on');
+      return {notes: marked, pitch, rhythm, stars: checkStars(pitch, rhythm), heard: marked.some(n => n.heard)};
+    }
+  };
+}
+function scoreAttempt(expected, frames, levels) {
+  const marker = attemptMarker(expected, levels);
+  for (const f of [...frames].sort((a, b) => a.t - b.t)) marker.add(f);
+  return marker.result();
 }
 function checkStars(pitch, rhythm) {
   const average = (pitch + rhythm) / 2;
@@ -3939,10 +4039,11 @@ function checkProblem(note, shift = 0) {
     return `heard ${checkNoteName(note.target + shift + note.cents / 100)}, not ${checkNoteName(note.target + shift)}`;
   }
   if (note.timing === 'early' || note.timing === 'late') return `${Math.abs(note.offsetMs)} ms ${note.timing}`;
-  return '';
+  return note.timing ? '' : 'no clear start';
 }
-// A check as kept in the score's history: {at, level, speed (%), from, to (measures), pitch, rhythm (%), stars}.
-// Read back from storage, a backup or a link, so it is checked field by field; null when it does not fit.
+// A check as kept in the score's history: {at, level, speed (%), from, to (measures), pitch, rhythm (%), stars}, and
+// melody: true when the melody played with it (the microphone may have heard it, so the teacher is told). Read back
+// from storage, a backup or a link, so it is checked field by field; null when it does not fit.
 const CHECK_LEVEL_IDS = Object.keys(CHECK_LEVELS),
   CHECKS_IN_LINK = 10;
 function cleanCheck(c) {
@@ -3961,14 +4062,24 @@ function cleanCheck(c) {
     !isInt(stars, 1, 5)
   )
     return null;
-  return {at, level, speed, from, to, pitch, rhythm, stars};
+  return {at, level, speed, from, to, pitch, rhythm, stars, ...(c.melody === true ? {melody: true} : {})};
 }
 // In a turn-in link (h) a check is an array, [at, pitch, rhythm, stars, level (0 easy to 2 hard), speed, from, to],
-// and the link carries the latest ten.
+// with a 1 after them when the melody played, and the link carries the latest ten.
 function checksForLink(list) {
   return list
     .slice(-CHECKS_IN_LINK)
-    .map(c => [c.at, c.pitch, c.rhythm, c.stars, CHECK_LEVEL_IDS.indexOf(c.level), c.speed, c.from, c.to]);
+    .map(c => [
+      c.at,
+      c.pitch,
+      c.rhythm,
+      c.stars,
+      CHECK_LEVEL_IDS.indexOf(c.level),
+      c.speed,
+      c.from,
+      c.to,
+      ...(c.melody ? [1] : [])
+    ]);
 }
 function readChecks(h) {
   if (!Array.isArray(h)) return [];
@@ -3984,14 +4095,20 @@ function readChecks(h) {
             level: CHECK_LEVEL_IDS[a[4]],
             speed: a[5],
             from: a[6],
-            to: a[7]
+            to: a[7],
+            melody: a[8] === 1
           })
         : null
     )
     .filter(Boolean);
 }
-// The best of a list of checks: the highest pitch and rhythm together, the latest of equals.
-const bestCheck = list =>
-  list.reduce((best, c) => (!best || c.pitch + c.rhythm >= best.pitch + best.rhythm ? c : best), null);
+// The best of a list of checks: one made without the melody if there is one, then the highest pitch and rhythm
+// together, the latest of equals.
+const checkRank = c => (c.melody ? 0 : 1000) + c.pitch + c.rhythm,
+  bestCheck = list => list.reduce((best, c) => (!best || checkRank(c) >= checkRank(best) ? c : best), null);
 const starText = stars => '★'.repeat(stars) + '☆'.repeat(5 - stars);
 const checkWords = c => `pitch ${c.pitch}%, rhythm ${c.rhythm}%, ${c.stars} ${c.stars === 1 ? 'star' : 'stars'}`;
+// How a check was made, for the teacher: the level, the speed, the measures, and the melody if it played.
+const checkSettings = c =>
+  `${CHECK_LEVELS[c.level].label}, ${c.speed}% speed, ${c.from === c.to ? `measure ${c.from}` : `measures ${c.from}–${c.to}`}` +
+  (c.melody ? ', melody on' : '');

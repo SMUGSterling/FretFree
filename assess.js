@@ -13,6 +13,7 @@ const CHECK_FRAME_MS = 20,
   CHECK_HISTORY = 20,
   CHECK_SCORES = 100,
   CHECK_PROBLEMS_SHOWN = 8,
+  CHECK_METER_FRAMES = 10,
   SVG_NS = 'http://www.w3.org/2000/svg';
 const checkStatus = text => ($('assess-status').textContent = text);
 
@@ -58,8 +59,10 @@ function deleteChecksOf(key) {
   delete all[key];
   storage.set(KEYS.attempts, all);
 }
-// openScore calls this: the marks and result belong to the score that was open.
+// openScore calls this: the marks and result belong to the score that was open. A check still waiting for the
+// microphone was for that score too, so it stops there.
 function checksOpened() {
+  if (check?.state === 'starting') endCheck(check, 'Another score was opened, so the check was cancelled.');
   checkedHere = new Set();
   lastCheck = null;
   showCheckResult();
@@ -112,22 +115,24 @@ function placesOf(events) {
 const placeWords = place => (place ? `Measure ${place.measure}, note ${place.n}` : 'A note');
 
 // Marks: a bar under each checked note, green, yellow or red (red ones taller, so they stand out without color too).
-// They are left out of SVG export and print, like the practice range shading.
+// The bars are drawn as paths in the score's SVG, up to 16 bars of a color in each: hundreds of separate shapes, or
+// one path over the whole score, make each redraw slow while a long score plays. They are left out of SVG export and
+// print, like the practice range shading.
+const MARKS_PER_PATH = 16;
 function drawMark(note, place) {
   const svg = $('notation')?.querySelector?.('svg');
   if (!svg || !place) return;
-  const bar = document.createElementNS(SVG_NS, 'rect'),
-    title = document.createElementNS(SVG_NS, 'title'),
-    tall = note.mark === 'red';
-  bar.setAttribute('class', `assess-mark assess-${note.mark}`);
-  bar.setAttribute('x', place.left - 1);
-  bar.setAttribute('y', place.top + place.height + 2);
-  bar.setAttribute('width', Math.max(8, place.width + 2));
-  bar.setAttribute('height', tall ? 6 : 4);
-  bar.setAttribute('rx', 1.5);
-  title.textContent = `${placeWords(place)}: ${checkProblem(note, displayShift()) || 'right'}`;
-  bar.appendChild(title);
-  svg.appendChild(bar);
+  let path = [...svg.querySelectorAll(`.assess-mark.assess-${note.mark}`)].at(-1);
+  if (!path || +path.getAttribute('data-marks') >= MARKS_PER_PATH) {
+    path = svg.appendChild(document.createElementNS(SVG_NS, 'path'));
+    path.setAttribute('class', `assess-mark assess-${note.mark}`);
+  }
+  const width = Math.max(8, place.width + 2);
+  path.setAttribute('data-marks', (+path.getAttribute('data-marks') || 0) + 1);
+  path.setAttribute(
+    'd',
+    `${path.getAttribute('d') || ''}M${place.left - 1} ${place.top + place.height + 2}h${width}v${note.mark === 'red' ? 6 : 4}h${-width}z`
+  );
 }
 function clearMarks() {
   $('notation')
@@ -167,7 +172,8 @@ async function startCheck() {
   if (typeof ctx.createAnalyser !== 'function' || typeof ctx.createMediaStreamSource !== 'function')
     return checkStatus('This browser can’t listen to the microphone, so it can’t check your playing.');
   const level = CHECK_LEVELS[$('assess-level').value] ? $('assess-level').value : 'medium',
-    session = (check = {state: 'starting', key: recordKey(), level, frames: [], ticks: 0, marked: 0});
+    melody = $('assess-melody').checked,
+    session = (check = {state: 'starting', key: recordKey(), level, melody, calls: 0, ticks: 0, marked: 0});
   lastCheck = null;
   clearMarks();
   showCheckResult();
@@ -192,7 +198,7 @@ async function startCheck() {
   await play(null, {
     countInBars: 1,
     once: true,
-    melodyOff: !$('assess-melody').checked,
+    melodyOff: !melody,
     onStart: ({clock, from, until, percent, full}) => {
       const expected = expectedEvents(melodyNotes(full.notes), from, until, percent / 100);
       Object.assign(session, {
@@ -200,6 +206,7 @@ async function startCheck() {
         clock,
         percent,
         expected,
+        marker: attemptMarker(expected, CHECK_LEVELS[level]),
         places: placesOf(expected),
         source: $('abc').value
       });
@@ -210,7 +217,9 @@ async function startCheck() {
   if (session.state === 'starting' && !session.cancelled) endCheck(session, 'The check didn’t start. Try again.');
 }
 // One frame: the level for the meter, and once the score plays, the pitch heard, in seconds after the range started
-// as the student heard it. The analyser's samples end about now, so a frame is timed at their middle.
+// as the student heard it. The analyser's samples end about now, so a frame is timed at their middle. The meter shows
+// the loudest of every ten frames, five times a second: redrawing it every frame makes the browser redraw the score
+// too, which on a slow device and a long score leaves too little time to listen.
 function listen(session) {
   if (check !== session) return;
   const analyser = session.analyser,
@@ -224,24 +233,28 @@ function listen(session) {
   let energy = 0;
   for (const v of samples) energy += v * v;
   const level = Math.sqrt(energy / samples.length);
-  $('assess-meter').value = Math.min(1, level * 4);
+  session.loudest = Math.max(session.loudest || 0, level);
+  if (++session.calls % CHECK_METER_FRAMES === 0) {
+    $('assess-meter').value = Math.min(1, session.loudest * 4);
+    session.loudest = 0;
+  }
   if (session.state !== 'live' && session.state !== 'finishing') return;
   const t = audio.currentTime - samples.length / 2 / audio.sampleRate - session.clock - session.latency;
   if (t < -0.5) return;
   const pitch = detectPitch(samples, audio.sampleRate);
-  session.frames.push({t, freq: pitch?.freq || 0, level});
+  session.marker.add({t, freq: pitch?.freq || 0, level});
   if (++session.ticks % 10 === 0) markPassed(session, t);
 }
-// Notes whose time (and the reach of a late start) has passed are marked while the score plays on.
+// Notes whose time (and the reach of a late start) has passed are marked while the score plays on, each once, so
+// the marking keeps up at the end of a long piece. Music changed since the check started is left unmarked.
 function markPassed(session, now) {
   if (session.state !== 'live') return;
-  const tolerance = CHECK_LEVELS[session.level],
-    reach = Math.max(0.15, (2 * tolerance.onsetMs) / 1000);
   let done = session.marked;
-  while (done < session.expected.length && session.expected[done].end + reach < now) done++;
+  while (done < session.expected.length && session.expected[done].end + session.marker.reach < now) done++;
   if (done === session.marked) return;
-  const {notes} = scoreAttempt(session.expected.slice(0, done), session.frames, tolerance);
-  for (let i = session.marked; i < done; i++) drawMark(notes[i], session.places[i]);
+  const notes = session.marker.mark(done);
+  if (session.source === $('abc').value)
+    for (let i = session.marked; i < done; i++) drawMark(notes[i], session.places[i]);
   session.marked = done;
 }
 // The hook stop() calls. Stopped in the count-in, before the first note, there is nothing to mark.
@@ -278,7 +291,7 @@ function finishCheck(session) {
   endCheck(session);
   const count = session.expected.filter(e => e.end <= session.stoppedAt + 0.1).length;
   if (!count) return checkStatus('Stopped before the first note ended, so nothing was checked.');
-  const result = scoreAttempt(session.expected.slice(0, count), session.frames, CHECK_LEVELS[session.level]);
+  const result = session.marker.result(count);
   if (!result.heard) {
     clearMarks();
     return checkStatus('FretFree heard nothing from the microphone. Check that it’s on and not muted, then try again.');
@@ -292,12 +305,14 @@ function finishCheck(session) {
       to: Math.max(session.range.from, last?.measure || session.range.to),
       pitch: result.pitch,
       rhythm: result.rhythm,
-      stars: result.stars
+      stars: result.stars,
+      ...(session.melody ? {melody: true} : {})
     };
   const kept = addCheck(session.key, entry);
   // The music changed (another score opened, or an edit) while the last note was marked: the check is kept with its
   // score, and the music now on screen is left unmarked.
   if (session.source !== $('abc').value || session.key !== recordKey()) {
+    clearMarks();
     showCheckHistory();
     return checkStatus(
       `Checked ${count} ${count === 1 ? 'note' : 'notes'} and kept the result. The music on screen has changed since, so it isn’t marked.`
@@ -359,18 +374,12 @@ function showCheckHistory() {
   $('assess-history').innerHTML = list
     .map(
       c =>
-        `<li><span class="small">${esc(draftTime(c.at))} · ${CHECK_LEVELS[c.level].label} · ${c.speed}% · measures ${c.from}–${c.to}</span> <span>Pitch ${c.pitch}% · Rhythm ${c.rhythm}% · <span class="assess-stars" role="img" aria-label="${c.stars} of 5 stars">${starText(c.stars)}</span></span></li>`
+        `<li><span class="small">${esc(draftTime(c.at))} · ${CHECK_LEVELS[c.level].label} · ${c.speed}% · ${c.from === c.to ? `measure ${c.from}` : `measures ${c.from}–${c.to}`}${c.melody ? ' · melody on' : ''}</span> <span>Pitch ${c.pitch}% · Rhythm ${c.rhythm}% · <span class="assess-stars" role="img" aria-label="${c.stars} of 5 stars">${starText(c.stars)}</span></span></li>`
     )
     .join('');
   $('assess-history').hidden = !list.length;
   $('assess-empty').hidden = !!list.length;
 }
-// For a turn-in link: the open score's latest checks, as h, or nothing.
-function checksPayload() {
-  const list = storedChecks(recordKey());
-  return list.length ? {h: checksForLink(list)} : {};
-}
-
 function toggleCheckPanel(open = $('assess-panel').hidden) {
   $('assess-panel').hidden = !open;
   $('assess').setAttribute('aria-expanded', open);
@@ -379,10 +388,11 @@ function toggleCheckPanel(open = $('assess-panel').hidden) {
   $('assess-panel').scrollIntoView?.({block: 'nearest', behavior: 'smooth'});
   $('assess-start').focus({preventScroll: true});
 }
+// The melody is off unless the student turns it on: through speakers, the microphone would hear it as their playing.
 function applyCheckSettings() {
   const level = storage.get(KEYS.checkLevel, 'medium');
   $('assess-level').value = CHECK_LEVELS[level] ? level : 'medium';
-  $('assess-melody').checked = storage.get(KEYS.checkMelody, true) !== false;
+  $('assess-melody').checked = storage.get(KEYS.checkMelody, false) === true;
 }
 applyCheckSettings();
 $('assess').onclick = () => toggleCheckPanel();

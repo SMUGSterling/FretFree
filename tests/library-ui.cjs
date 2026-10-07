@@ -451,7 +451,7 @@ $('new-bars').value = '8';
       'fretfree-practice-chords': false,
       'fretfree-record-count-in': 2,
       'fretfree-check-level': 'hard',
-      'fretfree-check-melody': false
+      'fretfree-check-melody': true
     }
   };
   const before = run('saved.length');
@@ -476,7 +476,7 @@ $('new-bars').value = '8';
   // So do the play-along check's level and melody choice; the checks themselves stay with the scores on this device.
   assert.deepEqual(
     [run("$('assess-level').value"), run("$('assess-melody').checked")],
-    ['hard', false],
+    ['hard', true],
     'The check level and melody choice restored from a backup'
   );
   run("storage.set(KEYS.attempts, {'saved:x': []})");
@@ -1625,13 +1625,15 @@ assert.equal(
   const checkAt = Date.now() - 60000,
     made = [
       {at: checkAt, level: 'medium', speed: 80, from: 1, to: 2, pitch: 70, rhythm: 60, stars: 3},
-      {at: checkAt + 1000, level: 'hard', speed: 100, from: 1, to: 2, pitch: 95, rhythm: 90, stars: 4}
+      {at: checkAt + 1000, level: 'hard', speed: 100, from: 1, to: 2, pitch: 95, rhythm: 90, stars: 4},
+      {at: checkAt + 2000, level: 'easy', speed: 50, from: 1, to: 1, pitch: 100, rhythm: 100, stars: 5, melody: true}
     ];
   w.localStorage.setItem('fretfree-attempts', JSON.stringify({[run('recordKey()')]: [...made, {at: 'x'}]}));
   $('turn-in').click();
   assert.match(
     $('turn-in-summary').textContent,
-    / Best of 2 play-along checks: pitch 95%, rhythm 90%, 4 stars; they go with your work\.$/
+    / Best of 3 play-along checks: pitch 95%, rhythm 90%, 4 stars \(Hard, 100% speed, measures 1–2\); they go with your work\.$/,
+    'The best check made without the melody, and how it was made'
   );
   $('student-name').value = 'Bo';
   $('turn-in-form').requestSubmit();
@@ -1642,27 +1644,28 @@ assert.equal(
     JSON.parse(JSON.stringify(carried.h)),
     [
       [checkAt, 70, 60, 3, 1, 80, 1, 2],
-      [checkAt + 1000, 95, 90, 4, 2, 100, 1, 2]
+      [checkAt + 1000, 95, 90, 4, 2, 100, 1, 2],
+      [checkAt + 2000, 100, 100, 5, 0, 50, 1, 1, 1]
     ],
     'The link carries the checks as h, still at payload v 1'
   );
   assert.equal(carried.v, 1);
   assert.equal(
     JSON.parse(run('turnInFile(turnedIn)')).checks,
-    'Best of 2 play-along checks: pitch 95%, rhythm 90%, 4 stars'
+    'Best of 3 play-along checks: pitch 95%, rhythm 90%, 4 stars (Hard, 100% speed, measures 1–2)'
   );
   $('turn-in-close').click();
   run('dirty = false');
   await run(`openSharedLink(${JSON.stringify(checkedLink)})`);
   assert.match(
     $('submission-text').textContent,
-    /^Turned in by Bo · .+ · Steps · Best of 2 play-along checks: pitch 95%, rhythm 90%, 4 stars$/
+    /^Turned in by Bo · .+ · Steps · Best of 3 play-along checks: pitch 95%, rhythm 90%, 4 stars \(Hard, 100% speed, measures 1–2\)$/
   );
   $('submission-add').click();
   run('show("saved"); toggleInbox(true)');
   assert.match(
     $('inbox-list').querySelector('.inbox-checks').textContent,
-    /^Best of 2 play-along checks: pitch 95%, rhythm 90%, 4 stars$/
+    /^Best of 3 play-along checks: pitch 95%, rhythm 90%, 4 stars \(Hard, 100% speed, measures 1–2\)$/
   );
   const withChecks = JSON.parse(w.localStorage.getItem('fretfree-inbox'))[0];
   w.localStorage.setItem(
@@ -1673,7 +1676,14 @@ assert.equal(
   run('renderInbox()');
   assert.equal(
     $('inbox-list').querySelector('.inbox-checks').textContent,
-    'Play-along check: pitch 95%, rhythm 90%, 4 stars'
+    'Play-along check: pitch 95%, rhythm 90%, 4 stars (Hard, 100% speed, measures 1–2)'
+  );
+  w.localStorage.setItem('fretfree-inbox', JSON.stringify([{...withChecks, checks: [made[2]]}]));
+  run('renderInbox()');
+  assert.equal(
+    $('inbox-list').querySelector('.inbox-checks').textContent,
+    'Play-along check: pitch 100%, rhythm 100%, 5 stars (Easy, 50% speed, measure 1, melody on)',
+    'A check made with the melody playing says so'
   );
   // Work turned in without checks carries no h.
   assert.equal(sent.h, undefined);
@@ -2187,7 +2197,7 @@ assert.equal(
     assert.match($('toast').textContent, /^FretFree is installed/);
   }
   console.log(
-    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), turning in (name required and remembered, n/t/x/g links, play-along checks as h in the link, the summary, the file, the submission bar and Submissions, with damaged checks dropped, the .json file, stale links after edits, Turned in by, escaping) and Submissions (30 pasted links in one group, bad lines reported, duplicates, sorting, Previous/Next with focus, feedback kept per student, return links with c, feedback on the student’s saved copy, backup and restore, damaged entries, the 200 cap, delete and clear), backup and restore (with classroom colors, zoom, the Chords switch, the recording count-in and the check level and melody choice, but not the device latency), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files), and the offline notice and Install app.'
+    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), turning in (name required and remembered, n/t/x/g links, play-along checks as h in the link, the best one made without the melody with its level, speed and measures in the summary, the file, the submission bar and Submissions, a check with the melody labeled, damaged checks dropped, the .json file, stale links after edits, Turned in by, escaping) and Submissions (30 pasted links in one group, bad lines reported, duplicates, sorting, Previous/Next with focus, feedback kept per student, return links with c, feedback on the student’s saved copy, backup and restore, damaged entries, the 200 cap, delete and clear), backup and restore (with classroom colors, zoom, the Chords switch, the recording count-in and the check level and melody choice, but not the device latency), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files), and the offline notice and Install app.'
   );
 })().catch(e => {
   console.error(e);
