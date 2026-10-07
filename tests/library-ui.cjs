@@ -858,10 +858,30 @@ assert.equal(
     await settle(() => $('title').value === 'Ode (shared)');
     assert.deepEqual([$('title').value, $('studio').hidden], ['Ode (shared)', false], 'The pasted link opens');
     run("dirty = false; openScore(catalog.find(x => x.id === 'mozart')); dirty = true; show('library')");
-    w.confirm = () => false;
+    let asked = 0;
+    w.confirm = () => (asked++, false);
     w.location.hash = 's=' + link;
-    await new Promise(r => setTimeout(r, 50));
+    await settle(() => asked);
+    await new Promise(r => setTimeout(r, 20));
     assert.equal($('title').value, 'Ah! vous dirai-je, maman', 'Declining keeps the unsaved work');
+    assert.equal(w.location.hash, '#library', 'and the address it had');
+    w.location.hash = 's=' + link;
+    await settle(() => asked === 2);
+    assert.equal(asked, 2, 'So the same link pasted again asks again');
+    await new Promise(r => setTimeout(r, 20));
+    // A damaged or cut-off link is refused before anything is asked: the work stays unsaved, with its draft.
+    run("$('abc').value += ' '; changed(); clearTimeout(renderTimer); render(); writeDraft(); show('studio')");
+    const draft = () =>
+      (JSON.parse(w.localStorage.getItem('fretfree-draft')) || []).some(d => d.tab === run('draftTab'));
+    assert.equal(draft(), true);
+    w.location.hash = 's=1garbage';
+    await settle(() => $('toast').textContent.includes('did not contain a readable score'));
+    await new Promise(r => setTimeout(r, 20));
+    assert.deepEqual(
+      [asked, run('dirty'), draft(), $('studio').hidden, w.location.hash],
+      [2, true, true, false, '#studio'],
+      'A damaged link leaves the unsaved work, its draft, the view and the address as they were'
+    );
     w.confirm = () => true;
     run('dirty = false');
   }
@@ -887,6 +907,83 @@ assert.equal(
   run("dirty = false; openScore(catalog.find(x => x.id === 'pgh-1002'))");
   assert.doesNotMatch($('rights').textContent, /Notation edited/, 'An unchanged edition does not say so');
   run('saved = saved.filter(x => x.id !== saved.at(-1).id); storage.set(KEYS.scores, saved)');
+  // Copies that do not name their edition by id keep its license and credits on the way out: a copy saved before
+  // libraryId, and FretFree ABC and MusicXML exports opened again. Turn-ins, drafts and share links name the edition
+  // the copy is closest to among those with its rights text and source, or the one the export names.
+  {
+    Object.assign(w, {TextDecoder});
+    const choose = async (data, name) => {
+        Object.defineProperty($('import-file'), 'files', {value: [new w.File([data], name)], configurable: true});
+        await $('import-file').onchange();
+      },
+      prompt = run('writingPrompts[0].id');
+    const travels = async (id, label) => {
+      const [title, license] = run(
+          `(x => [x.title, scoreLicense(x)])(catalog.find(x => x.id === ${JSON.stringify(id)}))`
+        ),
+        credited = () => [run('scoreLicense(current)'), run("exportCredit(current).split('\\n')[0]")];
+      assert.equal(run('sharePayload().s'), id, `${label}: the link names the edition`);
+      // Turned in.
+      run(`current.prompt = ${JSON.stringify(prompt)}`);
+      $('student-name').value = 'Ana';
+      await run('turnIn()');
+      const sent = await run(`decodeShare(${JSON.stringify($('turn-in-url').value.split('#s=')[1])})`);
+      assert.equal(sent.s, id, `${label}: the turn-in names the edition`);
+      run('closeTurnIn(); delete current.prompt');
+      // Edited, then restored from the draft.
+      run("$('abc').value += '\\n% edited'; changed(); clearTimeout(renderTimer); render(); writeDraft()");
+      run(
+        "pendingDrafts = storedDrafts().filter(d => d.tab === draftTab); dirty = false; openScore(catalog.find(x => x.id === 'ode')); restoreDraft()"
+      );
+      assert.deepEqual(credited(), [license, title], `${label}: a restored draft keeps the license and credits`);
+      assert.match(run("creditedABC($('abc').value, current)"), /^% FretFree-Rights: /m, `${label}: and its export`);
+      // Shared.
+      assert.equal(run('sharePayload().s'), id, `${label}: the restored draft names the edition`);
+      const code = await run('encodeShare(sharePayload())');
+      run('dirty = false');
+      assert.equal(await run(`openSharedLink("s=${code}")`), true);
+      assert.deepEqual(credited(), [license, title], `${label}: the recipient gets the license and credits`);
+      run('dirty = false');
+    };
+    for (const id of ['oneill-1850-0002', 'pgh-1001', 'sq-7313978-2']) {
+      // Saved before libraryId: the edition's details, its own id, and the student's title.
+      const legacy = run(
+        `(({abc, ...x}) => ({...x, id: 'old-' + x.id, title: 'My arrangement', updated: 1, abc: abc.replace(/^T:.*$/m, 'T:My arrangement')}))(catalog.find(x => x.id === ${JSON.stringify(id)}))`
+      );
+      run(
+        `dirty = false; saved.push(${JSON.stringify(legacy)}); openScore(saved.at(-1), ${JSON.stringify(legacy.id)})`
+      );
+      await travels(id, `${id} saved before libraryId`);
+      run(
+        `dirty = false; openScore(saved.find(x => x.id === ${JSON.stringify(legacy.id)}), ${JSON.stringify(legacy.id)})`
+      );
+      const legacyXML = run("abcToMusicXML($('abc').value, {item: current})");
+      run(`saved = saved.filter(x => x.id !== ${JSON.stringify(legacy.id)})`);
+      if (id.startsWith('sq-')) continue;
+      // Exported from the edition and opened again, as ABC and as MusicXML; and a MusicXML export of the old copy.
+      run(`dirty = false; openScore(catalog.find(x => x.id === ${JSON.stringify(id)}))`);
+      const abc = run("creditedABC($('abc').value, current)"),
+        xml = run("abcToMusicXML($('abc').value, {item: current})");
+      for (const [data, name, label] of [
+        [abc, 'tune.abc', 'ABC export'],
+        [xml, 'tune.musicxml', 'MusicXML export'],
+        [legacyXML, 'old.musicxml', 'MusicXML export of the old copy']
+      ]) {
+        run('dirty = false');
+        await choose(data, name);
+        assert.equal(run('current.kind'), 'personal', `${id} ${label}: imported`);
+        assert.equal(run('current.libraryId'), name === 'old.musicxml' ? undefined : id, `${id} ${label}: libraryId`);
+        await travels(id, `${id} ${label}`);
+      }
+    }
+    // An export names its edition only when that edition has the file's rights text and source.
+    const aiken = run("(({abc, ...x}) => x)(catalog.find(x => x.id === 'pgh-1001'))"),
+      named = item => run(`importedRights(${JSON.stringify(item)}).libraryId`);
+    assert.equal(named({...aiken, libraryId: 'pgh-1002'}), 'pgh-1002', 'Another tune of the same tunebook');
+    assert.equal(named({...aiken, id: 'ode'}), undefined, 'An edition with other rights');
+    assert.equal(named({...aiken, rights: 'Mine', libraryId: 'pgh-1001'}), undefined, 'A file with other rights');
+    run('dirty = false');
+  }
   // A GPL edition's printed appendix carries the day it was printed, not a fixed date.
   run("window.print = () => {}; dirty = false; openScore(catalog.find(x => scoreLicense(x).startsWith('GPL-')))");
   run("$('print').click()");

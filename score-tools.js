@@ -468,6 +468,28 @@ function linePairs(abc) {
   }
   return (lineMemo = {abc, pairs, voices});
 }
+// The lines that open and close on one note, as deleting the notes between their ends can leave them: (C), ((C)),
+// !<(!!<)!C. A hairpin or trill line needs two notes, and abcjs reads a note's ) before its (, so such a slur would be
+// left half open. Only lines with a mark from `from` to `to` are looked at. Returns edits for applyLineEdits that take
+// both marks of each off.
+const MARKS_ONLY = new RegExp(`^(?:${PRE_ITEM.source})*$`);
+function oneNoteLines(abc, from, to) {
+  const {pairs} = linePairs(abc),
+    near = span => span[1] >= from && span[0] <= to,
+    off = ([s, e]) => ({at: s, remove: e - s, insert: ''}),
+    unclosed = pairs.filter(p => p.kind === 'slur' && p.open && !p.close),
+    edits = [];
+  for (const p of pairs)
+    if (p.kind !== 'slur') {
+      if (p.open && p.close && (near(p.open) || near(p.close)) && MARKS_ONLY.test(abc.slice(p.open[1], p.close[0])))
+        edits.push(off(p.open), off(p.close));
+    } else if (!p.open) {
+      const i = unclosed.findIndex(q => q.voice === p.voice && sameNote(abc, q.open[1], p.close[0]));
+      if (i >= 0 && (near(p.close) || near(unclosed[i].open)))
+        edits.push(off(unclosed.splice(i, 1)[0].open), off(p.close));
+    }
+  return edits;
+}
 function voiceAt(voices, at) {
   let voice = voices[0]?.voice;
   for (const v of voices) if (v.at <= at) voice = v.voice;

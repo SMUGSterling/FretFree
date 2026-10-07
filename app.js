@@ -799,15 +799,30 @@ else if (initialView.startsWith('s=')) {
   offerDraft();
 }
 // A share link pasted into this tab's address bar opens too (show() keeps the address with replaceState, which fires
-// no hashchange). Unsaved work is asked about first, so a cancelled link leaves it as it was.
-window.addEventListener('hashchange', () => {
-  if (embedView || !location.hash.startsWith('#s=') || !allowReplace()) return;
-  const hash = location.hash.slice(1);
+// no hashchange). The link is read first: a damaged one is refused before unsaved work is asked about, so that work
+// stays unsaved work (and keeps its draft). A refused or declined link leaves the address as it was, so pasting the
+// same link again opens it.
+window.addEventListener('hashchange', async e => {
+  if (embedView || !location.hash.startsWith('#s=')) return;
+  const hash = location.hash.slice(1),
+    payload = await decodeShare(hash.slice(2)),
+    back = () => {
+      if (location.hash.slice(1) === hash)
+        history.replaceState(null, '', new URL(e.oldURL || location.href).hash || location.pathname + location.search);
+    };
+  if (!payload) {
+    toast('This link did not contain a readable score.');
+    back();
+    return;
+  }
+  if (location.hash.slice(1) !== hash) return;
+  if (!allowReplace()) {
+    back();
+    return;
+  }
   dirty = false;
   show('studio');
-  openSharedLink(hash).then(ok => {
-    if (!ok) show('library');
-  });
+  openSharedLink(hash, payload);
 });
 $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
 $('fingering').onchange = () => {

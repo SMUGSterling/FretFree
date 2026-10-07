@@ -2740,6 +2740,24 @@ const {chromium} = require('playwright'),
       }),
       'The same file with and without progress checkpoints'
     );
+    // The pauses while the file is scaled and written are messages, not timers: a hidden tab holds each timer back for
+    // a second or more, which would add that much per pause to a long export. A hidden tab does not pause at all.
+    const [quick, slowTimers, hidden] = await page.evaluate(async () => {
+      const timed = async () => {
+        const started = performance.now(),
+          {bytes} = await renderWav({progress: () => {}});
+        return [performance.now() - started, bytes];
+      };
+      const [quick, plain] = await timed(),
+        timer = window.setTimeout;
+      window.setTimeout = (f, ms, ...rest) => timer(f, Math.max(+ms || 0, 1000), ...rest);
+      const [slow] = await timed().finally(() => (window.setTimeout = timer));
+      Object.defineProperty(document, 'visibilityState', {value: 'hidden', configurable: true});
+      const [, unseen] = await timed().finally(() => delete document.visibilityState);
+      return [quick, slow, unseen.length === plain.length && unseen.every((v, i) => v === plain[i])];
+    });
+    assert.ok(slowTimers < quick + 900, `Slow timers do not hold the file up: ${Math.round(slowTimers)} ms`);
+    assert.ok(hidden, 'A hidden tab makes the same file');
     await page.locator('#wav-make').focus();
     await page.keyboard.press('Escape');
     assert.deepEqual(

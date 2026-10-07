@@ -3403,8 +3403,8 @@ function clearRun(picked) {
 // tuplet or line opened just before that mark ((.E, (3.C, !<(!(!mf!E) sits outside the note's text. Such openings
 // (openings, as {element: {startChar, endChar}}) go with their note when the run holds what they open: all of a
 // tuplet, and for the first note every slur and line they open; the run starts at the first note's openings then.
-// loose lists the slur and line ends in the run whose other end is outside it ({at, text, close}), which a copy leaves
-// out and a deletion keeps on the notes either side, so no slur or line is left half open.
+// loose lists the slur and line ends in the run whose other end is outside it ({at, text, close, kind}), which a copy
+// leaves out and a deletion keeps on the notes either side, so no slur or line is left half open.
 function runSpan(picked) {
   const v = $('abc').value,
     first = picked[0].element.startChar,
@@ -3427,9 +3427,9 @@ function runSpan(picked) {
     loose = [];
   for (const p of pairs) {
     if (inside(p.close?.[0]) && !inside(p.open?.[0]))
-      loose.push({at: p.close[0], text: v.slice(...p.close), close: true});
+      loose.push({at: p.close[0], text: v.slice(...p.close), close: true, kind: p.kind});
     else if (inside(p.open?.[0]) && !inside(p.close?.[0]))
-      loose.push({at: p.open[0], text: v.slice(...p.open), close: false});
+      loose.push({at: p.open[0], text: v.slice(...p.open), close: false, kind: p.kind});
   }
   return {start, end, openings, loose: loose.sort((a, b) => a.at - b.at)};
 }
@@ -3478,21 +3478,52 @@ function deleteRun(picked) {
     prev = voice.filter(n => n.element.startChar < Math.min(start, picked[0].element.startChar)).pop(),
     next = voice.find(n => n.element.startChar >= picked.at(-1).element.endChar);
   // A slur or line end in the run that closes one opened before it moves onto the note before the run, and an
-  // opening whose end is after the run moves onto the note after it.
+  // opening whose end is after the run moves onto the note after it. A ) goes after that note's length; a hairpin or
+  // trill line end is a decoration, which marks the note after it, so it goes before the note's pitch (lineSlot).
   const ends = span.loose.filter(t => t.close && prev),
     opens = span.loose.filter(t => !t.close && next);
+  let select = prev ? [prev.element.startChar, Math.min(prev.element.endChar, start)] : null;
   if (ends.length) {
-    const at = prev.element.startChar + noteHead(v.slice(prev.element.startChar, prev.element.endChar)).length;
-    if (at <= start) {
-      text = ends.map(t => t.text).join('') + v.slice(at, start) + text;
+    const from = prev.element.startChar,
+      own = v.slice(from, prev.element.endChar),
+      head = from + noteHead(own).length,
+      marks = ends
+        .map(t => ({at: t.kind === 'slur' ? head : from + lineSlot(own, t.kind), text: t.text}))
+        .filter(m => m.at <= start)
+        .sort((a, b) => a.at - b.at);
+    if (marks.length) {
+      const at = marks[0].at;
+      let moved = v.slice(at, start);
+      for (const m of [...marks].reverse()) moved = moved.slice(0, m.at - at) + m.text + moved.slice(m.at - at);
+      text = moved + text;
       start = at;
+      select = [from, head + marks.filter(m => m.at < head).reduce((n, m) => n + m.text.length, 0)];
     }
   }
-  if (opens.length && next.element.startChar >= end) {
-    text += v.slice(end, next.element.startChar) + opens.map(t => t.text).join('');
-    end = next.element.startChar;
+  if (opens.length) {
+    const at = solidAt(v, next.element.startChar);
+    if (at >= end) {
+      text += v.slice(end, at) + opens.map(t => t.text).join('');
+      end = at;
+    }
   }
-  editKeepingPitches(start, end, text, prev ? [prev.element.startChar, Math.min(prev.element.endChar, start)] : null);
+  // A slur or line whose notes between its ends were all deleted would be left on one note; it comes off.
+  const edited = v.slice(0, start) + text + v.slice(end),
+    to = start + text.length,
+    stray = oneNoteLines(edited, start, to);
+  if (stray.length) {
+    const lo = Math.min(start, ...stray.map(e => e.at)),
+      hi = Math.max(to, ...stray.map(e => e.at + e.remove)),
+      shift = at => at - stray.reduce((n, e) => n + (e.at + e.remove <= at ? e.remove : 0), 0);
+    text = applyLineEdits(
+      edited.slice(lo, hi),
+      stray.map(e => ({...e, at: e.at - lo}))
+    );
+    end += hi - to;
+    start = lo;
+    if (select) select = select.map(shift);
+  }
+  editKeepingPitches(start, end, text, select);
   $('selection-status').textContent = `Deleted ${countWords(picked.length)}.`;
 }
 // The clipboard. Copy keeps the selection's source text in memory (and offers it to the system clipboard when the
@@ -4296,9 +4327,9 @@ const SHARE_WARN_LENGTH = 8000;
 // version 25 (117 modules); longer links make codes dense enough that a camera may need them shown full screen.
 const QR_MAX_BYTES = 2331,
   QR_DENSE_BYTES = 997;
-// The library edition the open score came from: the edition itself or its Mixer copy, then a saved copy's libraryId
-// or a shared copy's or draft's own id. Whole tunebooks share one rights text and source address, so matching on those
-// is only a last resort for older saved copies, and only when it names one edition.
+// The library edition the open score came from: the edition itself or its Mixer copy, then a saved copy's or an
+// imported export's libraryId, or a shared copy's or draft's own id. Copies saved before libraryId, and exports from
+// before it, are matched on their rights text and source address (closestEdition).
 function shareSourceId() {
   if (!current) return undefined;
   const library = libraryEntry();
@@ -4306,8 +4337,29 @@ function shareSourceId() {
   for (const id of [current.libraryId, current.id])
     if (typeof id === 'string' && catalog.some(x => x.id === id)) return id;
   if (!current.rights) return undefined;
-  const matches = catalog.filter(x => x.rights === current.rights && x.source === current.source);
-  return matches.length === 1 ? matches[0].id : undefined;
+  return closestEdition(catalog.filter(x => x.rights === current.rights && x.source === current.source))?.id;
+}
+// Whole tunebooks share one rights text and source address, so of the editions that match on those, the one the copy
+// is closest to is named: its music unchanged, then its title (the credit's workTitle, the saved title or the T:
+// line), then the most of the edition's other details the copy kept, then its X: number. They all carry the same
+// license, so when nothing tells them apart the first is named and the license notice still travels.
+const T_LINE = /^T:(.*)$/m,
+  X_LINE = /^X:(.*)$/m;
+function closestEdition(matches) {
+  const text = $('abc').value,
+    names = [current.workTitle, current.title, text.match(T_LINE)?.[1].trim()].filter(Boolean),
+    number = text.match(X_LINE)?.[1].trim();
+  let best = null,
+    top = -1;
+  for (const x of matches) {
+    let score = (x.abc === text ? 1e6 : 0) + (names.includes(x.title) ? 1e4 : 0);
+    for (const [key, value] of Object.entries(x))
+      if (key !== 'id' && key !== 'abc' && key !== 'title' && typeof value !== 'object' && value === current[key])
+        score += 10;
+    if (x.abc.match(X_LINE)?.[1].trim() === number) score += 1;
+    if (score > top) [best, top] = [x, score];
+  }
+  return best;
 }
 const shareBase = () => `${location.origin}${location.pathname}`;
 // The payload and title the panel's link, embed code and QR code were made from, so later edits or another score
@@ -4379,8 +4431,9 @@ function sharedItem(payload) {
   };
 }
 // A shared score opens as a copy, in the sender's instrument, with the library edition's credits when it has one.
-async function openSharedLink(hash) {
-  const payload = await decodeShare(hash.slice(2));
+// payload is the link already decoded, when the caller has read it first.
+async function openSharedLink(hash, payload = null) {
+  payload ||= await decodeShare(hash.slice(2));
   if (!payload) {
     toast('This link did not contain a readable score.');
     return false;

@@ -306,7 +306,7 @@ async function startRecording() {
   if (problem) return recordStatus(problem);
   stop();
   audioContext();
-  const session = (rec = {state: 'starting', key: recordKey(), title: field('T', 'Untitled'), score: current});
+  const session = (rec = {state: 'starting', key: recordKey(), title: field('T', 'Untitled')});
   showRecording();
   recordStatus('Allow the microphone if the browser asks.');
   try {
@@ -320,8 +320,10 @@ async function startRecording() {
     return;
   }
   // Stopped, another score opened or Compose left while the browser asked for the microphone: nothing records, and
-  // the microphone is let go at once. (stop() itself cannot cancel here, since every render calls it.)
-  if (session.cancelled || current !== session.score || $('studio').hidden)
+  // the microphone is let go at once. (stop() itself cannot cancel here, since every render calls it.) The score is
+  // known by its takes key, which saving carries over (rekeyTakes): a Mixer change puts a library score's mix on a
+  // copy of it, which is still the same score.
+  if (session.cancelled || recordKey() !== session.key || $('studio').hidden)
     return discardRecording(session, session.why || 'Recording cancelled.');
   session.latencyMs = storedLatency()?.ms ?? estimatedLatency(session.stream);
   session.calibrated = !!storedLatency();

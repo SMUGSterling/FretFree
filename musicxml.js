@@ -341,8 +341,9 @@ const mxlMetronome = t => {
     ? {types, sound: t.bpm > 0 && total ? `<sound tempo="${+(t.bpm * total * 4).toFixed(2)}"/>` : ''}
     : null;
 };
-// The swing feel (%%MIDI swing, see swingAmount) travels as MusicXML 4's <swing> in the opening tempo's <sound>: the
-// long and short eighths' ratio, so Light (60), Swing (66) and Hard (75) come back as they were.
+// The swing feel (%%MIDI swing, see swingAmount) travels as MusicXML 4's <swing> in the opening tempo's <sound>, or in
+// a <sound> of its own when there is no opening tempo: the long and short eighths' ratio, so Light (60), Swing (66)
+// and Hard (75) come back as they were.
 const mxlSwing = (sound, amount) => {
   if (!(amount > 50)) return sound;
   const gcd = mxlGcd(amount, 100 - amount),
@@ -524,8 +525,10 @@ function abcToMusicXML(source, meta = {}) {
         return t ? `<type>${t.type}</type>` + '<dot/>'.repeat(t.dots) : '';
       },
       tempo = (t, header) => {
-        const mark = mxlMetronome(t);
+        const mark = t && mxlMetronome(t);
         if (mark) direction(mark.types, 'above', header ? mxlSwing(mark.sound, swing) : mark.sound);
+        // Without an opening tempo mark, the swing feel goes in a <sound> of its own at the start.
+        else if (header && swing > 50) open().content.push(mxlSwing('', swing));
       };
     for (const [li, line] of tune.lines.entries()) {
       const staff = line.staff?.[pv.s],
@@ -545,7 +548,7 @@ function abcToMusicXML(source, meta = {}) {
         };
         // A voice that first appears on a later line starts in the measure the others have reached.
         pad(lineStarts[li] || 0);
-        if (firstOfScore && tune.metaText?.tempo) tempo(tune.metaText.tempo, true);
+        if (firstOfScore) tempo(tune.metaText?.tempo, true);
       } else {
         if (staff.key) setKey(staff.key);
         if (staff.clef?.type) setClef(staff.clef, true);
@@ -1067,7 +1070,11 @@ const MXI_TYPES = {
     [/tenor sax/i, 'Tenor sax in B♭', 10],
     [/english horn|cor anglais/i, '', 5],
     [/horn/i, 'Horn in F', 5],
-    [/voice|vocal|soprano|mezzo|\balto\b(?!\s*sax)/i, 'Voice'],
+    // A soprano or alto part is a voice; a soprano saxophone, an alto trombone or an alto xylophone is not.
+    [
+      /voice|vocal|^(?=.*\b(?:sopranos?|mezzo|altos?)\b)(?:[\s\d.,()-]|\b[IVX]+\b|sopranos?|mezzo|altos?|contraltos?|solo|choir|chorus)*$/i,
+      'Voice'
+    ],
     [/piano|keyboard/i, 'Piano'],
     [/ukulele/i, 'Ukulele'],
     [/bass guitar|electric bass/i, ''],

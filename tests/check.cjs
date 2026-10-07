@@ -3608,6 +3608,13 @@ async function musicXMLImportFiles() {
     ['Viola', '<clef><sign>C</sign><line>3</line></clef>', 'Viola'],
     ['Oboe', '', 'Oboe'],
     ['Soprano', '', 'Voice'],
+    ['Altos 1', '', 'Voice'],
+    ['Mezzo-soprano', '', 'Voice'],
+    ['Alto Trombone', '', ''],
+    ['Soprano Saxophone', '', ''],
+    ['Alto Xylophone', '', ''],
+    ['Soprano Ukulele', '', 'Ukulele'],
+    ['Alto Clef Viola', '<clef><sign>C</sign><line>3</line></clef>', 'Viola'],
     ['Ukulele', '', 'Ukulele'],
     ['Bass Guitar', bass, '']
   ])
@@ -3646,6 +3653,13 @@ async function musicXMLImportFiles() {
     assert.equal(context.swingAmount(ownTrip(swung)), amount, `Swing ${amount} survives MusicXML`);
   }
   assert.equal(context.swingAmount(ownTrip('X:1\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\nCDEF GABc|]\n')), 0);
+  // Without a tempo mark, the swing feel goes in a <sound> of its own.
+  const untimed = 'X:1\nT:Blues\nM:4/4\nL:1/8\n%%MIDI swing 66\nK:C\nCDEF GABc|]\n';
+  assert.match(
+    context.abcToMusicXML(untimed),
+    /<measure number="1"[^>]*>(?:(?!<\/measure>).)*<sound><swing><first>33<\/first><second>17<\/second>/s
+  );
+  assert.equal(context.swingAmount(ownTrip(untimed)), 66, 'Swing without a tempo survives MusicXML');
   // One voice is a plain melody without a staff name, in any clef; several parts are named.
   const alto = await open(
     score([['Alto Saxophone', '<transpose><diatonic>-5</diatonic><chromatic>-9</chromatic></transpose>']]),

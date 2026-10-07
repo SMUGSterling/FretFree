@@ -478,6 +478,19 @@ const clockTime = seconds => {
   const s = Math.round(seconds);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
+// A pause that lets the page draw and take clicks: a message to itself, not a timer, since a hidden tab runs timers
+// once a second at most (once a minute after five minutes), and a long export would wait that long at every pause.
+function nextTask() {
+  if (typeof MessageChannel !== 'function') return new Promise(resolve => setTimeout(resolve));
+  return new Promise(resolve => {
+    const {port1, port2} = new MessageChannel();
+    port1.onmessage = () => {
+      port1.close();
+      resolve();
+    };
+    port2.postMessage(null);
+  });
+}
 // progress(done) hears how far the render has got, from 0 to 1, every WAV_STEP seconds of audio, where the browser can
 // suspend an offline render. An offline render cannot be stopped, so an abort from signal cuts the export's bus off and
 // stops its notes: the rest renders as silence, quickly, and nothing is scaled or encoded.
@@ -550,11 +563,11 @@ async function renderWav({metronome = false, chords = true, signal = null, progr
   if (signal?.aborted) throw cancelled();
   // Scaling to the peak and writing the file go a stretch at a time with a pause between, so a long score does not
   // freeze the page (and its progress bar) at the end: about a second at ten minutes. The last tenth of the bar is
-  // this part.
+  // this part. A hidden tab has nothing to draw, so it goes straight on (nextTask).
   const channels = Array.from({length: buffer.numberOfChannels}, (_, i) => buffer.getChannelData(i)),
     stretch = 1 << 19,
     breathe = async done => {
-      await new Promise(resolve => setTimeout(resolve));
+      if (document.visibilityState !== 'hidden') await nextTask();
       if (signal?.aborted) throw cancelled();
       progress?.(0.9 + 0.1 * done);
     };

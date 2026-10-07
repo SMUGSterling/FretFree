@@ -1095,7 +1095,9 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   assert.deepEqual([run("$('share-panel').hidden"), focused()], [true, 'share-link']);
 }
 // Range Delete, Shift+Delete, copy and Duplicate keep slurs, lines and tuplets whole: openings abcjs leaves outside a
-// marked first note go with the run, and an end whose other end is outside the run stays on the notes either side.
+// marked first note go with the run, and an end whose other end is outside the run stays on the notes either side: a
+// ) after the note before, a hairpin or trill line end before it (a decoration marks the note after it). A slur or
+// line left on one note comes off, and a slur opening carried past a deleted bar lands on the next note.
 {
   const body = () => run("$('abc').value.trim().split('\\n').pop()");
   for (const [music, from, to, action, expected] of [
@@ -1106,9 +1108,25 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
     ['!<(!(!mf!E E !<)!F) G |]', 0, 2, 'd', '!<(!(!mf!E E !<)!F) !<(!(!mf!E E !<)!F) G |]'],
     ['!<(!(!mf!E E !<)!F) G |]', 0, 2, 'remove', 'G |]'],
     ['(C D E) F |]', 1, 2, 'd', '(C D E) D E F |]'],
-    ['(C D E) F |]', 1, 2, 'remove', '(C) F |]'],
-    ['(C D E) F |]', 0, 1, 'remove', '(E) F |]'],
-    ['(.E F G) A |]', 0, 1, 'remove', '(G) A |]'],
+    ['(C D E) F |]', 1, 2, 'remove', 'C F |]'],
+    ['(C D E) F |]', 0, 1, 'remove', 'E F |]'],
+    ['(.E F G) A |]', 0, 1, 'remove', 'G A |]'],
+    ['((C D E)) F |]', 1, 2, 'remove', 'C F |]'],
+    ['C (D E F) G |]', 1, 2, 'remove', 'C F G |]'],
+    ['(C D | E F) G |]', 1, 2, 'remove', '(C F) G |]'],
+    ['!<(!C D !<)!E F |]', 1, 2, 'remove', 'C F |]'],
+    ['!<(!C D !<)!E F |]', 0, 1, 'remove', 'E F |]'],
+    ['C D !trill(!E F !trill)!G A |]', 3, 4, 'remove', 'C D E A |]'],
+    ['C !<(!D E !<)!F |]', 2, 3, 'remove', 'C D |]'],
+    ['!<(!C D E !<)!F G |]', 2, 3, 'remove', '!<(!C !<)!D G |]'],
+    ['!<(!C D E !<)!F G |]', 0, 1, 'remove', '!<(!E !<)!F G |]'],
+    ['C !trill(!D E F !trill)!G |]', 3, 4, 'remove', 'C !trill(!D !trill)!E |]'],
+    ['C !>(!D E !>)!F !<(!G A !<)!B c |]', 2, 3, 'remove', 'C D !<(!G A !<)!B c |]'],
+    ['C !<(!(D E) F !<)!G |]', 2, 3, 'remove', 'C !<(!D !<)!G |]'],
+    ['C (D !trill(!E) F !trill)!G |]', 1, 2, 'remove', 'C !trill(!F !trill)!G |]'],
+    ['C D | (E F | G A) |]', 2, 3, 'remove', 'C D | (G A) |]'],
+    ['C (D | E F) |]', 2, 3, 'remove', 'C D |]'],
+    ['!<(!C D | E F | !<)!G A |]', 2, 3, 'remove', '!<(!C D | !<)!G A |]'],
     ['A2 FA dAFA | (3{g}fga f2 d2 A2 | B4 A4 |]', 7, 12, 'remove', 'A2 FA dAFA | B4 A4 |]'],
     [
       'A2 FA dAFA | (3{g}fga f2 d2 A2 | B4 A4 |]',
@@ -3320,6 +3338,24 @@ async function checkRecording() {
     assert.deepEqual([run('rec'), run('playing'), held.stopped], [null, false, true], leave);
     assert.equal(run("$('record-status').textContent"), 'Recording cancelled.', leave);
     assert.equal(run('memoryTakes.size'), 0, `${leave}: no take`);
+  }
+  // A Mixer change meanwhile is not another score (the mix goes on a copy of the library score): the recording starts.
+  {
+    run("dirty=false;openScore(catalog.find(x=>x.id==='ode'))");
+    const held = {stop() {}, getSettings: () => ({latency: 0.01})};
+    let answer = null;
+    mic = () => new Promise(r => (answer = () => r({getTracks: () => [held], getAudioTracks: () => [held]})));
+    run('audio.currentTime=10');
+    const pending = run('startRecording()');
+    await until(() => answer, 'the microphone request');
+    run("setMix({'1': {volume: 0.5}})");
+    assert.equal(run('catalog.includes(current)'), false, 'The mix went on a copy');
+    answer();
+    await pending;
+    assert.equal(run("$('record-status').textContent"), 'Count-in, then play along. Recording…');
+    run('audio.currentTime=30;stop()');
+    await until(() => takeCount() === 1, 'the take recorded after the Mixer change');
+    run('memoryTakes.clear();updateTakes(true)');
   }
   run("dirty=false;openScore(catalog.find(x=>x.id==='ode'))");
   run("$('record-close').click()");
