@@ -195,7 +195,9 @@ function creditedSVG(container, source, item) {
     width = 0;
   for (const svg of svgs) {
     const copy = svg.cloneNode(true);
-    copy.querySelectorAll('.range-shade,.bar-flag,.draw-ghost,.assess-mark').forEach(el => el.remove());
+    copy
+      .querySelectorAll('.range-shade,.bar-flag,.draw-ghost,.assess-mark,.feedback-bubble')
+      .forEach(el => el.remove());
     const vb = svg.getAttribute('viewBox')?.split(/[ ,]+/).map(Number);
     const w = vb?.[2] || parseFloat(svg.getAttribute('width')) || 800,
       h = vb?.[3] || parseFloat(svg.getAttribute('height')) || 500;

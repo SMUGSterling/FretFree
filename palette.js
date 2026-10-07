@@ -1,7 +1,7 @@
 'use strict';
 // Notation palette: a toolbar above the score for the selected note's length, dot, tie, rest, tuplets (other counts
 // under Tuplet), accidental, beam, articulations, dynamics, chord symbol, lyrics, lines (slur, hairpins, trill line),
-// grace notes, ornaments (under More), and Delete.
+// grace notes, ornaments (under More), a feedback comment, and Delete.
 // Buttons light up (aria-pressed) to show the selection's state and send the same action as the note menu or the
 // matching key to editNote, so each press is one undo step. The Measure panel (measure-tools.js) adds bar, bar line,
 // repeat, form and key, time and clef tools. Later notation tools add their own groups here.
@@ -63,8 +63,8 @@ function paletteBlocked(action, state) {
   if (!state.sel) return 'Select a note on the score first.';
   // Lyrics open on the selected note, the first note of a range, or the note after a selected rest.
   if (action === 'lyric') return lyricWhy(state.sel);
-  // Chord opens its box on the selected note, or on the first note of a range selection.
-  if (action === 'chord') return '';
+  // Chord opens its box on the selected note, or on the first note of a range selection; so does Comment.
+  if (action === 'chord' || action === 'comment') return '';
   // Lines go over a range selection, or from one note to the next.
   if (action.startsWith('line:')) return state.lines[action.slice(5)]?.why ?? '';
   if (/^(deco|dyn):/.test(action))
@@ -219,6 +219,11 @@ function pressPalette(b, keyboard = false) {
   }
   if (action === 'lyric' && !blocked) {
     openLyricEntry(state.sel, keyboard ? b : null);
+    return;
+  }
+  // Comment opens the feedback box on the selected note (marks.js), which also hands the keyboard back.
+  if (action === 'comment' && !blocked && typeof commentSelected === 'function') {
+    commentSelected(keyboard ? b : null);
     return;
   }
   if (blocked) $('selection-status').textContent = blocked;

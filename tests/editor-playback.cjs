@@ -88,6 +88,7 @@ for (const f of [
   'turn-in.js',
   'record.js',
   'assess.js',
+  'marks.js',
   'app.js'
 ])
   run(fs.readFileSync(path.join(root, f), 'utf8'));
@@ -864,7 +865,7 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
     disabled(),
     'dot tie to-rest tuplet:3 tuplet:2 tuplet:5 tuplet:6 tuplet:7 acc:^ acc:_ acc:= acc: respell beam:join ' +
       'beam:break deco:staccato deco:tenuto deco:accent deco:marcato deco:fermata dyn:ppp dyn:pp dyn:p dyn:mp dyn:mf ' +
-      'dyn:f dyn:ff dyn:fff dyn:sfz chord lyric line:slur line:crescendo line:diminuendo line:trill grace grace:slash ' +
+      'dyn:f dyn:ff dyn:fff dyn:sfz chord lyric comment line:slur line:crescendo line:diminuendo line:trill grace grace:slash ' +
       'grace:up grace:down deco:wedge deco:upbow deco:downbow deco:breath deco:trill deco:mordent deco:turn ' +
       'deco:arpeggio delete'
   );
@@ -3677,6 +3678,181 @@ async function checkWavExport() {
 // change the track's chain live without a restart; a track that can be heard again restarts playback where it was.
 // The mix saves with the score (straight away for a saved one, with a new saved time), goes in share links and drafts,
 // and Reset clears it everywhere. A library score's mix goes on a copy, so its catalog entry never changes.
+// Feedback marks: a comment and a color on one note, kept in the ABC as a comment line. Written from the note menu
+// and the Comment button, one undo step each, listed above the score with their text escaped, kept on their note
+// through edits elsewhere, listed as "note removed" when their note goes, and carried to a student's copy by link.
+async function checkFeedbackMarks() {
+  const source = 'X:1\nT:Marks\nM:4/4\nL:1/4\nK:G\nG A B c | d B G2 | A B c A | G4 |]\n',
+    note = (m, n) => `scoreNotes().filter(e=>e.measure===${m})[${n - 1}]`,
+    marks = () => JSON.parse(run("JSON.stringify(readMarks($('abc').value))")),
+    music = () => run("writeMarks($('abc').value, [])"),
+    heads = color => run(`document.querySelectorAll('#notation .feedback-head.mark-${color}').length`),
+    marked = () =>
+      run(
+        "(()=>{const p=placedFeedback()[0];return p?.entry?$('abc').value.slice(p.entry.element.startChar,p.entry.element.endChar).trim():null})()"
+      ),
+    menu = (m, n) => run(`(()=>{const e=${note(m, n)};selectEntry(e);openNoteMenu(e,displayOf(e),10,10)})()`),
+    press = (id, key, extra = '') =>
+      run(`$('${id}').dispatchEvent(new KeyboardEvent('keydown',{key:'${key}',bubbles:true${extra}}))`);
+  w.localStorage.removeItem('fretfree-mark-author');
+  run(`openScore({abc:${JSON.stringify(source)},instrument:'Flute'})`);
+  assert.equal(run("$('marks-panel').hidden"), true, 'A score without marks shows no list');
+  menu(2, 2);
+  assert.match(run("$('note-menu').textContent"), /FEEDBACK💬 Comment…/, 'The note menu offers Comment…');
+  assert.equal(run(`$('note-menu').querySelectorAll('[data-edit^="mark:color:"]').length`), 4, 'and four colors');
+  assert.equal(run(`$('note-menu').querySelector('[data-edit="mark:resolve"]')`), null, 'Resolve waits for a mark');
+  run(`$('note-menu').querySelector('[data-edit="mark:comment"]').click()`);
+  assert.equal(run("$('mark-box').hidden"), false, 'Comment… opens the comment box');
+  assert.equal(run('document.activeElement.id'), 'mark-text', 'with the keyboard in its text box');
+  assert.equal(run("$('mark-title').textContent"), 'Comment on measure 2, note 2');
+  const text = 'Should be F♯ <img src=x onerror="parent.hacked=1"> [K:D] | !p! 50%\nthen count';
+  run(`$('mark-text').value=${JSON.stringify(text)};$('mark-author').value='  Ms.   K '`);
+  run(`document.querySelector('[name="mark-color"][value="blue"]').checked=true`);
+  const steps = run('editHistory.length');
+  press('mark-text', 'Enter');
+  assert.equal(run("$('mark-box').hidden"), true, 'Enter saves and closes the box');
+  assert.equal(run('editHistory.length'), steps + 1, 'A comment is one undo step');
+  assert.equal(music(), source, 'The music is untouched: the mark is one comment line at the end');
+  const [mark] = marks();
+  assert.deepEqual(
+    [mark.m, mark.n, mark.c, mark.t, mark.a, mark.vo, mark.b, mark.w.join(' ')],
+    [2, 2, 'blue', text, 'Ms. K', '0:0', 4, 'd B G2'],
+    'The mark keeps its note, color, text and author'
+  );
+  assert.ok(Math.abs(mark.at - Date.now()) < 60000, 'and the time');
+  const line = run("$('abc').value.split('\\n').find(l=>l.startsWith('% FretFree-Mark:'))");
+  assert.ok(
+    !/[A-Za-z]:|[|!%]/.test(line.slice(17)),
+    'The comment line holds nothing ABC tools read as music or fields'
+  );
+  assert.equal(run("transposeABC($('abc').value,2).split('\\n').find(l=>l.startsWith('% FretFree-Mark:'))"), line);
+  assert.equal(w.localStorage.getItem('fretfree-mark-author'), '"Ms. K"', 'The author name is remembered');
+  assert.equal(heads('blue'), 1, 'The marked notehead takes the color');
+  assert.equal(run("$('marks-panel').hidden"), false, 'The comment is listed above the score');
+  assert.equal(run("$('marks-heading').textContent"), 'Comments on notes (1)');
+  assert.ok(!run("$('marks-list').querySelector('img')") && !w.hacked, 'Comment text is escaped in the list');
+  assert.match(run("$('marks-list').textContent"), /^1Measure 2, note 2Should be F♯ <img [^]*then countMs\. K · /);
+  assert.match(run("$('selection-status').textContent"), /^Comment added to measure 2, note 2\./);
+  assert.match(
+    run(`noteDescription(${note(2, 2)})`),
+    /, comment 1 from Ms\. K: “Should be F♯ <img/,
+    'Screen readers hear it'
+  );
+  // The list's Show opens the comment with its author and time; Edit, Escape, and the escaped text in the box.
+  run("$('marks-list').querySelector('[data-mark-show]').click()");
+  assert.equal(run("$('mark-view').hidden"), false, 'Show opens the comment');
+  assert.equal(run("$('mark-view-text').textContent"), text);
+  assert.ok(!run("$('mark-box').querySelector('img')"), 'and shows its text as text');
+  assert.match(run("$('mark-view-meta').textContent"), /^Ms\. K · /);
+  assert.equal(run('document.activeElement.id'), 'mark-close');
+  press('mark-box', 'Escape');
+  assert.equal(run("$('mark-box').hidden"), true, 'Escape closes it');
+  assert.equal(run('document.activeElement.className'), 'mark-where', 'and the keyboard goes back to Show');
+  // Undo and redo take the comment out and put it back.
+  run('stepHistory(-1)');
+  assert.equal(run("$('abc').value"), source, 'Undo takes the comment out');
+  assert.equal(run("$('marks-panel').hidden"), true);
+  run('stepHistory(1)');
+  assert.equal(marks().length, 1, 'Redo puts it back');
+  // Edits in other measures, and in the same measure, keep the mark on its note.
+  run(`(()=>{const e=${note(1, 1)};applyNoteEdit(e.element.startChar,e.element.endChar,'E ')})()`);
+  assert.equal(marked(), 'B', 'An edit in another measure keeps the mark on its note');
+  run(`(()=>{const e=${note(2, 1)};applyNoteEdit(e.element.startChar,e.element.startChar,'c ')})()`);
+  assert.equal(marked(), 'B', 'A note added before it in its measure');
+  run(`(()=>{const e=${note(1, 1)};applyNoteEdit(e.element.startChar,e.element.startChar,'z4 | ')})()`);
+  assert.equal(marked(), 'B', 'A bar added before its measure');
+  run(`(()=>{const e=${note(3, 3)};applyNoteEdit(e.element.startChar,e.element.endChar,'^F ')})()`);
+  assert.equal(marked(), '^F', 'Its own note corrected in place keeps the mark');
+  assert.equal(heads('blue'), 1);
+  // Taking the note out leaves the mark listed as "note removed", not on another note.
+  run(`(()=>{const e=${note(3, 3)};applyNoteEdit(e.element.startChar,e.element.endChar,'')})()`);
+  assert.equal(marked(), null, 'A removed note’s mark is on no note');
+  assert.equal(heads('blue'), 0, 'and colors none');
+  assert.match(run("$('marks-list').textContent"), /Measure 2, note 2 · note removed/);
+  assert.equal(run("$('marks-list').querySelector('[data-mark-show]')"), null, 'It has nothing to show');
+  assert.equal(marks().length, 1, 'The mark stays in the ABC until it is resolved');
+  // A note turned into a rest (Delete under Keep bars full) counts as removed too.
+  run('stepHistory(-1)');
+  assert.equal(marked(), '^F');
+  run(`(()=>{const e=${note(3, 3)};applyNoteEdit(e.element.startChar,e.element.endChar,'z ')})()`);
+  assert.equal(marked(), null, 'A note turned into a rest leaves its mark removed');
+  run("$('marks-list').querySelector('[data-mark-resolve]').click()");
+  assert.equal(marks().length, 0, 'Resolve takes the mark out');
+  assert.equal(run("$('marks-panel').hidden"), true);
+  run('stepHistory(-1)');
+  assert.equal(marks().length, 1, 'in one undo step');
+  // Colors from the note menu: a color alone, a new color, and the same color again to take it off.
+  run(`openScore({abc:${JSON.stringify(source)},instrument:'Flute'})`);
+  menu(1, 3);
+  run(`$('note-menu').querySelector('[data-edit="mark:color:red"]').click()`);
+  assert.deepEqual(
+    marks().map(m => [m.m, m.n, m.c, m.t ?? '']),
+    [[1, 3, 'red', '']],
+    'A color alone is a mark'
+  );
+  assert.equal(heads('red'), 1);
+  assert.equal(run("document.querySelectorAll('#notation .feedback-bubble').length"), 0, 'without a bubble');
+  assert.match(run("$('marks-list').textContent"), /Measure 1, note 3Marked red/);
+  assert.match(run("$('selection-status').textContent"), /^Measure 1, note 3 marked red\./);
+  menu(1, 3);
+  assert.equal(
+    run(`$('note-menu').querySelector('[data-edit="mark:color:red"]').getAttribute('aria-checked')`),
+    'true',
+    'The note menu shows the color'
+  );
+  run(`$('note-menu').querySelector('[data-edit="mark:color:green"]').click()`);
+  assert.equal(marks()[0].c, 'green', 'Another color changes it');
+  menu(1, 3);
+  run(`$('note-menu').querySelector('[data-edit="mark:color:green"]').click()`);
+  assert.equal(marks().length, 0, 'The same color again takes it off');
+  // The Comment button: the selected note's comment, or Select a note first.
+  run('selectedRange=null;selectionAnchor=null');
+  run("document.querySelector('[data-palette=comment]').click()");
+  assert.match(run("$('selection-status').textContent"), /^Select a note on the score first/);
+  run(`selectEntry(${note(4, 1)})`);
+  run("document.querySelector('[data-palette=comment]').click()");
+  assert.equal(run('document.activeElement.id'), 'mark-text', 'Comment opens the box on the selected note');
+  run("$('mark-text').value='Hold it for four beats'");
+  assert.equal(run("$('mark-author').value"), 'Ms. K', 'with the remembered name');
+  run("$('mark-save').click()");
+  assert.equal(run('document.activeElement.dataset.palette'), 'comment', 'Save gives the keyboard back to Comment');
+  run("document.querySelector('[data-palette=comment]').click()");
+  assert.equal(run("$('mark-view').hidden"), false, 'On a note with a comment, Comment shows it');
+  run("$('mark-edit').click()");
+  assert.equal(run("$('mark-text').value"), 'Hold it for four beats', 'Edit opens it for changes');
+  run("$('mark-cancel').click()");
+  // The student's copy: a share link carries the mark, and it shows there.
+  const link = await run('encodeShare(sharePayload())');
+  assert.equal(await run(`openSharedLink("s=${link}")`), true);
+  assert.equal(run("$('marks-heading').textContent"), 'Comments on notes (1)', 'A shared copy shows the comment');
+  assert.equal(heads('red'), 1, 'and its colored note');
+  assert.match(run("$('marks-list').textContent"), /Measure 4, note 1Hold it for four beatsMs\. K · /);
+  // Marks from a file or link are read field by field: broken lines are left out, odd fields cleaned.
+  const odd =
+    source +
+    '% FretFree-Mark: {not json\n' +
+    '% FretFree-Mark: {"m":0,"n":1}\n' +
+    '% FretFree-Mark: {"v":"1","m":1,"n":2,"c":"<b>","t":' +
+    JSON.stringify('x'.repeat(600)) +
+    ',"a":42,"at":"soon","id":"bad id!","w":"A"}\n' +
+    '% FretFree-Mark: {"v":"1","m":9,"n":1,"t":"Gone","id":"g"}\n';
+  run(`openScore({abc:${JSON.stringify(odd)},instrument:'Flute'})`);
+  assert.deepEqual(
+    marks().map(m => [m.m, m.n, m.c, m.t.length, m.a ?? '', m.at ?? 0, m.id, m.w ?? '']),
+    [
+      [1, 2, 'red', 500, '', 0, 'm0', ''],
+      [9, 1, 'red', 4, '', 0, 'g', '']
+    ]
+  );
+  assert.match(
+    run("$('marks-list').textContent"),
+    /Measure 9, note 1 · note removed/,
+    'A mark past the music is listed'
+  );
+  run("document.querySelector('[data-palette=comment]').click()");
+  run('closeCommentBox()');
+  run(`openScore({abc:${JSON.stringify(source)},instrument:'Flute'})`);
+}
 async function checkMixer() {
   const tick = () => new Promise(r => w.setTimeout(r, 0)),
     names = () =>
@@ -5222,12 +5398,13 @@ async function checkPlayback() {
   await checkRoadMap();
   await checkWavExport();
   await checkMixer();
+  await checkFeedbackMarks();
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-scores-v1')), [legacy]);
   assert.deepEqual(JSON.parse(w.localStorage.getItem('commonnote-favorites-v1')), ['ode', 'mutopia-263']);
   run("openScore(saved[0],saved[0].id);$('save').onclick()");
   assert.equal(run('saved.length'), 1, 'Save updates existing score identity');
   console.log(
-    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, keeping bars full (a shorter note leaving rests, a longer one taking the rests after it or refused with the reason, dots, ranges, Delete leaving a rest and Shift+Delete or Remove taking it out, one undo step each, free time, off as before, on for new scores and prompts and off for editions, kept by saves and drafts), range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, screen-reader note descriptions (selection, arrow keys, edits, typing over rests, pickups, compound and free meters, triplets, written and concert pitch), the shortcut sheet (? and the button, groups, focus trap, search, Enter running a command as one undo step, hints, Escape, tuplet and Measure panel commands), measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), road-map playback (D.C., D.C. al Fine, D.S. al Coda, To Coda and Coda text, jumps after repeats and on several staves, a multi-measure rest on one staff, a D.C. ending at a fermata over a double bar line, library tunes through their real repeats, the highlight, measure starts, practice ranges and play from a note through jumps, metronome clicks, the count-in under a fermata, fermatas held on every staff and pass, no plan and the same notes without jumps, MIDI export in written order, Measure tools hints for segno, Fine and coda), lyrics (L, the Lyrics button, the shortcut sheet and the note menu, Space, -, _ and * as typed, Enter for the next verse, the box kept open past the last note, Tab, Shift+Tab and Backspace, rests passed over, saving on blur, one undo per syllable, the check after notes change (refrains too), marks kept inside a syllable, voices after &, and words kept through transposing, instruments, share links and ABC, MusicXML and SVG export), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, recording yourself (no microphone, denied, count-in bars, one pass, the take and its length, playing alone and lined up with the score, calibration applied to older takes, downloads with credits, delete, a press while saving keeps the take, each unsaved score with takes of its own, takes back with a restored draft and kept through the first save, deleting a saved score with its takes, deleting takes no score can reach but not those open in another tab, cancelling, a stop in the count-in keeping no take, a save while recording, in the tail or while the take is stored keeping the take with the saved score, a library copy taking only the takes recorded since it opened), play-along checks (no microphone, denied, no analyser, the melody off at first, one pass after a one-bar count-in, clicks made of noise, notes marked as they pass without stopping playback, green, yellow and red marks with their words, Pitch and Rhythm % and stars, Easy timing, leaving the melody out for the metronome, a stop in the count-in, silence not kept, an edit while the last note is marked, history per score through the first save and a delete with the melody labeled, marks redrawn on the same music, left off changed music and out of SVG export, Escape, another score opened while the microphone is asked for), the mixer (tracks for one and two voices with chords, Mute at once and left out of the next pass and the WAV file, Solo with the metronome, live Volume and Pan, restarts when a track comes back, count-in with a muted metronome, saving with a new saved time that backups see, reopening, share links, drafts, Reset in the draft too, a library score mixed on a copy that leaves the catalog as it was, and Escape), WAV export (the notes, times, speed, clicks and chords Play has, its own full-level bus, INFO title, scaling, no offline audio, a summary that follows Speed and the instrument, a busy or filling progress bar, a closed panel cutting the render off, too long with its length and MIDI as the way out, a D.C. al Fine with its clicks), instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
+    'PASS: real SVG engraving, all instruments, zoom and measures per line (settings, backups, re-flowed systems), Unicode offsets, drag direction, chord/rhythm preservation, slur- and tuplet-start note edits, keeping bars full (a shorter note leaving rests, a longer one taking the rests after it or refused with the reason, dots, ranges, Delete leaving a rest and Shift+Delete or Remove taking it out, one undo step each, free time, off as before, on for new scores and prompts and off for editions, kept by saves and drafts), range selection (Shift+arrows, Shift+click, select all, one voice, palette buttons and piano keys on a range), copy, cut, paste and duplicate with one undo each, notes keeping their pitch through carried accidentals and fields, deletes that leave no blank line, multi-note pitch, accidental and length edits (written once per range on transposing instruments), notation palette state, edits and guards, screen-reader note descriptions (selection, arrow keys, edits, typing over rests, pickups, compound and free meters, triplets, written and concert pitch), the shortcut sheet (? and the button, groups, focus trap, search, Enter running a command as one undo step, hints, Escape, tuplet and Measure panel commands), measure tools (bars inserted and deleted with one undo, bar lines, a selected bar line, repeats and endings that play, form marks, rehearsal letters, time, key and clef changes, piano staves, transposing instruments), articulations, dynamics and ornaments (keys, palette, More, note menu, rests, written pitch, range selections), slurs, hairpins and trill lines (S and the Lines group on a range or to the next note, rests, voices and voices written in blocks, chained slurs, replacing covered and crossing lines, one undo each, edits on slurred notes, accidentals on trill-line notes on transposing instruments), tuplets and grace notes (T, the Triplet button and Tuplet menu, letters filling the rests and beaming them, taking off and splitting again, duplets in 6/8, rests, line continuations, Delete in a tuplet, marks on its first note, uneven tuplets, guards, Grace, Slashed and Grace ↑↓ from the toolbar and the note menu, written pitch, chord symbols (K, Chord button, note menu, Enter, Tab, Shift+Tab, Escape, removal, text that does not play, written pitch with words left as written, concert pitch view, the Chords switch in playback, export and backups), road-map playback (D.C., D.C. al Fine, D.S. al Coda, To Coda and Coda text, jumps after repeats and on several staves, a multi-measure rest on one staff, a D.C. ending at a fermata over a double bar line, library tunes through their real repeats, the highlight, measure starts, practice ranges and play from a note through jumps, metronome clicks, the count-in under a fermata, fermatas held on every staff and pass, no plan and the same notes without jumps, MIDI export in written order, Measure tools hints for segno, Fine and coda), lyrics (L, the Lyrics button, the shortcut sheet and the note menu, Space, -, _ and * as typed, Enter for the next verse, the box kept open past the last note, Tab, Shift+Tab and Backspace, rests passed over, saving on blur, one undo per syllable, the check after notes change (refrains too), marks kept inside a syllable, voices after &, and words kept through transposing, instruments, share links and ABC, MusicXML and SVG export), repeats, pickups, ties, tempo changes, swing feel (Feel menu, tempo text, one undo, swung start times at 90 and 120 BPM, through a tempo change, without Q: and in 2/2, pickups at repeats, playing from an off-beat, straight 6/8), speed scaling, practice ranges (no stray notes at their edges), count-in, metronome, cut-time tempo (ranges, clicks, count-in, swing and the Tempo slider in the beat Q: names), master volume bus, note audition, recording yourself (no microphone, denied, count-in bars, one pass, the take and its length, playing alone and lined up with the score, calibration applied to older takes, downloads with credits, delete, a press while saving keeps the take, each unsaved score with takes of its own, takes back with a restored draft and kept through the first save, deleting a saved score with its takes, deleting takes no score can reach but not those open in another tab, cancelling, a stop in the count-in keeping no take, a save while recording, in the tail or while the take is stored keeping the take with the saved score, a library copy taking only the takes recorded since it opened), play-along checks (no microphone, denied, no analyser, the melody off at first, one pass after a one-bar count-in, clicks made of noise, notes marked as they pass without stopping playback, green, yellow and red marks with their words, Pitch and Rhythm % and stars, Easy timing, leaving the melody out for the metronome, a stop in the count-in, silence not kept, an edit while the last note is marked, history per score through the first save and a delete with the melody labeled, marks redrawn on the same music, left off changed music and out of SVG export, Escape, another score opened while the microphone is asked for), the mixer (tracks for one and two voices with chords, Mute at once and left out of the next pass and the WAV file, Solo with the metronome, live Volume and Pan, restarts when a track comes back, count-in with a muted metronome, saving with a new saved time that backups see, reopening, share links, drafts, Reset in the draft too, a library score mixed on a copy that leaves the catalog as it was, and Escape), feedback marks on notes (the note menu’s Comment… and colors, the Comment button, one undo step each, the list with Show and Resolve, escaped text, marks kept through edits elsewhere and in their measure, removed notes and rests listed, the student’s copy from a share link, damaged mark lines), WAV export (the notes, times, speed, clicks and chords Play has, its own full-level bus, INFO title, scaling, no offline audio, a summary that follows Speed and the instrument, a busy or filling progress bar, a closed panel cutting the render off, too long with its length and MIDI as the way out, a D.C. al Fine with its clicks), instrument sounds (both menus from one list, one oscillator per note with no square wave, playback octaves, horn in F, tenor and baritone sax written pitch, typing and prompts, captions and embed labels), on-screen piano entry, spelling and chords, Z respelling (keys, chords as one, bar accidentals and their tidying, written names, palette and note menu, not on a range), MIDI keyboard entry (chords, denied access, no SysEx, drum channel, playback and view guards, plugging in and out, closing ports), bar checks, transposing (whole score, selected measures, to a key, transposing instruments, no K: line, bagpipe keys), a transpose panel that follows the score, key changes that keep clef=, written-key letters for typing and accidentals, concert pitch view (display only, remembered and backed up, letters, accidentals, piano keys and Respell names in the pitch shown, stale note menus, prompt goals and assignments in written pitch with a note in concert view), the key and meter menus, classroom colors and letters in noteheads, MusicXML at concert pitch, and legacy storage.'
   );
   // Let the takes list that the last save refreshes finish before the window goes.
   await new Promise(r => setTimeout(r, 20));

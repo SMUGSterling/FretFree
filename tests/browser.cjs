@@ -4412,10 +4412,10 @@ const {chromium} = require('playwright'),
     assert.equal(
       await phone.evaluate(() => document.activeElement.dataset.palette),
       'more',
-      'ArrowRight from Lyrics skips the folded Lines and Grace notes'
+      'ArrowRight from Lyrics skips the folded Feedback, Lines and Grace notes'
     );
     await phone.keyboard.press('Enter');
-    assert.equal(await tier2(), 5, 'More shows the second tier');
+    assert.equal(await tier2(), 6, 'More shows the second tier');
     await phone.focus('[data-palette="respell"]');
     await phone.keyboard.press('ArrowRight');
     assert.equal(await phone.evaluate(() => document.activeElement.dataset.palette), 'beam:join');
@@ -4431,7 +4431,7 @@ const {chromium} = require('playwright'),
     });
     const moreAt = await moreTop();
     await phone.tap('[data-palette="more"]');
-    assert.equal(await tier2(), 5);
+    assert.equal(await tier2(), 6);
     assert.ok(Math.abs((await moreTop()) - moreAt) < 2, 'Opening More leaves it where it was');
     assert.ok(
       await phone.evaluate(
@@ -4792,10 +4792,223 @@ const {chromium} = require('playwright'),
       $('speed').oninput();
     });
   }
+  // Feedback marks: a teacher comments on a note from the note menu by pointer, and colors another; the student's copy
+  // from a link shows the colored notes and numbered bubbles, a tap on a bubble opens the comment with its author and
+  // time, and Resolve takes it out. Comments are added by keyboard with 💬 Comment. Marks stay on their notes through
+  // edits elsewhere, a removed note's mark is listed, and colors and bubbles stay out of SVG export and print unless
+  // Print comments is ticked.
+  {
+    const markSource = 'X:1\nT:Feedback test\nM:4/4\nL:1/4\nK:G\nG A B c | d B G2 | A B c A | G4 |]\n',
+      noteAt = (m, n) => page.locator(`#notation .abcjs-note.abcjs-m${m - 1}.abcjs-n${n - 1} .abcjs-notehead`).first(),
+      fill = (p, sel) => p.evaluate(sel => getComputedStyle(document.querySelector(sel)).fill, sel),
+      rgb = (p, token) =>
+        p.evaluate(token => {
+          const probe = document.createElement('i');
+          probe.style.color = `var(${token})`;
+          document.body.append(probe);
+          const c = getComputedStyle(probe).color;
+          probe.remove();
+          return c;
+        }, token);
+    await page.evaluate(src => {
+      storage.remove(KEYS.markAuthor);
+      openScore({abc: src, instrument: 'Flute'});
+      window.scrollTo({top: 0, behavior: 'instant'});
+    }, markSource);
+    await rightClick(noteAt(2, 2));
+    await page.click('#note-menu [data-edit="mark:comment"]');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'mark-text', 'Comment… opens the box');
+    await page.keyboard.type('Should be F♯ <b>here</b>');
+    await page.fill('#mark-author', 'Ms. K');
+    await page.click('#mark-box label:has([value="orange"])');
+    await page.click('#mark-save');
+    await page.waitForFunction(() => document.querySelector('#notation .feedback-bubble'));
+    // A selected note shows the selection color, so the marks are looked at with nothing selected.
+    const unselect = () =>
+      page.evaluate(() => {
+        selectedRange = null;
+        selectionAnchor = null;
+        render();
+      });
+    await unselect();
+    assert.equal(
+      await fill(page, '#notation .feedback-head.mark-orange'),
+      await rgb(page, '--mark-orange'),
+      'The marked note is orange'
+    );
+    assert.equal(await page.textContent('#notation .feedback-bubble text'), '1', 'with a numbered bubble');
+    // A color alone from the note menu, on another note: no bubble.
+    await rightClick(noteAt(3, 4));
+    await page.click('#note-menu [data-edit="mark:color:red"]');
+    await unselect();
+    assert.equal(await fill(page, '#notation .feedback-head.mark-red'), await rgb(page, '--mark-red'));
+    assert.equal(await page.locator('#notation .feedback-bubble').count(), 1, 'A color alone has no bubble');
+    // An edit in another measure keeps both marks on their notes.
+    await page.evaluate(() => {
+      $('abc').value = $('abc').value.replace('G A B c |', 'G A B B |');
+      render();
+    });
+    assert.deepEqual(
+      await page.evaluate(() =>
+        placedFeedback().map(p => $('abc').value.slice(p.entry.element.startChar, p.entry.element.endChar).trim())
+      ),
+      ['B', 'A'],
+      'Marks stay on their notes'
+    );
+    // SVG export and print leave them out; Print comments puts them in, with the list.
+    const exported = await page.evaluate(() => {
+      window.__downloads = [];
+      download = data => __downloads.push(data);
+      $('export-svg').click();
+      return __downloads[0];
+    });
+    assert.ok(exported.includes('<svg') && !exported.includes('feedback-bubble'), 'No bubbles in SVG export');
+    assert.ok(!exported.includes('Should be'), 'nor comment text');
+    const headInk = await page.evaluate(() => {
+      const plain = [...document.querySelectorAll('#notation .abcjs-notehead')].find(
+        h => !h.classList.contains('feedback-head')
+      );
+      return getComputedStyle(plain).fill;
+    });
+    await page.emulateMedia({media: 'print'});
+    assert.deepEqual(
+      await page.evaluate(() => [
+        getComputedStyle(document.querySelector('#notation .feedback-bubble')).display,
+        getComputedStyle($('marks-panel')).display
+      ]),
+      ['none', 'none'],
+      'Bubbles and the list do not print'
+    );
+    assert.equal(await fill(page, '#notation .feedback-head.mark-orange'), headInk, 'Marked notes print in ink');
+    await page.emulateMedia({media: 'screen'});
+    await page.check('#print-comments');
+    await page.emulateMedia({media: 'print'});
+    assert.deepEqual(
+      await page.evaluate(() => [
+        getComputedStyle(document.querySelector('#notation .feedback-bubble')).display,
+        getComputedStyle($('marks-panel')).display,
+        getComputedStyle(document.querySelector('.mark-resolve')).display
+      ]),
+      ['inline', 'block', 'none'],
+      'Print comments prints the bubbles and the list, without its buttons'
+    );
+    assert.notEqual(await fill(page, '#notation .feedback-head.mark-orange'), headInk, 'and the colors');
+    await page.emulateMedia({media: 'screen'});
+    await page.uncheck('#print-comments');
+    // The student's copy, from a link, on a phone: the colors, the bubble, and the comment on a tap.
+    await page.evaluate(() => shareLink());
+    await page.waitForFunction(() => $('share-url').value.includes('#s='));
+    const shareUrl = await page.evaluate(() => $('share-url').value);
+    await page.evaluate(() => closeShare());
+    const phone = await browser.newPage({viewport: {width: 390, height: 844}, hasTouch: true});
+    phone.on('pageerror', e => errors.push(e.message));
+    await phone.goto(shareUrl);
+    await phone.waitForFunction(
+      () => current?.kind === 'shared' && document.querySelector('#notation .feedback-bubble')
+    );
+    assert.equal(await phone.textContent('#marks-heading'), 'Comments on notes (2)', 'The student sees the marks');
+    assert.ok(!(await phone.$('#marks-list b')), 'with the text escaped');
+    assert.equal(await fill(phone, '#notation .feedback-head.mark-red'), await rgb(phone, '--mark-red'));
+    await phone.evaluate(() =>
+      document.querySelector('#notation .feedback-bubble').scrollIntoView({block: 'center', behavior: 'instant'})
+    );
+    await phone.waitForTimeout(150);
+    const bubble = await phone.evaluate(() => {
+      const r = document.querySelector('#notation .feedback-bubble path').getBoundingClientRect();
+      return {x: r.x + r.width / 2, y: r.y + r.height / 2, width: r.width};
+    });
+    assert.ok(bubble.width >= 21, `The bubble is big enough to tap on a phone: ${bubble.width}px`);
+    await phone.touchscreen.tap(bubble.x, bubble.y);
+    await phone.waitForFunction(() => !$('mark-box').hidden);
+    assert.deepEqual(
+      await phone.evaluate(() => [
+        $('mark-title').textContent,
+        $('mark-view-text').textContent,
+        /^Ms\. K · \w+ \d+, \d+:\d\d/.test($('mark-view-meta').textContent),
+        $('abc').value.includes('d B G2')
+      ]),
+      ['Comment 1 on measure 2, note 2', 'Should be F♯ <b>here</b>', true, true],
+      'A tap on the bubble shows the comment, its author and time, and changes nothing'
+    );
+    const boxEdges = await phone.evaluate(() => {
+      const r = $('mark-box').getBoundingClientRect();
+      return [r.left >= 0, r.right <= innerWidth, document.documentElement.scrollWidth <= innerWidth];
+    });
+    assert.deepEqual(boxEdges, [true, true, true], 'The comment fits a phone, without sideways scrolling');
+    await phone.tap('#mark-resolve');
+    await phone.waitForFunction(() => document.querySelectorAll('#notation .feedback-bubble').length === 0);
+    assert.equal(await phone.textContent('#marks-heading'), 'Comments on notes (1)', 'Resolve takes the comment out');
+    await phone.close();
+    // By keyboard: select a note with the arrow keys, then 💬 Comment, type, Tab to the color, and save.
+    await page.evaluate(() => {
+      selectedRange = null;
+      selectionAnchor = null;
+      render();
+    });
+    await page.focus('#notation');
+    for (let i = 0; i < 13; i++) await page.keyboard.press('ArrowRight');
+    await page.focus('#palette [data-palette="comment"]');
+    await page.keyboard.press('Enter');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'mark-text');
+    assert.equal(await page.textContent('#mark-title'), 'Comment on measure 4, note 1');
+    await page.keyboard.type('Hold for four beats');
+    assert.equal(await page.inputValue('#mark-author'), 'Ms. K', 'The name is remembered');
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => readMarks($('abc').value).length === 3);
+    assert.deepEqual(await page.evaluate(() => readMarks($('abc').value).map(m => [m.m, m.n, m.c, m.t || ''])), [
+      [2, 2, 'orange', 'Should be F♯ <b>here</b>'],
+      [3, 4, 'red', ''],
+      [4, 1, 'green', 'Hold for four beats']
+    ]);
+    assert.equal(
+      await page.evaluate(() => document.activeElement.dataset.palette),
+      'comment',
+      'The keyboard goes back'
+    );
+    // Deleting a marked note lists its mark as removed instead of moving it.
+    await page.evaluate(() => {
+      $('abc').value = $('abc').value.replace('d B G2', 'd G2');
+      render();
+    });
+    assert.match(await page.textContent('#marks-list'), /Measure 2, note 2 · note removed/);
+    assert.equal(await page.locator('#notation .feedback-head.mark-orange').count(), 0, 'and colors no note');
+    // Turned-in work: the note-entry bar's Feedback group colors the selected note in one press, by pointer (the
+    // keyboard goes back to the score, so → reaches the next note) and by keyboard (it stays on the button).
+    assert.equal(await page.isVisible('#teacher-tools'), false, 'The Feedback group waits for turned-in work');
+    await page.evaluate(src => {
+      dirty = false;
+      openScore({abc: src, instrument: 'Flute', submission: {id: 'fb1', name: 'Ana', at: Date.now()}});
+      window.scrollTo({top: 0, behavior: 'instant'});
+    }, markSource);
+    await page.waitForSelector('#teacher-tools', {state: 'visible'});
+    await noteAt(1, 1).click({force: true});
+    await page.click('#teacher-tools [data-teacher="color:blue"]');
+    assert.equal(await page.getAttribute('#teacher-tools [data-teacher="color:blue"]', 'aria-pressed'), 'true');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'notation', 'A press gives the score the keys');
+    await page.keyboard.press('ArrowRight');
+    await page.focus('#teacher-tools [data-teacher="color:green"]');
+    await page.keyboard.press('Enter');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.teacher), 'color:green');
+    await unselect();
+    assert.deepEqual(await page.evaluate(() => readMarks($('abc').value).map(m => [m.m, m.n, m.c])), [
+      [1, 1, 'blue'],
+      [1, 2, 'green']
+    ]);
+    assert.equal(await fill(page, '#notation .feedback-head.mark-green'), await rgb(page, '--mark-green'));
+    await page.evaluate(() => {
+      dirty = false;
+      openScore({abc: 'X:1\nT:Done\nK:C\nC4|]', instrument: 'Flute'});
+      storage.remove(KEYS.markAuthor);
+    });
+  }
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(
-    'PASS: studio layout (every control shown at 1280 and 1440px, Mixer on the first playback row and in view on a phone, Keep bars full after Hear notes with the note-entry bar on one row at 1440px, the score high on the page, palette heading contrast, keyboard keys by keyboard and pointer and remembered, folds by touch, pointer and keyboard at phone width, remembered after a reload, in-use badges unlike the open look, warnings kept for screen readers while folded, phone touch sizes, the palette’s second tier behind More, skipped by arrow keys and More kept under the finger, Chord and Lyrics in view, the tab stop after an iPad turns, the bar check’s Show opening Write notes, iPad tab order and touch, print), Keep bars full (rests left by a shorter note, taken back by a longer one, a dot refused with the reason, Delete and Shift+Delete, the switch by keyboard and at phone width), screen-reader note names on click, arrow keys and edits, the shortcut sheet (?, search, Enter, click, focus trap, Escape, over the note menu, fits the window and a phone) and an accessible name on every studio button, dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, road-map playback (the highlight and status line through a D.C. al Fine, from Play and from a note with Space), draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), tuplets and grace notes (T and letters filling and beaming the rests, staccato on and off and Delete in a triplet, the Tuplet menu by pointer, Grace, Grace ↑ and Slashed by pointer and keyboard, undo), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), lyrics (L, a verse typed with hyphens, Enter for the next verse with the box under it, undo, the toolbar button by keyboard, click away, a verse typed past the last note then Enter, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, the mixer (keyboard and pointer, Mute at once, live Volume and Pan through a StereoPannerNode, unmuting during playback, Reset, Escape, phone width), play-along checks (by keyboard, the melody off at first, the score heard back through a loopback with the melody on marked green while it plays on and labeled, Pitch and Rhythm shown, a steady wrong note all red with its words, marks out of SVG export and print, phone width, Escape, no off-site requests, the speakers leaking into the microphone with the melody off: a silent student heard as nothing and a late one as late, Speed and Chords off while a check runs, notes after a fermata and through a D.C. al Fine marked in their own measures, a bass guitar’s lowest notes heard), note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), WAV export (keyboard and pointer, a real download as long as playback at the chosen speed, 16-bit stereo at 44.1 kHz, sound from the first note, scaling, INFO credits, metronome, a summary that follows the Speed slider and the Instrument menu, the same file with progress checkpoints, Escape, a progress bar on a long score and closing the panel stopping its render at once, phone width), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, recording yourself (calibration by keyboard, a take lined up with the score within 50 ms, one pass with Loop on, not out of reach in another tab, kept with the score through a save and a reload, playing with the score, download, delete by keyboard, Escape, phone width, no off-site requests), offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
+    'PASS: studio layout (every control shown at 1280 and 1440px, Mixer on the first playback row and in view on a phone, Keep bars full after Hear notes with the note-entry bar on one row at 1440px, the score high on the page, palette heading contrast, keyboard keys by keyboard and pointer and remembered, folds by touch, pointer and keyboard at phone width, remembered after a reload, in-use badges unlike the open look, warnings kept for screen readers while folded, phone touch sizes, the palette’s second tier behind More, skipped by arrow keys and More kept under the finger, Chord and Lyrics in view, the tab stop after an iPad turns, the bar check’s Show opening Write notes, iPad tab order and touch, print), Keep bars full (rests left by a shorter note, taken back by a longer one, a dot refused with the reason, Delete and Shift+Delete, the switch by keyboard and at phone width), screen-reader note names on click, arrow keys and edits, the shortcut sheet (?, search, Enter, click, focus trap, Escape, over the note menu, fits the window and a phone) and an accessible name on every studio button, dark theme (device setting, keyboard and pointer choice, Dark paper, contrast, print, SVG export, reload, phone width, applied before the first paint, tablet header, Dark paper tap size), embed code in a local HTML file (desktop and phone width, read-only, credits, no storage), QR codes (dense codes at 3px per module) and the long-link note, share panel tabs by keyboard, version history (keyboard and pointer, preview, play, stopping on leaving My scores, restore, save, phone width), zoom and measures per line (clicks, drags and drawing at 70% and 200%, announcements, long titles and SVG export at 200%, reflow, guitar tab after reflow, reload, phone width), unsaved-work recovery, backup and restore, blank sheets and draw-on-rest, new score templates (keyboard panel, piano staves, left-hand typing, add bars to every staff, guitar tab caption and drawing on the left hand, phone width), try-next suggestions and played marks, skill filter chips, library card previews, native mouse clicks and upward drags across instruments, drag ratio, playback note highlight, road-map playback (the highlight and status line through a D.C. al Fine, from Play and from a note with Space), draw mode, note properties menu (written-pitch accidentals, chords, broken rhythm, implicit L:), sustained highlights, practice ranges, gapless loops, speed trainer, metronome, bar check, undo/redo, keyboard note entry, slur- and tuplet-start edits, range selection with copy, cut, paste and duplicate, notation palette (state, pointer, keyboard, phone width), articulation keys, dynamics, More marks and note-menu marks, measure tools (keyboard and pointer, inserted bars typed over, engraved repeats, endings and rehearsal marks, key changes by keyboard, phone width), slurs, hairpins and trill lines (Shift+click and S, Cresc., one note to the next, Lines from the keyboard, undo, the drawn trill line), tuplets and grace notes (T and letters filling and beaming the rests, staccato on and off and Delete in a triplet, the Tuplet menu by pointer, Grace, Grace ↑ and Slashed by pointer and keyboard, undo), chord symbols (K, Enter, Tab, undo, the toolbar button by keyboard, removal, click away, Chords in playback, phone width), lyrics (L, a verse typed with hyphens, Enter for the next verse with the box under it, undo, the toolbar button by keyboard, click away, a verse typed past the last note then Enter, phone width), writing prompts, teacher-written assignment links (keyboard builder, student copy, print), turning in by tap and keyboard and the Submissions inbox (paste, bad lines, Previous/Next, feedback return link, phone width), play from a note, note names, classroom colors and letters in noteheads (keyboard, selection, print, SVG export, persistence, written pitch), guitar tab, recorder fingering, transposing selected measures and to a key, key changes with Keep notes, focus and undo, drawing in a respelled written key, concert pitch view (keyboard and pointer, drawing and typing in concert pitch, closing the note menu), measure playback, live percent speed, master volume bus and limiter, live volume, the mixer (keyboard and pointer, Mute at once, live Volume and Pan through a StereoPannerNode, unmuting during playback, Reset, Escape, phone width), play-along checks (by keyboard, the melody off at first, the score heard back through a loopback with the melody on marked green while it plays on and labeled, Pitch and Rhythm shown, a steady wrong note all red with its words, marks out of SVG export and print, phone width, Escape, no off-site requests, the speakers leaking into the microphone with the melody off: a silent student heard as nothing and a late one as late, Speed and Chords off while a check runs, notes after a fermata and through a D.C. al Fine marked in their own measures, a bass guitar’s lowest notes heard), note audition (click, letters, note buttons, arrows, draw, off, quiet during playback), instrument sounds (a periodic wave per instrument, distinct waveforms, plucked notes fading and held notes holding in offline renders, violin vibrato, the library filter list, Listen in the filtered instrument’s wave and octave, opening in the filtered instrument), WAV export (keyboard and pointer, a real download as long as playback at the chosen speed, 16-bit stereo at 44.1 kHz, sound from the first note, scaling, INFO credits, metronome, a summary that follows the Speed slider and the Instrument menu, the same file with progress checkpoints, Escape, a progress bar on a long score and closing the panel stopping its render at once, phone width), on-screen piano (taps, Shift+click and held-key chords, keyboard, lights, print, mobile, touch swipes and taps, range after reload), MIDI keyboard entry (mocked input, timing, chords, lights, keyboard toggle, refusal, no Web MIDI, phone width), Z respelling, recording yourself (calibration by keyboard, a take lined up with the score within 50 ms, one pass with Loop on, not out of reach in another tab, kept with the score through a save and a reload, playing with the score, download, delete by keyboard, Escape, phone width, no off-site requests), feedback marks on notes (a comment from the note menu by pointer and by keyboard with the palette’s 💬 Comment, a color alone, marks kept through edits elsewhere, a removed note listed, out of SVG export and print unless Print comments, the student’s copy from a link at phone width with a tap on the bubble, escaped text, Resolve, the Feedback group on turned-in work by pointer and keyboard), offline use (library, an opened score and its PDF, editing and playback with the server gone; a deploy cut short leaving the last complete copy; a new deploy after one reload; old assets dropped; a corrected PDF online and offline; installability; Install app by keyboard at phone width; the header at iPad and laptop widths; no off-site requests), legacy storage, mobile width, MusicXML export by keyboard, opening a MusicXML .mxl by keyboard at phone width, and no browser errors.'
   );
 })().catch(e => {
   console.error(e);

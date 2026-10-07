@@ -27,6 +27,7 @@ const KEYS = {
   attempts: 'fretfree-attempts',
   checkLevel: 'fretfree-check-level',
   checkMelody: 'fretfree-check-melody',
+  markAuthor: 'fretfree-mark-author',
   // Which studio folds are open in the compact layout: a per-device layout choice, so backups leave it out.
   studioPanels: 'fretfree-studio-panels',
   practice: id => 'fretfree-practice-' + id

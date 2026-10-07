@@ -4741,3 +4741,164 @@ const checkWords = c => `pitch ${c.pitch}%, rhythm ${c.rhythm}%, ${c.stars} ${c.
 const checkSettings = c =>
   `${CHECK_LEVELS[c.level].label}, ${c.speed}% speed, ${c.from === c.to ? `measure ${c.from}` : `measures ${c.from}–${c.to}`}` +
   (c.melody ? ', melody on' : '');
+
+// Teacher feedback marks: a color and an optional comment on one note, kept in the ABC as a comment line,
+//   % FretFree-Mark: {"v":"1","vo":"0:0","m":3,"n":2,"c":"red","t":"Should be F♯","a":"Ms. K","at":…,"id":…,"b":8,"w":[…]}
+// so they travel with saves, links, backups and turned-in work, and abcjs ignores them. A mark is anchored by its
+// voice (vo, staff:voice as scoreEvents keys it), its measure (m) and its place among the measure's notes and rests
+// (n, from 1). w keeps the measure's notes as they were (pitch and length, without marks), so a note added or taken out
+// earlier in the measure does not move the mark onto a neighbor, and a mark whose note is gone is found as such; b is
+// how many measures the voice had, so a bar added or taken out before the mark's measure does not move it either.
+// Marks are read field by field: they come from links and files. Inside the JSON strings, the characters that ABC
+// tools read as fields or music ([K:…], |, !) are written as \u escapes, so transposing or editing never touches them.
+const MARK_LINE = /^% FretFree-Mark:[ \t]*(.*?)\r?$/,
+  MARK_COLORS = ['red', 'orange', 'green', 'blue'],
+  MARK_TEXT_MAX = 500,
+  MARK_AUTHOR_MAX = 60,
+  MARKS_MAX = 200;
+function markString(value, max) {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f\u2028\u2029]/g, '')
+    .trim()
+    .slice(0, max);
+}
+function cleanMark(x) {
+  if (!x || typeof x !== 'object' || Array.isArray(x)) return null;
+  const m = x.m,
+    n = x.n;
+  if (!Number.isInteger(m) || !Number.isInteger(n) || m < 1 || n < 1 || m > 99999 || n > 9999) return null;
+  const mark = {
+    v: '1',
+    vo: typeof x.vo === 'string' && /^\d{1,3}:\d{1,3}$/.test(x.vo) ? x.vo : '0:0',
+    m,
+    n,
+    c: MARK_COLORS.includes(x.c) ? x.c : MARK_COLORS[0]
+  };
+  const t = markString(x.t, MARK_TEXT_MAX),
+    a = markString(x.a, MARK_AUTHOR_MAX).replace(/\s+/g, ' ');
+  if (t) mark.t = t;
+  if (a) mark.a = a;
+  if (Number.isFinite(x.at) && x.at > 0 && x.at < 1e14) mark.at = Math.round(x.at);
+  if (typeof x.id === 'string' && /^[a-z0-9]{1,16}$/i.test(x.id)) mark.id = x.id;
+  if (Number.isInteger(x.b) && x.b >= 1 && x.b <= 99999) mark.b = x.b;
+  if (Array.isArray(x.w) && x.w.length && x.w.length <= 64 && x.w.every(w => typeof w === 'string' && w.length <= 40))
+    mark.w = x.w.slice();
+  return mark;
+}
+// The marks in a score, in the order written. Each has an id; a mark without one (or with a repeated one, from a
+// copied line) gets one by its place.
+function readMarks(source) {
+  const marks = [],
+    ids = new Set();
+  for (const line of String(source ?? '').split('\n')) {
+    const hit = line.match(MARK_LINE);
+    if (!hit || marks.length >= MARKS_MAX) continue;
+    let mark = null;
+    try {
+      mark = cleanMark(JSON.parse(hit[1]));
+    } catch {}
+    if (!mark) continue;
+    if (!mark.id || ids.has(mark.id)) {
+      let i = marks.length;
+      while (ids.has('m' + i)) i++;
+      mark.id = 'm' + i;
+    }
+    ids.add(mark.id);
+    marks.push(mark);
+  }
+  return marks;
+}
+function markLine(mark) {
+  const {v, vo, m, n, c, t, a, at, id, b, w} = mark,
+    json = JSON.stringify({v, vo, m, n, c, t, a, at, id, b, w});
+  return (
+    '% FretFree-Mark: ' +
+    json.replace(/"(?:[^"\\]|\\.)*"/g, s =>
+      s.replace(/[:[\]|!%&<>]/g, ch => '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0'))
+    )
+  );
+}
+// The score with its mark lines replaced by marks, one line each at the end of the text. Nothing else changes, and a
+// score without marks stays byte for byte as it was.
+function writeMarks(source, marks) {
+  source = String(source ?? '');
+  const lines = source.split('\n'),
+    kept = lines.filter(line => !MARK_LINE.test(line)),
+    clean = (marks || []).map(cleanMark).filter(Boolean).slice(0, MARKS_MAX);
+  if (!clean.length) return kept.length === lines.length ? source : kept.join('\n');
+  return kept.join('\n').replace(/\n*$/, '\n') + clean.map(markLine).join('\n') + '\n';
+}
+// A note or rest as a mark remembers it: its pitch (or chord) and length, without marks, chord symbols or spaces.
+function markWord(text) {
+  const p = String(text).match(NOTE_PARTS);
+  return (p ? p[2] + p[3] : String(text).replace(/\s+/g, '')).slice(0, 40);
+}
+const restWord = word => /^[xzXZ]/.test(word);
+// Each voice's notes and rests by measure, in order: voice -> measure -> events. events are scoreEvents entries.
+function markMeasures(events) {
+  const voices = new Map(),
+    ordinal = e => +e.key.split(':')[2];
+  for (const e of events || []) {
+    if (e?.element?.el_type !== 'note') continue;
+    const vo = e.key.split(':').slice(0, 2).join(':');
+    if (!voices.has(vo)) voices.set(vo, new Map());
+    const bars = voices.get(vo);
+    if (!bars.has(e.measure)) bars.set(e.measure, []);
+    bars.get(e.measure).push(e);
+  }
+  for (const bars of voices.values()) for (const list of bars.values()) list.sort((a, b) => ordinal(a) - ordinal(b));
+  return voices;
+}
+const markWords = (list, source) =>
+  list.map(e => markWord(String(source).slice(e.element.startChar, e.element.endChar)));
+// The anchor of the note or rest starting at source offset `at`: {vo, m, n, b, w}, or null.
+function anchorOf(events, at, source) {
+  for (const [vo, bars] of markMeasures(events))
+    for (const [m, list] of bars) {
+      const i = list.findIndex(e => e.element.startChar === at);
+      if (i >= 0) return {vo, m, n: i + 1, b: Math.max(...bars.keys()), w: markWords(list, source)};
+    }
+  return null;
+}
+// Where the note at place i of a measure's notes as they were (old) is now (cur): the notes both share are matched
+// in order (a longest common subsequence). A note in the match keeps its mark. Between two matched notes, as many
+// notes changed as there were (a pitch corrected in place): the mark keeps its place among them, unless its note
+// became a rest. Otherwise the note was taken out: at is -1. kept counts the matched notes.
+function markPlace(old, cur, i) {
+  const n = old.length,
+    m = cur.length,
+    common = Array.from({length: n + 1}, () => new Array(m + 1).fill(0));
+  for (let a = n - 1; a >= 0; a--)
+    for (let b = m - 1; b >= 0; b--)
+      common[a][b] = old[a] === cur[b] ? common[a + 1][b + 1] + 1 : Math.max(common[a + 1][b], common[a][b + 1]);
+  const pairs = [];
+  for (let a = 0, b = 0; a < n && b < m;)
+    if (old[a] === cur[b]) pairs.push([a++, b++]);
+    else if (common[a + 1][b] >= common[a][b + 1]) a++;
+    else b++;
+  const hit = pairs.find(p => p[0] === i);
+  if (hit) return {at: hit[1], kept: pairs.length};
+  const before = pairs.filter(p => p[0] < i).at(-1) || [-1, -1],
+    after = pairs.find(p => p[0] > i) || [n, m];
+  if (i >= n || after[0] - before[0] !== after[1] - before[1]) return {at: -1, kept: pairs.length};
+  const at = before[1] + i - before[0];
+  return {at: restWord(cur[at]) && !restWord(old[i]) ? -1 : at, kept: pairs.length};
+}
+// The event a mark is on now, or null when its note is gone. Edits in other measures leave it where it was. When the
+// voice has gained or lost measures, the measure as many places on is tried too, and the one that kept more of the
+// mark's measure takes it (its own measure when they are even).
+function entryForAnchor(events, mark, source) {
+  const bars = mark && markMeasures(events).get(mark.vo || '0:0');
+  if (!bars) return null;
+  if (!mark.w) return bars.get(mark.m)?.[mark.n - 1] || null;
+  const shift = mark.b ? Math.max(...bars.keys()) - mark.b : 0;
+  let best = null;
+  for (const m of shift ? [mark.m, mark.m + shift] : [mark.m]) {
+    const here = bars.get(m) || [],
+      place = markPlace(mark.w, markWords(here, source), mark.n - 1);
+    if (!best || place.kept > best.place.kept) best = {here, place};
+  }
+  return best.place.at >= 0 ? best.here[best.place.at] || null : null;
+}

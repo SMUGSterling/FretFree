@@ -35,6 +35,7 @@ const SCRIPTS = [
   'turn-in.js',
   'record.js',
   'assess.js',
+  'marks.js',
   'app.js'
 ];
 // A fresh page load: `seed` fills localStorage before the scripts run, as a previous visit would have left it.
@@ -1544,6 +1545,25 @@ assert.equal(
   );
   // The return link carries the feedback (c) and the assignment, without a name or time.
   $('inbox-list').querySelector('[data-inbox-open]').click();
+  // While turned-in work is open, the note-entry bar has the teacher's Feedback group: a color for the selected note
+  // in one press, which goes back to the student inside the return link's music.
+  await until(() => !$('teacher-tools').hidden);
+  $('teacher-tools').querySelector('[data-teacher="color:red"]').click();
+  assert.match($('selection-status').textContent, /^Select a note on the score first/, 'A color needs a note');
+  run('selectEntry(scoreNotes()[1])');
+  assert.equal($('teacher-tools').querySelector('[aria-pressed="true"]'), null);
+  $('teacher-tools').querySelector('[data-teacher="color:red"]').click();
+  assert.deepEqual(
+    JSON.parse(run('JSON.stringify(readMarks($("abc").value).map(m => [m.m, m.n, m.c]))')),
+    [[1, 2, 'red']],
+    'Red marks the selected note'
+  );
+  assert.equal(
+    $('teacher-tools').querySelector('[aria-pressed="true"]').dataset.teacher,
+    'color:red',
+    'and shows as pressed'
+  );
+  assert.equal(w.document.activeElement.dataset.teacher, 'color:red', 'The keyboard stays on the button');
   $('feedback-link').click();
   await until(() => !$('feedback-result').hidden);
   assert.match($('toast').textContent, /copy it, then send it to Ana/);
@@ -1557,6 +1577,8 @@ assert.equal(
   assert.equal($('feedback-note').hidden, false, 'The student sees the feedback');
   assert.equal($('feedback-note-text').textContent, 'Lovely steps. <b>End</b> on C.');
   assert.equal($('feedback-note').querySelector('b'), null, 'Feedback is escaped');
+  assert.match($('marks-list').textContent, /Measure 1, note 2Marked red/, 'and the marked note');
+  await until(() => $('teacher-tools').hidden);
   assert.deepEqual([$('submission-bar').hidden, $('turn-in').hidden], [true, false], 'Ready to revise and turn in');
   assert.match($('toast').textContent, /feedback from your teacher/);
   $('save').click();
@@ -2198,7 +2220,7 @@ assert.equal(
     assert.match($('toast').textContent, /^FretFree is installed/);
   }
   console.log(
-    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), turning in (name required and remembered, n/t/x/g links, play-along checks as h in the link, the best one made without the melody with its level, speed and measures in the summary, the file, the submission bar and Submissions, a check with the melody labeled, damaged checks dropped, the .json file, stale links after edits, Turned in by, escaping) and Submissions (30 pasted links in one group, bad lines reported, duplicates, sorting, Previous/Next with focus, feedback kept per student, return links with c, feedback on the student’s saved copy, backup and restore, damaged entries, the 200 cap, delete and clear), backup and restore (with classroom colors, zoom, the Chords switch, the recording count-in and the check level and melody choice, but not the device latency), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files), and the offline notice and Install app.'
+    'PASS (jsdom): theme (Auto, Light, Dark, Dark paper, device switch, backup and restore, storage full, theme.js before the first paint), embed code (sizes, escaping, tabs), QR codes (modules, quiet zone, long links), the embed route (score alone, NC credits, read-only, no storage, damaged links), version history (save, History panel, preview, restore, backups, caps, full storage, delete), unsaved-work recovery, teacher-written assignments (builder defaults, pickups, minor keys, transposing instruments, staying in step with the score, escaping, q links, focus, save, reopen, backup, tampered links), turning in (name required and remembered, n/t/x/g links, play-along checks as h in the link, the best one made without the melody with its level, speed and measures in the summary, the file, the submission bar and Submissions, a check with the melody labeled, damaged checks dropped, the .json file, stale links after edits, Turned in by, escaping) and Submissions (30 pasted links in one group, bad lines reported, duplicates, sorting, Previous/Next with focus, feedback kept per student, the teacher’s Feedback colors on a note, return links with c and the marked note, feedback on the student’s saved copy, backup and restore, damaged entries, the 200 cap, delete and clear), backup and restore (with classroom colors, zoom, the Chords switch, the recording count-in and the check level and melody choice, but not the device latency), blank sheets and add bars, new score templates (panel fields, pickups per meter, SATB with four named staves, piano bars on both staves with one undo, left-hand typing, letters to the top staff, lead-sheet chord kept, Escape and cancel), notation palette on a blank sheet, share links, legacy storage, damaged played list, search and sort, genre filter, pagination, Listen buttons, skill filter and chips, try-next suggestions and played marks, source editions, save/update, MusicXML export, opening MusicXML (.mxl and .musicxml, left-out report, instrument, rights metadata, crafted links in MusicXML and ABC files, damaged and oversized files), and the offline notice and Install app.'
   );
 })().catch(e => {
   console.error(e);

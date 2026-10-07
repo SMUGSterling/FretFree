@@ -21,6 +21,7 @@ const BACKUP_FORMAT = 1,
     KEYS.recordCountIn,
     KEYS.checkLevel,
     KEYS.checkMelody,
+    KEYS.markAuthor,
     ...['loop', 'metronome', 'count-in', 'trainer', 'chords'].map(KEYS.practice)
   ];
 function backupData() {

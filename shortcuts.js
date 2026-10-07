@@ -43,6 +43,13 @@ const SHORTCUTS = [
   {group: 'Write', name: 'Add a bar line', keys: ['|'], key: '|', words: 'barline measure'},
   {group: 'Write', name: 'Chord symbol', keys: ['K'], palette: 'chord', words: 'lead sheet harmony'},
   {group: 'Write', name: 'Lyrics', keys: ['L'], palette: 'lyric', words: 'words syllable verse sing'},
+  {
+    group: 'Write',
+    name: 'Comment on the note',
+    keys: [],
+    palette: 'comment',
+    words: 'feedback annotation teacher color mark'
+  },
   {group: 'Length', name: 'Whole note', keys: ['7'], palette: 'len:1', words: 'duration semibreve'},
   {group: 'Length', name: 'Half note', keys: ['6'], palette: 'len:0.5', words: 'duration minim'},
   {group: 'Length', name: 'Quarter note', keys: ['5'], palette: 'len:0.25', words: 'duration crotchet'},

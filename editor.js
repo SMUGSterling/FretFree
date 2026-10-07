@@ -276,7 +276,10 @@ function noteDescription(entry) {
     };
   }
   const at = display.startChar;
-  return describeNote(display, entry.measure, writtenFacts.beats.get(at), writtenFacts.names.get(at));
+  return (
+    describeNote(display, entry.measure, writtenFacts.beats.get(at), writtenFacts.names.get(at)) +
+    (typeof feedbackSaid === 'function' ? feedbackSaid(entry) : '')
+  );
 }
 // After an edit the status line names the note it changed, or the selected note, so a screen reader hears the
 // result of every key; an edit with its own message ("Dotted.") sets that afterwards instead. A range selection is
@@ -297,6 +300,7 @@ function announceNote(at) {
 // The notation palette (palette.js) shows the selection's state; it is optional, so editing works without it.
 function refreshPalette() {
   if (typeof updatePalette === 'function') updatePalette();
+  if (typeof updateTeacherTools === 'function') updateTeacherTools();
 }
 function updateMeasures() {
   measureStarts = new Map();
@@ -357,6 +361,7 @@ function render() {
     if (typeof updateTurnIn === 'function') updateTurnIn();
     if (typeof updateTakes === 'function') updateTakes();
     if (typeof updateCheckMarks === 'function') updateCheckMarks();
+    if (typeof updateFeedbackMarks === 'function') updateFeedbackMarks();
     restoreSelection(display);
     if (typeof updatePiano === 'function') updatePiano(display);
     $('warnings').textContent = (renderedTune?.warnings || []).map(x => String(x).replace(/<[^>]+>/g, '')).join(' · ');
@@ -1397,6 +1402,7 @@ function openNoteMenu(entry, display, x, y) {
     tupletItemsHTML(entry) +
     `<button role="menuitem" data-edit="chord" aria-keyshortcuts="K" title="Chord symbol (K)">Chord symbol${chord ? ': ' + esc(chord) : ''}…</button>` +
     `<button role="menuitem" data-edit="lyric" aria-keyshortcuts="L" title="Lyrics (L)">Lyrics${lyric ? ': ' + esc(lyric) : ''}…</button>` +
+    (typeof feedbackMenuHTML === 'function' ? feedbackMenuHTML(entry) : '') +
     `<div class="menu-row"><button role="menuitem" data-edit="play-from">▶ Play from here</button><button role="menuitem" data-edit="range-from">🔁 Practice from here</button></div>` +
     `<div class="menu-label">INSERT AFTER</div><div class="menu-row"><button role="menuitem" data-edit="rest-after">𝄽 Rest</button><button role="menuitem" data-edit="bar-after">| Bar line</button></div><hr>${deleteItemsHTML(isRest)}`;
   const menu = $('note-menu');
@@ -2403,6 +2409,7 @@ $('note-menu').addEventListener('click', e => {
     return;
   }
   if (/^(deco|dyn):/.test(b.dataset.edit)) markNote(picked, b.dataset.edit);
+  else if (/^mark:/.test(b.dataset.edit)) feedbackMenuAction(picked, b.dataset.edit);
   else editNote(picked.entry, picked.display, b.dataset.edit);
 });
 document.addEventListener('mousedown', e => {
