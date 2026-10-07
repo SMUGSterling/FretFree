@@ -31,50 +31,61 @@ These facts were checked against the code and the vendored abcjs 6.5.2 (`node` p
 
 ## Plan
 
-Status is Planned for every item. Effort: S is about half a focused session, M is one session, L is two or three, and XL is more. Priority: P0 has high value and fits one session with tests. P1 has high value but is larger. P2 is nice to have. The list is in recommended implementation order.
+**Status, 2026-10-07:** 36 of 40 items are done. Each was implemented on its own branch, reviewed adversarially, fixed and merged with the full test suite passing; see CHANGELOG.md for what each one does. Still to do: `multi-part-scores`, `guitar-ukulele-tools`, `midi-import`, `percussion-staff`. Also done outside this list: x/2-meter tempo (2/2, 3/2, C| and other meters now play at their written tempo), a score-first studio layout, and a cross-feature integration audit with fixes.
+
+Known follow-ups found in review:
+
+- Range delete across the join of two neighbouring slurs (`(C D) (E F)`, delete D–E) can leave one-note slurs.
+- Deleting a single note that carries a hairpin or trill-line end leaves the line half open; range delete already handles this.
+- MusicXML import does not read combined choral part names (`Soprano/Alto`, `Sopranos and Altos`) as Voice.
+- abcjs: after a tuplet of uneven notes the highlight drifts from the sound, and its MIDI can drop a repeated pitch inside a triplet or a tie into a rest.
+- abcjs plays trills, mordents and turns with fixed neighbour notes, whatever the key.
+- The BPM control shows 100 for scores without `Q:`, which play at quarter = 180.
+
+Effort: S is about half a focused session, M is one session, L is two or three, and XL is more. Priority: P0 has high value and fits one session with tests. P1 has high value but is larger. P2 is nice to have. The list is in recommended implementation order.
 
 | # | ID | Title | Noteflight equivalent | Priority | Effort | Status |
 |---|----|-------|----------------------|----------|--------|--------|
-| 1 | note-prefix-parsing | Edit notes that start a slur or tuplet | Prerequisite for slurs, tuplets, articulations | P0 | S | Planned |
-| 2 | audio-bus-and-audition | Master audio bus, live volume, note audition | Mixer Master tab; note audition | P0 | S | Planned |
-| 3 | notation-palette | Notation palette with live selection state | Duration palette with live highlighting; unified palettes | P0 | M | Planned |
-| 4 | articulations-dynamics | Articulations, dynamics and ornaments | Articulation shortcuts; typed dynamics; ornaments | P0 | M | Planned |
-| 5 | chord-symbols | Chord symbol entry and chord playback toggle | Chord symbol entry (K) | P0 | M | Planned |
-| 6 | range-selection-clipboard | Range selection, copy, paste, duplicate | Selections; cut/copy/paste; repeat selection (R); [ ] augmentation | P0 | M | Planned |
-| 7 | transpose-and-key-changes | Transpose tool, full key and meter lists | Transpose dialog; Change Key dialog with modes | P0 | M | Planned |
-| 8 | zoom-and-layout | Zoom and measures per line | Zoom/fit; system layout | P0 | S | Planned |
-| 9 | draft-recovery | Unsaved-work recovery | Crash recovery prompt | P0 | S | Planned |
-| 10 | score-templates | New score setup and ensemble templates | New score from template; pickup setup | P0 | M | Planned |
-| 11 | assignment-links | Teacher-written assignments in a link | Activity templates; Show Prompt | P0 | M | Planned |
-| 12 | on-screen-piano | On-screen piano keyboard | Piano keyboard palette; Shift+letter chords | P0 | M | Planned |
-| 13 | classroom-colors | Classroom colors and note names in noteheads | Classroom Colors; Note Name noteheads | P1 | S | Planned |
-| 14 | web-midi-input | MIDI keyboard step entry and enharmonic respelling | MIDI step entry; Enharmonic shift (Z) | P1 | S | Planned |
-| 15 | slurs-and-hairpins | Slurs, hairpins and trill lines over a selection | Slurs (S); hairpins over a selection | P1 | S | Planned |
-| 16 | tuplets-and-grace-notes | Triplets, other tuplets and grace notes | Tuplets by number key; grace notes | P1 | M | Planned |
-| 17 | measure-and-form-tools | Measure, meter, key, clef, bar line and repeat tools | Measure palette; Repeat palette; rehearsal letters | P1 | M | Planned |
-| 18 | concert-pitch-toggle | Concert pitch view | Show in Concert Pitch | P1 | S | Planned |
-| 19 | mixer | Mixer for voices, chords and metronome | Mixer Parts tab | P1 | M | Planned |
-| 20 | swing-playback | Swing feel | Swing playback | P1 | S | Planned |
-| 21 | instrument-sounds | Better synthesized timbres and more instruments | Per-part instrument sounds | P1 | M | Planned |
-| 22 | wav-export | Audio export (WAV) | WAV/MP3 export; mixer-controlled export | P1 | M | Planned |
-| 23 | lyrics-entry | Lyrics entry | Lyrics keystrokes, verses, melisma | P1 | L | Planned |
-| 24 | accessible-editing | Screen-reader announcements and a shortcut sheet | Shortcut reference; Editor Guide search | P1 | S | Planned |
-| 25 | version-history | Version history for saved scores | Versions panel | P1 | M | Planned |
-| 26 | embed-and-qr | Embed code and QR code for share links | Embed score with playback; share link | P1 | M | Planned |
-| 27 | turn-in-and-inbox | Turn in and a teacher submissions inbox | Turn In; template copies roster | P1 | M | Planned |
-| 28 | musicxml-export | MusicXML export | MusicXML export | P1 | L | Planned |
-| 29 | musicxml-import | MusicXML import | MusicXML import | P1 | L | Planned |
-| 30 | record-yourself | Record yourself along with the score | Record Mode / Audio Sync; setup wizard | P1 | M | Planned |
-| 31 | mic-assessment | Play-along check (on-device assessment) | SoundCheck | P1 | L | Planned |
-| 32 | pwa-offline | Install as an app and work offline | Access anywhere (adapted) | P1 | M | Planned |
-| 33 | multi-part-scores | Parts with their own instruments | Parts panel; Edit Part; part view; print parts | P1 | XL | Planned |
-| 34 | bar-preserving-edits | Keep bars full when changing lengths | Duration palette rules; delete-to-rest | P2 | M | Planned |
-| 35 | dark-mode | Dark theme | None (platform request) | P2 | M | Planned |
-| 36 | guitar-ukulele-tools | Chord diagrams and fretboard entry | Chord diagrams; fretboard palette | P2 | M | Planned |
-| 37 | roadmap-playback | D.C., D.S., Coda, Fine and fermata playback | Road-map playback; expressive fermatas | P2 | L | Planned |
-| 38 | feedback-marks | Teacher feedback marks on notes | Annotations; note coloring for feedback | P2 | M | Planned |
-| 39 | midi-import | MIDI file import | MIDI import | P2 | L | Planned |
-| 40 | percussion-staff | Rhythm and drum staves | Drum kit staff; slash/x noteheads | P2 | M | Planned |
+| 1 | note-prefix-parsing | Edit notes that start a slur or tuplet | Prerequisite for slurs, tuplets, articulations | P0 | S | Done |
+| 2 | audio-bus-and-audition | Master audio bus, live volume, note audition | Mixer Master tab; note audition | P0 | S | Done |
+| 3 | notation-palette | Notation palette with live selection state | Duration palette with live highlighting; unified palettes | P0 | M | Done |
+| 4 | articulations-dynamics | Articulations, dynamics and ornaments | Articulation shortcuts; typed dynamics; ornaments | P0 | M | Done |
+| 5 | chord-symbols | Chord symbol entry and chord playback toggle | Chord symbol entry (K) | P0 | M | Done |
+| 6 | range-selection-clipboard | Range selection, copy, paste, duplicate | Selections; cut/copy/paste; repeat selection (R); [ ] augmentation | P0 | M | Done |
+| 7 | transpose-and-key-changes | Transpose tool, full key and meter lists | Transpose dialog; Change Key dialog with modes | P0 | M | Done |
+| 8 | zoom-and-layout | Zoom and measures per line | Zoom/fit; system layout | P0 | S | Done |
+| 9 | draft-recovery | Unsaved-work recovery | Crash recovery prompt | P0 | S | Done |
+| 10 | score-templates | New score setup and ensemble templates | New score from template; pickup setup | P0 | M | Done |
+| 11 | assignment-links | Teacher-written assignments in a link | Activity templates; Show Prompt | P0 | M | Done |
+| 12 | on-screen-piano | On-screen piano keyboard | Piano keyboard palette; Shift+letter chords | P0 | M | Done |
+| 13 | classroom-colors | Classroom colors and note names in noteheads | Classroom Colors; Note Name noteheads | P1 | S | Done |
+| 14 | web-midi-input | MIDI keyboard step entry and enharmonic respelling | MIDI step entry; Enharmonic shift (Z) | P1 | S | Done |
+| 15 | slurs-and-hairpins | Slurs, hairpins and trill lines over a selection | Slurs (S); hairpins over a selection | P1 | S | Done |
+| 16 | tuplets-and-grace-notes | Triplets, other tuplets and grace notes | Tuplets by number key; grace notes | P1 | M | Done |
+| 17 | measure-and-form-tools | Measure, meter, key, clef, bar line and repeat tools | Measure palette; Repeat palette; rehearsal letters | P1 | M | Done |
+| 18 | concert-pitch-toggle | Concert pitch view | Show in Concert Pitch | P1 | S | Done |
+| 19 | mixer | Mixer for voices, chords and metronome | Mixer Parts tab | P1 | M | Done |
+| 20 | swing-playback | Swing feel | Swing playback | P1 | S | Done |
+| 21 | instrument-sounds | Better synthesized timbres and more instruments | Per-part instrument sounds | P1 | M | Done |
+| 22 | wav-export | Audio export (WAV) | WAV/MP3 export; mixer-controlled export | P1 | M | Done |
+| 23 | lyrics-entry | Lyrics entry | Lyrics keystrokes, verses, melisma | P1 | L | Done |
+| 24 | accessible-editing | Screen-reader announcements and a shortcut sheet | Shortcut reference; Editor Guide search | P1 | S | Done |
+| 25 | version-history | Version history for saved scores | Versions panel | P1 | M | Done |
+| 26 | embed-and-qr | Embed code and QR code for share links | Embed score with playback; share link | P1 | M | Done |
+| 27 | turn-in-and-inbox | Turn in and a teacher submissions inbox | Turn In; template copies roster | P1 | M | Done |
+| 28 | musicxml-export | MusicXML export | MusicXML export | P1 | L | Done |
+| 29 | musicxml-import | MusicXML import | MusicXML import | P1 | L | Done |
+| 30 | record-yourself | Record yourself along with the score | Record Mode / Audio Sync; setup wizard | P1 | M | Done |
+| 31 | mic-assessment | Play-along check (on-device assessment) | SoundCheck | P1 | L | Done |
+| 32 | pwa-offline | Install as an app and work offline | Access anywhere (adapted) | P1 | M | Done |
+| 33 | multi-part-scores | Parts with their own instruments | Parts panel; Edit Part; part view; print parts | P1 | XL | Follow-up |
+| 34 | bar-preserving-edits | Keep bars full when changing lengths | Duration palette rules; delete-to-rest | P2 | M | Done |
+| 35 | dark-mode | Dark theme | None (platform request) | P2 | M | Done |
+| 36 | guitar-ukulele-tools | Chord diagrams and fretboard entry | Chord diagrams; fretboard palette | P2 | M | Follow-up |
+| 37 | roadmap-playback | D.C., D.S., Coda, Fine and fermata playback | Road-map playback; expressive fermatas | P2 | L | Done |
+| 38 | feedback-marks | Teacher feedback marks on notes | Annotations; note coloring for feedback | P2 | M | Done |
+| 39 | midi-import | MIDI file import | MIDI import | P2 | L | Follow-up |
+| 40 | percussion-staff | Rhythm and drum staves | Drum kit staff; slash/x noteheads | P2 | M | Follow-up |
 
 ## Rules for every item
 
