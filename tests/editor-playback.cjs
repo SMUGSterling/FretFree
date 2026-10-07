@@ -449,7 +449,8 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   ctrl('x');
   assert.equal(body(), 'C (z z E) | G4 |]', 'Cut keeps slurs, drops ties and decorations');
   assert.equal(run('barIssues.length'), 0, 'The bar check stays clean after a cut');
-  assert.equal(run('clip.notes'), '(D !accent!E-');
+  // The slur goes on past the copied notes, so the clip leaves its opening behind (no half-open slur to paste).
+  assert.equal(run('clip.notes'), 'D !accent!E-');
   assert.equal(run("$('warnings').textContent"), '');
   // Multi-note edits: arrows, accidentals, [ ] and dots act on every note; rests are left alone by pitch edits.
   open('X:1\nM:4/4\nL:1/8\nK:C\nC2 D2 z2 [EG]2 | A8 |]');
@@ -983,6 +984,180 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   run("scoreKey({key:'ArrowLeft'})");
   assert.equal(status(), 'Quarter note F4, measure 1, beat 4.', 'Selecting another note replaces it too');
 }
+// Keyboard paths across features: the score is one tab stop; the note menu's keys (arrows, Home and End, the keys its
+// items name, Tab, Esc) and its closing give the keyboard back to the score; K and L on the piano strip keep the box
+// open and return to the key; Undo or Redo running out moves focus on; held Space toggles playback once; AltGr, Mac
+// Option and Cmd+↑ reach the score; the hint after a click fits a rest and a bar line; and the share panel closes on Esc.
+{
+  const body = () => run("$('abc').value.trim().split('\\n').pop()"),
+    open = music => run(`dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\n' + music)},fit:false})`),
+    focused = () =>
+      run(
+        'document.activeElement.id || document.activeElement.dataset.pianoMidi || document.activeElement.textContent'
+      ),
+    press = (key, mods = '') =>
+      run(
+        `document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:${JSON.stringify(key)},bubbles:true,cancelable:true${mods}}))`
+      ),
+    menu = () => run('openNoteMenu(selectedNote().entry, selectedNote().display, 10, 10)');
+  open('C D E F | G4 | c4 |]');
+  assert.deepEqual(
+    [
+      run(`$('notation').querySelectorAll('svg [selectable="true"][tabindex="0"]').length`),
+      run(`$('notation').querySelectorAll('svg [selectable="true"][tabindex="-1"]').length`),
+      run("$('notation').tabIndex")
+    ],
+    [0, 9, 0],
+    'Notes and bar lines leave the tab order; the score is one tab stop'
+  );
+  run('selectEntry(scoreNotes()[1]); focusScore()');
+  menu();
+  assert.equal(focused(), '♯ Sharp');
+  press('ArrowDown');
+  assert.equal(focused(), '♭ Flat', '↓ moves to the next item');
+  press('End');
+  assert.equal(focused(), 'Delete note');
+  press('Home');
+  assert.equal(focused(), '♯ Sharp');
+  press('ArrowUp');
+  assert.equal(focused(), 'Delete note', '↑ wraps to the last item');
+  press('Escape');
+  assert.deepEqual([run("$('note-menu').hidden"), focused()], [true, 'notation'], 'Esc gives the keyboard back');
+  menu();
+  press('Tab');
+  assert.deepEqual([run("$('note-menu').hidden"), focused()], [true, 'notation'], 'Tab closes the menu');
+  menu();
+  press('k');
+  assert.deepEqual(
+    [run("$('note-menu').hidden"), run("$('chord-entry').hidden"), focused(), run("$('chord-input').value")],
+    [true, false, 'chord-input', ''],
+    'K in the menu opens the chord box, as its item says'
+  );
+  press('Escape');
+  menu();
+  press('Delete');
+  assert.equal(body(), 'C E F | G4 | c4 |]', 'Delete in the menu deletes the note');
+  run('stepHistory(-1)');
+  assert.equal(focused(), 'notation', 'Ctrl+Z with the menu open keeps the keyboard on the score');
+  // Undo pressed from the keyboard until it runs out hands focus to Redo.
+  run("selectEntry(scoreNotes()[0]); scoreKey({key: 'e'}); $('undo').focus(); $('undo').click()");
+  assert.deepEqual([focused(), run("$('undo').disabled")], ['redo', true], 'Focus moves to Redo');
+  run("$('redo').click()");
+  assert.equal(focused(), 'undo', 'and back to Undo when Redo runs out');
+  run('stepHistory(-1)');
+  // Holding Space: key repeats do not toggle playback.
+  run('window.__plays = 0; window.__realPlayFrom = playFromNote; playFromNote = () => window.__plays++');
+  run("selectEntry(scoreNotes()[0]); scoreKey({key: ' '})");
+  assert.equal(run("scoreKey({key: ' ', repeat: true})"), true, 'A repeat is still taken, so the page does not scroll');
+  assert.equal(run('window.__plays'), 1, 'Held Space starts playback once');
+  run('playFromNote = window.__realPlayFrom');
+  // AltGr (Ctrl+Alt), Mac Option and Cmd+↑.
+  open('G A B c|]');
+  run("selectEntry(scoreNotes()[0]); scoreKey({key: '|', ctrlKey: true, altKey: true})");
+  assert.equal(body(), 'G | A B c|]', 'AltGr+< types | on a German keyboard');
+  run("selectEntry(scoreNotes()[0]); scoreKey({key: ']', altKey: true})");
+  assert.equal(body(), 'G2 | A B c|]', 'Option+6 types ] on a German Mac');
+  run("selectEntry(scoreNotes()[0]); scoreKey({key: 'ArrowUp', metaKey: true})");
+  assert.equal(body(), 'g2 | A B c|]', 'Cmd+↑ moves up an octave');
+  assert.equal(run("scoreKey({key: 'a', altKey: true})"), false, 'Alt with a letter stays the browser’s');
+  assert.deepEqual(
+    [...run("SHORTCUTS.find(s => s.name === 'Redo').keys")],
+    ['Ctrl+Shift+Z', 'Ctrl+Y'],
+    'The sheet lists every redo key'
+  );
+  // The hint after a click says what typing does there.
+  open('C z E F | G A B c |]');
+  run(
+    "scoreClick(scoreEvents(renderedTune).filter(e => e.element.el_type === 'note')[1].element, 0, [], {}, null, {})"
+  );
+  assert.match(
+    run("$('selection-status').textContent"),
+    /^Quarter rest, .* · type A–G to write a note over it · Shift/
+  );
+  run("scoreClick(scoreEvents(renderedTune).find(e => e.element.el_type === 'bar').element, 0, [], {}, null, {})");
+  assert.match(run("$('selection-status').textContent"), /· type A–G to add notes at the end of the music ·/);
+  assert.doesNotMatch(run("$('selection-status').textContent"), /↑↓/);
+  // K and L on the piano strip: the box keeps the keyboard, and Enter or Esc returns it to the piano key.
+  open('C D E F |]');
+  run('setPiano(true); selectEntry(scoreNotes()[2]); document.querySelector(\'[data-piano-midi="60"]\').focus()');
+  press('k');
+  assert.deepEqual([run("$('chord-entry').hidden"), focused()], [false, 'chord-input'], 'K opens the chord box');
+  run("$('chord-input').value = 'G7'");
+  press('Enter');
+  assert.deepEqual([focused(), body()], ['60', 'C D "G7"E F |]'], 'G7 goes on the note, and the key has the keyboard');
+  run('selectEntry(scoreNotes()[1]); document.querySelector(\'[data-piano-midi="60"]\').focus()');
+  press('l');
+  assert.deepEqual([run("$('lyric-entry').hidden"), focused()], [false, 'lyric-input'], 'L opens the lyric box');
+  press('Escape');
+  assert.deepEqual([run("$('lyric-entry').hidden"), focused()], [true, '60']);
+  run('setPiano(false)');
+  // The share panel closes on Esc and gives the keyboard back to Share link.
+  run("$('share-panel').hidden = false; $('share-close').focus()");
+  press('Escape');
+  assert.deepEqual([run("$('share-panel').hidden"), focused()], [true, 'share-link']);
+}
+// Range Delete, Shift+Delete, copy and Duplicate keep slurs, lines and tuplets whole: openings abcjs leaves outside a
+// marked first note go with the run, and an end whose other end is outside the run stays on the notes either side: a
+// ) after the note before, a hairpin or trill line end before it (a decoration marks the note after it). A slur or
+// line left on one note comes off, and a slur opening carried past a deleted bar lands on the next note.
+{
+  const body = () => run("$('abc').value.trim().split('\\n').pop()");
+  for (const [music, from, to, action, expected] of [
+    ['(.E F G) A | z4 |]', 0, 2, 'remove', 'A | z4 |]'],
+    ['(.E F G) A | z4 |]', 0, 2, 'd', '(.E F G) (.E F G) A | z4 |]'],
+    ['(3.C/2D/2E/2 F G | z4 |]', 0, 2, 'remove', 'F G | z4 |]'],
+    ['(3.C/2D/2E/2 F G | z4 |]', 0, 2, 'd', '(3.C/2D/2E/2 (3.C/2D/2E/2 F G | z4 |]'],
+    ['!<(!(!mf!E E !<)!F) G |]', 0, 2, 'd', '!<(!(!mf!E E !<)!F) !<(!(!mf!E E !<)!F) G |]'],
+    ['!<(!(!mf!E E !<)!F) G |]', 0, 2, 'remove', 'G |]'],
+    ['(C D E) F |]', 1, 2, 'd', '(C D E) D E F |]'],
+    ['(C D E) F |]', 1, 2, 'remove', 'C F |]'],
+    ['(C D E) F |]', 0, 1, 'remove', 'E F |]'],
+    ['(.E F G) A |]', 0, 1, 'remove', 'G A |]'],
+    ['((C D E)) F |]', 1, 2, 'remove', 'C F |]'],
+    ['C (D E F) G |]', 1, 2, 'remove', 'C F G |]'],
+    ['(C D | E F) G |]', 1, 2, 'remove', '(C F) G |]'],
+    ['!<(!C D !<)!E F |]', 1, 2, 'remove', 'C F |]'],
+    ['!<(!C D !<)!E F |]', 0, 1, 'remove', 'E F |]'],
+    ['C D !trill(!E F !trill)!G A |]', 3, 4, 'remove', 'C D E A |]'],
+    ['C !<(!D E !<)!F |]', 2, 3, 'remove', 'C D |]'],
+    ['!<(!C D E !<)!F G |]', 2, 3, 'remove', '!<(!C !<)!D G |]'],
+    ['!<(!C D E !<)!F G |]', 0, 1, 'remove', '!<(!E !<)!F G |]'],
+    ['C !trill(!D E F !trill)!G |]', 3, 4, 'remove', 'C !trill(!D !trill)!E |]'],
+    ['C !>(!D E !>)!F !<(!G A !<)!B c |]', 2, 3, 'remove', 'C D !<(!G A !<)!B c |]'],
+    ['C !<(!(D E) F !<)!G |]', 2, 3, 'remove', 'C !<(!D !<)!G |]'],
+    ['C (D !trill(!E) F !trill)!G |]', 1, 2, 'remove', 'C !trill(!F !trill)!G |]'],
+    ['C D | (E F | G A) |]', 2, 3, 'remove', 'C D | (G A) |]'],
+    ['C (D | E F) |]', 2, 3, 'remove', 'C D |]'],
+    ['!<(!C D | E F | !<)!G A |]', 2, 3, 'remove', '!<(!C D | !<)!G A |]'],
+    ['A2 FA dAFA | (3{g}fga f2 d2 A2 | B4 A4 |]', 7, 12, 'remove', 'A2 FA dAFA | B4 A4 |]'],
+    [
+      'A2 FA dAFA | (3{g}fga f2 d2 A2 | B4 A4 |]',
+      7,
+      12,
+      'd',
+      'A2 FA dAFA | (3{g}fga f2 d2 A2 | (3{g}fga f2 d2 A2 | B4 A4 |]'
+    ]
+  ]) {
+    run(`dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\n' + music)},fit:false})`);
+    run(`selectEntry(scoreNotes()[${from}])`);
+    for (let i = from; i < to; i++) run("scoreKey({key: 'ArrowRight', shiftKey: true})");
+    if (action === 'remove') run("scoreKey({key: 'Delete', shiftKey: true})");
+    else run(`selectionCommand('${action}')`);
+    assert.equal(body(), expected, `${music}: ${action}`);
+  }
+  // The palette works out which marks a range has in a few passes over its notes, not one per mark button.
+  run(
+    `dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\n' + 'C D E F | '.repeat(10) + '|]')},fit:false})`
+  );
+  run("selectEntry(scoreNotes()[0]); selectionCommand('a')");
+  run('window.__marks = 0; window.__marksOf = marksOf; marksOf = e => (window.__marks++, window.__marksOf(e))');
+  run('refreshPalette(); marksOf = window.__marksOf');
+  assert.ok(run('window.__marks') <= 4 * 40, `${run('window.__marks')} reads of a note's marks for 40 notes`);
+  // Copy leaves out an end whose other end is outside the run.
+  run(`dirty=false;openScore({abc:${JSON.stringify('X:1\nM:4/4\nL:1/4\nK:C\n(C D E) F |]')},fit:false})`);
+  run("selectEntry(scoreNotes()[1]); scoreKey({key: 'ArrowRight', shiftKey: true}); selectionCommand('c')");
+  assert.equal(run('clip.notes'), 'D E');
+}
 // Keep bars full: on for blank sheets, templates and prompts, off for library editions and other music. A shorter note
 // leaves rests, a longer one takes the rests after it or is refused with the reason, Delete leaves a rest and
 // Shift+Delete removes, each as one undo step; with the switch off, lengths and Delete work as before.
@@ -1385,7 +1560,7 @@ assert.equal(run(`editNoteText('C>',{length:1.5,unbroken:true})`), 'C3/2');
   run('selectEntry(scoreNotes()[1]);focusScore()');
   press("$('notation')", '?');
   search('octave');
-  assert.equal(shown(), 'Up an octaveCtrl+↑ | Down an octaveCtrl+↓');
+  assert.equal(shown(), 'Up an octaveCtrl+↑ or Cmd+↑ | Down an octaveCtrl+↓ or Cmd+↓', 'The Mac key is listed too');
   press("$('shortcuts-search')", 'ArrowDown');
   assert.equal(run("$('shortcuts-search').getAttribute('aria-activedescendant')"), 'shortcut-1');
   press("$('shortcuts-search')", 'Enter');
@@ -3144,6 +3319,47 @@ async function checkRecording() {
   run("dirty=false;openScore(catalog.find(x=>x.id==='ode'))");
   await until(() => run("shownTakes[0]?.id === 'model'") && takeCount() === 1, 'the edition’s take again');
   run(`saved=saved.filter(x=>x.id!==${JSON.stringify(copy)});storeScores(saved);memoryTakes.clear();updateTakes(true)`);
+  // ■ Stop, another view or another score while the browser asks for the microphone cancels the recording: nothing
+  // plays or records, and the microphone is let go as soon as it arrives.
+  for (const leave of ["$('stop').click()", "show('library')", "openScore(catalog.find(x => x.id === 'skipping'))"]) {
+    run("dirty=false;openScore(catalog.find(x=>x.id==='ode'))");
+    const held = {
+      stopped: false,
+      stop() {
+        this.stopped = true;
+      },
+      getSettings: () => ({latency: 0.01})
+    };
+    let answer = null;
+    mic = () => new Promise(r => (answer = () => r({getTracks: () => [held], getAudioTracks: () => [held]})));
+    const pending = run('startRecording()');
+    await until(() => answer, 'the microphone request');
+    run(leave);
+    answer();
+    await pending;
+    assert.deepEqual([run('rec'), run('playing'), held.stopped], [null, false, true], leave);
+    assert.equal(run("$('record-status').textContent"), 'Recording cancelled.', leave);
+    assert.equal(run('memoryTakes.size'), 0, `${leave}: no take`);
+  }
+  // A Mixer change meanwhile is not another score (the mix goes on a copy of the library score): the recording starts.
+  {
+    run("dirty=false;openScore(catalog.find(x=>x.id==='ode'))");
+    const held = {stop() {}, getSettings: () => ({latency: 0.01})};
+    let answer = null;
+    mic = () => new Promise(r => (answer = () => r({getTracks: () => [held], getAudioTracks: () => [held]})));
+    run('audio.currentTime=10');
+    const pending = run('startRecording()');
+    await until(() => answer, 'the microphone request');
+    run("setMix({'1': {volume: 0.5}})");
+    assert.equal(run('catalog.includes(current)'), false, 'The mix went on a copy');
+    answer();
+    await pending;
+    assert.equal(run("$('record-status').textContent"), 'Count-in, then play along. Recording…');
+    run('audio.currentTime=30;stop()');
+    await until(() => takeCount() === 1, 'the take recorded after the Mixer change');
+    run('memoryTakes.clear();updateTakes(true)');
+  }
+  run("dirty=false;openScore(catalog.find(x=>x.id==='ode'))");
   run("$('record-close').click()");
   assert.equal(run("$('record-panel').hidden"), true);
   assert.equal(run('document.activeElement.id'), 'record');
@@ -3607,7 +3823,8 @@ async function checkWavExport() {
   );
   held.checkpoints[0].go();
   await new Promise(resolve => setTimeout(resolve));
-  assert.equal(run("$('wav-progress').value").toFixed(3), ((5 * 44100) / held.args[1]).toFixed(3));
+  // Rendering fills the first nine tenths of the bar; scaling and writing the file, a stretch at a time, the rest.
+  assert.equal(run("$('wav-progress').value").toFixed(3), ((0.9 * 5 * 44100) / held.args[1]).toFixed(3));
   assert.equal(held.resumed, 1, 'The render goes on after a checkpoint');
   const bus = run('outputNode')(held);
   assert.ok(reaches(oscillators.at(-1), bus));

@@ -468,6 +468,28 @@ function linePairs(abc) {
   }
   return (lineMemo = {abc, pairs, voices});
 }
+// The lines that open and close on one note, as deleting the notes between their ends can leave them: (C), ((C)),
+// !<(!!<)!C. A hairpin or trill line needs two notes, and abcjs reads a note's ) before its (, so such a slur would be
+// left half open. Only lines with a mark from `from` to `to` are looked at. Returns edits for applyLineEdits that take
+// both marks of each off.
+const MARKS_ONLY = new RegExp(`^(?:${PRE_ITEM.source})*$`);
+function oneNoteLines(abc, from, to) {
+  const {pairs} = linePairs(abc),
+    near = span => span[1] >= from && span[0] <= to,
+    off = ([s, e]) => ({at: s, remove: e - s, insert: ''}),
+    unclosed = pairs.filter(p => p.kind === 'slur' && p.open && !p.close),
+    edits = [];
+  for (const p of pairs)
+    if (p.kind !== 'slur') {
+      if (p.open && p.close && (near(p.open) || near(p.close)) && MARKS_ONLY.test(abc.slice(p.open[1], p.close[0])))
+        edits.push(off(p.open), off(p.close));
+    } else if (!p.open) {
+      const i = unclosed.findIndex(q => q.voice === p.voice && sameNote(abc, q.open[1], p.close[0]));
+      if (i >= 0 && (near(p.close) || near(unclosed[i].open)))
+        edits.push(off(unclosed.splice(i, 1)[0].open), off(p.close));
+    }
+  return edits;
+}
 function voiceAt(voices, at) {
   let voice = voices[0]?.voice;
   for (const v of voices) if (v.at <= at) voice = v.voice;
@@ -3432,6 +3454,15 @@ function midiBytes(source, {chordsOff = false} = {}) {
 // The text is UTF-8 ending in a zero byte, and each chunk is padded to an even length, as RIFF requires.
 const WAV_INFO = {title: 'INAM', artist: 'IART', copyright: 'ICOP', comment: 'ICMT'};
 function wavBytes(channels, sampleRate, info = {}) {
+  const writer = wavWriter(channels, sampleRate, info);
+  let step;
+  while (!(step = writer.next()).done);
+  return step.value;
+}
+// wavBytes a stretch of frames at a time: after each stretch it yields the share written so far, so a long file can
+// be written between other work (renderWav lets the page draw and answer between stretches), and it returns the bytes.
+// Each sample is multiplied by scale first (rounded to 32-bit float, as a Float32Array holding it would be).
+function* wavWriter(channels, sampleRate, info = {}, scale = 1, stretch = 1 << 19) {
   const encoder = new TextEncoder(),
     fields = Object.entries(WAV_INFO)
       .filter(([key]) => info[key])
@@ -3472,12 +3503,14 @@ function wavBytes(channels, sampleRate, info = {}) {
   }
   tag('data');
   u32(data);
-  for (let i = 0; i < frames; i++)
+  for (let i = 0; i < frames; i++) {
     for (const channel of channels) {
-      const v = Math.max(-1, Math.min(1, channel[i] || 0));
+      const v = Math.max(-1, Math.min(1, Math.fround((channel[i] || 0) * scale) || 0));
       view.setInt16(pos, Math.round(v < 0 ? v * 0x8000 : v * 0x7fff), true);
       pos += 2;
     }
+    if ((i + 1) % stretch === 0 && i + 1 < frames) yield (i + 1) / frames;
+  }
   return bytes;
 }
 // The melody track of decoded MIDI: abcjs puts guitar-chord accompaniment ("G" symbols) on a later channel, whose

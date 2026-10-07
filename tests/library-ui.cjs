@@ -499,6 +499,16 @@ $('new-bars').value = '8';
     'Renamed elsewhere',
     'Newer title restored'
   );
+  // The summary names the settings a restore changed, and only those.
+  {
+    const zoom = run('storage.get(KEYS.zoom, 100)'),
+      settingsOnly = {app: 'FretFree', format: 1, scores: [], settings: {'fretfree-zoom': zoom === 160 ? 170 : 160}};
+    const once = run(`applyBackup(${JSON.stringify(settingsOnly)})`);
+    assert.equal(run(`restoreSummary(${JSON.stringify(once)})`), 'Restored: 1 setting applied.');
+    const again = run(`applyBackup(${JSON.stringify(settingsOnly)})`);
+    assert.equal(run(`restoreSummary(${JSON.stringify(again)})`), 'Nothing new to restore.');
+    run(`storage.set(KEYS.zoom, ${JSON.stringify(zoom)})`);
+  }
   assert.throws(() => run('applyBackup({app: "Other", scores: []})'), /not a FretFree backup/);
   assert.throws(() => run('applyBackup({app: "FretFree", format: 99, scores: []})'), /newer FretFree/);
   // A damaged file is refused whole rather than partly restored.
@@ -527,6 +537,15 @@ $('new-bars').value = '8';
   );
   run('renderBackupStatus()');
   assert.match($('backup-status').textContent, /Everything saved is in that backup/);
+  // A damaged record of the last backup counts as never backed up.
+  for (const damaged of ['"garbage"', '[1,2]', '{"at":"x","name":"a.json"}']) {
+    w.localStorage.setItem('fretfree-last-backup', damaged);
+    run('renderBackupStatus()');
+    assert.match($('backup-status').textContent, /never backed up\.$/, damaged);
+  }
+  run(
+    "storage.set('fretfree-last-backup', {at: Date.now(), name: 'old.json', scores: Object.fromEntries(saved.map(x => [x.id, x.updated || 0]))})"
+  );
   run(
     "applyBackup({app: 'FretFree', format: 1, scores: [{id: 'restored-2', title: 'Old but new here', abc: 'X:1\\nK:C\\nC4|]', updated: 1}]})"
   );
@@ -827,6 +846,11 @@ assert.equal(
 }
 // Share by link without CompressionStream (jsdom): the plain-encoded link opens as a shared copy with the edition's credits.
 (async () => {
+  // A backup file that is not JSON at all gets the plain message, not the parser's.
+  await assert.rejects(
+    run("restoreFromFile({size: 11, text: async () => 'PK\\u0003\\u0004 not json'})"),
+    /^Error: This is not a FretFree backup file, or it is damaged or incomplete\.$/
+  );
   const link = await run(
     'encodeShare({v:1,a:catalog.find(x=>x.id==="ode").abc.replace("T:Ode to Joy","T:Ode (shared)"),i:"Violin",s:"ode"})'
   );
@@ -840,6 +864,165 @@ assert.equal(
   assert.ok($('rights').textContent.includes('CC0'), 'Credits travel with the link');
   assert.equal($('next-up').hidden, true, 'No suggestions for a shared copy');
   assert.equal(await run('openSharedLink("s=1garbage")'), false, 'A damaged link is refused');
+  // A link pasted into this tab's address bar opens too; with unsaved work, only when the student agrees.
+  {
+    const settle = async check => {
+      for (let i = 0; i < 200 && !check(); i++) await new Promise(r => setTimeout(r, 5));
+    };
+    run("dirty = false; openScore(catalog.find(x => x.id === 'mozart')); show('library')");
+    w.location.hash = 's=' + link;
+    await settle(() => $('title').value === 'Ode (shared)');
+    assert.deepEqual([$('title').value, $('studio').hidden], ['Ode (shared)', false], 'The pasted link opens');
+    run("dirty = false; openScore(catalog.find(x => x.id === 'mozart')); dirty = true; show('library')");
+    let asked = 0;
+    w.confirm = () => (asked++, false);
+    w.location.hash = 's=' + link;
+    await settle(() => asked);
+    await new Promise(r => setTimeout(r, 20));
+    assert.equal($('title').value, 'Ah! vous dirai-je, maman', 'Declining keeps the unsaved work');
+    assert.equal(w.location.hash, '#library', 'and the address it had');
+    w.location.hash = 's=' + link;
+    await settle(() => asked === 2);
+    assert.equal(asked, 2, 'So the same link pasted again asks again');
+    await new Promise(r => setTimeout(r, 20));
+    // A damaged or cut-off link is refused before anything is asked: the work stays unsaved, with its draft.
+    run("$('abc').value += ' '; changed(); clearTimeout(renderTimer); render(); writeDraft(); show('studio')");
+    const draft = () =>
+      (JSON.parse(w.localStorage.getItem('fretfree-draft')) || []).some(d => d.tab === run('draftTab'));
+    assert.equal(draft(), true);
+    w.location.hash = 's=1garbage';
+    await settle(() => $('toast').textContent.includes('did not contain a readable score'));
+    await new Promise(r => setTimeout(r, 20));
+    assert.deepEqual(
+      [asked, run('dirty'), draft(), $('studio').hidden, w.location.hash],
+      [2, true, true, false, '#studio'],
+      'A damaged link leaves the unsaved work, its draft, the view and the address as they were'
+    );
+    w.confirm = () => true;
+    run('dirty = false');
+  }
+  // A link names the edition that was opened, not the first one of its tunebook with the same rights text and source,
+  // and so does a saved copy of it, which also keeps the edition's title in its credits whatever the student calls it.
+  for (const id of ['oneill-1850-0002', 'lieder-5701612', 'pgh-1001', 'sq-7313978-2']) {
+    run(`dirty = false; openScore(catalog.find(x => x.id === ${JSON.stringify(id)}))`);
+    assert.equal(run('sharePayload().s'), id, `${id}: the link names this edition`);
+  }
+  run("dirty = false; openScore(catalog.find(x => x.id === 'pgh-1002'))");
+  $('abc').value = $('abc').value.replace(/^T:.*$/m, 'T:My Horn Dance Arrangement');
+  run("changed(); clearTimeout(renderTimer); render(); $('save').onclick()");
+  const copy = run('saved.at(-1)');
+  assert.deepEqual([copy.libraryId, copy.workTitle], ['pgh-1002', 'Abbots Bromley Horn Dance']);
+  run(`dirty = false; openScore(saved.at(-1), ${JSON.stringify(copy.id)})`);
+  assert.equal(run('sharePayload().s'), 'pgh-1002', 'A saved copy still names its edition');
+  assert.equal(run("exportCredit(current).split('\\n')[0]"), 'Abbots Bromley Horn Dance', 'and credits its title');
+  const relinked = await run('encodeShare(sharePayload())');
+  assert.equal(await run(`openSharedLink("s=${relinked}")`), true);
+  assert.equal(run("exportCredit(current).split('\\n')[0]"), 'Abbots Bromley Horn Dance', 'So does a shared copy');
+  // Printed and embedded copies of changed notation say so; the editing hint is for the screen only.
+  assert.match($('rights').textContent, /Notation edited in FretFree from this edition/);
+  run("dirty = false; openScore(catalog.find(x => x.id === 'pgh-1002'))");
+  assert.doesNotMatch($('rights').textContent, /Notation edited/, 'An unchanged edition does not say so');
+  $('abc').value = run(`writeMarks($('abc').value, [{m: 1, n: 1, c: 'red', t: 'Watch the tempo'}])`);
+  run('changed(); clearTimeout(renderTimer); render()');
+  assert.doesNotMatch($('rights').textContent, /Notation edited/, 'nor does one with feedback marks alone');
+  assert.equal(run('sharePayload().s'), 'pgh-1002');
+  run('dirty = false');
+  run('saved = saved.filter(x => x.id !== saved.at(-1).id); storage.set(KEYS.scores, saved)');
+  // Copies that do not name their edition by id keep its license and credits on the way out: a copy saved before
+  // libraryId, and FretFree ABC and MusicXML exports opened again. Turn-ins, drafts and share links name the edition
+  // the copy is closest to among those with its rights text and source, or the one the export names.
+  {
+    Object.assign(w, {TextDecoder});
+    const choose = async (data, name) => {
+        Object.defineProperty($('import-file'), 'files', {value: [new w.File([data], name)], configurable: true});
+        await $('import-file').onchange();
+      },
+      prompt = run('writingPrompts[0].id');
+    const travels = async (id, label) => {
+      const [title, license] = run(
+          `(x => [x.title, scoreLicense(x)])(catalog.find(x => x.id === ${JSON.stringify(id)}))`
+        ),
+        credited = () => [run('scoreLicense(current)'), run("exportCredit(current).split('\\n')[0]")];
+      assert.equal(run('sharePayload().s'), id, `${label}: the link names the edition`);
+      // Turned in.
+      run(`current.prompt = ${JSON.stringify(prompt)}`);
+      $('student-name').value = 'Ana';
+      await run('turnIn()');
+      const sent = await run(`decodeShare(${JSON.stringify($('turn-in-url').value.split('#s=')[1])})`);
+      assert.equal(sent.s, id, `${label}: the turn-in names the edition`);
+      run('closeTurnIn(); delete current.prompt');
+      // Edited, then restored from the draft.
+      run("$('abc').value += '\\n% edited'; changed(); clearTimeout(renderTimer); render(); writeDraft()");
+      run(
+        "pendingDrafts = storedDrafts().filter(d => d.tab === draftTab); dirty = false; openScore(catalog.find(x => x.id === 'ode')); restoreDraft()"
+      );
+      assert.deepEqual(credited(), [license, title], `${label}: a restored draft keeps the license and credits`);
+      assert.match(run("creditedABC($('abc').value, current)"), /^% FretFree-Rights: /m, `${label}: and its export`);
+      // Shared.
+      assert.equal(run('sharePayload().s'), id, `${label}: the restored draft names the edition`);
+      const code = await run('encodeShare(sharePayload())');
+      run('dirty = false');
+      assert.equal(await run(`openSharedLink("s=${code}")`), true);
+      assert.deepEqual(credited(), [license, title], `${label}: the recipient gets the license and credits`);
+      run('dirty = false');
+    };
+    for (const id of ['oneill-1850-0002', 'pgh-1001', 'sq-7313978-2']) {
+      // Saved before libraryId: the edition's details, its own id, and the student's title.
+      const legacy = run(
+        `(({abc, ...x}) => ({...x, id: 'old-' + x.id, title: 'My arrangement', updated: 1, abc: abc.replace(/^T:.*$/m, 'T:My arrangement')}))(catalog.find(x => x.id === ${JSON.stringify(id)}))`
+      );
+      run(
+        `dirty = false; saved.push(${JSON.stringify(legacy)}); openScore(saved.at(-1), ${JSON.stringify(legacy.id)})`
+      );
+      await travels(id, `${id} saved before libraryId`);
+      run(
+        `dirty = false; openScore(saved.find(x => x.id === ${JSON.stringify(legacy.id)}), ${JSON.stringify(legacy.id)})`
+      );
+      const legacyXML = run("abcToMusicXML($('abc').value, {item: current})");
+      run(`saved = saved.filter(x => x.id !== ${JSON.stringify(legacy.id)})`);
+      if (id.startsWith('sq-')) continue;
+      // Exported from the edition and opened again, as ABC and as MusicXML; and a MusicXML export of the old copy.
+      run(`dirty = false; openScore(catalog.find(x => x.id === ${JSON.stringify(id)}))`);
+      const abc = run("creditedABC($('abc').value, current)"),
+        xml = run("abcToMusicXML($('abc').value, {item: current})");
+      for (const [data, name, label] of [
+        [abc, 'tune.abc', 'ABC export'],
+        [xml, 'tune.musicxml', 'MusicXML export'],
+        [legacyXML, 'old.musicxml', 'MusicXML export of the old copy']
+      ]) {
+        run('dirty = false');
+        await choose(data, name);
+        assert.equal(run('current.kind'), 'personal', `${id} ${label}: imported`);
+        assert.equal(run('current.libraryId'), name === 'old.musicxml' ? undefined : id, `${id} ${label}: libraryId`);
+        await travels(id, `${id} ${label}`);
+      }
+    }
+    // An export names its edition only when that edition has the file's rights text and source.
+    const aiken = run("(({abc, ...x}) => x)(catalog.find(x => x.id === 'pgh-1001'))"),
+      named = item => run(`importedRights(${JSON.stringify(item)}).libraryId`);
+    assert.equal(named({...aiken, libraryId: 'pgh-1002'}), 'pgh-1002', 'Another tune of the same tunebook');
+    assert.equal(named({...aiken, id: 'ode'}), undefined, 'An edition with other rights');
+    assert.equal(named({...aiken, rights: 'Mine', libraryId: 'pgh-1001'}), undefined, 'A file with other rights');
+    run('dirty = false');
+  }
+  // A GPL edition's printed appendix carries the day it was printed, not a fixed date.
+  run("window.print = () => {}; dirty = false; openScore(catalog.find(x => scoreLicense(x).startsWith('GPL-')))");
+  run("$('print').click()");
+  assert.ok(
+    $('print-appendix').textContent.includes(`(FretFree export, ${new Date().toLocaleDateString('en-CA')}):`),
+    'Today’s date'
+  );
+  // Only the app's own instrument names count: one every object has (constructor) opens on the default.
+  for (const i of ['constructor', 'toString', '__proto__']) {
+    const odd = await run(
+      `encodeShare({v: 1, a: 'X:1\\nT:Linked\\nM:4/4\\nL:1/4\\nK:C\\nC D E F|]', i: ${JSON.stringify(i)}})`
+    );
+    run('dirty = false');
+    assert.equal(await run(`openSharedLink("s=${odd}")`), true);
+    assert.equal(run('current.instrument'), undefined, i);
+    assert.ok(Object.hasOwn(run('instruments'), $('instrument').value), `${i}: the menu shows a real instrument`);
+    assert.equal($('warnings').textContent, '', `${i}: the score renders`);
+  }
 
   // Embed code and QR code. The Embed tab's snippet carries the link's own payload as #e=, with sizes kept in range and
   // the title escaped; the tabs follow the ARIA pattern; the QR code draws the vendored encoder's modules exactly, and
@@ -1658,6 +1841,40 @@ assert.equal(
   assert.equal(restored.submissionsAdded, 20);
   assert.match(run(`restoreSummary(${JSON.stringify(restored)})`), /20 submissions added/);
   assert.equal(run('storedInbox().length'), 30);
+  // Feedback typed on another device comes over to a submission this device has without feedback, and is counted.
+  {
+    const elsewhere = JSON.parse(JSON.stringify(inboxBackup)),
+      id = run('storedInbox().find(e => !e.feedback).id');
+    elsewhere.inbox.find(e => e.id === id).feedback = 'Bar 2 needs a rest';
+    const summary = run(`applyBackup(${JSON.stringify(elsewhere)})`);
+    assert.equal(summary.feedbackAdded, 1);
+    assert.equal(run(`storedInbox().find(e => e.id === ${JSON.stringify(id)}).feedback`), 'Bar 2 needs a rest');
+    assert.match(run(`restoreSummary(${JSON.stringify(summary)})`), /, feedback added to 1 submission\.$/);
+    // A restore that fails at the inbox takes back the settings this device did not have before.
+    run('window.__inbox = storedInbox(); window.__count = storage.get(KEYS.recordCountIn, null)');
+    run('storage.remove(KEYS.recordCountIn); storeInbox(storedInbox().slice(1)); window.__realSet = storage.set');
+    run('storage.set = (key, value) => (key === KEYS.inbox ? false : window.__realSet(key, value))');
+    assert.throws(
+      () => run(`applyBackup(${JSON.stringify({...elsewhere, settings: {[run('KEYS.recordCountIn')]: 3}})})`),
+      /Nothing was changed/
+    );
+    run('storage.set = window.__realSet');
+    assert.equal(run('storage.get(KEYS.recordCountIn, null)'), null, 'A setting new to this device is removed again');
+    assert.equal(run('storedInbox().length'), 29);
+    run('storeInbox(window.__inbox); if (window.__count !== null) storage.set(KEYS.recordCountIn, window.__count)');
+    // So do marks on the notes of a submission this device has without marks of its own.
+    const marked = run('storedInbox().find(e => !e.marks).id'),
+      withMarks = JSON.parse(JSON.stringify(inboxBackup));
+    withMarks.inbox.find(e => e.id === marked).marks = [{m: 1, n: 2, c: 'green', t: 'Nice step'}];
+    const marksSummary = run(`applyBackup(${JSON.stringify(withMarks)})`);
+    assert.equal(marksSummary.feedbackAdded, 1);
+    assert.equal(
+      run(
+        `JSON.stringify(storedInbox().find(e => e.id === ${JSON.stringify(marked)}).marks.map(m => [m.m, m.n, m.c, m.t]))`
+      ),
+      '[[1,2,"green","Nice step"]]'
+    );
+  }
   const stored = JSON.parse(w.localStorage.getItem('fretfree-inbox'));
   w.localStorage.setItem(
     'fretfree-inbox',
@@ -1900,6 +2117,44 @@ assert.equal(
       ['[]', '["ode"]'],
       'Legacy keys are untouched'
     );
+  }
+  // The writing-prompt picker closes on Esc (and on ✕), giving the keyboard back to its button.
+  run('togglePrompts(true)');
+  $('close-prompts').focus();
+  $('close-prompts').dispatchEvent(new w.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+  assert.deepEqual([$('prompt-picker').hidden, w.document.activeElement.id], [true, 'open-prompts']);
+  run('togglePrompts(true)');
+  $('close-prompts').click();
+  assert.deepEqual([$('prompt-picker').hidden, w.document.activeElement.id], [true, 'open-prompts']);
+  // One damaged entry in the saved list hides nothing else: it is skipped in memory, so start-up on My scores, the
+  // list and backups all work. Scores, favorites and played marks another tab saves show here, and every change here
+  // (Save, a Mixer setting, a favorite) writes onto what is stored, so it never drops what the other tab saved.
+  {
+    const score = (id, title) => ({id, title, abc: `X:1\nT:${title}\nM:4/4\nL:1/4\nK:C\nC4|]`, updated: 1}),
+      first = score('a', 'First');
+    const page = boot(
+      storage => storage.setItem('commonnote-scores-v1', JSON.stringify([null, 5, first])),
+      'http://localhost:8000/index.html#saved'
+    );
+    const stored = () => JSON.parse(page.w.localStorage.getItem('commonnote-scores-v1')).map(x => x?.id ?? x),
+      otherTab = list => page.w.localStorage.setItem('commonnote-scores-v1', JSON.stringify(list));
+    assert.deepEqual([...page.run('saved.map(x => x.id)')], ['a']);
+    assert.match(page.$('saved-cards').textContent, /First/, 'My scores lists the sound entry');
+    assert.equal(typeof page.$('fingering').onchange, 'function', 'Start-up on #saved finished');
+    assert.deepEqual([...page.run('backupData().scores.map(x => x.id)')], ['a']);
+    page.run("openScore(saved[0], 'a')");
+    otherTab([first, score('b', 'Second tab work')]);
+    page.w.dispatchEvent(new page.w.StorageEvent('storage', {key: 'commonnote-scores-v1'}));
+    assert.deepEqual([...page.run('saved.map(x => x.id)')], ['a', 'b'], 'A score saved in another tab shows here');
+    otherTab([first, score('b', 'Second tab work'), score('c', 'Third')]);
+    page.run("$('save').onclick()");
+    assert.deepEqual(stored().sort(), ['a', 'b', 'c'], 'Save keeps what another tab saved meanwhile');
+    otherTab([...JSON.parse(page.w.localStorage.getItem('commonnote-scores-v1')), score('d', 'Fourth')]);
+    page.run("setMix({'1': {mute: true}})");
+    assert.deepEqual(stored().sort(), ['a', 'b', 'c', 'd'], 'So does a Mixer setting');
+    page.w.localStorage.setItem('commonnote-favorites-v1', '["ode"]');
+    page.run("show('library'); document.querySelector('[data-favorite]:not([data-favorite=ode])').click()");
+    assert.ok(JSON.parse(page.w.localStorage.getItem('commonnote-favorites-v1')).includes('ode'), 'and a favorite');
   }
   // A draft of a saved prompt score restores its prompt and saved entry, so saving updates that entry.
   {
@@ -2202,7 +2457,11 @@ assert.equal(
       ],
       [`% FretFree-Rights: ${JSON.stringify(crafted)}\nX:1\nT:Crafted\nK:C\nCDE|]\n`, 'crafted.abc']
     ]) {
+      // A blank score first, so the rights checked below come from this file and not the one before.
+      page.run("dirty = false, openScore({abc: 'X:1\\nT:Blank\\nK:C\\nz4|]', kind: 'personal'})");
+      assert.equal(page.run('current.rights'), undefined);
       await choose(data, name);
+      if (name.endsWith('.abc')) assert.match(page.$('save-status').textContent, /^Imported locally/, name);
       assert.equal(page.run('current.rights'), edition.rights, `${name}: the rights text comes back`);
       for (const key of ['pdf', 'originalMidi', 'originalSource', 'licenseURL', 'source', 'prompt', 'id'])
         assert.equal(page.run(`current.${key}`), undefined, `${name}: ${key} is dropped`);
@@ -2213,6 +2472,22 @@ assert.equal(
       );
       assert.equal(page.$('source-edition').hidden, true);
       assert.ok(linksSafe(), `${name}: every link opens a web page`);
+    }
+    // A credited ABC export of each kind of licensed edition opens again with its credits, notice block and all.
+    for (const license of ['GPL-', 'CC-BY-NC', 'CC-BY-SA', 'CC-BY-4', 'CC-BY-3']) {
+      const id = page.run(`catalog.find(x => x.rights && scoreLicense(x).startsWith(${JSON.stringify(license)}))?.id`);
+      assert.ok(id, license);
+      const exported = page.run(
+        `creditedABC(catalog.find(x => x.id === ${JSON.stringify(id)}).abc, catalog.find(x => x.id === ${JSON.stringify(id)}))`
+      );
+      page.run("dirty = false, openScore({abc: 'X:1\\nT:Blank\\nK:C\\nz4|]', kind: 'personal'})");
+      await choose(exported, id + '.abc');
+      assert.match(page.$('save-status').textContent, /^Imported locally/, `${id}: the ABC export opens again`);
+      assert.equal(
+        page.run('exportCredit(current)'),
+        page.run(`exportCredit(catalog.find(x => x.id === ${JSON.stringify(id)}))`),
+        `${id}: its credits come back`
+      );
     }
     // Problems: the open score stays, and the message is shown and kept in the status line.
     const before = page.$('abc').value;

@@ -80,16 +80,16 @@ const SHORTCUTS = [
   {
     group: 'Pitch',
     name: 'Up an octave',
-    keys: ['Ctrl+↑'],
-    aria: 'Control+ArrowUp',
+    keys: ['Ctrl+↑', 'Cmd+↑'],
+    aria: 'Control+ArrowUp Meta+ArrowUp',
     key: {key: 'ArrowUp', ctrlKey: true},
     words: 'higher raise'
   },
   {
     group: 'Pitch',
     name: 'Down an octave',
-    keys: ['Ctrl+↓'],
-    aria: 'Control+ArrowDown',
+    keys: ['Ctrl+↓', 'Cmd+↓'],
+    aria: 'Control+ArrowDown Meta+ArrowDown',
     key: {key: 'ArrowDown', ctrlKey: true},
     words: 'lower'
   },
@@ -183,7 +183,13 @@ const SHORTCUTS = [
     words: 'repeat copy'
   },
   {group: 'Edit', name: 'Undo', keys: ['Ctrl+Z'], aria: 'Control+Z', run: () => stepHistory(-1)},
-  {group: 'Edit', name: 'Redo', keys: ['Ctrl+Shift+Z'], aria: 'Control+Shift+Z', run: () => stepHistory(1)},
+  {
+    group: 'Edit',
+    name: 'Redo',
+    keys: ['Ctrl+Shift+Z', 'Ctrl+Y'],
+    aria: 'Control+Shift+Z Control+Y',
+    run: () => stepHistory(1)
+  },
   {
     group: 'Play',
     name: 'Play from the selected note, or stop',

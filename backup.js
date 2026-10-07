@@ -139,6 +139,8 @@ function applyBackup(data) {
     )
   )
     throw new Error('This backup file is damaged: a score entry is incomplete. Nothing was restored.');
+  // Merge onto what is stored now, which another tab may have changed.
+  rereadLists();
   const byId = new Map(saved.map(x => [x.id, x])),
     myVersions = storedVersions(),
     versions = cleanVersions(data.versions);
@@ -177,10 +179,18 @@ function applyBackup(data) {
       x => typeof x === 'string'
     ),
     settings = data.settings && typeof data.settings === 'object' ? data.settings : {},
-    settingKeys = BACKUP_SETTING_KEYS().filter(key => key in settings);
-  // Submissions merge like scores: entries this device lacks are added (each checked again), up to the inbox limit.
+    settingKeys = BACKUP_SETTING_KEYS().filter(key => key in settings),
+    settingsChanged = settingKeys.filter(
+      key => JSON.stringify(storage.get(key, null)) !== JSON.stringify(settings[key])
+    ).length;
+  // Submissions merge like scores: entries this device lacks are added (each checked again), up to the inbox limit,
+  // and feedback typed, or notes marked, on another device come over to an entry here that has none.
   const myInbox = typeof storedInbox === 'function' ? storedInbox() : [],
-    nextInbox = typeof mergeInbox === 'function' ? mergeInbox(myInbox, data.inbox) : myInbox;
+    nextInbox = typeof mergeInbox === 'function' ? mergeInbox(myInbox, data.inbox) : myInbox,
+    feedbackAdded = myInbox.filter(e => {
+      const next = nextInbox.find(x => x.id === e.id);
+      return (!e.feedback && next?.feedback) || (!e.marks && next?.marks);
+    }).length;
   // Every write must land before memory changes; on any failure put the previous values back and report. When storage
   // is short the oldest stored versions make room, as when saving, so they are put back too (last, once the rest has
   // shrunk back).
@@ -197,10 +207,11 @@ function applyBackup(data) {
     [KEYS.favorites, nextFavorites],
     [KEYS.played, nextPlayed],
     ...settingKeys.map(key => [key, settings[key]]),
-    ...(nextInbox.length > myInbox.length ? [[KEYS.inbox, nextInbox]] : [])
+    ...(JSON.stringify(nextInbox) !== JSON.stringify(myInbox) ? [[KEYS.inbox, nextInbox]] : [])
   ];
   if (!writes.every(([key, value]) => storeMakingRoom(key, value))) {
-    for (const [key, value] of previous) if (value !== null) storage.set(key, value);
+    // A key this device did not have before is removed again.
+    for (const [key, value] of previous) value === null ? storage.remove(key) : storage.set(key, value);
     throw new Error('This browser could not store the restored data (storage may be full). Nothing was changed.');
   }
   // Versions go last and never stop a restore: when they do not fit, the oldest give way.
@@ -216,8 +227,10 @@ function applyBackup(data) {
     unchanged: incoming.length - added - updated,
     favoritesAdded,
     settings: settingKeys.length,
+    settingsChanged,
     versionsAdded,
-    submissionsAdded: nextInbox.length - myInbox.length
+    submissionsAdded: nextInbox.length - myInbox.length,
+    feedbackAdded
   };
 }
 function restoreSummary(s) {
@@ -228,12 +241,21 @@ function restoreSummary(s) {
   if (s.favoritesAdded) parts.push(`${s.favoritesAdded} favorite${s.favoritesAdded === 1 ? '' : 's'} added`);
   if (s.versionsAdded) parts.push(`${s.versionsAdded} earlier version${s.versionsAdded === 1 ? '' : 's'} added`);
   if (s.submissionsAdded) parts.push(`${s.submissionsAdded} submission${s.submissionsAdded === 1 ? '' : 's'} added`);
+  if (s.feedbackAdded) parts.push(`feedback added to ${s.feedbackAdded} submission${s.feedbackAdded === 1 ? '' : 's'}`);
+  if (s.settingsChanged) parts.push(`${s.settingsChanged} setting${s.settingsChanged === 1 ? '' : 's'} applied`);
   return parts.length ? 'Restored: ' + parts.join(', ') + '.' : 'Nothing new to restore.';
 }
 async function restoreFromFile(file) {
   if (!file) return;
   if (file.size > 20 * 1024 * 1024) throw new Error('That backup is larger than 20 MB; please check the file.');
-  const summary = applyBackup(JSON.parse(await file.text()));
+  // A file that is not JSON at all (a zip, a cut-off download) gets the same plain message as any other wrong file.
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch {
+    throw new Error('This is not a FretFree backup file, or it is damaged or incomplete.');
+  }
+  const summary = applyBackup(data);
   renderSaved();
   renderCards();
   renderBackupStatus();
@@ -248,7 +270,8 @@ function renderBackupStatus() {
   const last = storage.get(LAST_BACKUP_KEY, null),
     el = $('backup-status');
   if (!el) return;
-  if (!last?.at) {
+  // A damaged record (not an object with a time) counts as never backed up.
+  if (!last || typeof last !== 'object' || !Number.isFinite(last.at) || last.at <= 0) {
     el.textContent = saved.length
       ? `${saved.length} saved score${saved.length === 1 ? '' : 's'} on this device, never backed up.`
       : 'Nothing backed up yet.';
@@ -260,7 +283,7 @@ function renderBackupStatus() {
     snapshot ? snapshot[x.id] === undefined || snapshot[x.id] !== (x.updated || 0) : (x.updated || 0) > last.at
   ).length;
   el.textContent =
-    `Last backed up ${new Date(last.at).toLocaleString()} to ${last.name}.` +
+    `Last backed up ${new Date(last.at).toLocaleString()}${typeof last.name === 'string' ? ` to ${last.name}` : ''}.` +
     (changed ? ` ${changed} score${changed === 1 ? '' : 's'} changed since.` : ' Everything saved is in that backup.');
 }
 $('backup').onclick = () => backUp().catch(e => toast('Backup failed: ' + e.message));

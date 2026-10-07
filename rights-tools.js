@@ -33,7 +33,8 @@ function licenseLabel(item) {
 function exportCredit(item) {
   if (!item?.rights) return '';
   return [
-    item.title || 'Music',
+    // A saved or shared copy keeps the edition's title as workTitle, since title follows the student's T: line.
+    item.workTitle || item.title || 'Music',
     item.attribution || item.composer,
     'Collection: ' + scoreCollection(item),
     'Notation/edition license: ' + scoreLicense(item),
@@ -53,6 +54,7 @@ function exportCredit(item) {
 // web address or a path on this site; a javascript: or data: link would run code or show a fake page when clicked.
 const RIGHTS_TEXT = [
     'title',
+    'workTitle',
     'composer',
     'lyricist',
     'attribution',
@@ -99,6 +101,17 @@ function importedRights(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return rights;
   for (const key of RIGHTS_TEXT) if (typeof value[key] === 'string') rights[key] = value[key];
   for (const key of RIGHTS_LINKS) if (typeof value[key] === 'string' && webLink(value[key])) rights[key] = value[key];
+  // The library edition the export was made from (a saved copy's libraryId, or the edition's own id) comes back as
+  // libraryId, so share links and drafts name it, but only when it has the same rights text and source as the file.
+  const library = typeof catalog === 'undefined' ? [] : catalog,
+    edition =
+      typeof rights.rights === 'string' &&
+      [value.libraryId, value.id].find(
+        id =>
+          typeof id === 'string' &&
+          library.some(x => x.id === id && x.rights === rights.rights && x.source === rights.source)
+      );
+  if (edition) rights.libraryId = edition;
   return rights;
 }
 function creditedABC(source, item) {

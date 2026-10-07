@@ -341,10 +341,22 @@ const mxlMetronome = t => {
     ? {types, sound: t.bpm > 0 && total ? `<sound tempo="${+(t.bpm * total * 4).toFixed(2)}"/>` : ''}
     : null;
 };
+// The swing feel (%%MIDI swing, see swingAmount) travels as MusicXML 4's <swing> in the opening tempo's <sound>, or in
+// a <sound> of its own when there is no opening tempo: the long and short eighths' ratio, so Light (60), Swing (66)
+// and Hard (75) come back as they were.
+const mxlSwing = (sound, amount) => {
+  if (!(amount > 50)) return sound;
+  const gcd = mxlGcd(amount, 100 - amount),
+    swing =
+      `<swing><first>${amount / gcd}</first><second>${(100 - amount) / gcd}</second>` +
+      '<swing-type>eighth</swing-type></swing>';
+  return sound ? sound.replace(/\/>$/, `>${swing}</sound>`) : `<sound>${swing}</sound>`;
+};
 const mxlBlank = () => ({content: [], length: 0, notes: false, left: {}, right: {}});
 
 function abcToMusicXML(source, meta = {}) {
-  const tune = ABCJS.parseOnly(source)[0];
+  const tune = ABCJS.parseOnly(source)[0],
+    swing = typeof swingAmount === 'function' ? swingAmount(source) : 0;
   if (!tune?.lines?.some(line => line.staff?.length)) throw Error('There is no music to export.');
   const voices = tune.lines.flatMap(line => (line.staff || []).flatMap(staff => staff.voices));
   if (voices.some(voice => voice.some(e => e.el_type === 'note' && Number.isNaN(e.duration))))
@@ -512,9 +524,11 @@ function abcToMusicXML(source, meta = {}) {
         const t = mxlType(length);
         return t ? `<type>${t.type}</type>` + '<dot/>'.repeat(t.dots) : '';
       },
-      tempo = t => {
-        const mark = mxlMetronome(t);
-        if (mark) direction(mark.types, 'above', mark.sound);
+      tempo = (t, header) => {
+        const mark = t && mxlMetronome(t);
+        if (mark) direction(mark.types, 'above', header ? mxlSwing(mark.sound, swing) : mark.sound);
+        // Without an opening tempo mark, the swing feel goes in a <sound> of its own at the start.
+        else if (header && swing > 50) open().content.push(mxlSwing('', swing));
       };
     for (const [li, line] of tune.lines.entries()) {
       const staff = line.staff?.[pv.s],
@@ -534,7 +548,7 @@ function abcToMusicXML(source, meta = {}) {
         };
         // A voice that first appears on a later line starts in the measure the others have reached.
         pad(lineStarts[li] || 0);
-        if (firstOfScore && tune.metaText?.tempo) tempo(tune.metaText.tempo);
+        if (firstOfScore) tempo(tune.metaText?.tempo, true);
       } else {
         if (staff.key) setKey(staff.key);
         if (staff.clef?.type) setClef(staff.clef, true);
@@ -667,6 +681,8 @@ function abcToMusicXML(source, meta = {}) {
       ];
       let arpeggio = false;
       for (const d of e.decoration || []) {
+        // A trill line's start already writes the trill mark, so a trill on the same note adds no second one.
+        if (d === 'trill' && e.decoration.includes('trill(')) continue;
         if (d in MXL_ARTICULATIONS) articulations.push(`<${MXL_ARTICULATIONS[d]}/>`);
         else if (d in MXL_ORNAMENTS) ornaments.push(`<${MXL_ORNAMENTS[d]}/>`);
         else if (d in MXL_TECHNICAL) technical.push(`<${MXL_TECHNICAL[d]}/>`);
@@ -1039,14 +1055,29 @@ const MXI_TYPES = {
     verses: 'lyrics after verse 8'
   },
   // FretFree instruments a part name can choose; a B♭ or E♭ one only when the part is written for it.
+  // The import writes concert pitch, so only instruments that read the source at that octave are listed: the ones
+  // FretFree draws an octave above the source (cello, bassoon, bass guitar and the like) and the glockenspiel and
+  // baritone sax, which sound in another octave, are left to the Instrument menu. A bass guitar is not a guitar.
   MXI_INSTRUMENTS = [
     [/flute|piccolo/i, 'Flute'],
+    [/viola/i, 'Viola'],
     [/violin|fiddle/i, 'Violin'],
     [/recorder/i, 'Recorder'],
+    [/oboe/i, 'Oboe'],
     [/clarinet/i, 'Clarinet in B♭', 10],
     [/trumpet|cornet/i, 'Trumpet in B♭', 10],
     [/alto sax/i, 'Alto sax in E♭', 3],
+    [/tenor sax/i, 'Tenor sax in B♭', 10],
+    [/english horn|cor anglais/i, '', 5],
+    [/horn/i, 'Horn in F', 5],
+    // A soprano or alto part is a voice; a soprano saxophone, an alto trombone or an alto xylophone is not.
+    [
+      /voice|vocal|^(?=.*\b(?:sopranos?|mezzo|altos?)\b)(?:[\s\d.,()-]|\b[IVX]+\b|sopranos?|mezzo|altos?|contraltos?|solo|choir|chorus)*$/i,
+      'Voice'
+    ],
     [/piano|keyboard/i, 'Piano'],
+    [/ukulele/i, 'Ukulele'],
+    [/bass guitar|electric bass/i, ''],
     [/guitar/i, 'Guitar']
   ];
 // Element children are listed once per element: the lookups below run many times on each note.
@@ -1183,6 +1214,15 @@ function musicXMLToABC(doc, {name = ''} = {}) {
   }
   const whole = t => t / (4 * ticks),
     tempos = [];
+  // The first <swing> in a <sound> sets the swing feel (see mxlSwing); a straight one or an even ratio is none.
+  let swing = 0;
+  const readSwing = sound => {
+    const el = xmlKid(sound, 'swing');
+    if (!el || swing || xmlKid(el, 'straight')) return;
+    const first = +xmlValue(el, 'first'),
+      second = +xmlValue(el, 'second');
+    if (first > 0 && second > 0) swing = Math.round((100 * first) / (first + second));
+  };
   let parts = [...partInfo.values()].filter(p => p.measures.length).map(readPart);
   // A part that is only tablature repeats the notes of a notation part; it stays only when nothing else is there.
   if (parts.some(p => p.tabOnly) && parts.some(p => !p.tabOnly)) {
@@ -1426,6 +1466,7 @@ function musicXMLToABC(doc, {name = ''} = {}) {
     'L:1/8'
   ];
   if (headerTempo) lines.push('Q:' + headerTempo);
+  if (swing > 50) lines.push('%%MIDI swing ' + Math.min(75, swing));
   if (voices.length > 1 && voices.some(v => v.shared || v.part.staves - v.part.dropStaves.size > 1))
     lines.push(
       '%%score ' +
@@ -1681,8 +1722,12 @@ function musicXMLToABC(doc, {name = ''} = {}) {
             v.state.slurs.delete(number);
             close += ')';
           }
-        } else if (name === 'articulations' || name === 'ornaments' || name === 'technical')
+        } else if (name === 'articulations' || name === 'ornaments' || name === 'technical') {
+          // A trill line is written as a trill mark with a wavy line (MuseScore does the same); it comes back as the
+          // line alone, which draws the tr itself and plays as written.
+          const trillLine = xmlChildren(c).some(a => a.localName === 'wavy-line' && a.getAttribute('type') === 'start');
           for (const a of xmlChildren(c)) {
+            if (trillLine && a.localName === 'trill-mark') continue;
             const mark = {articulations: MXI_ARTICULATIONS, ornaments: MXI_ORNAMENTS, technical: MXI_TECHNICAL}[name][
               a.localName
             ];
@@ -1696,7 +1741,7 @@ function musicXMLToABC(doc, {name = ''} = {}) {
             else if (!/^(accidental-mark|other-articulation|other-ornament|other-technical)$/.test(a.localName))
               skip(a.localName);
           }
-        else if (name === 'fermata') pre.push(type === 'inverted' ? '!invertedfermata!' : '!fermata!');
+        } else if (name === 'fermata') pre.push(type === 'inverted' ? '!invertedfermata!' : '!fermata!');
         else if (name === 'arpeggiate') pre.push('!arpeggio!');
         else if (name === 'glissando' || name === 'slide') {
           if (type === 'start') pre.push('!glissando(!');
@@ -1770,9 +1815,11 @@ function musicXMLToABC(doc, {name = ''} = {}) {
         else if (name === 'forward') t += Math.max(0, Math.round((+xmlValue(child, 'duration') || 0) * divTicks));
         else if (name === 'direction') direction(child, m, offset(child), mi);
         else if (name === 'harmony') harmony(child, m, offset(child));
-        else if (name === 'sound' && +child.getAttribute('tempo') > 0)
-          tempos.push({measure: mi, t, part: pi, q: mxiTempo([], null, +child.getAttribute('tempo'))});
-        else if (name === 'figured-bass') skip(name);
+        else if (name === 'sound') {
+          readSwing(child);
+          if (+child.getAttribute('tempo') > 0)
+            tempos.push({measure: mi, t, part: pi, q: mxiTempo([], null, +child.getAttribute('tempo'))});
+        } else if (name === 'figured-bass') skip(name);
         else if (name === 'barline') barline(child, m);
         m.length = Math.max(m.length, t);
       }
@@ -1985,6 +2032,7 @@ function musicXMLToABC(doc, {name = ''} = {}) {
         sound = xmlKid(el, 'sound'),
         speed = +sound?.getAttribute('tempo') || 0,
         words = [];
+      readSwing(sound);
       let metronome = null;
       for (const type of xmlKids(el, 'direction-type'))
         for (const d of xmlChildren(type)) {

@@ -529,6 +529,19 @@ const clockTime = seconds => {
   const s = Math.round(seconds);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
+// A pause that lets the page draw and take clicks: a message to itself, not a timer, since a hidden tab runs timers
+// once a second at most (once a minute after five minutes), and a long export would wait that long at every pause.
+function nextTask() {
+  if (typeof MessageChannel !== 'function') return new Promise(resolve => setTimeout(resolve));
+  return new Promise(resolve => {
+    const {port1, port2} = new MessageChannel();
+    port1.onmessage = () => {
+      port1.close();
+      resolve();
+    };
+    port2.postMessage(null);
+  });
+}
 // progress(done) hears how far the render has got, from 0 to 1, every WAV_STEP seconds of audio, where the browser can
 // suspend an offline render. An offline render cannot be stopped, so an abort from signal cuts the export's bus off and
 // stops its notes: the rest renders as silence, quickly, and nothing is scaled or encoded.
@@ -576,7 +589,7 @@ async function renderWav({metronome = false, chords = true, signal = null, progr
           .suspend(t)
           .then(() => {
             resume();
-            if (!signal?.aborted) progress((t * WAV_RATE) / length);
+            if (!signal?.aborted) progress((0.9 * t * WAV_RATE) / length);
           })
           .catch(() => {});
       } catch {}
@@ -599,12 +612,30 @@ async function renderWav({metronome = false, chords = true, signal = null, progr
     ctx.startRendering()?.then?.(resolve, reject);
   }).finally(() => signal?.removeEventListener('abort', cancel));
   if (signal?.aborted) throw cancelled();
-  const channels = Array.from({length: buffer.numberOfChannels}, (_, i) => buffer.getChannelData(i));
+  // Scaling to the peak and writing the file go a stretch at a time with a pause between, so a long score does not
+  // freeze the page (and its progress bar) at the end: about a second at ten minutes. The last tenth of the bar is
+  // this part. A hidden tab has nothing to draw, so it goes straight on (nextTask).
+  const channels = Array.from({length: buffer.numberOfChannels}, (_, i) => buffer.getChannelData(i)),
+    stretch = 1 << 19,
+    breathe = async done => {
+      if (document.visibilityState !== 'hidden') await nextTask();
+      if (signal?.aborted) throw cancelled();
+      progress?.(0.9 + 0.1 * done);
+    };
   let peak = 0;
-  for (const c of channels) for (let i = 0; i < c.length; i++) peak = Math.max(peak, Math.abs(c[i]));
-  if (peak > 0) for (const c of channels) for (let i = 0; i < c.length; i++) c[i] *= 0.89 / peak;
+  for (const [n, c] of channels.entries())
+    for (let i = 0; i < c.length; i += stretch) {
+      for (let j = i, end = Math.min(c.length, i + stretch); j < end; j++) {
+        const a = Math.abs(c[j]);
+        if (a > peak) peak = a;
+      }
+      await breathe((0.5 * (n + Math.min(1, (i + stretch) / c.length))) / channels.length);
+    }
+  const writer = wavWriter(channels, WAV_RATE, creditedWavInfo(source, current), peak > 0 ? 0.89 / peak : 1, stretch);
+  let step;
+  while (!(step = writer.next()).done) await breathe(0.5 + 0.5 * step.value);
   return {
-    bytes: wavBytes(channels, WAV_RATE, creditedWavInfo(source, current)),
+    bytes: step.value,
     seconds: buffer.length / WAV_RATE,
     notes: data.notes.length
   };

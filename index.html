@@ -12,37 +12,37 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-    <script src="theme.js?v=174e7a185f60"></script>
-    <link rel="stylesheet" href="style.css?v=174e7a185f60" />
-    <script defer src="vendor/abcjs-basic-min.js?v=174e7a185f60"></script>
-    <script defer src="vendor/qrcode.js?v=174e7a185f60"></script>
-    <script defer src="catalog.js?v=174e7a185f60"></script>
-    <script defer src="catalog-expanded.js?v=174e7a185f60"></script>
-    <script defer src="score-tools.js?v=174e7a185f60"></script>
-    <script defer src="rights-tools.js?v=174e7a185f60"></script>
-    <script defer src="musicxml.js?v=174e7a185f60"></script>
-    <script defer src="catalog-licensed.js?v=174e7a185f60"></script>
-    <script defer src="catalog-lieder.js?v=174e7a185f60"></script>
-    <script defer src="catalog-quartets.js?v=174e7a185f60"></script>
-    <script defer src="catalog-pgh.js?v=174e7a185f60"></script>
-    <script defer src="catalog-skills.js?v=174e7a185f60"></script>
-    <script defer src="prompts.js?v=174e7a185f60"></script>
-    <script defer src="shared.js?v=174e7a185f60"></script>
-    <script defer src="library.js?v=174e7a185f60"></script>
-    <script defer src="backup.js?v=174e7a185f60"></script>
-    <script defer src="editor.js?v=174e7a185f60"></script>
-    <script defer src="measure-tools.js?v=174e7a185f60"></script>
-    <script defer src="palette.js?v=174e7a185f60"></script>
-    <script defer src="shortcuts.js?v=174e7a185f60"></script>
-    <script defer src="playback.js?v=174e7a185f60"></script>
-    <script defer src="mixer.js?v=174e7a185f60"></script>
-    <script defer src="keyboard.js?v=174e7a185f60"></script>
-    <script defer src="assignments.js?v=174e7a185f60"></script>
-    <script defer src="turn-in.js?v=174e7a185f60"></script>
-    <script defer src="record.js?v=174e7a185f60"></script>
-    <script defer src="assess.js?v=174e7a185f60"></script>
-    <script defer src="marks.js?v=174e7a185f60"></script>
-    <script defer src="app.js?v=174e7a185f60"></script>
+    <script src="theme.js?v=3d829351ae17"></script>
+    <link rel="stylesheet" href="style.css?v=3d829351ae17" />
+    <script defer src="vendor/abcjs-basic-min.js?v=3d829351ae17"></script>
+    <script defer src="vendor/qrcode.js?v=3d829351ae17"></script>
+    <script defer src="catalog.js?v=3d829351ae17"></script>
+    <script defer src="catalog-expanded.js?v=3d829351ae17"></script>
+    <script defer src="score-tools.js?v=3d829351ae17"></script>
+    <script defer src="rights-tools.js?v=3d829351ae17"></script>
+    <script defer src="musicxml.js?v=3d829351ae17"></script>
+    <script defer src="catalog-licensed.js?v=3d829351ae17"></script>
+    <script defer src="catalog-lieder.js?v=3d829351ae17"></script>
+    <script defer src="catalog-quartets.js?v=3d829351ae17"></script>
+    <script defer src="catalog-pgh.js?v=3d829351ae17"></script>
+    <script defer src="catalog-skills.js?v=3d829351ae17"></script>
+    <script defer src="prompts.js?v=3d829351ae17"></script>
+    <script defer src="shared.js?v=3d829351ae17"></script>
+    <script defer src="library.js?v=3d829351ae17"></script>
+    <script defer src="backup.js?v=3d829351ae17"></script>
+    <script defer src="editor.js?v=3d829351ae17"></script>
+    <script defer src="measure-tools.js?v=3d829351ae17"></script>
+    <script defer src="palette.js?v=3d829351ae17"></script>
+    <script defer src="shortcuts.js?v=3d829351ae17"></script>
+    <script defer src="playback.js?v=3d829351ae17"></script>
+    <script defer src="mixer.js?v=3d829351ae17"></script>
+    <script defer src="keyboard.js?v=3d829351ae17"></script>
+    <script defer src="assignments.js?v=3d829351ae17"></script>
+    <script defer src="turn-in.js?v=3d829351ae17"></script>
+    <script defer src="record.js?v=3d829351ae17"></script>
+    <script defer src="assess.js?v=3d829351ae17"></script>
+    <script defer src="marks.js?v=3d829351ae17"></script>
+    <script defer src="app.js?v=3d829351ae17"></script>
   </head>
   <body>
     <header>
@@ -506,7 +506,7 @@
               ><button id="stop" aria-label="Stop playback">■ Stop</button
               ><span class="history-buttons"
                 ><button id="undo" title="Undo (Ctrl+Z)" disabled>↶ Undo</button
-                ><button id="redo" title="Redo (Ctrl+Shift+Z)" disabled>↷ Redo</button></span
+                ><button id="redo" title="Redo (Ctrl+Shift+Z or Ctrl+Y)" disabled>↷ Redo</button></span
               ><button
                 id="record"
                 aria-expanded="false"
@@ -1140,9 +1140,11 @@
                     <dt>Change</dt>
                     <dd>
                       <kbd>3</kbd>–<kbd>7</kbd> length (16th to whole) · <kbd>.</kbd> dot · <kbd>[</kbd>
-                      <kbd>]</kbd> halve, double lengths · <kbd>↑</kbd><kbd>↓</kbd> pitch (<kbd>Ctrl</kbd> octave) ·
-                      <kbd>#</kbd> <kbd>-</kbd> <kbd>=</kbd> sharp, flat, natural · <kbd>Z</kbd> respell (C♯ to D♭) ·
-                      <kbd>+</kbd> tie · <kbd>T</kbd> triplet · <kbd>S</kbd> slur
+                      <kbd>]</kbd> halve, double lengths · <kbd>↑</kbd><kbd>↓</kbd> pitch (<kbd>Ctrl</kbd>/<kbd
+                        >Cmd</kbd
+                      >
+                      octave) · <kbd>#</kbd> <kbd>-</kbd> <kbd>=</kbd> sharp, flat, natural · <kbd>Z</kbd> respell (C♯
+                      to D♭) · <kbd>+</kbd> tie · <kbd>T</kbd> triplet · <kbd>S</kbd> slur
                     </dd>
                   </div>
                   <div>
@@ -1671,10 +1673,12 @@
           nothing on the visitor’s device, and a <strong>QR code</strong> of the link for students to scan from the
           projector. Library scores and the notation engine ship with the site, so the core experience makes no
           third-party requests. Recordings stay in the browser too, and are not in backups; a play-along check listens
-          on the device and records nothing. Local storage can be cleared by the browser or school device policy; export
-          work you want to keep. Unsaved changes are kept as a draft in the browser, so a closed or discarded tab offers
-          them back on the next visit. Saving a changed score keeps the copy it replaces: <strong>History</strong> in My
-          scores previews, plays and restores earlier versions.
+          on the device and records nothing. The browser keeps all of this per web address (the site’s origin), so other
+          pages published at the same address can read it; a school should give FretFree an address of its own. Local
+          storage can be cleared by the browser or school device policy; export work you want to keep. Unsaved changes
+          are kept as a draft in the browser, so a closed or discarded tab offers them back on the next visit. Saving a
+          changed score keeps the copy it replaces: <strong>History</strong> in My scores previews, plays and restores
+          earlier versions.
         </p>
         <p>
           <strong>Offline and installing.</strong> After one visit, FretFree opens and works without internet: the

@@ -198,7 +198,7 @@ function inboxEntry(payload, prompt = linkPrompt(payload)) {
   const sub = readSubmission(payload, prompt);
   if (!sub || typeof payload.a !== 'string' || payload.a.length > INBOX_ABC_MAX || !SHARE_ABC.test(payload.a))
     return null;
-  const instrument = instruments[payload.i] ? payload.i : undefined,
+  const instrument = knownInstrument(payload.i),
     source = catalog.some(x => x.id === payload.s) ? payload.s : undefined,
     played = readChecks(payload.h);
   let checks;
@@ -260,7 +260,7 @@ function cleanInboxEntry(e) {
     title: prompt.title,
     prompt: prompt.level === 'Custom' ? prompt : prompt.id,
     abc: e.abc,
-    ...(instruments[e.instrument] ? {instrument: e.instrument} : {}),
+    ...(knownInstrument(e.instrument) ? {instrument: e.instrument} : {}),
     ...(catalog.some(x => x.id === e.source) ? {source: e.source} : {}),
     met: e.met,
     total: e.total,
@@ -284,11 +284,22 @@ function storeInbox(list) {
   storage.remove(KEYS.inbox);
   return true;
 }
-// A backup's inbox merges into this device's: entries this device lacks are added, up to the limit.
+// A backup's inbox merges into this device's: entries this device lacks are added, up to the limit, and an entry here
+// without feedback, or without marks on its notes (keepSubmissionMarks), takes the backup's (made on another device).
 function mergeInbox(mine, incoming) {
-  const have = new Set(mine.map(e => e.id)),
-    added = cleanInbox(incoming).filter(e => !have.has(e.id));
-  return [...mine, ...added].slice(0, INBOX_LIMIT);
+  const clean = cleanInbox(incoming),
+    theirs = new Map(clean.map(e => [e.id, e])),
+    have = new Set(mine.map(e => e.id)),
+    added = clean.filter(e => !have.has(e.id)),
+    kept = mine.map(e => {
+      const other = theirs.get(e.id);
+      return {
+        ...e,
+        ...(!e.feedback && other?.feedback ? {feedback: other.feedback} : {}),
+        ...(!e.marks && other?.marks ? {marks: other.marks} : {})
+      };
+    });
+  return [...kept, ...added].slice(0, INBOX_LIMIT);
 }
 // Add entries, skipping ones already here. Returns {added, already, full}; nothing is stored when the write fails.
 function addToInbox(entries) {
