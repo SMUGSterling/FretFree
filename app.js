@@ -42,6 +42,7 @@ function openScore(item, id = null) {
   $('end-measure').value = '';
   $('abc').value = item.abc;
   inputLength = null;
+  $('keep-bars').checked = keepBarsFor(item);
   $('instrument').value =
     item.instrument || ($('instrument-filter').value === 'all' ? 'Flute' : $('instrument-filter').value);
   resetHistory();
@@ -67,7 +68,8 @@ function newScore(bars) {
     title: 'Untitled melody',
     composer: '',
     kind: 'personal',
-    abc: promptSource({title: 'Untitled melody', meter: '4/4', unit: '1/4', tempo: 100, key: 'C', bars})
+    abc: promptSource({title: 'Untitled melody', meter: '4/4', unit: '1/4', tempo: 100, key: 'C', bars}),
+    fit: true
   });
   const first = scoreNotes()[0];
   if (first) selectEntry(first);
@@ -125,7 +127,8 @@ function createScore(choices = newScoreChoices()) {
     composer: '',
     kind: 'personal',
     abc,
-    instrument: t.instrument || currentInstrument()
+    instrument: t.instrument || currentInstrument(),
+    fit: true
   });
   toggleNewScore(false);
   $('new-title').value = '';
@@ -337,6 +340,8 @@ $('save').onclick = () => {
     composer: field('C'),
     abc: $('abc').value,
     instrument: currentInstrument(),
+    // Keep bars full stays as it was left (see keepBarsFor), even where that is the score's default.
+    fit: keepBars(),
     updated: Math.max(Date.now(), (previous?.updated || 0) + 1)
   };
   const next = saved.filter(x => x.id !== id).concat(entry);
@@ -447,6 +452,7 @@ function applyStoredSettings() {
   applyStoredLayout();
   applyTheme();
   prepareTrainer();
+  updateFoldMarks();
 }
 // Zoom, measures per line and Concert pitch view are read before the first render, so the start-up score is drawn
 // once as the student left it.
@@ -571,6 +577,7 @@ function playsChords(source) {
 function showWavSummary() {
   $('wav-summary').textContent = offlineAudio()
     ? `The whole score in the ${currentInstrument()} sound at ${$('speed').value}% speed, as Play sounds it. ` +
+      (mixChanged() ? `The mixer’s settings apply${mixSilences() ? ': muted tracks are left out' : ''}. ` : '') +
       'The file is made on this device; nothing is uploaded.'
     : 'This browser can’t make audio files. Export MIDI instead, or try Chrome, Edge, Firefox or Safari.';
 }
@@ -777,6 +784,14 @@ $('fingering').onchange = () => {
 };
 $('audition').checked = storage.get(KEYS.audition, true) !== false;
 $('audition').onchange = () => storage.set(KEYS.audition, $('audition').checked);
+// Keep bars full belongs to the open score (see keepBarsFor), so it is not stored as a setting.
+$('keep-bars').onchange = () => {
+  closeNoteMenu();
+  refreshPalette();
+  $('selection-status').textContent = $('keep-bars').checked
+    ? 'Keep bars full is on: shorter notes leave rests, longer notes use the rests after them, and Delete leaves a rest.'
+    : 'Keep bars full is off: lengths change freely and Delete removes notes.';
+};
 $('note-names').value = storage.get(KEYS.noteNames, 'off');
 $('note-colors').value = storage.get(KEYS.noteColors, 'off');
 if (noteNamesMode() !== 'off' || lettersInHeads() || noteColorsShown()) render();
@@ -790,3 +805,58 @@ $('note-colors').onchange = () => {
 };
 // A remembered speed trainer needs the same below-goal start as a freshly ticked one.
 prepareTrainer();
+// Compact-layout folds (up to 1100px wide). Each .disclose button toggles .open on the element it controls; style.css
+// folds only in the compact layout, so wide screens show everything whatever the state. The choice is remembered per
+// device, along with whether the keyboard keys are open.
+const FOLDS = ['score-settings', 'write-notes', 'practice-panel', 'view-options'];
+const foldState = (s => (s && typeof s === 'object' && !Array.isArray(s) ? s : {}))(storage.get(KEYS.studioPanels, {}));
+function setFold(id, open, save = true) {
+  $(id).classList.toggle('open', open);
+  document.querySelector(`.disclose[aria-controls="${id}"]`)?.setAttribute('aria-expanded', open);
+  if (save) storage.set(KEYS.studioPanels, Object.assign(foldState, {[id]: open}));
+}
+for (const id of FOLDS) setFold(id, foldState[id] === true, false);
+document.addEventListener('click', e => {
+  const b = e.target.closest('button.disclose');
+  if (b) setFold(b.getAttribute('aria-controls'), b.getAttribute('aria-expanded') !== 'true');
+});
+$('keyboard-help').open = foldState['keyboard-help'] === true;
+$('keyboard-help').addEventListener('toggle', e =>
+  storage.set(KEYS.studioPanels, Object.assign(foldState, {'keyboard-help': e.target.open}))
+);
+// Opens the fold around el when the fold hides it, for code that moves the focus into it (the bar check's Show, which
+// selects a bar in the ABC text). Wide screens fold nothing, so there the remembered choice stays as it was.
+function revealFold(el) {
+  const fold = el?.closest('.panel-body, #practice-panel, #view-options');
+  if (fold && !fold.classList.contains('open') && !el.getClientRects().length) setFold(fold.id, true);
+}
+// A folded toggle says when something inside it is on, so a student can see that Loop or a 70% speed is still active.
+function markFold(id, on, words) {
+  const b = document.querySelector(`.disclose[aria-controls="${id}"]`);
+  b.classList.toggle('in-use', on);
+  b.querySelector('.disclose-state').textContent = on ? ` (${words})` : '';
+}
+// Also called by shadeRange (editor.js) whenever the practice range changes or the score is drawn again.
+function updateFoldMarks() {
+  const {from, to, total} = measureRange();
+  markFold(
+    'practice-panel',
+    ['loop', 'metronome', 'count-in', 'trainer'].some(id => $(id).checked) ||
+      $('speed').value !== '100' ||
+      from !== 1 ||
+      to !== total,
+    'settings on'
+  );
+  markFold(
+    'view-options',
+    $('note-names').value !== 'off' || $('note-colors').value !== 'off' || $('measures-per-line').value !== '0',
+    'settings on'
+  );
+  markFold('write-notes', $('warnings').textContent.trim() !== '', 'check the ABC warnings');
+}
+for (const id of ['practice-panel', 'view-options']) $(id).addEventListener('change', updateFoldMarks);
+$('practice-panel').addEventListener('input', updateFoldMarks);
+// Code changes these without an event too: a render's warnings, the speed trainer's next speed.
+for (const id of ['warnings', 'speed-value'])
+  new MutationObserver(updateFoldMarks).observe($(id), {childList: true, characterData: true, subtree: true});
+updateFoldMarks();

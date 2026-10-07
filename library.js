@@ -224,11 +224,17 @@ function markPlayedCard(id) {
       '<span class="tag played" title="You have opened this score">✓ Played</span>'
     );
 }
+// The library entry the open score is: the entry itself, or the copy mixer.js makes of it to hold a mix, so the
+// catalog never changes and the next opening of the entry starts without one.
+const libraryCopies = new WeakMap();
+function libraryEntry() {
+  return catalog.includes(current) ? current : libraryCopies.get(current) || null;
+}
 // "Try next": a few tunes that share this score's skills, shown under a library score.
 function renderNextUp() {
   const box = $('next-up');
   if (!box) return;
-  const item = catalog.includes(current) ? current : null;
+  const item = libraryEntry();
   const picks = item ? suggestNext(item, catalog, scoreSkills, played) : [];
   box.hidden = !picks.length;
   if (!picks.length) {

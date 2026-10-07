@@ -77,6 +77,9 @@ function paletteBlocked(action, state) {
     return state.tuplet === +action.slice(7) ? '' : tupletPlan(+action.slice(7), state.sel).why || '';
   if (action.startsWith('grace')) return gracePlan(action, state.sel).why || '';
   if (state.multiRest && action === 'dot') return 'A multi-measure rest cannot be dotted.';
+  // Under Keep bars full, Delete leaves a rest as it is (Shift+Delete or Remove in the note menu takes it out).
+  if (state.isRest && action === 'delete' && !state.tuplet && keepBars())
+    return 'A rest keeps the bar full. Shift+Delete, or Remove in the note menu, takes it out.';
   if (state.isRest && !['dot', 'delete'].includes(action))
     return action === 'to-rest' ? 'This is already a rest.' : 'Rests have no accidental, tie or beam.';
   if (action.startsWith('beam:')) {
@@ -90,6 +93,11 @@ function paletteBlocked(action, state) {
   }
   return '';
 }
+// The compact layout (style.css, up to 1100px wide) folds the second tier of the palette behind More. jsdom has no
+// matchMedia, so there the palette is always wide.
+const compactPalette = () => !!window.matchMedia?.('(max-width: 1100px)').matches;
+// How More's label names a lit second-tier button whose own label does not read well after "this note has".
+const TIER_WORDS = {'beam:join': 'a beam', grace: 'a grace note', 'grace:slash': ''};
 // The status line after the last press, and the selection it was about.
 let paletteMessage = null;
 function updatePalette() {
@@ -107,18 +115,30 @@ function updatePalette() {
         : NOTHING_SELECTED;
     paletteMessage = null;
   }
-  // While More is closed, its label names the marks under it that the selected note has.
+  // While More is closed, its label names the marks under it that the selected note has. In the compact layout More
+  // also holds the second tier (beam to grace notes), so it names that tier's lit buttons too.
   const more = bar.querySelector('[data-palette="more"]'),
     hidden = $('palette-more').hidden
       ? (state.marks?.marks || []).filter(name => $('palette-more').querySelector(`[data-palette="deco:${name}"]`))
-      : [];
-  more.classList.toggle('in-use', hidden.length > 0);
+      : [],
+    folded =
+      $('palette-more').hidden && compactPalette()
+        ? [...bar.querySelectorAll(':scope > .tier-2 [aria-pressed="true"]')]
+            .map(b =>
+              b.dataset.palette in TIER_WORDS
+                ? TIER_WORDS[b.dataset.palette]
+                : (b.getAttribute('aria-label') || b.textContent).trim().split(',')[0].toLowerCase()
+            )
+            .filter(Boolean)
+        : [];
+  more.classList.toggle('in-use', hidden.length + folded.length > 0);
   more.setAttribute(
     'aria-label',
-    hidden.length
-      ? `More marks (this note has ${listWords(hidden.map(n => MARK_WORDS[n].toLowerCase()))})`
+    hidden.length || folded.length
+      ? `More marks (this note has ${listWords([...hidden.map(n => MARK_WORDS[n].toLowerCase()), ...folded])})`
       : 'More marks'
   );
+  keepPaletteTabStop();
   // Tuplet is marked while its menu is closed and the note is in a tuplet the menu holds, and its name says which.
   const tuplets = bar.querySelector('[data-palette="tuplets"]'),
     inMenu = $('palette-tuplets').hidden && state.tuplet && state.tuplet !== 3 ? tupletWord(state.tuplet) : '';
@@ -171,12 +191,17 @@ function pressPalette(b, keyboard = false) {
   const action = b.dataset.palette;
   if (action === 'more' || action === 'tuplets' || action === 'measure') {
     const panel = $(b.getAttribute('aria-controls')),
-      open = panel.hidden;
+      open = panel.hidden,
+      // In the compact layout More also opens or closes the second tier, which sits above it. The page scrolls by as
+      // much, so More stays under the finger and the marks it opens below it stay on screen.
+      top = action === 'more' && compactPalette() ? b.getBoundingClientRect().top : null;
     panel.hidden = !open;
     b.setAttribute('aria-expanded', open);
+    $('palette').classList.toggle('more-open', !$('palette-more').hidden);
     // Closing hides buttons that may hold the tab stop, so the toggle takes it.
     paletteTabStop(b);
     updatePalette();
+    if (top !== null) window.scrollBy(0, b.getBoundingClientRect().top - top);
     if (!keyboard) focusScore();
     return;
   }
@@ -186,6 +211,7 @@ function pressPalette(b, keyboard = false) {
   }
   const state = paletteState(),
     blocked = paletteBlocked(action, state);
+  fitNote = null;
   // The chord box takes the keyboard; it hands it back to this button after a keyboard press, else to the score.
   if (action === 'chord' && !blocked) {
     openChordEntry(state.sel, keyboard ? b : null);
@@ -215,16 +241,19 @@ function pressPalette(b, keyboard = false) {
       $('selection-status').textContent = markRange(state.picked, action);
     else if (state.picked && rangePalette(action, state.picked)) {
       if (action !== 'delete')
-        $('selection-status').textContent =
-          $('abc').value === before ? 'No change.' : `Changed ${countWords(state.picked.filter(pitched).length)}.`;
+        $('selection-status').textContent = fitSaid(
+          $('abc').value === before ? 'No change.' : `Changed ${countWords(state.picked.filter(pitched).length)}.`
+        );
     } else {
       editNote(state.sel.entry, state.sel.display, action);
-      $('selection-status').textContent =
+      // Keep bars full adds to the message or replaces it (see fitNote).
+      $('selection-status').textContent = fitSaid(
         $('abc').value === before
           ? 'No change.'
           : toggled[action] ||
-            PALETTE_DONE[action] ||
-            (/^(deco|dyn):/.test(action) ? markDone(action, state.marks) : '');
+              PALETTE_DONE[action] ||
+              (/^(deco|dyn):/.test(action) ? markDone(action, state.marks) : '')
+      );
     }
   }
   paletteMessage = {text: $('selection-status').textContent, at: selectedRange?.[0] ?? null};
@@ -237,8 +266,20 @@ function pressPalette(b, keyboard = false) {
 function paletteTabStop(target) {
   for (const b of $('palette').querySelectorAll('[data-palette]')) b.tabIndex = b === target ? 0 : -1;
 }
+// When the compact layout folds the second tier while one of its buttons holds the tab stop (a window made narrower,
+// an iPad turned upright), More takes the stop, or Tab would pass the whole toolbar by.
+function keepPaletteTabStop() {
+  const stop = $('palette').querySelector('[data-palette][tabindex="0"]');
+  if (compactPalette() && $('palette-more').hidden && stop?.closest('.tier-2'))
+    paletteTabStop($('palette').querySelector('[data-palette="more"]'));
+}
+window.matchMedia?.('(max-width: 1100px)').addEventListener?.('change', keepPaletteTabStop);
 $('palette').addEventListener('keydown', e => {
-  const buttons = [...$('palette').querySelectorAll('[data-palette]')].filter(b => !b.closest('[hidden]')),
+  // Arrow keys skip hidden buttons, and in the compact layout the second tier while More is closed.
+  const folded = compactPalette() && !$('palette').classList.contains('more-open'),
+    buttons = [...$('palette').querySelectorAll('[data-palette]')].filter(
+      b => !b.closest('[hidden]') && !(folded && b.closest('.tier-2'))
+    ),
     i = buttons.indexOf(e.target),
     to = {ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: buttons.length - 1}[e.key];
   if (i < 0 || to == null) return;

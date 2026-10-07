@@ -29,6 +29,7 @@ const SCRIPTS = [
   'palette.js',
   'shortcuts.js',
   'playback.js',
+  'mixer.js',
   'keyboard.js',
   'assignments.js',
   'turn-in.js',

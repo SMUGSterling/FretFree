@@ -12,35 +12,36 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-    <script src="theme.js?v=3701c72b4cf5"></script>
-    <link rel="stylesheet" href="style.css?v=3701c72b4cf5" />
-    <script defer src="vendor/abcjs-basic-min.js?v=3701c72b4cf5"></script>
-    <script defer src="vendor/qrcode.js?v=3701c72b4cf5"></script>
-    <script defer src="catalog.js?v=3701c72b4cf5"></script>
-    <script defer src="catalog-expanded.js?v=3701c72b4cf5"></script>
-    <script defer src="score-tools.js?v=3701c72b4cf5"></script>
-    <script defer src="rights-tools.js?v=3701c72b4cf5"></script>
-    <script defer src="musicxml.js?v=3701c72b4cf5"></script>
-    <script defer src="catalog-licensed.js?v=3701c72b4cf5"></script>
-    <script defer src="catalog-lieder.js?v=3701c72b4cf5"></script>
-    <script defer src="catalog-quartets.js?v=3701c72b4cf5"></script>
-    <script defer src="catalog-pgh.js?v=3701c72b4cf5"></script>
-    <script defer src="catalog-skills.js?v=3701c72b4cf5"></script>
-    <script defer src="prompts.js?v=3701c72b4cf5"></script>
-    <script defer src="shared.js?v=3701c72b4cf5"></script>
-    <script defer src="library.js?v=3701c72b4cf5"></script>
-    <script defer src="backup.js?v=3701c72b4cf5"></script>
-    <script defer src="editor.js?v=3701c72b4cf5"></script>
-    <script defer src="measure-tools.js?v=3701c72b4cf5"></script>
-    <script defer src="palette.js?v=3701c72b4cf5"></script>
-    <script defer src="shortcuts.js?v=3701c72b4cf5"></script>
-    <script defer src="playback.js?v=3701c72b4cf5"></script>
-    <script defer src="keyboard.js?v=3701c72b4cf5"></script>
-    <script defer src="assignments.js?v=3701c72b4cf5"></script>
-    <script defer src="turn-in.js?v=3701c72b4cf5"></script>
-    <script defer src="record.js?v=3701c72b4cf5"></script>
-    <script defer src="assess.js?v=3701c72b4cf5"></script>
-    <script defer src="app.js?v=3701c72b4cf5"></script>
+    <script src="theme.js?v=6921c58ca12a"></script>
+    <link rel="stylesheet" href="style.css?v=6921c58ca12a" />
+    <script defer src="vendor/abcjs-basic-min.js?v=6921c58ca12a"></script>
+    <script defer src="vendor/qrcode.js?v=6921c58ca12a"></script>
+    <script defer src="catalog.js?v=6921c58ca12a"></script>
+    <script defer src="catalog-expanded.js?v=6921c58ca12a"></script>
+    <script defer src="score-tools.js?v=6921c58ca12a"></script>
+    <script defer src="rights-tools.js?v=6921c58ca12a"></script>
+    <script defer src="musicxml.js?v=6921c58ca12a"></script>
+    <script defer src="catalog-licensed.js?v=6921c58ca12a"></script>
+    <script defer src="catalog-lieder.js?v=6921c58ca12a"></script>
+    <script defer src="catalog-quartets.js?v=6921c58ca12a"></script>
+    <script defer src="catalog-pgh.js?v=6921c58ca12a"></script>
+    <script defer src="catalog-skills.js?v=6921c58ca12a"></script>
+    <script defer src="prompts.js?v=6921c58ca12a"></script>
+    <script defer src="shared.js?v=6921c58ca12a"></script>
+    <script defer src="library.js?v=6921c58ca12a"></script>
+    <script defer src="backup.js?v=6921c58ca12a"></script>
+    <script defer src="editor.js?v=6921c58ca12a"></script>
+    <script defer src="measure-tools.js?v=6921c58ca12a"></script>
+    <script defer src="palette.js?v=6921c58ca12a"></script>
+    <script defer src="shortcuts.js?v=6921c58ca12a"></script>
+    <script defer src="playback.js?v=6921c58ca12a"></script>
+    <script defer src="mixer.js?v=6921c58ca12a"></script>
+    <script defer src="keyboard.js?v=6921c58ca12a"></script>
+    <script defer src="assignments.js?v=6921c58ca12a"></script>
+    <script defer src="turn-in.js?v=6921c58ca12a"></script>
+    <script defer src="record.js?v=6921c58ca12a"></script>
+    <script defer src="assess.js?v=6921c58ca12a"></script>
+    <script defer src="app.js?v=6921c58ca12a"></script>
   </head>
   <body>
     <header>
@@ -312,155 +313,166 @@
         </section>
         <div class="workspace">
           <aside class="editor-panel">
-            <div class="editor-title">
-              <h2>Score settings</h2>
-              <span class="tag">LOCAL ONLY</span>
-            </div>
-            <label>Title<input id="title" maxlength="120" /></label
-            ><label>Composer<input id="composer" maxlength="120" /></label>
-            <div class="pair">
-              <div class="instrument-field">
-                <label>Instrument<select id="instrument"></select></label
-                ><label class="inline concert-pitch" id="concert-pitch-option" hidden
-                  ><input type="checkbox" id="concert-pitch" aria-describedby="score-caption" /> Concert pitch</label
-                >
-              </div>
-              <label
-                >Time signature<select id="meter">
-                  <option>4/4</option>
-                  <option>3/4</option>
-                  <option>2/4</option>
-                  <option>6/8</option>
-                  <option>2/2</option>
-                  <option>3/8</option>
-                  <option>5/4</option>
-                  <option>6/4</option>
-                  <option>7/8</option>
-                  <option>9/8</option>
-                  <option>12/8</option>
-                  <option value="C">C (common time)</option>
-                  <option value="C|">C| (cut time)</option>
-                  <option value="none">None (free time)</option>
-                </select></label
+            <!-- Up to 1100px wide the two halves of this panel fold behind these toggles (app.js); wider, the toggles are hidden. -->
+            <div class="panel-toggles">
+              <button
+                id="settings-toggle"
+                class="disclose"
+                type="button"
+                aria-expanded="false"
+                aria-controls="score-settings"
               >
+                Score settings <span class="disclose-state sr-only"></span
+                ><span class="disclose-mark" aria-hidden="true">▾</span>
+              </button>
+              <button
+                id="write-toggle"
+                class="disclose"
+                type="button"
+                aria-expanded="false"
+                aria-controls="write-notes"
+              >
+                Write notes &amp; ABC <span class="disclose-state sr-only"></span
+                ><span class="disclose-mark" aria-hidden="true">▾</span
+                ><span class="disclose-badge warn" aria-hidden="true">!</span>
+              </button>
             </div>
-            <div class="pair">
-              <label
-                >Tempo <span id="bpm-value">100</span> BPM<input
-                  id="bpm"
-                  type="range"
-                  min="40"
-                  max="200"
-                  value="100" /></label
-              ><label>Key<select id="key"></select></label>
-            </div>
-            <div id="key-choice" class="key-choice" role="group" aria-labelledby="key-choice-text" hidden>
-              <p id="key-choice-text" aria-live="polite"></p>
-              <button id="key-transpose" class="primary">Transpose notes</button
-              ><button id="key-keep" title="Change only the key signature">Keep notes</button
-              ><button id="key-cancel" aria-label="Cancel the key change">✕</button>
-            </div>
-            <label
-              >Feel<select id="feel" aria-describedby="feel-note">
-                <option value="0">Straight</option>
-                <option value="60">Light swing (60)</option>
-                <option value="66">Swing (66)</option>
-                <option value="75">Hard swing (75)</option>
-              </select></label
-            >
-            <p id="feel-note" class="small" hidden>Swing changes playback only in meters such as 4/4, 3/4 and 2/2.</p>
-            <button id="transpose-open" class="transpose-open" aria-expanded="false" aria-controls="transpose-panel">
-              Transpose…
-            </button>
-            <div id="transpose-panel" class="transpose-panel" role="group" aria-labelledby="transpose-heading" hidden>
-              <h3 id="transpose-heading">Transpose</h3>
-              <fieldset>
-                <legend class="sr-only">Transpose by</legend>
-                <label class="inline"
-                  ><input type="radio" name="transpose-by" id="transpose-by-interval" checked /> By interval</label
-                ><label class="inline"><input type="radio" name="transpose-by" id="transpose-by-key" /> To key</label>
-              </fieldset>
-              <div class="pair" id="transpose-interval-row">
-                <label>Interval<select id="transpose-interval"></select></label
-                ><label
-                  >Direction<select id="transpose-direction">
-                    <option value="1">Up</option>
-                    <option value="-1">Down</option>
+            <div id="score-settings" class="panel-body">
+              <div class="editor-title">
+                <h2>Score settings</h2>
+                <span class="tag">LOCAL ONLY</span>
+              </div>
+              <label>Title<input id="title" maxlength="120" /></label
+              ><label>Composer<input id="composer" maxlength="120" /></label>
+              <div class="pair">
+                <div class="instrument-field">
+                  <label>Instrument<select id="instrument"></select></label
+                  ><label class="inline concert-pitch" id="concert-pitch-option" hidden
+                    ><input type="checkbox" id="concert-pitch" aria-describedby="score-caption" /> Concert pitch</label
+                  >
+                </div>
+                <label
+                  >Time signature<select id="meter">
+                    <option>4/4</option>
+                    <option>3/4</option>
+                    <option>2/4</option>
+                    <option>6/8</option>
+                    <option>2/2</option>
+                    <option>3/8</option>
+                    <option>5/4</option>
+                    <option>6/4</option>
+                    <option>7/8</option>
+                    <option>9/8</option>
+                    <option>12/8</option>
+                    <option value="C">C (common time)</option>
+                    <option value="C|">C| (cut time)</option>
+                    <option value="none">None (free time)</option>
                   </select></label
                 >
               </div>
-              <label id="transpose-key-row" hidden>To key (nearest way)<select id="transpose-key"></select></label>
-              <label class="inline"
-                ><input type="checkbox" id="transpose-selection" disabled />
-                <span id="transpose-selection-label">Selection only</span></label
+              <div class="pair">
+                <label
+                  >Tempo <span id="bpm-value">100</span> BPM<input
+                    id="bpm"
+                    type="range"
+                    min="40"
+                    max="200"
+                    value="100" /></label
+                ><label>Key<select id="key"></select></label>
+              </div>
+              <div id="key-choice" class="key-choice" role="group" aria-labelledby="key-choice-text" hidden>
+                <p id="key-choice-text" aria-live="polite"></p>
+                <button id="key-transpose" class="primary">Transpose notes</button
+                ><button id="key-keep" title="Change only the key signature">Keep notes</button
+                ><button id="key-cancel" aria-label="Cancel the key change">✕</button>
+              </div>
+              <label
+                >Feel<select id="feel" aria-describedby="feel-note">
+                  <option value="0">Straight</option>
+                  <option value="60">Light swing (60)</option>
+                  <option value="66">Swing (66)</option>
+                  <option value="75">Hard swing (75)</option>
+                </select></label
               >
-              <p id="transpose-note" class="small" aria-live="polite"></p>
-              <div class="transpose-actions">
-                <button id="transpose-apply" class="primary">Transpose</button
-                ><button id="transpose-close">Cancel</button>
+              <p id="feel-note" class="small" hidden>Swing changes playback only in meters such as 4/4, 3/4 and 2/2.</p>
+              <button id="transpose-open" class="transpose-open" aria-expanded="false" aria-controls="transpose-panel">
+                Transpose…
+              </button>
+              <div id="transpose-panel" class="transpose-panel" role="group" aria-labelledby="transpose-heading" hidden>
+                <h3 id="transpose-heading">Transpose</h3>
+                <fieldset>
+                  <legend class="sr-only">Transpose by</legend>
+                  <label class="inline"
+                    ><input type="radio" name="transpose-by" id="transpose-by-interval" checked /> By interval</label
+                  ><label class="inline"><input type="radio" name="transpose-by" id="transpose-by-key" /> To key</label>
+                </fieldset>
+                <div class="pair" id="transpose-interval-row">
+                  <label>Interval<select id="transpose-interval"></select></label
+                  ><label
+                    >Direction<select id="transpose-direction">
+                      <option value="1">Up</option>
+                      <option value="-1">Down</option>
+                    </select></label
+                  >
+                </div>
+                <label id="transpose-key-row" hidden>To key (nearest way)<select id="transpose-key"></select></label>
+                <label class="inline"
+                  ><input type="checkbox" id="transpose-selection" disabled />
+                  <span id="transpose-selection-label">Selection only</span></label
+                >
+                <p id="transpose-note" class="small" aria-live="polite"></p>
+                <div class="transpose-actions">
+                  <button id="transpose-apply" class="primary">Transpose</button
+                  ><button id="transpose-close">Cancel</button>
+                </div>
               </div>
             </div>
-            <div class="editor-title">
-              <h2>Write notes</h2>
-              <button class="text-button" id="help-toggle">ABC help</button>
-            </div>
-            <p class="small">
-              Place your cursor in the music, then add notes below. You can also type ABC notation directly.
-            </p>
-            <div class="pair">
-              <label
-                >Length<select id="duration">
-                  <option value="1">Quarter note</option>
-                  <option value="/2">Eighth note</option>
-                  <option value="2">Half note</option>
-                  <option value="4">Whole note</option>
-                </select></label
-              ><label
-                >Octave<select id="octave">
-                  <option value="middle">Middle C–B</option>
-                  <option value="upper">C–B above</option>
-                  <option value="lower">C–B below</option>
-                </select></label
-              >
-            </div>
-            <div class="note-buttons" id="note-buttons"></div>
-            <div class="note-buttons">
-              <button data-token="z">Rest</button><button data-token="|">Bar |</button
-              ><button data-token="^">Sharp ♯</button><button data-token="_">Flat ♭</button
-              ><button data-token="=">Natural ♮</button
-              ><button id="add-bars" title="Add four blank bars at the end">＋ 4 bars</button
-              ><button
-                id="piano-toggle"
-                aria-pressed="false"
-                aria-controls="piano"
-                title="Show piano keys under the score for entering notes and chords"
-              >
-                Piano keys</button
-              ><button
-                id="midi-toggle"
-                aria-pressed="false"
-                aria-describedby="midi-status"
-                title="Enter notes and chords from a USB MIDI keyboard"
-                hidden
-              >
-                MIDI input
-              </button>
-            </div>
-            <p id="midi-status" class="small" role="status" hidden></p>
-            <label for="abc">ABC score <span class="small">Editable source</span></label
-            ><textarea id="abc" spellcheck="false" rows="12" aria-describedby="warnings"></textarea>
-            <div id="warnings" role="status" class="small"></div>
-            <div id="abc-help" hidden class="help">
-              <strong>A quick start</strong>
-              <p>
-                C D E F G A B are notes around middle C. Lowercase c d e are one octave higher. A comma lowers a note:
-                C,. With L:1/4, C2 is a half note and C/2 is an eighth note. z is a rest, | ends a measure, [CEG] is a
-                chord, and ^F is F sharp.
+            <div id="write-notes" class="panel-body">
+              <div class="editor-title">
+                <h2>Write notes</h2>
+                <button class="text-button" id="help-toggle">ABC help</button>
+              </div>
+              <p class="small">
+                Place your cursor in the music, then add notes below. You can also type ABC notation directly.
               </p>
-              <p>
-                Headers: T:title, C:composer, M:meter, L:default note length, Q:tempo, K:key. Enter notes after K:. For
-                several parts, start from a template under ＋ New score, or write ABC V: voices.
-              </p>
+              <div class="pair">
+                <label
+                  >Length<select id="duration">
+                    <option value="1">Quarter note</option>
+                    <option value="/2">Eighth note</option>
+                    <option value="2">Half note</option>
+                    <option value="4">Whole note</option>
+                  </select></label
+                ><label
+                  >Octave<select id="octave">
+                    <option value="middle">Middle C–B</option>
+                    <option value="upper">C–B above</option>
+                    <option value="lower">C–B below</option>
+                  </select></label
+                >
+              </div>
+              <div class="note-buttons" id="note-buttons"></div>
+              <div class="note-buttons">
+                <button data-token="z">Rest</button><button data-token="|">Bar |</button
+                ><button data-token="^">Sharp ♯</button><button data-token="_">Flat ♭</button
+                ><button data-token="=">Natural ♮</button
+                ><button id="add-bars" title="Add four blank bars at the end">＋ 4 bars</button>
+              </div>
+              <label for="abc">ABC score <span class="small">Editable source</span></label
+              ><textarea id="abc" spellcheck="false" rows="12" aria-describedby="warnings"></textarea>
+              <div id="warnings" role="status" class="small"></div>
+              <div id="abc-help" hidden class="help">
+                <strong>A quick start</strong>
+                <p>
+                  C D E F G A B are notes around middle C. Lowercase c d e are one octave higher. A comma lowers a note:
+                  C,. With L:1/4, C2 is a half note and C/2 is an eighth note. z is a rest, | ends a measure, [CEG] is a
+                  chord, and ^F is F sharp.
+                </p>
+                <p>
+                  Headers: T:title, C:composer, M:meter, L:default note length, Q:tempo, K:key. Enter notes after K:.
+                  For several parts, start from a template under ＋ New score, or write ABC V: voices.
+                </p>
+              </div>
             </div>
             <div class="editor-actions">
               <button class="primary" id="save">Save to my scores</button
@@ -486,9 +498,14 @@
               </div>
               <a id="embed-open" class="button-link" target="_blank" rel="noopener">Open in FretFree ↗</a>
             </div>
-            <div class="transport">
+            <!-- Studio bands, top to bottom: playback, practice, note entry, notation palette, help and status, score view.
+                 The empty .slot elements (display: contents) mark where features still to come put their controls. -->
+            <div class="transport" role="group" aria-label="Playback">
               <button id="play" class="primary">▶ Play</button
               ><button id="stop" aria-label="Stop playback">■ Stop</button
+              ><span class="history-buttons"
+                ><button id="undo" title="Undo (Ctrl+Z)" disabled>↶ Undo</button
+                ><button id="redo" title="Redo (Ctrl+Shift+Z)" disabled>↷ Redo</button></span
               ><button
                 id="record"
                 aria-expanded="false"
@@ -496,23 +513,44 @@
                 title="Record yourself along with the score"
               >
                 ● Record</button
+              ><label class="inline" title="Play the chord symbols as an accompaniment"
+                ><input type="checkbox" id="chords" checked /> Chords</label
+              ><label class="volume"
+                >Volume<input id="volume" type="range" min="0" max="1" step="0.05" value="0.3" /></label
               ><button
+                id="mixer-toggle"
+                type="button"
+                aria-expanded="false"
+                aria-controls="mixer-panel"
+                title="Mute, solo, volume and pan for each voice, the chords and the metronome"
+              >
+                Mixer</button
+              ><button
+                id="practice-toggle"
+                class="disclose"
+                type="button"
+                aria-expanded="false"
+                aria-controls="practice-panel"
+              >
+                <span aria-hidden="true">⏱</span> Practice <span class="disclose-state sr-only"></span
+                ><span class="disclose-mark" aria-hidden="true">▾</span
+                ><span class="disclose-badge" aria-hidden="true">on</span></button
+              ><span id="play-status" role="status">Ready to play</span>
+            </div>
+            <div id="practice-panel" class="practice-controls" role="group" aria-label="Practice">
+              <div class="practice-toggles" role="group" aria-label="Practice options">
+                <label class="inline"><input type="checkbox" id="loop" /> Loop</label
+                ><label class="inline"><input type="checkbox" id="metronome" /> Metronome</label
+                ><label class="inline"><input type="checkbox" id="count-in" /> Count-in</label>
+              </div>
+              <button
                 id="assess"
                 aria-expanded="false"
                 aria-controls="assess-panel"
                 title="Play along and see which notes were right"
               >
-                ✓ Check</button
-              ><label class="inline"><input type="checkbox" id="loop" /> Loop</label
-              ><label class="inline"><input type="checkbox" id="metronome" /> Metronome</label
-              ><label class="inline"><input type="checkbox" id="count-in" /> Count-in</label
-              ><label class="inline" title="Play the chord symbols as an accompaniment"
-                ><input type="checkbox" id="chords" checked /> Chords</label
-              ><label class="volume"
-                >Volume<input id="volume" type="range" min="0" max="1" step="0.05" value="0.3" /></label
-              ><span id="play-status" role="status">Ready to play</span>
-            </div>
-            <div class="practice-controls">
+                ✓ Check
+              </button>
               <label
                 >Measures
                 <span class="range-inputs"
@@ -532,24 +570,7 @@
               ><label class="speed-control"
                 >Playback speed <strong id="speed-value">100%</strong
                 ><input id="speed" type="range" min="25" max="200" step="5" value="100" /></label
-              ><button id="speed-reset">Reset to 100%</button
-              ><label class="inline view-option"
-                >Note names
-                <select id="note-names">
-                  <option value="off">Off</option>
-                  <option value="letters">Letters</option>
-                  <option value="solfege">Do re mi</option>
-                  <option value="heads">Letters in noteheads</option>
-                </select></label
-              ><label class="inline view-option"
-                >Colors
-                <select id="note-colors">
-                  <option value="off">Off</option>
-                  <option value="classroom">Classroom</option>
-                </select></label
-              ><label class="inline view-option" id="fingering-option" hidden
-                ><input type="checkbox" id="fingering" checked /> <span id="fingering-label">Fingering</span></label
-              >
+              ><button id="speed-reset">Reset to 100%</button>
               <fieldset class="trainer">
                 <legend>
                   <label class="inline"><input type="checkbox" id="trainer" /> Speed trainer</label>
@@ -571,14 +592,18 @@
                   />%</label
                 >
               </fieldset>
-              <span class="history-buttons"
-                ><button id="undo" title="Undo (Ctrl+Z)" disabled>↶ Undo</button
-                ><button id="redo" title="Redo (Ctrl+Shift+Z)" disabled>↷ Redo</button></span
-              ><button id="draw-mode" aria-pressed="false" title="Click the staff to add notes">✎ Draw notes</button
-              ><label class="inline view-option" title="Play each note as you enter, select or move it"
-                ><input type="checkbox" id="audition" checked /> Hear notes</label
-              >
             </div>
+            <section id="mixer-panel" class="share-panel mixer-panel" aria-labelledby="mixer-heading" hidden>
+              <div class="share-head">
+                <h2 id="mixer-heading">Mixer</h2>
+                <span class="mixer-head-buttons"
+                  ><button id="mixer-reset" type="button">Reset</button
+                  ><button id="mixer-close" type="button" aria-label="Close mixer">✕</button></span
+                >
+              </div>
+              <div id="mixer-tracks" class="mixer-tracks"></div>
+              <p id="mixer-note" class="small"></p>
+            </section>
             <section id="record-panel" class="share-panel record-panel" aria-labelledby="record-heading" hidden>
               <div class="share-head">
                 <h2 id="record-heading">Record yourself</h2>
@@ -665,50 +690,53 @@
                 <strong>Calibrate timing</strong> in Record yourself, if you have calibrated this device.
               </p>
             </section>
-            <p class="small keyboard-help">
-              <strong>Keyboard:</strong> click a note, then <kbd>A</kbd>–<kbd>G</kbd> add notes · <kbd>R</kbd> rest ·
-              Shift+<kbd>A</kbd>–<kbd>G</kbd> add to the chord · <kbd>3</kbd>–<kbd>7</kbd> length (16th to whole) ·
-              <kbd>.</kbd> dot · <kbd>↑</kbd><kbd>↓</kbd> pitch (<kbd>Ctrl</kbd> octave) · <kbd>←</kbd
-              ><kbd>→</kbd> select · <kbd>#</kbd> <kbd>-</kbd> <kbd>=</kbd> sharp, flat, natural · <kbd>+</kbd> tie ·
-              <kbd>Z</kbd> respell (C♯ to D♭) · <kbd>;</kbd> <kbd>:</kbd> <kbd>&gt;</kbd> <kbd>"</kbd>
-              <kbd>^</kbd> staccato, tenuto, accent, marcato, fermata · <kbd>K</kbd> chord symbol · <kbd>S</kbd> slur ·
-              <kbd>T</kbd> triplet · <kbd>|</kbd> bar line · <kbd>Delete</kbd> · <kbd>Space</kbd> play from the note (or
-              double-click it) · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> or Shift+click select more ·
-              <kbd>Ctrl</kbd>+<kbd>A</kbd> all · <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd> <kbd>V</kbd> copy, cut, paste
-              · <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>[</kbd> <kbd>]</kbd> halve, double lengths ·
-              <kbd>L</kbd> lyrics ·
-              <button
-                id="shortcuts-open"
-                class="shortcuts-open"
-                aria-haspopup="dialog"
-                aria-expanded="false"
-                aria-keyshortcuts="?"
-                title="Every shortcut, and a search box that runs commands (?)"
-              >
-                All shortcuts <kbd>?</kbd>
-              </button>
-            </p>
-            <div class="selection-tools" role="group" aria-label="Selected notes">
-              <button id="select-left" aria-label="Select left" title="Move the end of the selection left (Shift+←)">
-                ◂ Select</button
-              ><button
-                id="select-right"
-                aria-label="Select right"
-                title="Move the end of the selection right (Shift+→)"
-              >
-                Select ▸</button
-              ><button id="copy-notes" title="Copy the selected notes (Ctrl+C)">Copy</button
-              ><button id="cut-notes" title="Copy, then turn the notes into rests (Ctrl+X)">Cut</button
-              ><button id="paste-notes" title="Paste after the selection, or over a selected rest (Ctrl+V)">
-                Paste</button
-              ><button id="duplicate-notes" title="Repeat the selection right after itself (Ctrl+D)">Duplicate</button>
+            <div id="edit-bar" class="edit-bar" role="group" aria-label="Note entry">
+              <div class="entry-tools">
+                <button id="draw-mode" aria-pressed="false" title="Click the staff to add notes">✎ Draw notes</button
+                ><label class="inline view-option" title="Play each note as you enter, select or move it"
+                  ><input type="checkbox" id="audition" checked /> Hear notes</label
+                ><label
+                  id="keep-bars-option"
+                  class="inline view-option"
+                  title="Shorter notes leave rests, longer notes use the rests after them, and Delete leaves a rest"
+                  ><input type="checkbox" id="keep-bars" /> Keep bars full</label
+                ><button
+                  id="piano-toggle"
+                  aria-pressed="false"
+                  aria-controls="piano"
+                  title="Show piano keys under the score for entering notes and chords"
+                >
+                  Piano keys</button
+                ><button
+                  id="midi-toggle"
+                  aria-pressed="false"
+                  aria-describedby="midi-status"
+                  title="Enter notes and chords from a USB MIDI keyboard"
+                  hidden
+                >
+                  MIDI input
+                </button>
+              </div>
+              <div class="selection-tools" role="group" aria-label="Selected notes">
+                <button id="select-left" aria-label="Select left" title="Move the end of the selection left (Shift+←)">
+                  ◂ Select</button
+                ><button
+                  id="select-right"
+                  aria-label="Select right"
+                  title="Move the end of the selection right (Shift+→)"
+                >
+                  Select ▸</button
+                ><button id="copy-notes" title="Copy the selected notes (Ctrl+C)">Copy</button
+                ><button id="cut-notes" title="Copy, then turn the notes into rests (Ctrl+X)">Cut</button
+                ><button id="paste-notes" title="Paste after the selection, or over a selected rest (Ctrl+V)">
+                  Paste</button
+                ><button id="duplicate-notes" title="Repeat the selection right after itself (Ctrl+D)">
+                  Duplicate
+                </button>
+              </div>
+              <div class="slot" data-slot="teacher-tools"></div>
+              <p id="midi-status" class="small" role="status" hidden></p>
             </div>
-            <p class="small" id="selection-status" role="status">
-              Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag
-              up/down to change pitch; use the toolbar above the score or right-click a note for length, accidentals,
-              ties, tuplets, grace notes, articulations, dynamics, chord symbols and lyrics. Playback speed leaves the
-              score tempo unchanged.
-            </p>
             <div id="feedback-note" class="feedback-note" hidden>
               <strong>Feedback from your teacher</strong>
               <p id="feedback-note-text"></p>
@@ -719,7 +747,7 @@
               Notes changed in a line with lyrics. Check that the words still line up.
             </p>
             <div id="palette" class="palette" role="toolbar" aria-label="Notation" aria-controls="notation">
-              <div role="group" aria-label="Length">
+              <div role="group" aria-label="Length" data-heading="Length">
                 <button data-palette="len:1" aria-label="Whole note" aria-keyshortcuts="7" title="Whole note (7)">
                   𝅝</button
                 ><button data-palette="len:0.5" aria-label="Half note" aria-keyshortcuts="6" title="Half note (6)">
@@ -742,7 +770,7 @@
                   𝅘𝅥𝅯
                 </button>
               </div>
-              <div role="group" aria-label="Dot, tie and rest">
+              <div role="group" aria-label="Dot, tie and rest" data-heading="Note">
                 <button data-palette="dot" aria-keyshortcuts="." title="Dotted (.)">
                   <span class="glyph" aria-hidden="true">·</span> Dot</button
                 ><button data-palette="tie" aria-keyshortcuts="+" title="Tie to the next note (+)">
@@ -751,7 +779,7 @@
                   <span class="glyph" aria-hidden="true">𝄽</span> Rest
                 </button>
               </div>
-              <div role="group" aria-label="Tuplets">
+              <div role="group" aria-label="Tuplets" data-heading="Tuplet">
                 <button
                   data-palette="tuplet:3"
                   aria-label="Triplet"
@@ -782,7 +810,7 @@
                   </button>
                 </div>
               </div>
-              <div role="group" aria-label="Accidental">
+              <div role="group" aria-label="Accidental" data-heading="Accidental">
                 <button data-palette="acc:^" aria-label="Sharp" aria-keyshortcuts="#" title="Sharp (#)">♯</button
                 ><button data-palette="acc:_" aria-label="Flat" aria-keyshortcuts="-" title="Flat (-)">♭</button
                 ><button data-palette="acc:=" aria-label="Natural" aria-keyshortcuts="=" title="Natural (=)">♮</button
@@ -791,7 +819,7 @@
                   <span class="glyph" aria-hidden="true">♯♭</span> Respell
                 </button>
               </div>
-              <div role="group" aria-label="Beam">
+              <div role="group" aria-label="Beam" class="tier-2" data-heading="Beam">
                 <button data-palette="beam:join" aria-label="Join beam to the next note" title="Beam to the next note">
                   <span class="glyph" aria-hidden="true">♫</span> Join</button
                 ><button
@@ -802,7 +830,7 @@
                   <span class="glyph" aria-hidden="true">♪♪</span> Break
                 </button>
               </div>
-              <div role="group" aria-label="Articulation" class="articulation">
+              <div role="group" aria-label="Articulation" class="tier-2 articulation" data-heading="Articulation">
                 <button data-palette="deco:staccato" aria-label="Staccato" aria-keyshortcuts=";" title="Staccato (;)">
                   •
                 </button>
@@ -819,7 +847,7 @@
                   𝄐
                 </button>
               </div>
-              <div role="group" aria-label="Dynamics">
+              <div role="group" aria-label="Dynamics" class="tier-2" data-heading="Dynamics">
                 <button
                   data-palette="dyn:ppp"
                   class="dynamic"
@@ -859,7 +887,7 @@
                   sfz
                 </button>
               </div>
-              <div role="group" aria-label="Chord symbol">
+              <div role="group" aria-label="Chord symbol" data-heading="Text">
                 <button data-palette="chord" aria-label="Chord symbol" aria-keyshortcuts="K" title="Chord symbol (K)">
                   Chord
                 </button>
@@ -874,7 +902,7 @@
                   Lyrics
                 </button>
               </div>
-              <div role="group" aria-label="Lines">
+              <div role="group" aria-label="Lines" class="tier-2" data-heading="Lines">
                 <button
                   data-palette="line:slur"
                   aria-label="Slur"
@@ -902,7 +930,7 @@
                   <span class="glyph trill-glyph" aria-hidden="true">tr</span> Trill line
                 </button>
               </div>
-              <div role="group" aria-label="Grace notes">
+              <div role="group" aria-label="Grace notes" class="tier-2" data-heading="Grace">
                 <button data-palette="grace" title="Grace note one step above the note; press again to remove it">
                   Grace</button
                 ><button data-palette="grace:slash" title="Slashed grace note (acciaccatura)">Slashed</button
@@ -922,13 +950,13 @@
                 </button>
               </div>
               <div id="palette-more" class="palette-more" hidden>
-                <div role="group" aria-label="More articulations">
+                <div role="group" aria-label="More articulations" data-heading="More">
                   <button data-palette="deco:wedge">Staccatissimo</button>
                   <button data-palette="deco:upbow">Up bow</button>
                   <button data-palette="deco:downbow">Down bow</button>
                   <button data-palette="deco:breath">Breath mark</button>
                 </div>
-                <div role="group" aria-label="Ornaments">
+                <div role="group" aria-label="Ornaments" data-heading="Ornaments">
                   <button data-palette="deco:trill">Trill</button>
                   <button data-palette="deco:mordent">Mordent</button>
                   <button data-palette="deco:turn">Turn</button>
@@ -956,7 +984,7 @@
                 </button>
               </div>
               <div id="palette-measure" class="palette-measure" hidden>
-                <div role="group" aria-label="Bars">
+                <div role="group" aria-label="Bars" data-heading="Bars">
                   <button data-palette="bar:before" title="Insert an empty bar before this measure">
                     + Bar before
                   </button>
@@ -965,7 +993,7 @@
                     Delete bar
                   </button>
                 </div>
-                <div role="group" aria-label="Bar line after the measure">
+                <div role="group" aria-label="Bar line after the measure" data-heading="Bar line">
                   <button data-palette="barline:|" title="Single bar line after this measure">
                     <span class="glyph" aria-hidden="true">𝄀</span> Single</button
                   ><button data-palette="barline:||" title="Double bar line after this measure">
@@ -974,7 +1002,7 @@
                     <span class="glyph" aria-hidden="true">𝄂</span> Final
                   </button>
                 </div>
-                <div role="group" aria-label="Repeats and endings">
+                <div role="group" aria-label="Repeats and endings" data-heading="Repeats">
                   <button data-palette="repeat:start" title="Start a repeat at this measure">
                     <span class="glyph" aria-hidden="true">𝄆</span> Start repeat</button
                   ><button data-palette="repeat:end" title="End a repeat after this measure">
@@ -982,7 +1010,7 @@
                   ><button data-palette="ending:1" title="1st ending from this measure">1st ending</button
                   ><button data-palette="ending:2" title="2nd ending from this measure">2nd ending</button>
                 </div>
-                <div role="group" aria-label="Form">
+                <div role="group" aria-label="Form" data-heading="Form">
                   <button data-palette="form:segno" title="Segno at the start of this measure">
                     <span class="glyph" aria-hidden="true">𝄋</span> Segno</button
                   ><button data-palette="form:coda" title="Coda sign at the start of this measure">
@@ -996,7 +1024,7 @@
                     D.S. al Coda
                   </button>
                 </div>
-                <div role="group" aria-label="Rehearsal mark">
+                <div role="group" aria-label="Rehearsal mark" data-heading="Rehearsal">
                   <button data-palette="rehearsal:mark" title="Rehearsal letter at this measure (A, B, C in order)">
                     <span class="glyph boxed" aria-hidden="true">A</span> Rehearsal mark
                   </button>
@@ -1034,22 +1062,113 @@
                 </div>
               </div>
             </div>
-            <div class="score-view" role="group" aria-label="Score view">
+            <div id="help-row" class="help-row">
+              <details id="keyboard-help" class="small keyboard-help">
+                <summary>⌨ Keyboard keys</summary>
+                <dl class="kb-groups">
+                  <div>
+                    <dt>Add</dt>
+                    <dd>
+                      <kbd>A</kbd>–<kbd>G</kbd> notes (click a note first) · <kbd>R</kbd> rest · Shift+<kbd>A</kbd>–<kbd
+                        >G</kbd
+                      >
+                      add to the chord · <kbd>|</kbd> bar line · <kbd>K</kbd> chord symbol · <kbd>L</kbd> lyrics
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Change</dt>
+                    <dd>
+                      <kbd>3</kbd>–<kbd>7</kbd> length (16th to whole) · <kbd>.</kbd> dot · <kbd>[</kbd>
+                      <kbd>]</kbd> halve, double lengths · <kbd>↑</kbd><kbd>↓</kbd> pitch (<kbd>Ctrl</kbd> octave) ·
+                      <kbd>#</kbd> <kbd>-</kbd> <kbd>=</kbd> sharp, flat, natural · <kbd>Z</kbd> respell (C♯ to D♭) ·
+                      <kbd>+</kbd> tie · <kbd>T</kbd> triplet · <kbd>S</kbd> slur
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Marks</dt>
+                    <dd>
+                      <kbd>;</kbd> <kbd>:</kbd> <kbd>&gt;</kbd> <kbd>"</kbd> <kbd>^</kbd> staccato, tenuto, accent,
+                      marcato, fermata
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Select</dt>
+                    <dd>
+                      <kbd>←</kbd><kbd>→</kbd> move · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> or Shift+click select
+                      more · <kbd>Ctrl</kbd>+<kbd>A</kbd> all · <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>X</kbd>
+                      <kbd>V</kbd> copy, cut, paste · <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>Delete</kbd> ·
+                      <kbd>Shift</kbd>+<kbd>Delete</kbd> remove without leaving a rest
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Play</dt>
+                    <dd><kbd>Space</kbd> play from the note (or double-click it)</dd>
+                  </div>
+                </dl>
+              </details>
+              <p class="small" id="selection-status" role="status">
+                Click a note to select its ABC text and starting measure; Shift+click another to set the loop end. Drag
+                up/down to change pitch; use the toolbar above the score or right-click a note for length, accidentals,
+                ties, tuplets, grace notes, articulations, dynamics, chord symbols and lyrics. Playback speed leaves the
+                score tempo unchanged.
+              </p>
+              <button
+                id="shortcuts-open"
+                class="shortcuts-open"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-keyshortcuts="?"
+                title="Every shortcut, and a search box that runs commands (?)"
+              >
+                All shortcuts <kbd>?</kbd>
+              </button>
+            </div>
+            <div id="score-view" class="score-view" role="group" aria-label="Score view">
               <span class="zoom-controls" role="group" aria-label="Zoom"
                 ><span class="zoom-label" aria-hidden="true">Zoom</span
                 ><button id="zoom-out" aria-label="Zoom out" title="Zoom out">−</button
                 ><button id="zoom-reset" aria-label="Zoom 100%. Reset to 100%" title="Reset to 100%">100%</button
                 ><button id="zoom-in" aria-label="Zoom in" title="Zoom in">+</button></span
-              ><label class="inline view-option"
-                >Measures per line
-                <select id="measures-per-line">
-                  <option value="0">Auto</option>
-                  <option value="2">2</option>
-                  <option value="3">3</option>
-                  <option value="4">4</option>
-                  <option value="6">6</option>
-                </select></label
-              ><label
+              ><button
+                id="view-toggle"
+                class="disclose"
+                type="button"
+                aria-expanded="false"
+                aria-controls="view-options"
+              >
+                <span aria-hidden="true">👁</span> View <span class="disclose-state sr-only"></span
+                ><span class="disclose-mark" aria-hidden="true">▾</span
+                ><span class="disclose-badge" aria-hidden="true">on</span>
+              </button>
+              <div id="view-options" class="view-options" role="group" aria-label="View options">
+                <label class="inline view-option"
+                  >Measures per line
+                  <select id="measures-per-line">
+                    <option value="0">Auto</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="6">6</option>
+                  </select></label
+                ><label class="inline view-option"
+                  >Note names
+                  <select id="note-names">
+                    <option value="off">Off</option>
+                    <option value="letters">Letters</option>
+                    <option value="solfege">Do re mi</option>
+                    <option value="heads">Letters in noteheads</option>
+                  </select></label
+                ><label class="inline view-option"
+                  >Colors
+                  <select id="note-colors">
+                    <option value="off">Off</option>
+                    <option value="classroom">Classroom</option>
+                  </select></label
+                ><label class="inline view-option" id="fingering-option" hidden
+                  ><input type="checkbox" id="fingering" checked /> <span id="fingering-label">Fingering</span></label
+                >
+              </div>
+              <label
                 class="inline dark-paper-option"
                 id="dark-paper-option"
                 title="Show the score in light ink on dark paper. Prints and exports stay black on white."
@@ -1423,20 +1542,24 @@
           from those programs too, converted to ABC on your device. Select a passage to copy, cut, paste or repeat it,
           or to move or lengthen every note in it at once. Measure in the toolbar inserts and deletes bars, and adds
           double and final bar lines, repeats, 1st and 2nd endings, segno, coda, D.C., D.S. and Fine, rehearsal letters,
-          and changes of time signature, key or clef. Screen readers hear the selected note named with its length,
-          pitch, measure and beat, and ? lists every shortcut, with a search box that runs the command you type. Zoom in
-          for larger notation, or choose how many measures go on each line. Use Print / PDF to produce a paper score, in
-          large print if you zoom in first. Transpose a score or a few measures by any interval or to a new key. Choose
-          a B♭, E♭ or F instrument for written-pitch transposition with concert-pitch playback, and tick Concert pitch
-          to see the notes as they sound. <strong>● Record</strong> records you playing or singing along with the score
-          after a count-in; takes stay on your device, play back alone or with the score, and download as audio files.
+          and changes of time signature, key or clef; playback follows D.C., D.S., To Coda and Fine, and holds fermatas.
+          Screen readers hear the selected note named with its length, pitch, measure and beat, and ? lists every
+          shortcut, with a search box that runs the command you type. Zoom in for larger notation, or choose how many
+          measures go on each line. Use Print / PDF to produce a paper score, in large print if you zoom in first.
+          Transpose a score or a few measures by any interval or to a new key. Choose a B♭, E♭ or F instrument for
+          written-pitch transposition with concert-pitch playback, and tick Concert pitch to see the notes as they
+          sound. <strong>● Record</strong> records you playing or singing along with the score after a count-in; takes
+          stay on your device, play back alone or with the score, and download as audio files.
           <strong>Calibrate timing</strong> lines takes up with the score on each device. <strong>✓ Check</strong>
           listens while you play or sing along and marks each note green, yellow or red, with Pitch and Rhythm scores
           and the notes to work on; your checks go with work you turn in. Classroom colors and letters in noteheads help
           beginners read, and both print. Theme in the header switches to a dark theme, or follows your device; the
           score stays black on white unless you tick Dark paper, and prints stay black on white. WAV makes an audio file
           of the score as playback sounds it, made on your device, to hand in or to practice along with. Press L on a
-          note to type lyrics under it, a syllable at a time, with more verses below.
+          note to type lyrics under it, a syllable at a time, with more verses below. Mixer mutes, solos, sets the
+          volume of or pans each voice, the chords and the metronome, to practice one part against the others. On new
+          scores, Keep bars full leaves a rest when a note gets shorter or is deleted, and lets a note grow only into
+          the rests after it, so every bar keeps its beats.
         </p>
         <h2>Privacy and school access</h2>
         <p>

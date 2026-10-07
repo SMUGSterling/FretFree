@@ -1138,6 +1138,145 @@ function barProblems(tune) {
   }
   return problems;
 }
+// Keep bars full (Noteflight's duration rules). The rests that fill a gap from a position in its bar (whole notes from
+// the downbeat): each is the longest plain value that starts on a multiple of itself and fits, so rests fall on the
+// beat as engravers write them (C z z2 in 4/4, not C z3). In 6/8, 9/8 and 12/8 the beat is a dotted quarter.
+function restValues(from, length, meter) {
+  const eighths = meter?.den === 8 ? Math.round(meter.length * 8) : 0,
+    values = eighths > 3 && eighths % 3 === 0 ? [3 / 4, 3 / 8] : [1, 1 / 2, 1 / 4],
+    out = [];
+  values.push(1 / 8, 1 / 16, 1 / 32, 1 / 64);
+  let at = from,
+    left = length;
+  while (left > 1e-9 && out.length < 16) {
+    const v = values.find(v => v <= left + 1e-9 && Math.abs(at / v - Math.round(at / v)) < 1e-6) ?? left;
+    out.push(v);
+    at += v;
+    left -= v;
+  }
+  return out;
+}
+// Change the lengths of notes in one bar (a measure of barLengths) and keep the bar's length. lengths holds a new
+// length (whole notes) for each note of bar.notes to change, null for the others. Shorter notes leave rests after the
+// last changed note for the difference, merged with the rests already there; longer ones take their time from plain
+// rests after it in the bar, nearest first, and the notes in between move later. slack is time the bar is missing (a
+// bar left short), which a longer note may take before it is refused. In an overfull bar, shorter notes first take
+// off the extra time. Returns {edits ({start, end, text}, for spliceAll), added, taken} or {why}: 'room' (with room,
+// the time there is), 'tuplet', 'broken' (a dotted pair written with > or <) or 'multi' (a multi-measure rest).
+// unit is the unit length (L:) the bar starts in, and an inline [L:] in the bar changes it from there. rests counts the
+// rests written for a shorter note.
+function fitBar(source, bar, lengths, unit, slack = 0) {
+  const notes = bar.notes,
+    near = (a, b) => Math.abs(a - b) < 1e-9,
+    text = i => source.slice(notes[i].element.startChar, notes[i].element.endChar),
+    parts = i => noteParts(text(i)),
+    duration = i => notes[i].element.duration || 0,
+    inTuplet = i => !near(notes[i].at - (i ? notes[i - 1].at : 0), duration(i)),
+    // A rest that can give or take time: a plain z with nothing on it, outside a tuplet.
+    free = i => {
+      const p = parts(i);
+      return (
+        notes[i].element.rest?.type === 'rest' &&
+        !inTuplet(i) &&
+        !!p &&
+        p.core === 'z' &&
+        !p.pre.trim() &&
+        !noteHead(p.post).trim()
+      );
+    },
+    // A note's music without the spaces around it, and where it starts and ends in the source.
+    head = i => {
+      const t = text(i),
+        lead = t.match(/^\s*/)[0].length;
+      return {start: notes[i].element.startChar + lead, end: notes[i].element.startChar + noteHead(t).length};
+    };
+  const changed = notes.map((n, i) => i).filter(i => lengths[i] != null && !near(lengths[i], duration(i)));
+  if (!changed.length) return {edits: [], added: 0, taken: 0, rests: 0};
+  for (const i of changed) {
+    if (notes[i].element.rest?.type === 'multimeasure') return {why: 'multi'};
+    if (inTuplet(i) || !parts(i)) return {why: 'tuplet'};
+    if (/[<>]/.test(parts(i).post) || (i && /[<>]/.test(parts(i - 1)?.post || ''))) return {why: 'broken'};
+  }
+  const delta = changed.reduce((sum, i) => sum + lengths[i] - duration(i), 0),
+    last = changed.at(-1),
+    // Rests are placed from the downbeat; a pickup bar ends on one.
+    shift = bar.measure === 1 && bar.length < bar.expected ? bar.expected - bar.length : 0,
+    unitAt = at => (/\[L:/.test(source.slice(notes[0].element.startChar, at)) ? unitLengthIn(source, at) : unit),
+    restText = (values, at) => values.map(v => 'z' + lengthText(v / unitAt(at))).join(' '),
+    edits = [];
+  let added = 0,
+    taken = 0,
+    rests = 0,
+    tail = '';
+  if (delta < 0) {
+    // The new rests take in the rests after the note while only spaces come between: an inline field ([K:], [L:]),
+    // a comment, a line break or a line of words there stays, and the rests after it keep their place.
+    const spaced = k => /^[ \t]*$/.test(source.slice(head(k - 1).end, head(k).start));
+    let gap = Math.max(0, -delta - Math.max(0, bar.length - bar.expected)),
+      k = last + 1;
+    for (; k < notes.length && free(k) && spaced(k); k++) gap += duration(k);
+    added = gap;
+    if (gap > 1e-9) {
+      const values = restValues(notes[last].at + delta + shift, gap, bar.meter);
+      rests = values.length;
+      tail = ' ' + restText(values, head(last).end);
+    }
+    if (k > last + 1 || tail) {
+      const from = head(last).end,
+        to = k > last + 1 ? head(k - 1).end : from;
+      edits.push({start: from, end: to, text: tail});
+    }
+  } else {
+    let need = delta;
+    for (let k = last + 1; k < notes.length && need > 1e-9; k++) {
+      if (!free(k)) continue;
+      const take = Math.min(need, duration(k)),
+        left = duration(k) - take,
+        h = head(k);
+      need -= take;
+      taken += take;
+      if (left > 1e-9)
+        edits.push({
+          start: h.start,
+          end: h.end,
+          text: restText(restValues(notes[k].at - left + shift, left, bar.meter), h.start)
+        });
+      else {
+        let end = h.end;
+        while (/[ \t]/.test(source[end] || '')) end++;
+        edits.push({start: h.start, end, text: ''});
+      }
+    }
+    if (need > slack + 1e-9) {
+      const room = notes.reduce((sum, n, k) => sum + (k > last && free(k) ? duration(k) : 0), 0) + slack;
+      return {why: 'room', room};
+    }
+  }
+  for (const i of changed) {
+    const h = head(i),
+      // A note that a rest now follows cannot stay tied.
+      untie = i === last && !!tail && /^-/.test(parts(i).post);
+    edits.push({
+      start: h.start,
+      end: h.end,
+      text: editNoteText(source.slice(h.start, h.end), {
+        length: lengths[i] / unitAt(h.start),
+        tie: untie ? false : undefined
+      })
+    });
+  }
+  return {edits: edits.sort((a, b) => a.start - b.start), added, taken, rests};
+}
+// One note's length, keeping its bar full: fitBar for the note at index in bar.
+function fitLength(source, bar, index, length, unit, slack = 0) {
+  return fitBar(
+    source,
+    bar,
+    bar.notes.map((n, i) => (i === index ? length : null)),
+    unit,
+    slack
+  );
+}
 // A first measure (of barLengths) shaped like a pickup: shorter than the meter and closed by a bar line.
 const shortStart = m => m.measure === 1 && m.meter !== 'free' && !!m.bar && m.length < m.expected - 1e-6;
 // The voices (barLengths' ids) that open with that shape and have more music after it.
@@ -3247,6 +3386,8 @@ function settleTempo(tune) {
 // it out, so files keep the accompaniment.
 function midiBytes(source, {chordsOff = false} = {}) {
   const tune = ABCJS.parseOnly(source)[0];
+  // Each voice keeps its MIDI channel on every line, as the mixer expects.
+  if (tune) tune.lines = steadyLines(tune, source);
   for (const line of tune?.lines || [])
     for (const staff of line.staff || [])
       for (const e of (staff.voices || []).flat()) {
@@ -3345,6 +3486,184 @@ function melodyNotes(notes) {
   if (!notes.length) return notes;
   const first = Math.min(...notes.map(n => n.ch ?? 0));
   return notes.filter(n => (n.ch ?? 0) === first);
+}
+// A tune's lines with the same staffs and voices on each. abcjs numbers the voices of each line in the order that line
+// has its staffs, and plays each number on its own MIDI channel. A voice that runs out of lines before the others
+// leaves its staff (or its & overlay) off the later systems, so the voices below it move up a place there and their
+// notes play on its channel. Here every line has every staff, in the order of the first line and with all of its
+// voices, empty where one has ended, so each voice keeps its channel. Staffs are told apart by the V: id in force where
+// their music starts on the line. A tune whose staffs cannot be told apart, or that has a staff or voice that starts
+// after the first line or comes back after a gap, is left as it is: an empty voice there would put the voice's later
+// notes out of time. midiBytes and mixerTracks both use it, so their channels agree.
+function steadyLines(tune, source = '') {
+  const lines = tune?.lines || [];
+  if (lines.every(line => !line.staff || line.staff.length === 1)) return lines;
+  const starts = linePairs(String(source)).voices,
+    ids = lines.map(line =>
+      (line.staff || []).map(staff => {
+        const at = staff.voices?.[0]?.find(e => e.startChar >= 0)?.startChar;
+        return starts.findLast(x => x.at <= at)?.voice.replace(/&\d+$/, '') ?? null;
+      })
+    ),
+    order = [],
+    size = new Map(),
+    live = new Map(),
+    model = new Map();
+  for (const [i, line] of lines.entries()) {
+    if (!line.staff) continue;
+    const here = ids[i],
+      first = !order.length;
+    if (here.includes(null) || new Set(here).size < here.length) return lines;
+    for (const id of order) if (!here.includes(id)) live.set(id, 0);
+    for (const [s, id] of here.entries()) {
+      const count = line.staff[s].voices.length;
+      if (first) {
+        order.push(id);
+        size.set(id, count);
+      } else if (!size.has(id) || count > live.get(id)) return lines;
+      live.set(id, count);
+      model.set(id, line.staff[s]);
+    }
+  }
+  const empty = n => Array.from({length: n}, () => []);
+  return lines.map((line, i) => {
+    if (!line.staff) return line;
+    const same =
+      ids[i].length === order.length &&
+      order.every((id, s) => ids[i][s] === id && line.staff[s].voices.length === size.get(id));
+    if (same) return line;
+    const staff = order.map(id => {
+      const s = ids[i].indexOf(id),
+        st = s >= 0 ? line.staff[s] : {...model.get(id), voices: []};
+      return {...st, voices: [...st.voices, ...empty(size.get(id) - st.voices.length)]};
+    });
+    return {...line, staff};
+  });
+}
+// The mixer's tracks for the first tune of a source: its voices, then Chords when a chord symbol plays (as midiBytes
+// reads them), then the Metronome. abcjs gives each voice of a line a MIDI channel, counting staff by staff in the
+// order the score draws them, and puts the chords on the channel after the last voice. An & overlay plays on a channel
+// of its own but belongs to the voice it is written in. A voice is keyed by its V: id ('V:' for a tune without one),
+// so its settings stay with it when other voices are added. It is named by its V: name, or else Voice and its number
+// (V:2 is Voice 2), or its place and id (Voice 2 (A)); the only voice is Melody. The voices of a %%score brace with
+// one name between them (a piano's {RH LH}) are one instrument, so they take its name and their ids, Piano (RH) and
+// Piano (LH), or their places in the brace when the ids are numbers (Piano 1, Piano 2). Each track is
+// {key, name, kind: 'voice' | 'chords' | 'metronome', channels}.
+function voiceNames(source) {
+  const names = new Map();
+  for (const m of String(source).matchAll(/(?:^|\n)V:[ \t]*([^\s\]]+)([^\n]*)|\[V:[ \t]*([^\s\]]+)([^\]\n]*)\]/g)) {
+    const id = m[1] ?? m[3],
+      name = (m[2] ?? m[4]).match(/\b(?:name|nm)=(?:"([^"]*)"|(\S+))/);
+    if (name && !names.has(id)) names.set(id, (name[1] ?? name[2]).replace(/\\n/g, ' ').trim());
+  }
+  for (const m of String(source).matchAll(/^%%(?:score|staves)\b[^\n]*/gm))
+    for (const brace of m[0].matchAll(/\{([^}]*)\}/g)) {
+      const ids = brace[1].match(/[^\s()[\]|*]+/g) || [],
+        named = ids.filter(id => names.has(id)),
+        name = names.get(named[0]);
+      if (ids.length > 1 && named.length === 1)
+        for (const [i, id] of ids.entries()) names.set(id, /^\d+$/.test(id) ? `${name} ${i + 1}` : `${name} (${id})`);
+    }
+  return names;
+}
+function mixerTracks(tune, source = '') {
+  // The staffs as midiBytes has abcjs number them (see steadyLines).
+  const steady = tune && {lines: steadyLines(tune, source)},
+    counts = [];
+  for (const line of steady?.lines || [])
+    for (const [s, staff] of (line.staff || []).entries())
+      counts[s] = Math.max(counts[s] || 0, staff.voices?.length || 0);
+  const channel = (s, v) => counts.slice(0, s).reduce((sum, n) => sum + (n || 0), 0) + v,
+    total = counts.reduce((sum, n) => sum + (n || 0), 0),
+    first = new Map();
+  for (const {element, key} of steady ? scoreEvents(steady) : []) {
+    const id = key.split(':').slice(0, 2).join(':');
+    if (!first.has(id)) first.set(id, element.startChar);
+  }
+  // The V: id in force where a voice's music starts (linePairs tracks V: lines and [V:] fields).
+  const starts = linePairs(String(source)).voices,
+    idAt = at => (starts.filter(x => x.at <= at).at(-1)?.voice || '').replace(/^\d*:/, '').replace(/&\d+$/, ''),
+    kept = steady ? scoreVoices(steady, source) : [],
+    names = voiceNames(source),
+    voices = [];
+  for (const id of kept) {
+    const [s, v] = id.split(':').map(Number),
+      vid = idAt(first.get(id));
+    let key = 'V:' + vid;
+    while (voices.some(t => t.key === key)) key += '+';
+    voices.push({key, id: vid, staff: s, voice: v, channels: [channel(s, v)]});
+  }
+  // An overlay goes with the voice it is written in, or else the voice before it on its staff.
+  for (const id of first.keys()) {
+    if (kept.includes(id)) continue;
+    const [s, v] = id.split(':').map(Number),
+      before = voices.filter(t => t.staff === s && t.voice < v),
+      host = before.find(t => t.id === idAt(first.get(id))) || before.at(-1);
+    host?.channels.push(channel(s, v));
+  }
+  const tracks = voices.map((t, i) => {
+    const named = names.get(t.id),
+      number = /^\d+$/.test(t.id) ? `Voice ${+t.id}` : `Voice ${i + 1}${t.id ? ` (${t.id})` : ''}`;
+    return {
+      key: t.key,
+      name: named || (voices.length === 1 ? 'Melody' : number),
+      kind: 'voice',
+      channels: t.channels
+    };
+  });
+  const chords = (tune?.lines || []).some(line =>
+    (line.staff || []).some(staff =>
+      (staff.voices || []).some(voice =>
+        voice.some(e => e.chord?.some(c => c.position === 'default' && parseChordSymbol(c.name)?.root))
+      )
+    )
+  );
+  if (chords) tracks.push({key: 'chords', name: 'Chords', kind: 'chords', channels: [total]});
+  tracks.push({key: 'metronome', name: 'Metronome', kind: 'metronome', channels: []});
+  return tracks;
+}
+// A track's mixer setting, with defaults for anything missing or out of range: volume 0–1.5 (1 is as written), pan
+// -1 (left) to 1 (right).
+const MIX_VOLUME_MAX = 1.5;
+function mixSetting(mix, key) {
+  const s = mix && typeof mix === 'object' && mix[key] && typeof mix[key] === 'object' ? mix[key] : {},
+    number = (v, low, high, fallback) => (Number.isFinite(v) ? Math.max(low, Math.min(high, v)) : fallback);
+  return {
+    mute: s.mute === true,
+    solo: s.solo === true,
+    volume: number(s.volume, 0, MIX_VOLUME_MAX, 1),
+    pan: number(s.pan, -1, 1, 0)
+  };
+}
+// A mix as it is stored and shared: only the tracks and fields that differ from the defaults, at most 64 tracks.
+// Undefined when nothing differs, so an untouched score stores and shares nothing.
+function validMixer(mix) {
+  if (!mix || typeof mix !== 'object' || Array.isArray(mix)) return undefined;
+  const out = {};
+  for (const key of Object.keys(mix).slice(0, 64)) {
+    if (key.length > 64 || key === '__proto__') continue;
+    const s = mixSetting(mix, key),
+      kept = {};
+    if (s.mute) kept.mute = true;
+    if (s.solo) kept.solo = true;
+    if (s.volume !== 1) kept.volume = Math.round(s.volume * 100) / 100;
+    if (s.pan !== 0) kept.pan = Math.round(s.pan * 100) / 100;
+    if (Object.keys(kept).length) out[key] = kept;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+// The tracks that sound: not muted, and, when any voice or Chords track is on Solo, only those. The metronome is left
+// out of Solo, so it keeps time for a soloed part.
+function audibleTracks(tracks, mix) {
+  const solo = tracks.some(t => t.kind !== 'metronome' && mixSetting(mix, t.key).solo);
+  return new Set(
+    tracks
+      .filter(t => {
+        const s = mixSetting(mix, t.key);
+        return !s.mute && (t.kind === 'metronome' || !solo || s.solo);
+      })
+      .map(t => t.key)
+  );
 }
 // Decode MIDI note and tempo events generated by abcjs, including polyphonic voices. quarter is the opening tempo,
 // in seconds per quarter note.
@@ -3561,6 +3880,283 @@ function swingPlayback(data, amount, bars) {
     parts[i].push(n);
   }
   return {...data, notes: parts.flatMap((part, i) => swingNotes(part, bars[i].quarter, amount, bars[i].origin))};
+}
+
+// Road-map playback: D.C., D.S., coda, Fine and fermatas. abcjs plays repeats and 1st and 2nd endings but not the
+// jumps, and it does not hold fermatas. Playback keeps abcjs's timeline, where a measure inside a repeat is played
+// once per pass (each a "play"), and puts the plays in the order the road map gives; a fermata holds its note for
+// twice its length. The marks are decorations (!D.C.!, !D.S.alcoda!, !fine!, !segno!, !coda!, S and O) or text in
+// chord position or above or below the staff ("D.C.", "^Fine", "_To Coda"), as many library tunes write them.
+const ROAD_JUMPS = {
+  'D.C.': ['D.C.', null],
+  'D.S.': ['D.S.', null],
+  'D.C.alfine': ['D.C.', 'fine'],
+  'D.S.alfine': ['D.S.', 'fine'],
+  'D.C.alcoda': ['D.C.', 'coda'],
+  'D.S.alcoda': ['D.S.', 'coda']
+};
+function roadItem(item, text) {
+  if (!text) {
+    if (['segno', 'coda', 'fine'].includes(item)) return {kind: item};
+    return ROAD_JUMPS[item] ? {kind: 'jump', to: ROAD_JUMPS[item][0], al: ROAD_JUMPS[item][1]} : null;
+  }
+  const t = item.trim();
+  if (/^(?:segno|S)$/i.test(t)) return {kind: 'segno'};
+  if (/^to\s+coda\b/i.test(t)) return {kind: 'toCoda'};
+  if (/^coda\.?$/i.test(t)) return {kind: 'heading'};
+  if (/^fine\.?$/i.test(t)) return {kind: 'fine'};
+  const to = /^(?:D\.\s?C\.?(?![a-z])|da\s+capo\b)/i.test(t)
+    ? 'D.C.'
+    : /^(?:D\.\s?S\.?(?![a-z])|dal\s+segno\b)/i.test(t)
+      ? 'D.S.'
+      : null;
+  return to && {kind: 'jump', to, al: /\bal\s*fine\b/i.test(t) ? 'fine' : /\bal\s*coda\b/i.test(t) ? 'coda' : null};
+}
+// Bars of the score, for the road map. scoreEvents counts a multi-measure rest (Z3) as one measure of its voice, so a
+// voice with one numbers its later measures lower than the other voices do; here the rest takes every bar it lasts.
+// bar(key, measure, last) is the first bar of a voice's measure (key is an event key, or a voice 's:v'), or its last
+// bar with `last`. measure(bar) turns a bar back into a measure number of the first voice with no multi-measure rest
+// (or of the first voice), as Measure tools and the practice range count. With no multi-measure rests both keep the
+// number they are given.
+function roadBars(events) {
+  const sizes = new Map(),
+    firsts = new Map(),
+    voiceOf = key => key.split(':').slice(0, 2).join(':');
+  for (const {element, key, measure} of events) {
+    const list = sizes.get(voiceOf(key)) || sizes.set(voiceOf(key), []).get(voiceOf(key));
+    list[measure] = Math.max(list[measure] || 1, element.rest?.type === 'multimeasure' ? +element.rest.text || 1 : 1);
+  }
+  if ([...sizes.values()].every(list => list.every(n => n === 1))) return {bar: (key, m) => m, measure: bar => bar};
+  for (const [voice, list] of sizes) {
+    const first = [];
+    for (let m = 1, bar = 1; m < list.length; bar += list[m++] || 1) first[m] = bar;
+    firsts.set(voice, first);
+  }
+  const voices = [...sizes.keys()],
+    ref = voices.find(v => sizes.get(v).every(n => n === 1)) ?? voices[0];
+  return {
+    bar(key, m, last = false) {
+      const list = sizes.get(voiceOf(key)),
+        first = firsts.get(voiceOf(key));
+      if (!list) return m;
+      // A measure past the voice's last one (after its closing bar line) follows on from it.
+      const n = Math.min(m, list.length - 1),
+        end = first[n] + (list[n] || 1) - 1;
+      return m > n ? end + m - n : last ? end : first[n];
+    },
+    measure(bar) {
+      const list = sizes.get(ref),
+        first = firsts.get(ref);
+      for (let m = list.length - 1; m >= 1; m--)
+        if (first[m] <= bar) return bar < first[m] + list[m] ? m : m + bar - (first[m] + list[m] - 1);
+      return bar;
+    }
+  };
+}
+// The road-map marks of a score from its scoreEvents, by bar (roadBars): where a segno or a Coda heading starts, coda
+// signs and To Coda before or after a bar, Fine after one, and the jump after one (D.C. or D.S., al Fine or al Coda).
+// A mark on a measure's first note or on a bar line counts as before the measure that follows; a segno or a heading
+// starts the measure it is in. Fine and jumps end the measure they are in, or the one before an opening bar line.
+// fermataEnd marks a measure that ends at a double, final or repeat bar line under a fermata, on the bar line or on
+// the last note or rest before it, as older scores mark where a D.C. stops. abcjs drops a fermata on an invisible rest
+// (O'Neill's `Hx||`), so that one is read from the source text when it is given.
+function roadMarks(events, source = '') {
+  const marks = new Map(),
+    open = new Map(),
+    held = new Map(),
+    bars = roadBars(events),
+    at = bar => marks.get(bar) || marks.set(bar, {}).get(bar),
+    fermata = element => {
+      if ((element.decoration || []).some(d => /^(?:inverted)?fermata$/.test(d))) return true;
+      if (element.rest?.type !== 'invisible') return false;
+      const text = source.slice(element.startChar, element.endChar).replace(/"[^"]*"/g, '');
+      return /[!+](?:inverted)?fermata[!+]/.test(text) || /H/.test(text.replace(/([!+])[^!+]*\1/g, ''));
+    };
+  for (const {element, key, measure} of events) {
+    const voice = key.split(':').slice(0, 2).join(':'),
+      bar = element.el_type === 'bar',
+      inside = open.get(voice);
+    open.set(voice, !bar);
+    const start = bars.bar(voice, bar && inside ? measure + 1 : measure),
+      before = bar || !inside,
+      ends = bars.bar(voice, bar && !inside ? Math.max(1, measure - 1) : measure, true);
+    if (!bar) held.set(voice, fermata(element));
+    else if (
+      inside &&
+      (held.get(voice) || fermata(element)) &&
+      /repeat|thin_thin|thin_thick|thick_thin/.test(element.type)
+    )
+      at(ends).fermataEnd = true;
+    const items = [
+      ...(element.decoration || []).map(d => roadItem(d, false)),
+      ...(element.chord || []).map(c => roadItem(String(c.name || ''), true))
+    ];
+    for (const item of items.filter(Boolean)) {
+      if (item.kind === 'segno') at(start).segno = true;
+      else if (item.kind === 'heading') at(start).heading = true;
+      else if (item.kind === 'coda' || item.kind === 'toCoda')
+        at(before ? start : ends)[item.kind + (before ? 'Before' : 'After')] = true;
+      else if (item.kind === 'fine') at(ends).fine = true;
+      else at(ends).jump ||= {to: item.to, al: item.al};
+    }
+  }
+  return marks;
+}
+// The order of play through the road map. plays lists the bar of each play in abcjs's timeline; the result lists
+// the plays in the order they are heard, {play, measure, jump}, where jump names the mark that led to that play
+// ('D.C.', 'D.S.' or 'To Coda'), or null when no jump is taken (the score plays straight).
+// A jump is taken on the last pass through its measure, once. After it, repeats are not taken again: each measure is
+// played in its last pass (so the last ending), up to Fine, or up to the To Coda and then from the coda. A plain D.C.
+// or D.S. stops at a Fine and takes a coda if the score has them. With neither, it stops at the first fermataEnd
+// between where it goes back to and the jump, the older way to mark the end. With two or more coda signs the last
+// starts the coda and the others are To Coda; one coda sign starts the coda when there is a To Coda, or is the To
+// Coda when there is a Coda heading. A D.S. with no segno is not taken.
+function performanceOrder(plays, marks) {
+  const last = new Map(plays.map((m, i) => [m, i])),
+    measures = [...marks.keys()].sort((a, b) => a - b),
+    find = name => measures.filter(m => marks.get(m)[name]),
+    signs = [...find('codaBefore'), ...find('codaAfter')].sort((a, b) => a - b),
+    texts = [...find('toCodaBefore'), ...find('toCodaAfter')],
+    heading = find('heading')[0],
+    segno = find('segno')[0];
+  // The coda: its first measure, and the To Coda points before or after a measure.
+  let coda = null,
+    leaveBefore = new Set(find('toCodaBefore')),
+    leaveAfter = new Set(find('toCodaAfter'));
+  if (signs.length > 1 || (signs.length === 1 && texts.length)) {
+    const target = signs.at(-1);
+    coda = marks.get(target).codaBefore ? target : target + 1;
+    for (const m of signs.slice(0, -1)) (marks.get(m).codaBefore ? leaveBefore : leaveAfter).add(m);
+  } else if (heading != null) {
+    coda = heading;
+    for (const m of signs) (marks.get(m).codaBefore ? leaveBefore : leaveAfter).add(m);
+  }
+  if (!last.has(coda)) coda = null;
+  const fine = new Set(find('fine')),
+    ends = find('fermataEnd'),
+    out = [],
+    taken = new Set();
+  let i = 0,
+    mode = null,
+    jump = null;
+  while (i != null && i < plays.length && out.length < plays.length * 3 + 8) {
+    const m = plays[i];
+    if (mode?.coda && leaveBefore.has(m) && m !== coda) {
+      mode.coda = false;
+      [i, jump] = [last.get(coda), 'To Coda'];
+      continue;
+    }
+    out.push({play: i, measure: m, jump});
+    jump = null;
+    const mark = marks.get(m) || {};
+    if (mode?.stop?.has(m)) break;
+    if (mode?.coda && leaveAfter.has(m)) {
+      mode.coda = false;
+      [i, jump] = [last.get(coda), 'To Coda'];
+      continue;
+    }
+    const target = mark.jump && (mark.jump.to === 'D.C.' ? plays[0] : segno);
+    if (target != null && last.has(target) && !taken.has(m) && last.get(m) === i) {
+      taken.add(m);
+      const al = mark.jump.al,
+        toCoda = al !== 'fine' && coda != null && leaveBefore.size + leaveAfter.size > 0,
+        hold = al === 'coda' || fine.size || toCoda ? null : ends.find(e => e >= target && e < m);
+      mode = {stop: al !== 'coda' && fine.size ? fine : hold != null ? new Set([hold]) : null, coda: toCoda};
+      [i, jump] = [last.get(target), mark.jump.to];
+      continue;
+    }
+    i = mode ? last.get(plays[i + 1]) : i + 1;
+  }
+  return taken.size ? out : null;
+}
+// Times for the order of play. times are the start of each play in abcjs's timeline and the end of the last, in
+// seconds of one clock (the note timings, or the MIDI); holds are the fermatas, {play, offset, length}: the play they
+// are in, from its start, and the held note's length. Consecutive plays become one piece, placed at `at` seconds into
+// the performance before holds; each hold doubles the time from its start to its end, merged where holds overlap,
+// and later times move by its length. Returns null when there is nothing to change: no jumps and no fermatas.
+function performancePlan(order, times, holds = []) {
+  if (!order && !holds.length) return null;
+  const count = times.length - 1,
+    pieces = [];
+  let at = 0;
+  for (const o of order || Array.from({length: count}, (_, play) => ({play}))) {
+    const piece = pieces.at(-1),
+      length = times[o.play + 1] - times[o.play];
+    if (piece && !o.jump && piece.last + 1 === o.play) {
+      piece.last = o.play;
+      piece.to = times[o.play + 1];
+    } else
+      pieces.push({
+        first: o.play,
+        last: o.play,
+        from: times[o.play],
+        to: times[o.play + 1],
+        at,
+        jump: o.jump || null,
+        measure: o.measure
+      });
+    at += length;
+  }
+  const held = [];
+  for (const piece of pieces)
+    for (const h of holds)
+      if (h.play >= piece.first && h.play <= piece.last) {
+        const start = piece.at + times[h.play] - piece.from + h.offset;
+        held.push({start, end: start + h.length});
+      }
+  held.sort((a, b) => a.start - b.start);
+  const merged = [];
+  for (const h of held)
+    if (merged.length && h.start <= merged.at(-1).end) merged.at(-1).end = Math.max(merged.at(-1).end, h.end);
+    else merged.push({...h});
+  const plan = {pieces, holds: merged, count, length: at};
+  plan.duration = planWarp(plan, at);
+  return plan;
+}
+// A time in the performance before holds, with the holds put in.
+function planWarp(plan, t) {
+  return t + plan.holds.reduce((sum, h) => sum + Math.max(0, Math.min(t, h.end) - h.start), 0);
+}
+// A time in a piece's plays (in the clock its plan was made with) as heard.
+function planTime(plan, piece, t) {
+  return planWarp(plan, piece.at + t - piece.from);
+}
+// Whether a time in the plays' clock falls in a piece. The first and last plays take everything before and after
+// them; edge allows for MIDI note times a little before the measure start (ticks are rounded).
+function inPiece(plan, piece, t, edge = 0) {
+  return (piece.first === 0 || t >= piece.from - edge) && (piece.last === plan.count - 1 || t < piece.to - edge);
+}
+// Decoded MIDI notes (parseMidi, after swing) in the order of play, with the fermatas held. A note in a piece played
+// twice sounds twice; one held over a jump keeps its length.
+function planNotes(plan, data, edge = 0.002) {
+  const notes = [];
+  for (const piece of plan.pieces)
+    for (const n of data.notes) {
+      if (!inPiece(plan, piece, n.start, edge)) continue;
+      const start = planTime(plan, piece, n.start),
+        note = {...n, start, duration: Math.max(0.025, planTime(plan, piece, n.start + n.duration) - start)};
+      if (n.straightEnd != null) note.straightEnd = planTime(plan, piece, n.straightEnd);
+      notes.push(note);
+    }
+  notes.sort((a, b) => a.start - b.start);
+  return {
+    ...data,
+    notes,
+    duration: Math.max(plan.duration, ...notes.map(n => n.start + n.duration), 0)
+  };
+}
+// abcjs's note timing events in the order of play, timed as heard (milliseconds) and before holds (unheld), ending
+// with an 'end' event. Each keeps its drawn elements, so the highlight follows the jumps.
+function planEvents(plan, timings) {
+  const out = [];
+  for (const piece of plan.pieces)
+    for (const e of timings)
+      if (e.type === 'event' && inPiece(plan, piece, e.milliseconds / 1000, 1e-6)) {
+        const unheld = piece.at + e.milliseconds / 1000 - piece.from;
+        out.push({...e, milliseconds: planWarp(plan, unheld) * 1000, unheld: unheld * 1000});
+      }
+  out.push({type: 'end', milliseconds: plan.duration * 1000, unheld: plan.length * 1000});
+  return out;
 }
 
 // Share links: the whole score rides in the URL hash (#s=…), so no server ever holds student work.

@@ -396,9 +396,12 @@ function applyCheckSettings() {
 }
 applyCheckSettings();
 $('assess').onclick = () => toggleCheckPanel();
+// ✓ Check is in the practice band, which folds on narrow screens: closed there, the focus goes back to its toggle.
 $('assess-close').onclick = () => {
   toggleCheckPanel(false);
-  $('assess').focus();
+  const folded =
+    !!window.matchMedia?.('(max-width: 1100px)').matches && !$('practice-panel').classList.contains('open');
+  (folded ? $('practice-toggle') : $('assess')).focus();
 };
 $('assess-start').onclick = () => startCheck();
 $('assess-level').onchange = () => storage.set(KEYS.checkLevel, $('assess-level').value);
