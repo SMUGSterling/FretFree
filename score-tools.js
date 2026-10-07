@@ -4431,12 +4431,13 @@ function octaveOff(pitch, targets) {
   }
   return best;
 }
-// The sounds in a run of frames ({t, freq, level}; freq 0 when no pitch was heard). A new sound starts after a gap,
-// where the pitch moves by more than 60 cents and stays there for two frames (a single stray frame is passed over),
-// or where the level jumps to twice the quietest of the last frames (the same note played again). A sound starts
-// between the frame where it is first heard and the one before, so it is placed halfway between them. soundTracker
-// takes the frames one at a time, in time order, as they come in; its sounds ({start, end, pitches}) follow each other
-// without overlapping, and the last one may still grow.
+// The sounds in a run of frames ({t, freq, level}; freq 0 when no pitch was heard). A new sound starts after a gap
+// of frames with no pitch (frames that never came, on a busy device, leave the sound going), where the pitch moves by
+// more than 60 cents and stays there for two frames (a single stray frame is passed over), or where the level jumps to
+// twice the quietest of the last frames (the same note played again). A sound starts between the frame where it is
+// first heard and the one before, so it is placed halfway between them. soundTracker takes the frames one at a time,
+// in time order, as they come in; its sounds ({start, end, pitches}) follow each other without overlapping, and the
+// last one may still grow.
 function soundTracker({gap = 0.045} = {}) {
   const sounds = [],
     levels = [],
@@ -4476,7 +4477,7 @@ function soundTracker({gap = 0.045} = {}) {
       return;
     }
     const pitch = pitchOfFreq(f.freq);
-    if (!current || f.t - lastVoiced > gap) {
+    if (!current || (f.t - lastVoiced > gap && prior !== lastVoiced)) {
       open(f, prior);
       stray = null;
     } else if (Math.abs(pitch - recentMiddle()) > 0.6) {

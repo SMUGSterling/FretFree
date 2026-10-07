@@ -4205,6 +4205,16 @@ async function musicXMLImportFiles() {
     2,
     'A note played again'
   );
+  assert.equal(
+    context.soundSegments(held.filter((f, i) => i < 3 || i > 5)).length,
+    1,
+    'Frames that never came (a busy device) leave a held note going'
+  );
+  assert.equal(
+    context.soundSegments(held.map((f, i) => (i >= 3 && i <= 5 ? {...f, freq: 0, level: 0.002} : f))).length,
+    2,
+    'but a quiet gap ends it'
+  );
   // Far off time is never right: four quarter notes, each sounding from its start (moved by `off`) for `sound` of a
   // beat, or until the next starts (legato). 250 and 400 ms early or late are yellow with their offset, never green,
   // and a run that is late throughout is late on every note, not a cascade of wrong notes.
@@ -4241,6 +4251,15 @@ async function musicXMLImportFiles() {
       ['yellow,yellow,yellow,yellow', 100, 0, 2],
       `${off * 1000} ms late throughout`
     );
+  }
+  // On a busy device the frames stop for a moment: the note held through the gap is not taken for the next one.
+  for (const from of [0.35, 0.45]) {
+    const r = context.scoreAttempt(
+      beats,
+      played([0.25, 0.25, 0.25, 0.25], 0.6).filter(f => f.t < from || f.t >= from + 0.07),
+      medium
+    );
+    assert.equal(marks(r), 'yellow,yellow,yellow,yellow', `No frames from ${from * 1000} ms for 70 ms`);
   }
   // A repeated note held on, with no new attack to hear, is on time; one that comes in late after it is late.
   const repeated = beats.map((e, i) => ({...e, midis: [i === 2 ? 62 : e.midis[0]]})),
