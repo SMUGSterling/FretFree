@@ -1909,7 +1909,11 @@ const {chromium} = require('playwright'),
   for (const k of ['c', 'd', 'e', 'f', 'g', 'f', 'e', 'd', 'c', 'd', 'e', 'f', 'e', 'd', 'c', 'c'])
     await student.keyboard.press(k);
   await student.waitForFunction(() => document.querySelectorAll('#prompt-check li.met').length === 4);
-  assert.match(await student.locator('#prompt-check').innerText(), /All goals met/);
+  assert.match(
+    await student.locator('#prompt-check').innerText(),
+    /All goals met\. Play it back, then press Turn in to send it to your teacher\./,
+    'The finished checklist points to Turn in'
+  );
   await student.emulateMedia({media: 'print'});
   assert.deepEqual(
     await student.evaluate(() => {
@@ -1979,6 +1983,11 @@ const {chromium} = require('playwright'),
   assert.match(await page.textContent('#submission-text'), /^Turned in by Ana <i>Ruiz<\/i> · .+ · Step <b>up<\/b>$/);
   assert.equal(await page.textContent('#submission-pos'), '1 of 2');
   assert.equal(await page.locator('#prompt-check li.met').count(), 4, 'The checklist comes with the work');
+  assert.equal(
+    await page.textContent('#prompt-check .prompt-done'),
+    'All goals met.',
+    'The teacher gets no instructions meant for the student'
+  );
   await page.focus('#submission-next');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => $('submission-pos').textContent === '2 of 2');
@@ -4105,8 +4114,10 @@ const {chromium} = require('playwright'),
     assert.ok(buttons.length === 4 && buttons.every(Boolean), 'Take buttons stay on screen and easy to tap');
     await page.focus('[data-take-delete]');
     await page.keyboard.press('Enter');
-    await page.waitForFunction(() => !document.querySelector('#take-list li'));
-    assert.equal(await page.evaluate(() => document.activeElement.id), 'record-start');
+    // The list empties before the delete moves focus, so wait for both.
+    await page.waitForFunction(
+      () => !document.querySelector('#take-list li') && document.activeElement.id === 'record-start'
+    );
     await page.keyboard.press('Escape');
     assert.equal(await page.evaluate(() => $('record-panel').hidden), true, 'Escape closes the panel');
     await page.setViewportSize({width: 1280, height: 900});
@@ -4262,6 +4273,27 @@ const {chromium} = require('playwright'),
     assert.ok(top < 1200, `The score starts within 1200px on a phone (was about 3100px): ${top}`);
     assert.ok(await noSideways(phone), 'No sideways scroll at 390px');
     assert.ok(await phone.isVisible('#mixer-toggle'), 'Mixer stays in view at phone width, outside the Practice fold');
+    // The status line keeps room for its longest message, so the score does not move under a finger between a tap's
+    // touch events and the mouse events after them (abcjs selects on both, and would pick the note above).
+    for (const width of [390, 360]) {
+      await phone.setViewportSize({width, height: 844});
+      const heights = await phone.evaluate(() => {
+        const status = $('selection-status'),
+          was = status.textContent,
+          heights = [];
+        for (const text of [
+          'Sharp.',
+          'Quarter note D5, measure 12, beat 3 · type A–G to add notes after it, ↑↓ to change pitch · Shift+click another note to practice from here to there'
+        ]) {
+          status.textContent = text;
+          heights.push([status.getBoundingClientRect().height, $('notation').getBoundingClientRect().top]);
+        }
+        status.textContent = was;
+        return heights;
+      });
+      assert.deepEqual(heights[0], heights[1], `The score stays put as the status line changes at ${width}px`);
+    }
+    await phone.setViewportSize({width: 390, height: 844});
     // Touch and pointer open each fold.
     for (const [toggle, fold] of Object.entries(folds)) {
       if (toggle === 'practice-toggle' || toggle === 'settings-toggle') await phone.tap('#' + toggle);
@@ -4499,6 +4531,18 @@ const {chromium} = require('playwright'),
     for (const selector of ['#edit-bar', '#help-row', '.panel-toggles', '#practice-toggle', '#view-toggle'])
       assert.equal(await ipad.isVisible(selector), false, `${selector} does not print`);
     assert.ok(await ipad.isVisible('#notation svg'), 'The score prints');
+    // A changed library edition prints that its notation was edited, and not the screen's editing hint.
+    await ipad.emulateMedia({media: 'screen'});
+    await ipad.evaluate(() => {
+      dirty = false;
+      openScore(catalog.find(x => x.id === 'pgh-1002'));
+      $('add-bars').click();
+    });
+    await ipad.emulateMedia({media: 'print'});
+    assert.match(await ipad.innerText('#rights'), /Notation edited in FretFree from this edition/);
+    assert.equal(await ipad.isVisible('#rights .rights-hint'), false, 'The editing hint does not print');
+    await ipad.emulateMedia({media: 'screen'});
+    assert.equal(await ipad.isVisible('#rights .rights-hint'), true);
     await ipadContext.close();
   }
   assert.deepEqual(errors, []);

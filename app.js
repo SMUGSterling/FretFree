@@ -42,12 +42,15 @@ function openScore(item, id = null) {
   $('abc').value = item.abc;
   inputLength = null;
   $('keep-bars').checked = keepBarsFor(item);
+  // A saved or restored entry may name an instrument this app does not have; it opens on the default.
   $('instrument').value =
-    item.instrument || ($('instrument-filter').value === 'all' ? 'Flute' : $('instrument-filter').value);
+    knownInstrument(item.instrument) ||
+    ($('instrument-filter').value === 'all' ? 'Flute' : $('instrument-filter').value);
   resetHistory();
   syncFields();
   render();
   $('save-status').textContent = '';
+  if (catalog.includes(item)) played = new Set(storedNames(KEYS.played));
   if (catalog.includes(item) && !played.has(item.id)) {
     played.add(item.id);
     storage.set(KEYS.played, [...played]);
@@ -245,6 +248,7 @@ document.addEventListener('click', e => {
   }
   if (b.dataset.favorite) {
     const id = b.dataset.favorite;
+    favorites = storedNames(KEYS.favorites);
     const next = favorites.includes(id) ? favorites.filter(x => x !== id) : [...favorites, id];
     if (storage.set(KEYS.favorites, next)) {
       favorites = next;
@@ -254,6 +258,7 @@ document.addEventListener('click', e => {
   }
   if (b.dataset.history) openHistory(b.dataset.history);
   if (b.dataset.delete && confirm(`Delete this locally saved score${deletedAlong(b.dataset.delete)}?`)) {
+    saved = storedScores();
     const next = saved.filter(x => x.id !== b.dataset.delete);
     if (storeScores(next)) {
       saved = next;
@@ -325,14 +330,22 @@ $('help-toggle').onclick = () => {
   $('abc-help').hidden = !$('abc-help').hidden;
 };
 $('save').onclick = () => {
+  saved = storedScores();
   const id = savedId || globalThis.crypto?.randomUUID?.() || 'score-' + Date.now(),
     previous = saved.find(x => x.id === id),
     takesKey = typeof recordKey === 'function' ? recordKey() : null;
   // Turned-in work saved to My scores is a copy of one's own: "Turned in by" stays behind, and it can be turned in.
   const {submission, ...item} = current || {};
+  // A copy of a library edition keeps the edition's id and title, which the new id and T: line would otherwise hide,
+  // so its share links and credits still name that edition.
+  const libraryId = typeof shareSourceId === 'function' ? shareSourceId() : undefined,
+    edition = libraryId && catalog.find(x => x.id === libraryId),
+    workTitle = item.workTitle || (item.rights && edition ? edition.title : undefined);
   // Each save of a score gets its own time, which names the version it later becomes.
   const entry = {
     ...item,
+    ...(libraryId ? {libraryId} : {}),
+    ...(workTitle ? {workTitle} : {}),
     id,
     title: field('T', 'Untitled'),
     composer: field('C'),
@@ -400,7 +413,9 @@ $('import-file').onchange = async () => {
       metadata = importedRights(result.metadata);
     } else {
       source = await file.text();
-      if (ABCJS.numberOfTunes(source) !== 1) throw new Error('Please import one ABC tune at a time.');
+      // Tunes are counted by their X: lines: a FretFree export's notice comes before X:1, and abcjs's numberOfTunes
+      // would count that preamble as a tune of its own.
+      if ((source.match(/^X:/gm) || []).length !== 1) throw new Error('Please import one ABC tune at a time.');
       if (!/^K:/m.test(source) || !/^X:/m.test(source))
         throw new Error('Expected an ABC score with X: and K: headers.');
       const notice = source.match(/^% FretFree-Rights: (.*)$/m);
@@ -416,7 +431,7 @@ $('import-file').onchange = async () => {
       ...metadata,
       kind: 'personal',
       abc: source,
-      ...(result?.instrument && instruments[result.instrument] ? {instrument: result.instrument} : {})
+      ...(knownInstrument(result?.instrument) ? {instrument: result.instrument} : {})
     });
     dirty = true;
     scheduleDraft();
@@ -509,7 +524,10 @@ $('speed-reset').onclick = () => {
   $('speed').value = 100;
   $('speed').oninput();
 };
-$('stop').onclick = stop;
+$('stop').onclick = () => {
+  if (typeof cancelStartingRecording === 'function') cancelStartingRecording();
+  stop();
+};
 $('print').onclick = () => {
   render();
   const appendix = $('print-appendix');
@@ -517,7 +535,7 @@ $('print').onclick = () => {
     ? '<h2>Editable source and GPL license</h2><pre>' +
       esc(
         exportCredit(current) +
-          '\n\nCorresponding editable ABC (FretFree export, 2026-10-03):\n' +
+          `\n\nCorresponding editable ABC (FretFree export, ${new Date().toLocaleDateString('en-CA')}):\n` +
           $('abc').value +
           '\n\n' +
           GPL_LICENSE
@@ -669,6 +687,13 @@ window.addEventListener('pagehide', flushDraft);
 // back. A page coming back from the back/forward cache may have missed that, so it checks too.
 window.addEventListener('storage', e => {
   if (e.key === KEYS.draft || e.key === null) keepDraft();
+  // Scores, favorites or played marks saved in another tab show here too.
+  if ([KEYS.scores, KEYS.favorites, KEYS.played, null].includes(e.key)) {
+    rereadLists();
+    renderSaved();
+    renderCards();
+    renderBackupStatus();
+  }
 });
 window.addEventListener('pageshow', keepDraft);
 $('draft-restore').onclick = restoreDraft;
@@ -773,6 +798,17 @@ else if (initialView.startsWith('s=')) {
   show(['studio', 'saved', 'about'].includes(initialView) ? initialView : 'library');
   offerDraft();
 }
+// A share link pasted into this tab's address bar opens too (show() keeps the address with replaceState, which fires
+// no hashchange). Unsaved work is asked about first, so a cancelled link leaves it as it was.
+window.addEventListener('hashchange', () => {
+  if (embedView || !location.hash.startsWith('#s=') || !allowReplace()) return;
+  const hash = location.hash.slice(1);
+  dirty = false;
+  show('studio');
+  openSharedLink(hash).then(ok => {
+    if (!ok) show('library');
+  });
+});
 $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
 $('fingering').onchange = () => {
   storage.set(KEYS.fingering, $('fingering').checked);

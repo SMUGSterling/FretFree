@@ -1059,6 +1059,20 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     'Interleaved, scaled and clipped'
   );
   assert.deepEqual(wav.info, {INAM: 'Ode to Joy ♫', IART: 'Beethoven'}, 'UTF-8 title, odd lengths padded');
+  // Written a stretch at a time (renderWav pauses between stretches), with the peak scaling folded in, the file is the
+  // same as one written at once from scaled samples.
+  {
+    const long = Float32Array.from({length: 1001}, (_, i) => Math.sin(i / 7) * 1.7),
+      scale = 0.89 / 1.7,
+      writer = context.wavWriter([long, long], 44100, {title: 'Long'}, scale, 100),
+      shares = [];
+    let step;
+    while (!(step = writer.next()).done) shares.push(step.value);
+    assert.equal(shares.length, 10, 'A share after each full stretch but the last');
+    assert.ok(shares.every((x, i) => x > 0 && x < 1 && (!i || x > shares[i - 1])));
+    const scaled = long.map(x => x * scale);
+    assert.deepEqual([...step.value], [...context.wavBytes([scaled, scaled], 44100, {title: 'Long'})]);
+  }
   const mono = readWav(context.wavBytes([new Float32Array(3)], 22050));
   assert.deepEqual(mono.ids, ['fmt ', 'data'], 'No INFO chunk without text');
   assert.deepEqual(mono.format, [1, 1, 22050, 44100, 2, 16]);
@@ -3582,7 +3596,56 @@ async function musicXMLImportFiles() {
     'Piano'
   );
   assert.equal(await instrumentOf([['Flute'], ['Clarinet', trumpet]]), 'Flute', 'A concert-pitch first part');
-  assert.equal(await instrumentOf([['Oboe'], ['Horn']]), '', 'No guess');
+  assert.equal(await instrumentOf([['Harp'], ['Celesta']]), '', 'No guess');
+  // The instruments added with Instrument sounds are recognised too, in their own transposition; a bass guitar is not
+  // taken for a guitar, and FretFree's own Viola export opens as Viola again.
+  const horn = '<transpose><diatonic>-4</diatonic><chromatic>-7</chromatic></transpose>',
+    tenor = '<transpose><diatonic>-8</diatonic><chromatic>-14</chromatic></transpose>';
+  for (const [name, attributes, expected] of [
+    ['Horn in F', horn, 'Horn in F'],
+    ['English Horn', horn, ''],
+    ['Tenor Saxophone', tenor, 'Tenor sax in B♭'],
+    ['Viola', '<clef><sign>C</sign><line>3</line></clef>', 'Viola'],
+    ['Oboe', '', 'Oboe'],
+    ['Soprano', '', 'Voice'],
+    ['Ukulele', '', 'Ukulele'],
+    ['Bass Guitar', bass, '']
+  ])
+    assert.equal(await instrumentOf([[name, attributes]]), expected, name);
+  assert.equal(await instrumentOf([['Oboe'], ['Horn']]), 'Oboe', 'The first part names the instrument');
+  for (const instrument of ['Viola', 'Oboe', 'Ukulele', 'Voice'])
+    assert.equal(
+      context.musicXMLToABC(
+        new DOMParser().parseFromString(
+          context.abcToMusicXML('X:1\nT:Round trip\nM:4/4\nL:1/4\nK:C\nC D E F|]\n', {instrument}),
+          'application/xml'
+        ),
+        {name: 'own.musicxml'}
+      ).instrument,
+      instrument,
+      `FretFree's ${instrument} export opens as ${instrument}`
+    );
+  // A trill line comes back as the line alone (one tr, played as written), and a swing feel keeps its amount.
+  const ownTrip = source =>
+    context.musicXMLToABC(new DOMParser().parseFromString(context.abcToMusicXML(source), 'application/xml'), {
+      name: 'own.musicxml'
+    }).abc;
+  const trillLine = 'X:1\nT:Trill line\nM:4/4\nL:1/4\nK:C\n!trill(!G A !trill)!B c|]\n';
+  assert.equal(context.abcToMusicXML(trillLine).match(/<trill-mark\/>/g).length, 1);
+  assert.equal(
+    context.abcToMusicXML('X:1\nM:4/4\nL:1/4\nK:C\n!trill!!trill(!G A !trill)!B c|]\n').match(/<trill-mark\/>/g).length,
+    1,
+    'A trill and a trill line on one note write one trill mark'
+  );
+  const trillBack = ownTrip(trillLine);
+  assert.ok(trillBack.includes('!trill(!') && trillBack.includes('!trill)!'), trillBack);
+  assert.ok(!trillBack.includes('!trill!'), 'No extra trill ornament: ' + trillBack);
+  assert.equal(ownTrip(trillBack), trillBack, 'A second round trip changes nothing');
+  for (const amount of [60, 66, 75]) {
+    const swung = context.setSwing('X:1\nT:Blues\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\nCDEF GABc|]\n', amount);
+    assert.equal(context.swingAmount(ownTrip(swung)), amount, `Swing ${amount} survives MusicXML`);
+  }
+  assert.equal(context.swingAmount(ownTrip('X:1\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\nCDEF GABc|]\n')), 0);
   // One voice is a plain melody without a staff name, in any clef; several parts are named.
   const alto = await open(
     score([['Alto Saxophone', '<transpose><diatonic>-5</diatonic><chromatic>-9</chromatic></transpose>']]),

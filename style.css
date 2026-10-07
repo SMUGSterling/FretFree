@@ -1051,6 +1051,9 @@ input[type='range'] {
   #rights a::after {
     content: ' (' attr(href) ')';
   }
+  #rights .rights-hint {
+    display: none;
+  }
 }
 
 .print-appendix {
@@ -2483,8 +2486,12 @@ body.embed #practice-panel {
   .help-row #keyboard-help {
     display: none;
   }
+  /* Room for the longest status line, so the score below does not move between a tap's touch events and the mouse
+     events the browser sends after them (abcjs selects on both, and would pick the note now under the finger). */
   .help-row #selection-status {
     grid-column: 1;
+    min-height: 80px;
+    min-height: 4lh;
   }
   .help-row .shortcuts-open {
     grid-column: 1;

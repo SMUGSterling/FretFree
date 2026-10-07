@@ -525,7 +525,7 @@ async function renderWav({metronome = false, chords = true, signal = null, progr
           .suspend(t)
           .then(() => {
             resume();
-            if (!signal?.aborted) progress((t * WAV_RATE) / length);
+            if (!signal?.aborted) progress((0.9 * t * WAV_RATE) / length);
           })
           .catch(() => {});
       } catch {}
@@ -548,12 +548,30 @@ async function renderWav({metronome = false, chords = true, signal = null, progr
     ctx.startRendering()?.then?.(resolve, reject);
   }).finally(() => signal?.removeEventListener('abort', cancel));
   if (signal?.aborted) throw cancelled();
-  const channels = Array.from({length: buffer.numberOfChannels}, (_, i) => buffer.getChannelData(i));
+  // Scaling to the peak and writing the file go a stretch at a time with a pause between, so a long score does not
+  // freeze the page (and its progress bar) at the end: about a second at ten minutes. The last tenth of the bar is
+  // this part.
+  const channels = Array.from({length: buffer.numberOfChannels}, (_, i) => buffer.getChannelData(i)),
+    stretch = 1 << 19,
+    breathe = async done => {
+      await new Promise(resolve => setTimeout(resolve));
+      if (signal?.aborted) throw cancelled();
+      progress?.(0.9 + 0.1 * done);
+    };
   let peak = 0;
-  for (const c of channels) for (let i = 0; i < c.length; i++) peak = Math.max(peak, Math.abs(c[i]));
-  if (peak > 0) for (const c of channels) for (let i = 0; i < c.length; i++) c[i] *= 0.89 / peak;
+  for (const [n, c] of channels.entries())
+    for (let i = 0; i < c.length; i += stretch) {
+      for (let j = i, end = Math.min(c.length, i + stretch); j < end; j++) {
+        const a = Math.abs(c[j]);
+        if (a > peak) peak = a;
+      }
+      await breathe((0.5 * (n + Math.min(1, (i + stretch) / c.length))) / channels.length);
+    }
+  const writer = wavWriter(channels, WAV_RATE, creditedWavInfo(source, current), peak > 0 ? 0.89 / peak : 1, stretch);
+  let step;
+  while (!(step = writer.next()).done) await breathe(0.5 + 0.5 * step.value);
   return {
-    bytes: wavBytes(channels, WAV_RATE, creditedWavInfo(source, current)),
+    bytes: step.value,
     seconds: buffer.length / WAV_RATE,
     notes: data.notes.length
   };

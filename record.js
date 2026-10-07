@@ -306,7 +306,7 @@ async function startRecording() {
   if (problem) return recordStatus(problem);
   stop();
   audioContext();
-  const session = (rec = {state: 'starting', key: recordKey(), title: field('T', 'Untitled')});
+  const session = (rec = {state: 'starting', key: recordKey(), title: field('T', 'Untitled'), score: current});
   showRecording();
   recordStatus('Allow the microphone if the browser asks.');
   try {
@@ -319,7 +319,10 @@ async function startRecording() {
     if (!session.cancelled) recordStatus(micProblem(e));
     return;
   }
-  if (session.cancelled) return discardRecording(session);
+  // Stopped, another score opened or Compose left while the browser asked for the microphone: nothing records, and
+  // the microphone is let go at once. (stop() itself cannot cancel here, since every render calls it.)
+  if (session.cancelled || current !== session.score || $('studio').hidden)
+    return discardRecording(session, session.why || 'Recording cancelled.');
   session.latencyMs = storedLatency()?.ms ?? estimatedLatency(session.stream);
   session.calibrated = !!storedLatency();
   session.done.then(() => finishTake(session));
@@ -339,8 +342,13 @@ function stopRecording() {
   if (rec?.state === 'live') stop();
   else if (rec?.state === 'starting') discardRecording(rec);
 }
+// The transport's ■ Stop also cancels a recording still waiting for the microphone.
+function cancelStartingRecording() {
+  if (rec?.state === 'starting') discardRecording(rec, 'Recording cancelled.');
+}
 function discardRecording(session, why = 'No take was recorded.') {
   session.cancelled = true;
+  session.why ||= why;
   session.state = 'done';
   closeRecorder(session);
   releaseMic(session.stream);

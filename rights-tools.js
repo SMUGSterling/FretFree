@@ -33,7 +33,8 @@ function licenseLabel(item) {
 function exportCredit(item) {
   if (!item?.rights) return '';
   return [
-    item.title || 'Music',
+    // A saved or shared copy keeps the edition's title as workTitle, since title follows the student's T: line.
+    item.workTitle || item.title || 'Music',
     item.attribution || item.composer,
     'Collection: ' + scoreCollection(item),
     'Notation/edition license: ' + scoreLicense(item),
@@ -53,6 +54,7 @@ function exportCredit(item) {
 // web address or a path on this site; a javascript: or data: link would run code or show a fake page when clicked.
 const RIGHTS_TEXT = [
     'title',
+    'workTitle',
     'composer',
     'lyricist',
     'attribution',

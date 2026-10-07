@@ -59,6 +59,10 @@ const storage = {
     } catch {}
   }
 };
+// An instrument name from a link, the inbox, a draft, a backup or storage: only `instruments`' own names count, not
+// names every object has (constructor, toString). undefined otherwise.
+const knownInstrument = name =>
+  typeof name === 'string' && Object.prototype.hasOwnProperty.call(instruments, name) ? name : undefined;
 // Stored values are checked for shape: a damaged entry must not stop the app from loading.
 const storedList = key => {
   const value = storage.get(key, []);
@@ -97,9 +101,22 @@ applyTheme();
 const followDevice = () => applyTheme(themeChoice, darkPaperChoice);
 if (darkScheme?.addEventListener) darkScheme.addEventListener('change', followDevice);
 else darkScheme?.addListener?.(followDevice);
-let saved = storedList(KEYS.scores),
-  favorites = storedList(KEYS.favorites),
-  played = new Set(storedList(KEYS.played));
+// Saved scores, favorites and played marks as stored now. Another open tab may have changed them since this one
+// loaded, so every change re-reads them first (rereadLists) and writes onto what is stored, not onto an old copy. An
+// entry without an id and ABC text is skipped here (storage keeps it until the next save), so it hides nothing else.
+const storedScores = () =>
+    storedList(KEYS.scores).filter(
+      x => x && typeof x === 'object' && typeof x.id === 'string' && typeof x.abc === 'string'
+    ),
+  storedNames = key => storedList(key).filter(x => typeof x === 'string');
+let saved = storedScores(),
+  favorites = storedNames(KEYS.favorites),
+  played = new Set(storedNames(KEYS.played));
+function rereadLists() {
+  saved = storedScores();
+  favorites = storedNames(KEYS.favorites);
+  played = new Set(storedNames(KEYS.played));
+}
 function toast(msg) {
   $('toast').textContent = msg;
   $('toast').style.display = 'block';

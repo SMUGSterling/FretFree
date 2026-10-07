@@ -151,6 +151,7 @@ function applyMix(glide = true) {
 // A saved score keeps its mix straight away, without a new version in its History; other scores keep it on Save. The
 // change gets a new saved time, so backups count the score as changed and a restore takes the newer mix.
 function storeMix() {
+  saved = storedScores();
   const entry = savedId && saved.find(x => x.id === savedId);
   if (!entry) return;
   const {mixer, ...rest} = entry,

@@ -261,9 +261,11 @@ if ($('piano-keys')) {
       key.focus({preventScroll: true});
       return;
     }
+    // K and L open the chord or lyric box, which keeps the keyboard until Enter or Esc sends it back here.
     if (e.key !== 'Tab' && scoreKey(e)) {
       e.preventDefault();
-      key.focus({preventScroll: true});
+      if (!$('chord-entry').contains(document.activeElement) && !$('lyric-entry').contains(document.activeElement))
+        key.focus({preventScroll: true});
     }
   });
   keys.addEventListener('keyup', e => {
