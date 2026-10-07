@@ -1,15 +1,17 @@
 'use strict';
-// Editor: the open score and its state, rendering, selection and drag, undo/redo, bar check, draw mode,
-// the note menu, keyboard note entry, fingering diagrams and writing prompts.
+// Editor: the open score and its state, rendering, selection and drag, range selection and the clipboard, undo/redo,
+// bar check, draw mode, the note menu, keyboard note entry, fingering diagrams and writing prompts.
 let current = null,
   savedId = null,
   dirty = false,
   renderTimer;
 let renderedSource = null,
+  renderedWritten = null,
   renderedTune = null,
   noteSources = new Map(),
   measureStarts = new Map(),
-  selectedRange = null;
+  selectedRange = null,
+  selectionAnchor = null;
 let staffClefs = [],
   shownElements = new Map(),
   inputLength = null,
@@ -18,24 +20,53 @@ function field(name, defaultValue = '') {
   const match = $('abc').value.match(new RegExp('^' + name + ':(.*)$', 'm'));
   return match ? match[1].trim() : defaultValue;
 }
-function assignSelect(id, value) {
+function assignSelect(id, value, label = value) {
   const select = $(id);
-  if (![...select.options].some(o => o.value === value)) select.add(new Option(value, value));
+  if (![...select.options].some(o => o.value === value)) select.add(new Option(label, value));
   select.value = value;
 }
 function syncFields() {
   $('title').value = field('T', 'Untitled');
   $('composer').value = field('C');
   assignSelect('meter', field('M', '4/4'));
-  assignSelect('key', field('K', 'C').split(/\s/)[0]);
-  const m = field('Q', '100').match(/(\d+)\s*$/);
+  assignSelect('key', canonicalKey(field('K', 'C')), keyLabel(field('K', 'C')));
+  hideKeyChoice();
+  const m = sliderBeat().match(/(\d+)$/);
   $('bpm').value = m ? Math.max(40, Math.min(200, +m[1])) : 100;
   $('bpm-value').textContent = $('bpm').value;
+  syncFeel();
+}
+// The Tempo slider reads and writes the tempo as played, in the header's own beat: Q:1/2=60 reads 60, and moving it
+// writes 1/2=61, not 1/4=61 at half the speed. A score with no Q:, tempo text alone or a bare number reads the beat it
+// plays at (playedBeat), 180 quarter notes or 120 dotted quarters in 6/8, so the first move keeps its speed. Only the
+// header is parsed, as this runs on every keystroke, with a rest after K: so that abcjs has a staff to read the meter
+// from.
+function sliderBeat() {
+  const source = $('abc').value,
+    k = source.search(/^K:/m),
+    end = k < 0 ? -1 : source.indexOf('\n', k);
+  return playedBeat((end < 0 ? source : source.slice(0, end)) + '\nz');
+}
+// Feel menu: Straight or a swing amount read from the score; an amount typed into the ABC gets its own entry.
+function syncFeel() {
+  if (!$('feel')) return;
+  const amount = swingAmount($('abc').value),
+    [, d] = meterParts();
+  assignSelect('feel', String(amount), `Swing (${amount})`);
+  $('feel-note').hidden = !(amount && d !== 2 && d !== 4);
 }
 function setHeader(name, value) {
+  if (name === 'K') $('abc').value = withKey($('abc').value);
   const lines = $('abc').value.split('\n'),
     i = lines.findIndex(x => x.startsWith(name + ':'));
-  const text = name + ':' + String(value).replace(/[\r\n]/g, ' ');
+  let text = name + ':' + String(value).replace(/[\r\n]/g, ' ');
+  // A new key keeps the clef and other modifiers written after the old one.
+  if (name === 'K' && i >= 0) text += keyParts(lines[i].slice(2)).rest.replace(/^(?=\S)/, ' ');
+  // A new tempo keeps the tempo text printed before and after it, such as "Swing".
+  if (name === 'Q' && i >= 0 && !text.includes('"')) {
+    const {pre, post} = tempoParts(lines[i].slice(2));
+    text = 'Q:' + [pre, text.slice(2), post].filter(Boolean).join(' ');
+  }
   if (i >= 0) lines[i] = text;
   else
     lines.splice(
@@ -48,22 +79,119 @@ function setHeader(name, value) {
     );
   $('abc').value = lines.join('\n');
 }
-function writtenABC() {
+// The instrument's shift: its part is written this many semitones above the concert source (2 for a B-flat clarinet,
+// 9 for an E-flat alto sax, 14 for a tenor sax). Cello and trombone show the source an octave lower, a range change,
+// not a transposition; how each sounds is instrumentSound (score-tools.js).
+const instrumentShift = () => instruments[currentInstrument()]?.shift || 0,
+  transposesInstrument = () => instrumentShift() % 12 !== 0;
+// Concert pitch view, display only: a transposing instrument's score shows the source's sounding pitches and key.
+// Everything that reads or enters what is shown goes through displayShift(); playback and the ABC never change.
+const concertView = () => transposesInstrument() && $('concert-pitch')?.checked === true,
+  displayShift = () => (concertView() ? 0 : instrumentShift());
+// The score as drawn: the source at the display shift (the instrument's written pitch unless Concert pitch is on),
+// with the instrument's clef and the display-only labels. Pass the instrument's shift to get the written part.
+function writtenABC(shift = displayShift()) {
   let source = $('abc').value;
   const config = instruments[currentInstrument()];
-  if (config.shift) source = ABCJS.strTranspose(source, ABCJS.parseOnly(source), config.shift);
+  if (shift)
+    try {
+      source = transposeABC(source, shift);
+    } catch {
+      source = ABCJS.strTranspose(source, ABCJS.parseOnly(source), shift);
+    }
   source = source.replace(/^K:(.*)$/m, (_, key) => 'K:' + key.replace(/\s+clef=\S+/g, '') + ' clef=' + config.clef);
   if (fingeringShown() === 'recorder') source = source.replace(/^(X:.*)$/m, '$1\n%%staffsep 190');
+  // abcjs draws no trill lines, so the score shows tr on the first note and updateTrillLines draws the wavy line.
+  source = source.replace(/!trill\(!/g, '!trill!');
   return labelSource(source, noteNamesMode());
 }
 // Note names under the score: off, letters or movable-do solfège; display only, never written to the ABC source.
-const noteNamesMode = () => $('note-names')?.value || 'off';
+// "Letters in noteheads" draws inside the heads instead (updateNoteColors), so it adds no labels under the score.
+const noteNamesMode = () => ($('note-names')?.value === 'heads' ? 'off' : $('note-names')?.value || 'off');
+const lettersInHeads = () => $('note-names')?.value === 'heads';
+// Classroom colors (Boomwhacker and handbell order) by written letter; accidentals keep their letter's color.
+// `ink` is the letter drawn inside a colored head; E's light yellow gets a dark outline so it shows on white paper.
+const NOTE_COLORS = {
+  C: {fill: '#d62828', ink: 'white'},
+  D: {fill: '#f77f00', ink: 'black'},
+  E: {fill: '#ffd60a', ink: 'black', stroke: '#6b5300'},
+  F: {fill: '#2b8a3e', ink: 'white'},
+  G: {fill: '#4cc9f0', ink: 'black'},
+  A: {fill: '#1d3fbb', ink: 'white'},
+  B: {fill: '#7b2cbf', ink: 'white'}
+};
+const noteColorsShown = () => $('note-colors')?.value === 'classroom';
 // Fingering under the score: guitar tab (abcjs) for Guitar, hole diagrams for Recorder; display only.
 const FINGERING = {
   Guitar: {kind: 'guitar', label: 'Guitar tab'},
   Recorder: {kind: 'recorder', label: 'Recorder fingering'}
 };
 const fingeringShown = () => ($('fingering')?.checked !== false && FINGERING[currentInstrument()]?.kind) || null;
+// Zoom and measures per line, display only. Zoom narrows the staff width abcjs lays out and `responsive: 'resize'`
+// stretches the SVG back to the panel width, so the notes grow while abcjs keeps its default scale (drag, draw and
+// STAFF_STEP assume it). A chosen number of measures per line, or zooming in on Auto, lets abcjs re-flow the lines.
+const ZOOM_LEVELS = [70, 85, 100, 120, 140, 170, 200],
+  MEASURES_PER_LINE = [2, 3, 4, 6],
+  BASE_STAFF_WIDTH = 740;
+let zoomPercent = 100;
+const validZoom = z => (ZOOM_LEVELS.includes(+z) ? +z : 100),
+  validMeasuresPerLine = n => (MEASURES_PER_LINE.includes(+n) ? +n : 0),
+  measuresPerLine = () => validMeasuresPerLine($('measures-per-line')?.value);
+// Text set across the page (title, subtitles, composer, rhythm, parts, tempo, words and notes under the music) keeps
+// its 100% size when zoomed in, so a long title or composer credit still fits the narrower staff width. Sizes are
+// the abcjs defaults in points; a font directive in the ABC itself still wins.
+const PAGE_FONTS = {
+  titlefont: [20],
+  subtitlefont: [16],
+  composerfont: [14, 'italic'],
+  infofont: [14, 'italic'],
+  partsfont: [15],
+  tempofont: [15, 'bold'],
+  historyfont: [16],
+  wordsfont: [16],
+  textfont: [16]
+};
+const pageFonts = scale =>
+  Object.fromEntries(
+    Object.entries(PAGE_FONTS).map(([name, [size, style = '']]) => [
+      name,
+      `"Times New Roman" ${+(size * scale).toFixed(2)} ${style}`.trim()
+    ])
+  );
+function layoutOptions(zoom = zoomPercent, perLine = measuresPerLine()) {
+  const spacing = {minSpacing: 1.8, maxSpacing: 2.7};
+  zoom = validZoom(zoom);
+  return {
+    staffwidth: Math.round(BASE_STAFF_WIDTH / (zoom / 100)),
+    ...(perLine ? {wrap: {...spacing, preferredMeasuresPerLine: perLine}} : zoom > 100 ? {wrap: spacing} : {}),
+    ...(zoom > 100 ? {format: pageFonts(100 / zoom)} : {})
+  };
+}
+// The end buttons stay focusable at the limits (aria-disabled), so a keyboard user pressing + again keeps focus.
+function showZoom(z) {
+  zoomPercent = validZoom(z);
+  const i = ZOOM_LEVELS.indexOf(zoomPercent);
+  $('zoom-out')?.setAttribute('aria-disabled', String(i === 0));
+  $('zoom-in')?.setAttribute('aria-disabled', String(i === ZOOM_LEVELS.length - 1));
+  if ($('zoom-reset')) {
+    $('zoom-reset').textContent = zoomPercent + '%';
+    $('zoom-reset').setAttribute('aria-label', `Zoom ${zoomPercent}%. Reset to 100%`);
+  }
+}
+// step -1 or +1 moves one zoom level; 0 goes back to 100%. The choice is remembered and the score redrawn. The zoom
+// buttons keep their names, so the status line announces the new size, and says so when a limit is reached.
+function stepZoom(step) {
+  const i = ZOOM_LEVELS.indexOf(zoomPercent),
+    next = step ? ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, i + step))] : 100,
+    limit =
+      step && next === zoomPercent ? (step > 0 ? ' This is the largest size.' : ' This is the smallest size.') : '';
+  if (next !== zoomPercent) {
+    showZoom(next);
+    storage.set(KEYS.zoom, zoomPercent);
+    render();
+  }
+  $('selection-status').textContent = `Zoom ${zoomPercent}%.${limit}`;
+}
 function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
   if (renderedSource !== $('abc').value) {
     clearTimeout(renderTimer);
@@ -73,11 +201,17 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
   }
   const entry = noteSources.get(element.startChar);
   if (!entry) return;
+  // A note picked on the score takes chord pitches from now on, not the note entered last.
+  lastEntry = null;
   const area = $('abc'),
     start = entry.element.startChar,
     end = entry.element.endChar;
   if (start == null || end == null) return;
-  const anchor = selectedNote()?.entry.measure;
+  // Shift+click extends the selection from its anchor, the note where it started.
+  const before = selectedNotes(),
+    anchorEntry = selectionAnchor === 'last' ? before.at(-1) : before[0],
+    anchor = anchorEntry?.measure;
+  selectionAnchor = null;
   let nextEnd = end;
   // Bundled abcjs 6.5.2 reports SVG Y steps: negative is upward.
   if (drag?.step && entry.element.pitches?.length) {
@@ -90,27 +224,102 @@ function scoreClick(element, tuneNumber, classes, analysis, drag, event) {
     $('save-status').textContent = 'Unsaved changes';
     clearTimeout(renderTimer);
     selectedRange = [start, nextEnd];
+    auditionEdit(start);
     render();
   }
   selectedRange = [start, nextEnd];
   area.setSelectionRange(start, nextEnd);
   focusScore();
-  // A plain click only selects, so editing never moves the practice range. Shift+click sets the range from the
-  // selected note's measure to the clicked one (from the clicked measure to the end when nothing was selected).
+  if (typeof showPianoSelection === 'function') showPianoSelection();
+  // A plain click only selects, so editing never moves the practice range. Shift+click selects the notes from the
+  // anchor to the clicked one and sets the range from the anchor's measure to the clicked one (from the clicked
+  // measure to the end when nothing was selected).
   if (event?.shiftKey && !drag?.step) {
     const from = anchor ?? entry.measure,
-      to = anchor == null ? +$('end-measure').max : entry.measure;
+      to = anchor == null ? +$('end-measure').max : entry.measure,
+      run = anchorEntry && entry.element.el_type === 'note' ? selectNotesBetween(anchorEntry, entry) : [];
     setRange(from, to);
+    if (run.length > 1) $('selection-status').textContent += ` ${run.length} notes selected.`;
+    refreshPalette();
     return;
   }
-  $('selection-status').textContent =
-    `Measure ${entry.measure} selected · type A–G to add notes after it, ↑↓ to change pitch · Shift+click another note to practice from here to there`;
+  // A note is named for screen readers (its length, pitch, measure and beat). A pointer click adds what to do next;
+  // the arrow keys and code select quietly, so moving along the score reads one note at a time.
+  // Letters write over a rest (fillsRest), and ↑↓ only move a pitched note; with a bar line selected, letters go to
+  // the end of the music (selectedNote has no note there).
+  const named = noteDescription(entry),
+    next =
+      entry.element.el_type !== 'note'
+        ? 'type A–G to add notes at the end of the music'
+        : entry.element.pitches?.length
+          ? 'type A–G to add notes after it, ↑↓ to change pitch'
+          : entry.element.rest?.type === 'multimeasure'
+            ? 'type A–G to add notes after it'
+            : 'type A–G to write a note over it';
+  $('selection-status').textContent = event
+    ? `${named || `Measure ${entry.measure} selected`} · ${next} · Shift+click another note to practice from here to there`
+    : named
+      ? named + '.'
+      : `Measure ${entry.measure} selected.`;
+  // A pointer click sounds the note (Hear notes); a drag sounded it before the render. Calls from code pass no
+  // event, so the note menu stays quiet.
+  if (event && !drag?.step) auditionAt(start);
+  refreshPalette();
+}
+// A note, chord or rest of the source as the staff shows it, in words (describeNote): its length, written pitch,
+// measure and beat. The engraved score is read once per render for its spelling and beats. '' for a bar line. A short
+// first bar the score opened with stays a pickup as it is edited (openedPickups, read once from the opened text); one
+// shortened by an edit is a pickup only when a short closing bar makes up the rest (noteBeats).
+let writtenFacts = null,
+  openedPickups = null;
+function noteDescription(entry) {
+  const display = entry?.element.el_type === 'note' && displayOf(entry);
+  if (!display || renderedWritten == null) return '';
+  openedPickups ??= openingPickups(ABCJS.parseOnly(openedABC)[0]);
+  if (writtenFacts?.source !== renderedWritten || writtenFacts.opened !== openedPickups) {
+    const tune = ABCJS.parseOnly(renderedWritten)[0];
+    writtenFacts = {
+      source: renderedWritten,
+      opened: openedPickups,
+      names: new Map(noteLabels(tune, 'letters').map(l => [l.at, l.names])),
+      beats: noteBeats(tune, openedPickups)
+    };
+  }
+  const at = display.startChar;
+  return (
+    describeNote(display, entry.measure, writtenFacts.beats.get(at), writtenFacts.names.get(at)) +
+    (typeof feedbackSaid === 'function' ? feedbackSaid(entry) : '')
+  );
+}
+// After an edit the status line names the note it changed, or the selected note, so a screen reader hears the
+// result of every key; an edit with its own message ("Dotted.") sets that afterwards instead. A range selection is
+// left to its own messages. An edit that leaves nothing selected (a bar line added after a note) says so, so the
+// status line never names a note that is no longer selected.
+const NOTHING_SELECTED = 'Nothing selected. Letters add notes at the end.';
+function announceNote(at) {
+  if (selectionAnchor) return;
+  const sel = selectedNote(),
+    entry = at == null ? sel?.entry : scoreNotes().find(n => n.element.startChar <= at && at < n.element.endChar),
+    named = noteDescription(entry);
+  $('selection-status').textContent = named
+    ? named + '.'
+    : sel
+      ? `Measure ${sel.entry.measure} selected.`
+      : NOTHING_SELECTED;
+}
+// The notation palette (palette.js) shows the selection's state; it is optional, so editing works without it.
+function refreshPalette() {
+  if (typeof updatePalette === 'function') updatePalette();
+  if (typeof updateTeacherTools === 'function') updateTeacherTools();
 }
 function updateMeasures() {
   measureStarts = new Map();
+  // The sound's tempo (see settleTempo), so the highlight, ranges, metronome and count-in keep time with it. Each
+  // measure starts where it is first heard, through jumps and fermatas (updateRoadMap, in playback.js).
+  if (renderedTune?.engraver) settleTempo(renderedTune).setTiming();
+  if (typeof updateRoadMap === 'function') updateRoadMap();
   if (renderedTune?.engraver) {
-    renderedTune.setTiming();
-    for (const event of renderedTune.noteTimings || []) {
+    for (const event of typeof playEvents === 'function' ? playEvents() : renderedTune.noteTimings || []) {
       if (event.type !== 'event') continue;
       const entries = (event.startCharArray || []).map(c => noteSources.get(c)).filter(Boolean);
       for (const entry of entries)
@@ -144,38 +353,67 @@ function render() {
   try {
     const source = writtenABC();
     renderedSource = $('abc').value;
+    renderedWritten = source;
     const original = ABCJS.parseOnly(renderedSource)[0];
     const display = ABCJS.parseOnly(source)[0];
     noteSources = sourceMap(original, display);
     renderedTune = ABCJS.renderAbc('notation', source, engraveOptions())[0];
+    // abcjs makes every note and bar line a tab stop; the score is one (#notation), and the arrow keys move inside it.
+    for (const g of $('notation').querySelectorAll('svg [selectable="true"][tabindex]'))
+      g.setAttribute('tabindex', '-1');
     if (scoreFocused) focusScore();
     updateFingering(source);
+    updateNoteColors();
     indexDisplay(display);
+    updateTrillLines();
     updateMeasures();
     updateBarCheck(original);
+    checkLyricLines(original);
     updatePromptCheck(display);
+    if (typeof updateAssignmentBuilder === 'function') updateAssignmentBuilder();
+    if (typeof updateTurnIn === 'function') updateTurnIn();
+    if (typeof updateTakes === 'function') updateTakes();
+    if (typeof updateCheckMarks === 'function') updateCheckMarks();
+    if (typeof updateFeedbackMarks === 'function') updateFeedbackMarks();
     restoreSelection(display);
+    if (typeof updatePiano === 'function') updatePiano(display);
     $('warnings').textContent = (renderedTune?.warnings || []).map(x => String(x).replace(/<[^>]+>/g, '')).join(' · ');
     updateCaption();
     updateSourceEdition();
     updateRights();
+    refreshTranspose();
+    if (typeof updateMixer === 'function') updateMixer(original);
   } catch (e) {
     $('warnings').textContent = 'Could not render this score: ' + e.message;
   }
+  scheduleDraft();
+  refreshPalette();
 }
-// abcjs options for the main score. Guitar adds a tab staff; recorder leaves room below for the fingering diagrams.
+// abcjs 6.5.2 loses the tablature when it re-parses a re-flowed score, so the re-parsed tune gets it back here. The
+// tablature setup depends only on these options, so a bare tune is parsed for it instead of the whole score again.
+const GUITAR_TAB = [{instrument: 'guitar', label: 'Guitar'}];
+function keepTablature(tune) {
+  if (!tune.tablatures) tune.tablatures = ABCJS.parseOnly('X:1\nK:C\n', {tablature: GUITAR_TAB})[0]?.tablatures;
+}
+// abcjs options for the main score: zoom and line layout from the view controls. Guitar adds a tab staff; recorder
+// leaves room below for the fingering diagrams.
 function engraveOptions() {
   const fingering = fingeringShown();
   return {
     responsive: 'resize',
-    staffwidth: 740,
+    ...layoutOptions(),
     add_classes: true,
-    dragging: true,
-    selectTypes: ['note', 'bar'],
-    selectionColor: '#317761',
-    dragColor: '#ba663d',
-    clickListener: scoreClick,
-    ...(fingering === 'guitar' ? {tablature: [{instrument: 'guitar', label: 'Guitar'}], paddingbottom: 40} : {}),
+    // An embedded score is read-only: nothing on it can be selected or dragged.
+    ...(embedView
+      ? {selectTypes: false}
+      : {
+          dragging: true,
+          selectTypes: ['note', 'bar'],
+          selectionColor: '#317761',
+          dragColor: '#ba663d',
+          clickListener: scoreClick
+        }),
+    ...(fingering === 'guitar' ? {tablature: GUITAR_TAB, paddingbottom: 40, afterParsing: keepTablature} : {}),
     ...(fingering === 'recorder' ? {paddingbottom: 120} : {})
   };
 }
@@ -185,26 +423,65 @@ function indexDisplay(display) {
     lengths = effectiveDurations(shown);
   noteDurations = new Map(shown.map(e => [e.element.startChar, lengths.get(e.element) || 0]));
   shownElements = new Map(shown.map(e => [e.element.startChar, e.element]));
-  staffClefs = display.lines.filter(l => l.staff).map(l => l.staff.map(st => st.clef?.verticalPos || 0));
+  // Clefs per drawn line. abcjs re-parses a re-flowed score, so its lines (not the display's) match the staff groups.
+  // Guitar tablature adds a TAB staff to the line; it is left out, so these are the notation staves only.
+  staffClefs = (renderedTune?.lines || display.lines)
+    .filter(l => l.staff)
+    .map(l => l.staff.filter(st => st.clef?.type !== 'TAB').map(st => st.clef?.verticalPos || 0));
 }
 // Keep the selected note highlighted across a re-render.
 function restoreSelection(display) {
   if (!selectedRange || !renderedTune?.engraver) return;
-  const match = [...noteSources.entries()].find(([, e]) => e?.element.startChar === selectedRange[0]);
+  if (selectionAnchor) {
+    const run = selectedNotes();
+    if (run.length > 1) {
+      selectedRange = [run[0].element.startChar, run.at(-1).element.endChar];
+      highlightRun(run);
+      return;
+    }
+    selectionAnchor = null;
+    if (run.length) selectedRange = [run[0].element.startChar, run[0].element.endChar];
+  }
+  const sources = [...noteSources.entries()],
+    [from, to] = selectedRange;
+  let match = sources.find(([, e]) => e?.element.startChar === from);
+  // abcjs starts a note after a mark that follows a slur or tuplet opening (at the dot of (3.C), so adding or removing
+  // such a mark moves where the edited note starts; the selection follows the note it covers.
+  if (!match) {
+    match = sources.find(([, e]) => e && e.element.startChar < Math.max(to, from + 1) && e.element.endChar > from);
+    if (match) selectedRange = [match[1].element.startChar, match[1].element.endChar];
+  }
   if (!match) return;
   const shown = scoreEvents(display).find(e => e.element.startChar === match[0]);
   if (shown) renderedTune.engraver.rangeHighlight(shown.element.startChar, shown.element.endChar);
 }
+// The caption names the instrument, its clef or staves, and what is shown against what plays: written pitch and the
+// interval it sounds below, a bass-range octave, or an octave transposition such as a double bass or glockenspiel.
+// A transposing instrument that also plays in another octave (baritone sax) does not sound at the source's pitch, so
+// its caption gives the source's distance from the sound instead of calling it concert pitch.
 function updateCaption() {
   $('workspace-heading').textContent = field('T', 'Untitled melody');
-  const config = instruments[currentInstrument()];
-  const pitch =
-    config.shift === 2 || config.shift === 9
-      ? 'Written pitch shown; ABC source and MIDI are concert pitch.'
+  const config = instruments[currentInstrument()],
+    staves = staffClefs[0]?.length || 1,
+    sound = instrumentSound(config),
+    written = writtenAboveSound(config),
+    sounds = written ? ` It sounds ${intervalPhrase(written)} ${written > 0 ? 'lower' : 'higher'} than written.` : '',
+    source = sound ? `${intervalPhrase(sound)} ${sound < 0 ? 'above' : 'below'} how it sounds` : '';
+  const pitch = concertView()
+    ? `${sound ? `ABC source shown, ${source}` : 'Concert pitch shown, as it sounds'}; turn off Concert pitch for the written part.`
+    : transposesInstrument()
+      ? `Written pitch shown; it sounds ${intervalPhrase(written)} lower. ABC source and MIDI are ${source || 'concert pitch'}.`
       : config.shift === -12
-        ? 'Melody lowered one octave for bass range.'
-        : 'Concert pitch melody part.';
-  $('score-caption').textContent = `${currentInstrument()} · ${config.clef} clef · ${pitch}`;
+        ? `${staves > 1 ? 'Parts' : 'Melody'} lowered one octave for bass range.${sounds}`
+        : written
+          ? `${staves > 1 ? 'Parts' : 'Melody part'}.${sounds}`
+          : staves > 1
+            ? 'Concert pitch.'
+            : 'Concert pitch melody part.';
+  // A score with several staves (a template or V: voices) has their own clefs, so it counts them instead.
+  $('score-caption').textContent =
+    `${currentInstrument()} · ${staves > 1 ? `${staves} staves` : `${config.clef} clef`} · ${pitch}`;
+  if ($('concert-pitch-option')) $('concert-pitch-option').hidden = !transposesInstrument();
 }
 // Links to the complete source edition behind a library practice part.
 function updateSourceEdition() {
@@ -220,8 +497,16 @@ function updateSourceEdition() {
 function updateRights() {
   const r = current?.rights;
   if (r) {
+    // Prints and embeds of changed notation say so, as the licenses ask and every exported file does; an edition
+    // this app cannot find (an imported file) may have been changed too. The last line is a hint for the screen only.
+    // Feedback marks (marks.js) are notes to a student, not notation, so marks alone do not count as an edit.
+    const edition = catalog.find(x => x.id === shareSourceId()),
+      edited = !edition || unmarkedSource($('abc').value) !== edition.abc;
     $('rights').innerHTML =
-      `<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${nonCommercial(current) ? `<em>${esc(nonCommercialNote(current))}</em><br>` : ''}${current.attribution ? `Credit: ${esc(current.attribution)}<br>` : ''}${current.licenseURL ? `<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>` : ''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br><span class="small">${dirty ? 'Your edits stay private. Export or save a copy to preserve them.' : 'Use, print, practice, and adapt this teaching version.'}</span>`;
+      `<strong>${esc(licenseLabel(current))} · ${esc(scoreCollection(current))}</strong>${esc(r)}<br>${nonCommercial(current) ? `<em>${esc(nonCommercialNote(current))}</em><br>` : ''}${current.attribution ? `Credit: ${esc(current.attribution)}<br>` : ''}${current.licenseURL ? `<a href="${esc(current.licenseURL)}" target="_blank" rel="noopener">License terms ↗</a><br>` : ''}<a href="${esc(current.source)}" target="_blank" rel="noopener">${esc(current.sourceLabel)} ↗</a><br>${edited ? '<span class="rights-edited">Notation edited in FretFree from this edition; the changes are not the original editor’s.</span><br>' : ''}<span class="small rights-hint">${dirty ? 'Your edits stay private. Export or save a copy to preserve them.' : 'Use, print, practice, and adapt this teaching version.'}</span>`;
+  } else if (current?.kind === 'shared' && embedView) {
+    $('rights').innerHTML =
+      '<strong>Shared from FretFree</strong>The music is inside this page’s link; nothing was uploaded. Open it in FretFree to practice, edit or save a copy.';
   } else if (current?.kind === 'shared') {
     $('rights').innerHTML =
       '<strong>Shared score</strong>Opened from a link. The music arrived inside the link itself; nothing was uploaded or stored elsewhere. Save it to My scores to keep a copy on this device.';
@@ -233,10 +518,13 @@ function updateRights() {
 function changed() {
   stop();
   selectedRange = null;
+  selectionAnchor = null;
   dirty = true;
   $('save-status').textContent = 'Unsaved changes';
   clearTimeout(renderTimer);
   renderTimer = setTimeout(render, 220);
+  // Started here as well as after render(), so a tab hidden or closed before the render still writes the draft.
+  scheduleDraft();
 }
 function noteLength() {
   const match = field('L', '1/8').match(/^(\d+)\/(\d+)$/);
@@ -258,6 +546,7 @@ function insertToken(token) {
   const musicStart = keyLine.index + keyLine[0].length;
   if (start < musicStart) {
     toast('Place the cursor after the K: line to add notes.');
+    if (typeof revealFold === 'function') revealFold(area);
     area.focus();
     area.setSelectionRange(area.value.length, area.value.length);
     return;
@@ -275,6 +564,10 @@ function insertToken(token) {
   area.focus();
   changed();
   clearTimeout(renderTimer);
+  // A letter after a ♯ ♭ ♮ button starts its note at the accidental.
+  let at = start;
+  while (at > 0 && /[\^_=]/.test(area.value[at - 1])) at--;
+  if (/^[A-G]$/.test(token)) auditionEdit(at);
   render();
 }
 function safeName() {
@@ -294,12 +587,14 @@ function download(data, name, type) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 // Undo/redo for every change to the ABC source. Programmatic edits (drag, draw, menu, bar fixes, buttons) are one step
-// each; a burst of typing is one step. Undoing back to the opened text clears the unsaved-changes state.
+// each; a burst of typing is one step. Undoing back to the opened text clears the unsaved-changes state. openedABC is
+// that text, kept for its pickups (noteDescription).
 let editHistory = [],
   historyIndex = 0,
   typingEdit = false,
   lastTypingAt = 0,
-  cleanKey = '';
+  cleanKey = '',
+  openedABC = '';
 const HISTORY_LIMIT = 200;
 // A history state is the ABC text plus the instrument, which is saved with the score.
 function snapshot() {
@@ -314,6 +609,8 @@ function markClean() {
 function resetHistory() {
   editHistory = [snapshot()];
   historyIndex = 0;
+  openedABC = editHistory[0].abc;
+  openedPickups = null;
   markClean();
   typingEdit = false;
   lastTypingAt = 0;
@@ -366,8 +663,16 @@ function flushTyping() {
 function updateHistoryButtons() {
   const u = $('undo'),
     r = $('redo');
+  // A focused button that becomes disabled would drop the keyboard to the page, so it moves to the other history
+  // button when that one works, or to the score.
+  const focused = [u, r].find(b => b && b === document.activeElement);
   if (u) u.disabled = historyIndex <= 0;
   if (r) r.disabled = historyIndex >= editHistory.length - 1;
+  if (focused?.disabled) {
+    const other = focused === u ? r : u;
+    if (other && !other.disabled) other.focus();
+    else focusScore();
+  }
 }
 function stepHistory(delta) {
   clearTimeout(renderTimer);
@@ -386,6 +691,7 @@ function stepHistory(delta) {
   dirty = stateKey(state) !== cleanKey;
   $('save-status').textContent = dirty ? 'Unsaved changes' : '';
   selectedRange = null;
+  selectionAnchor = null;
   syncFields();
   render();
   updateHistoryButtons();
@@ -425,6 +731,7 @@ function shadeMeasures(cls, include, perMeasure = false) {
 function shadeRange() {
   const {from, to, total} = measureRange();
   shadeMeasures('range-shade', m => !(from === 1 && to === total) && m >= from && m <= to);
+  if (typeof updateFoldMarks === 'function') updateFoldMarks();
 }
 // Bar check: flag measures with too many or too few beats, in plain words, with a one-click fix where one is safe.
 // Library editions keep their historic irregular bars, so only bars that differ from the opened edition are flagged.
@@ -483,7 +790,7 @@ function newBarProblems(problems) {
 }
 function updateBarCheck(tune) {
   const problems = barProblems(tune),
-    fromLibrary = catalog.includes(current),
+    fromLibrary = !!libraryEntry(),
     voices = new Set(barLengths(tune).map(m => m.voice)).size;
   if (!dirty) barBaseline = fromLibrary ? problems.map(m => ({key: barKey(m), measure: m.measure})) : [];
   barIssues = newBarProblems(problems);
@@ -625,11 +932,13 @@ function scorePoint(e) {
   const svg = $('notation').querySelector('svg');
   return svg && new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
 }
+// The drawn notation staves with their clefs. A tab staff sits under the staff it belongs to, so the notation staves
+// are counted without it to find their clefs.
 function staffList() {
   return (renderedTune?.engraver?.staffgroups || []).flatMap((g, gi) =>
     g.staffs
-      .map((st, si) => (st.isTabStaff ? null : {id: gi + ':' + si, y: st.absoluteY, clef: staffClefs[gi]?.[si] ?? 0}))
-      .filter(Boolean)
+      .filter(st => !st.isTabStaff)
+      .map((st, si) => ({id: gi + ':' + si, y: st.absoluteY, clef: staffClefs[gi]?.[si] ?? 0}))
   );
 }
 const nearestStaff = (staffs, y) =>
@@ -687,18 +996,66 @@ function showGhost(t) {
   $('selection-status').textContent =
     `Draw: click to add ${pitchName(t.written)} (${lengthName(beatLength()) || 'one-beat'} note) · right-click a note to change it`;
 }
-function applyNoteEdit(start, end, text, select = text ? [start, start + text.length] : null) {
+// Pass hear (a source position in the new text) to sound that note (Hear notes).
+// With keep, notes after the edit keep their pitch: an accidental it writes would otherwise carry to them.
+// With anchor ('first' or 'last'), select spans several notes and stays a range selection anchored at that end.
+function applyNoteEdit(
+  start,
+  end,
+  text,
+  select = text ? [start, start + text.length] : null,
+  hear = null,
+  keep = false,
+  anchor = null
+) {
   flushTyping();
   const area = $('abc');
+  if (keep)
+    try {
+      ({end, text, select} = keepLaterPitches(area.value, start, end, text, select));
+    } catch {}
+  // An edit that leaves the text as it was (a dot on a multi-measure rest) keeps the score saved.
+  if (area.value.slice(start, end) !== text) {
+    dirty = true;
+    $('save-status').textContent = 'Unsaved changes';
+  }
   area.setRangeText(text, start, end, 'end');
-  dirty = true;
-  $('save-status').textContent = 'Unsaved changes';
   clearTimeout(renderTimer);
   syncFields();
   selectedRange = select;
+  selectionAnchor = select && anchor;
+  if (hear != null) auditionEdit(hear);
   render();
   if (selectedRange) area.setSelectionRange(...selectedRange);
   focusScore();
+  announceNote(hear);
+}
+// Note audition: the concert pitches of the note or chord that starts at a source position, as playback sounds them
+// (octave clefs and transpose= included), keyed by startChar and cached per source text. scheduleNotes then adds the
+// instrument's octave (a cello sounds an octave below the source).
+let concertPitches = {source: null, at: new Map()};
+function concertPitchesAt(at) {
+  const source = $('abc').value;
+  if (concertPitches.source !== source)
+    concertPitches = {
+      source,
+      at: new Map(noteLabels(ABCJS.parseOnly(source)[0], 'letters').map(l => [l.at, l.midis]))
+    };
+  // abcjs can start an element at the whitespace before it (after a bar line, for one).
+  while (!concertPitches.at.has(at) && at > 0 && /\s/.test(source[at - 1])) at--;
+  return concertPitches.at.get(at) || [];
+}
+function auditionAt(at) {
+  if (playing || $('audition')?.checked === false) return;
+  try {
+    auditionPitches(concertPitchesAt(at));
+  } catch {}
+}
+// After an edit, sound the note before the render: engraving a long score can take a second or more, and the audio
+// clock plays a scheduled note on time while the page is busy. The render stops playback anyway, so stop it first.
+function auditionEdit(at) {
+  stop();
+  auditionAt(at);
 }
 function drawNote(t) {
   if (renderedSource !== $('abc').value) {
@@ -707,8 +1064,9 @@ function drawNote(t) {
     toast('Score updated. Click again to add the note.');
     return;
   }
-  const config = instruments[currentInstrument()];
-  const token = pitchToken(t.written - Math.round((config.shift * 7) / 12)) + lengthText(beatLength() / unitLength());
+  // The staff shows written pitch (or concert pitch in Concert pitch view); the source takes the concert note, as many
+  // letters away as the key at that point.
+  const concert = at => pitchToken(t.written - writtenSteps($('abc').value, at, displayShift()));
   // Neighbours on the clicked staff, in reading order; the new note goes before the first one to the right of the click.
   const staffs = staffList(),
     items = [];
@@ -734,7 +1092,7 @@ function drawNote(t) {
     ),
     nearest = rests.reduce((best, i) => (!best || Math.abs(i.x - t.x) < Math.abs(best.x - t.x) ? i : best), null);
   if (nearest) {
-    fillRest(nearest.entry, pitchToken(t.written - Math.round((config.shift * 7) / 12)), beatLength());
+    fillRest(nearest.entry, concert(nearest.entry.element.startChar), beatLength());
     $('selection-status').textContent =
       `Added ${pitchName(t.written)} on the rest · right-click it to change accidental or length`;
     return;
@@ -742,25 +1100,29 @@ function drawNote(t) {
   const next = items.find(i => i.x > t.x),
     last = items.at(-1),
     value = $('abc').value;
-  let at, text;
+  let at,
+    lead = '',
+    trail = '';
   const tuneEnd = Math.max(...[...noteSources.values()].filter(Boolean).map(e => e.element.startChar));
   // Past the closing barline: add the note inside the tune, before that barline.
   if (!next && last?.entry.element.el_type === 'bar' && last.entry.element.startChar === tuneEnd) {
     at = last.entry.element.startChar;
-    text = token + ' ';
+    trail = ' ';
   } else if (next) {
     at = next.entry.element.startChar;
-    text = token + ' ';
+    trail = ' ';
   } else if (last) {
     at = last.entry.element.endChar;
-    text = ' ' + token;
+    lead = ' ';
   } else {
     at = value.length;
-    text = (value.endsWith('\n') ? '' : '\n') + token;
+    lead = value.endsWith('\n') ? '' : '\n';
   }
+  const token = concert(at) + lengthText(beatLength() / unitLength());
+  let text = lead + token + trail;
   if (at > 0 && !/\s/.test(value[at - 1]) && !text.startsWith(' ') && !text.startsWith('\n')) text = ' ' + text;
   const start = at + text.indexOf(token);
-  applyNoteEdit(at, at, text, [start, start + token.length]);
+  applyNoteEdit(at, at, text, [start, start + token.length], start);
   $('selection-status').textContent = `Added ${pitchName(t.written)} · right-click it to change accidental or length`;
 }
 function setDrawMode(on) {
@@ -799,6 +1161,7 @@ $('notation').addEventListener('mouseleave', () => showGhost(null));
 // Add blank bars (whole-bar rests in the meter in force there) before the closing barline, or at the end.
 function addBars(count = 4) {
   flushTyping();
+  if (addVoiceBars(count)) return;
   const value = $('abc').value,
     close = value.lastIndexOf('|]'),
     at = close >= 0 ? close : value.length,
@@ -820,34 +1183,145 @@ function addBars(count = 4) {
   applyNoteEdit(at, at, text, [first, first + rest.length]);
   $('selection-status').textContent = `Added ${count} blank bars at the end.`;
 }
+// With several voices, every voice gets the bars in one edit: before its closing |], or after its last note or bar
+// line, each sized by that voice's meter. An & overlay is a voice of its own in abcjs, but it is written inside its
+// staff's voice and shares that voice's bar lines, so it goes with that voice and gets no bars of its own. Returns
+// false for a score with one voice (and any overlays), which addBars handles as before.
+function addVoiceBars(count) {
+  const value = $('abc').value;
+  let tune;
+  try {
+    tune = ABCJS.parseOnly(value)[0];
+  } catch {
+    return false;
+  }
+  const events = scoreEvents(tune),
+    owner = new Map(),
+    barVoice = new Map(),
+    last = new Map(),
+    meters = new Map();
+  // An overlay meets the bar lines of the voice it is written in. One with no bar line of its own follows an &, so
+  // it goes with the voice of the nearest earlier note on its staff.
+  const staffOf = e => voiceOf(e).split(':')[0];
+  for (const e of events.filter(x => x.element.el_type === 'bar')) {
+    const at = staffOf(e) + '@' + e.element.startChar,
+      first = barVoice.get(at);
+    if (!first) barVoice.set(at, voiceOf(e));
+    else if (first !== voiceOf(e) && !owner.has(voiceOf(e))) owner.set(voiceOf(e), first);
+  }
+  for (const e of events) {
+    const voice = voiceOf(e),
+      at = e.element.startChar;
+    if (owner.has(voice) || !/&\s*$/.test(value.slice(Math.max(0, at - 40), at))) continue;
+    const before = events
+      .filter(x => staffOf(x) === staffOf(e) && voiceOf(x) !== voice && x.element.startChar < at)
+      .reduce((a, x) => (!a || x.element.startChar > a.element.startChar ? x : a), null);
+    if (before) owner.set(voice, owner.get(voiceOf(before)) ?? voiceOf(before));
+  }
+  // Each voice's last element in the source, its overlays included; a bar line wins over a rest at the same place.
+  for (const e of events) {
+    const voice = owner.get(voiceOf(e)) ?? voiceOf(e),
+      prev = last.get(voice),
+      el = e.element;
+    if (!prev || el.startChar > prev.startChar || (el.startChar === prev.startChar && el.el_type === 'bar'))
+      last.set(voice, el);
+  }
+  for (const m of barLengths(tune)) meters.set(m.voice, m.meter);
+  if (last.size < 2) return false;
+  const inserts = [...last].map(([voice, e]) => {
+    const closing = e.el_type === 'bar' && /^\s*\|\]\s*$/.test(value.slice(e.startChar, e.endChar)),
+      at = closing ? value.indexOf('|]', e.startChar) : e.endChar,
+      meter = meters.get(voice),
+      [num, den] = meterPartsAt(at),
+      rest = 'z' + lengthText((meter?.length || num / den) / unitLengthAt(at)),
+      bars = Array(count).fill(rest).join(' | ');
+    const text = closing
+      ? (/\|\s*$/.test(value.slice(0, at)) ? '' : '| ') + bars + ' '
+      : (e.el_type === 'bar' ? ' ' : ' | ') + bars + ' |]';
+    return {voice, at, text, rest};
+  });
+  inserts.sort((a, b) => a.at - b.at);
+  const start = inserts[0].at,
+    end = inserts.at(-1).at;
+  let text = '',
+    pos = start,
+    select = null;
+  for (const x of inserts) {
+    text += value.slice(pos, x.at);
+    const first = start + text.length + x.text.indexOf(x.rest);
+    if (!select || x.voice === '0:0') select = [first, first + x.rest.length];
+    text += x.text;
+    pos = x.at;
+  }
+  applyNoteEdit(start, end, text, select);
+  $('selection-status').textContent = `Added ${count} blank bars at the end of every staff.`;
+  return true;
+}
 $('add-bars').onclick = () => addBars(4);
 // Note properties menu. Lengths come from the parsed (effective) duration, so chords and broken rhythm read correctly.
 const DOTTABLE = [1, 0.5, 0.25, 0.125, 0.0625, 0.03125];
+// When the menu had the keyboard (Esc, Ctrl+Z, Tab out), it goes back to the score rather than to the page.
 function closeNoteMenu() {
+  const had = $('note-menu').contains(document.activeElement);
   $('note-menu').hidden = true;
   menuEntry = null;
+  if (had) focusScore();
 }
+// The transposition the score is drawn at: 0 for concert-pitch instruments and in Concert pitch view.
 const transposing = () => {
-  const shift = instruments[currentInstrument()].shift;
+  const shift = displayShift();
   return shift % 12 !== 0 ? shift : 0;
 };
 // Accidentals are what the player sees, so read and edit them in written pitch, then transpose back to the concert source.
-function writtenNote(display) {
-  const w = writtenABC();
+function writtenNote(display, w = writtenABC()) {
   return {
     text: w.slice(display.startChar, display.endChar).replace(noteNamesMode() === 'off' ? /^$/ : /^"_[^"]*"/, ''),
-    key: (w.match(/^K:(.*)$/m) || [, 'C'])[1].replace(/\s+clef=\S+/g, '').trim()
+    key: keyAt(w, display.startChar)
   };
 }
-function accidentalEdit(entry, display, acc) {
+// For an accidental on many notes (a range selection): the written score and the letters each key moved are worked
+// out once, not once per note, and each different written note goes back to concert pitch once.
+function writtenBatch() {
+  const source = $('abc').value,
+    shift = transposing(),
+    fields = keyFields(source).map(f => f.start),
+    steps = new Map();
+  return {
+    written: shift ? writtenABC() : null,
+    // The letters depend only on which key is in force, so on how many K: fields come before the note.
+    steps: at => {
+      const n = fields.filter(start => start < at).length;
+      if (!steps.has(n)) steps.set(n, writtenSteps(source, at, shift));
+      return steps.get(n);
+    },
+    notes: new Map()
+  };
+}
+function accidentalEdit(entry, display, acc, batch = null) {
   const old = $('abc').value.slice(entry.element.startChar, entry.element.endChar),
     shift = transposing();
   if (!shift) return editNoteText(old, {accidental: acc});
-  const {text, key} = writtenNote(display),
-    mini = `X:1\nL:1/8\nK:${key}\n${editNoteText(text, {accidental: acc})}\n`;
-  const lines = ABCJS.strTranspose(mini, ABCJS.parseOnly(mini), -shift).split('\n'),
-    note = lines[lines.findIndex(l => l.startsWith('K:')) + 1];
-  return note == null ? old : note;
+  const {text, key} = writtenNote(display, batch?.written),
+    steps = batch ? batch.steps(entry.element.startChar) : writtenSteps($('abc').value, entry.element.startChar, shift),
+    mini = `X:1\nL:1/8\nK:${key}\n${editNoteText(text, {accidental: acc})}\n`,
+    done = batch?.notes.get(steps + mini);
+  // Only the new pitch goes into the source note: the rest of the written text can differ from the source for display
+  // (a trill line's start is drawn as a plain trill), and that must not be written back.
+  const pitch = note => {
+    const m = old.match(NOTE_PARTS),
+      core = note?.match(NOTE_PARTS)?.[2];
+    return m && core ? m[1] + core + m[3] + m[4] : (note ?? old);
+  };
+  if (done !== undefined) return pitch(done);
+  // Back to concert pitch by the letters the written key moved, so a plain note means what the source's key says
+  // (a plain C in written Ab major is A# in concert F# major, not the Bb that abcjs's own Gb major would give).
+  let note = null;
+  try {
+    const lines = transposeABC(mini, -shift, -steps, 7).split('\n');
+    note = lines[lines.findIndex(l => l.startsWith('K:')) + 1] ?? null;
+  } catch {}
+  batch?.notes.set(steps + mini, note);
+  return pitch(note);
 }
 // A note joined to its neighbour by > or < (broken rhythm), as [first, second] source entries.
 function brokenPair(entry) {
@@ -861,14 +1335,78 @@ function brokenPair(entry) {
   if (i > 0 && marked(notes[i - 1])) return [notes[i - 1], entry];
   return null;
 }
+// The note menu's marks: the five articulations with keys (a rest offers only the fermata) and the dynamics.
+function markItemsHTML(entry) {
+  const marks = noteMarks($('abc').value.slice(entry.element.startChar, entry.element.endChar));
+  if (!marks || markBlocked('dyn:', entry.element)) return '';
+  const keyOf = name => Object.keys(MARK_KEYS).find(k => MARK_KEYS[k] === name),
+    item = (action, label, glyph, checked, key) =>
+      `<button role="menuitemcheckbox" aria-checked="${checked}" data-edit="${action}" aria-label="${label}" title="${label}${key ? ` (${key.replace('"', '&quot;')})` : ''}">${glyph}</button>`;
+  return (
+    `<div class="menu-label">MARKS</div><div class="menu-row menu-marks">` +
+    Object.values(MARK_KEYS)
+      .filter(name => !markBlocked('deco:' + name, entry.element))
+      .map(name => item('deco:' + name, MARK_WORDS[name], MARK_GLYPHS[name], marks.marks.includes(name), keyOf(name)))
+      .join('') +
+    `</div><div class="menu-row menu-marks">` +
+    DYNAMICS.map(d =>
+      item('dyn:' + d, `${d}, ${DYNAMIC_WORDS[d]}`, `<i class="dynamic">${d}</i>`, marks.dynamic === d)
+    ).join('') +
+    '</div>'
+  );
+}
+// The note menu's tuplet counts and grace note items. Multi-measure and invisible rests take neither, and other rests
+// take no grace note.
+function tupletItemsHTML(entry) {
+  const {rest} = entry.element;
+  if (rest?.type === 'multimeasure' || rest?.type === 'invisible') return '';
+  const p = tupletGroup(entry)?.p,
+    grace = graceOf($('abc').value.slice(entry.element.startChar, entry.element.endChar)),
+    item = (action, label, checked, extra = '') =>
+      `<button role="menuitemcheckbox" aria-checked="${!!checked}" data-edit="${action}"${extra}>${label}</button>`;
+  return (
+    `<div class="menu-label">TUPLET</div><div class="menu-row">` +
+    Object.keys(TUPLET_WORDS)
+      .map(n =>
+        item(
+          'tuplet:' + n,
+          n,
+          +n === p,
+          ` aria-label="${TUPLET_WORDS[n]} (${n})" title="${TUPLET_WORDS[n]}${n === '3' ? ' (T)' : ''}"${n === '3' ? ' aria-keyshortcuts="T"' : ''}`
+        )
+      )
+      .join('') +
+    '</div>' +
+    (rest && !grace
+      ? ''
+      : `<div class="menu-label">GRACE NOTE</div><div class="menu-row">${item('grace', 'Grace', grace)}${item('grace:slash', 'Slashed', grace?.slashed)}</div>` +
+        (grace
+          ? `<div class="menu-row"><button role="menuitem" data-edit="grace:up">Grace ↑</button><button role="menuitem" data-edit="grace:down">Grace ↓</button><button role="menuitem" data-edit="grace:remove">Remove grace</button></div>`
+          : ''))
+  );
+}
+// Delete in the note menu. Under Keep bars full, Delete changes a note to a rest and Remove takes it out.
+function deleteItemsHTML(isRest) {
+  const what = isRest ? 'rest' : 'note';
+  if (!keepBars())
+    return `<button role="menuitem" class="danger" aria-keyshortcuts="Delete" data-edit="delete">Delete ${what}</button>`;
+  return (
+    (isRest
+      ? ''
+      : '<button role="menuitem" aria-keyshortcuts="Delete" data-edit="delete">Delete note (leave a rest)</button>') +
+    `<button role="menuitem" class="danger" aria-keyshortcuts="Shift+Delete" data-edit="remove">Remove ${what}</button>`
+  );
+}
 function openNoteMenu(entry, display, x, y) {
-  menuEntry = {entry, display};
+  menuEntry = {entry, display, written: renderedWritten};
   const isRest = !entry.element.pitches?.length,
     text = transposing()
       ? writtenNote(display).text
       : $('abc').value.slice(entry.element.startChar, entry.element.endChar);
   const acc = (noteParts(text)?.core.match(/^\[?(\^{1,2}|_{1,2}|=)/) || [])[1] || '',
-    len = entry.element.duration || 0;
+    len = entry.element.duration || 0,
+    chord = shownChord({entry, display}),
+    lyric = shownLyric({entry, display});
   const durations = [
     [1, '𝅝 Whole'],
     [0.5, '𝅗𝅥 Half'],
@@ -883,19 +1421,25 @@ function openNoteMenu(entry, display, x, y) {
   $('note-menu').innerHTML =
     (isRest
       ? ''
-      : `<div class="menu-label">ACCIDENTAL</div><div class="menu-row">${item('acc:^', '♯ Sharp', acc === '^')}${item('acc:_', '♭ Flat', acc === '_')}${item('acc:=', '♮ Natural', acc === '=')}${item('acc:', 'None', !acc)}</div>`) +
+      : `<div class="menu-label">ACCIDENTAL</div><div class="menu-row">${item('acc:^', '♯ Sharp', acc === '^')}${item('acc:_', '♭ Flat', acc === '_')}${item('acc:=', '♮ Natural', acc === '=')}${item('acc:', 'None', !acc)}</div><button role="menuitem" aria-keyshortcuts="Z" data-edit="respell">♯♭ Respell (same pitch)</button>`) +
     `<div class="menu-label">LENGTH</div>${durations.map(([v, l]) => item('len:' + v, l, Math.abs(base - v) < 1e-9)).join('')}` +
     `<button role="menuitemcheckbox" aria-checked="${dotted}" data-edit="dot">· Dotted</button>` +
     (isRest
       ? ''
       : `<button role="menuitemcheckbox" aria-checked="${/^-/.test(noteParts($('abc').value.slice(entry.element.startChar, entry.element.endChar))?.post || '')}" data-edit="tie">⁀ Tie to next note</button>`) +
+    markItemsHTML(entry) +
+    tupletItemsHTML(entry) +
+    `<button role="menuitem" data-edit="chord" aria-keyshortcuts="K" title="Chord symbol (K)">Chord symbol${chord ? ': ' + esc(chord) : ''}…</button>` +
+    `<button role="menuitem" data-edit="lyric" aria-keyshortcuts="L" title="Lyrics (L)">Lyrics${lyric ? ': ' + esc(lyric) : ''}…</button>` +
+    (typeof feedbackMenuHTML === 'function' ? feedbackMenuHTML(entry) : '') +
     `<div class="menu-row"><button role="menuitem" data-edit="play-from">▶ Play from here</button><button role="menuitem" data-edit="range-from">🔁 Practice from here</button></div>` +
-    `<div class="menu-label">INSERT AFTER</div><div class="menu-row"><button role="menuitem" data-edit="rest-after">𝄽 Rest</button><button role="menuitem" data-edit="bar-after">| Bar line</button></div><hr><button role="menuitem" class="danger" data-edit="delete">Delete ${isRest ? 'rest' : 'note'}</button>`;
+    `<div class="menu-label">INSERT AFTER</div><div class="menu-row"><button role="menuitem" data-edit="rest-after">𝄽 Rest</button><button role="menuitem" data-edit="bar-after">| Bar line</button></div><hr>${deleteItemsHTML(isRest)}`;
   const menu = $('note-menu');
   menu.hidden = false;
   menu.style.left = Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8)) + 'px';
   menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + 'px';
   menu.querySelector('button')?.focus({preventScroll: true});
+  menu.dataset.scrollY = window.scrollY;
 }
 $('notation').addEventListener('contextmenu', e => {
   if (renderedSource !== $('abc').value) {
@@ -915,16 +1459,845 @@ $('notation').addEventListener('contextmenu', e => {
   const box = sel.svgEl.getBoundingClientRect();
   openNoteMenu(entry, display, e.clientX || box.right, e.clientY || box.bottom);
 });
-// One edit on one note, shared by the note menu and the keyboard. Actions: acc:<^|_|=|>, len:<whole>, dot, tie,
-// delete, rest-after, bar-after, play-from, range-from.
+// The source between a note and the next one (next) when only spaces or tabs separate them: notes written without a
+// space share a beam. Null at the end of the music or before a bar line, a line break or anything else.
+function beamGap(entry) {
+  const v = $('abc').value,
+    {startChar, endChar} = entry.element,
+    from = startChar + v.slice(startChar, endChar).trimEnd().length,
+    next = scoreNotes().find(n => n.element.startChar >= endChar);
+  if (!next) return null;
+  const gap = v.slice(from, next.element.startChar);
+  return /^[ \t]*$/.test(gap) ? {from, to: next.element.startChar, joined: !gap, next} : null;
+}
+// Articulations, ornaments and dynamics (NOTE_MARKS and DYNAMICS in score-tools.js): the words the toolbar, the note
+// menu and the status line use, and the keys for the five common articulations.
+const MARK_WORDS = {
+  staccato: 'Staccato',
+  tenuto: 'Tenuto',
+  accent: 'Accent',
+  marcato: 'Marcato',
+  fermata: 'Fermata',
+  wedge: 'Staccatissimo',
+  upbow: 'Up bow',
+  downbow: 'Down bow',
+  breath: 'Breath mark',
+  trill: 'Trill',
+  mordent: 'Mordent',
+  turn: 'Turn',
+  arpeggio: 'Arpeggio'
+};
+const MARK_KEYS = {';': 'staccato', ':': 'tenuto', '>': 'accent', '"': 'marcato', '^': 'fermata'},
+  MARK_GLYPHS = {staccato: '•', tenuto: '–', accent: '>', marcato: '∧', fermata: '𝄐'},
+  DYNAMIC_WORDS = {
+    ppp: 'very, very soft',
+    pp: 'very soft',
+    p: 'soft',
+    mp: 'medium soft',
+    mf: 'medium loud',
+    f: 'loud',
+    ff: 'very loud',
+    fff: 'very, very loud',
+    sfz: 'sudden accent'
+  };
+// Why a mark (deco:<name> or dyn:<name>) cannot go on a note or rest, or '' when it can. A rest takes a dynamic or
+// a fermata; an invisible rest takes nothing.
+function markBlocked(action, element) {
+  if (element.rest?.type === 'invisible') return 'Invisible rests take no marks.';
+  if (action.startsWith('deco:') && !element.pitches?.length && action !== 'deco:fermata')
+    return 'Rests take only a dynamic or a fermata.';
+  return '';
+}
+// The status line after a mark edit, from the marks the note had before it.
+function markDone(action, before) {
+  const [kind, name] = action.split(':');
+  if (kind === 'dyn') return !name || before?.dynamic === name ? 'Dynamic removed.' : `Dynamic ${name}.`;
+  return MARK_WORDS[name] + (before?.marks.includes(name) ? ' removed.' : ' added.');
+}
+// A mark from a key or the note menu, saying what happened in the status line.
+function markNote(sel, action) {
+  const element = sel.entry.element,
+    blocked = markBlocked(action, element),
+    v = $('abc').value;
+  if (blocked) {
+    $('selection-status').textContent = blocked;
+    return;
+  }
+  const before = noteMarks(v.slice(element.startChar, element.endChar));
+  editNote(sel.entry, sel.display, action);
+  $('selection-status').textContent = $('abc').value === v ? 'No change.' : markDone(action, before);
+}
+// Each note's marks, kept per source text: the palette asks for every mark button over a range selection.
+let marksMemo = {source: null, at: new Map()};
+function marksOf(entry) {
+  const v = $('abc').value,
+    {startChar, endChar} = entry.element,
+    key = startChar + ':' + endChar;
+  if (marksMemo.source !== v) marksMemo = {source: v, at: new Map()};
+  if (!marksMemo.at.has(key)) marksMemo.at.set(key, noteMarks(v.slice(startChar, endChar)));
+  return marksMemo.at.get(key);
+}
+// The notes and rests of a range selection a mark can go on, each with the marks it has, and why none can. Only two
+// kinds of mark differ here (markBlocked): articulations and ornaments, which rests cannot take, and the rest. The
+// palette asks for every mark button on the same selection, so each kind is worked out once per selection and text.
+let targetsMemo = {picked: null, source: null, at: new Map()};
+function markTargets(action, picked) {
+  const v = $('abc').value,
+    kind = action.startsWith('deco:') && action !== 'deco:fermata' ? 'deco' : 'any';
+  if (targetsMemo.picked !== picked || targetsMemo.source !== v) targetsMemo = {picked, source: v, at: new Map()};
+  if (targetsMemo.at.has(kind)) return targetsMemo.at.get(kind);
+  const able = [];
+  let why = '';
+  for (const entry of picked) {
+    const marks = marksOf(entry),
+      blocked = marks ? markBlocked(action, entry.element) : 'These cannot take marks.';
+    if (!blocked) able.push({entry, marks});
+    else why ||= blocked;
+  }
+  const targets = {able, why: able.length ? '' : why};
+  targetsMemo.at.set(kind, targets);
+  return targets;
+}
+// What the palette shows for a range selection: the articulations and ornaments every note that can take them has,
+// and the dynamic of the first note or rest that can take one.
+function rangeMarks(picked) {
+  const first = markTargets('dyn:p', picked).able[0];
+  return {
+    marks: NOTE_MARKS.filter(name => {
+      const {able} = markTargets('deco:' + name, picked);
+      return able.length > 0 && able.every(t => t.marks.marks.includes(name));
+    }),
+    dynamic: first?.marks.dynamic ?? null
+  };
+}
+// A mark on a range selection, as one undo step that keeps the selection. An articulation or ornament goes on every
+// selected note that can take it, or comes off them all when they all have it; a dynamic goes on the first note or
+// rest that can take one, or comes off it. Returns the status line.
+function markRange(picked, action) {
+  const [kind, name] = action.split(':'),
+    {able, why} = markTargets(action, picked),
+    v = $('abc').value;
+  if (kind === 'dyn' ? name && !DYNAMICS.includes(name) : !NOTE_MARKS.includes(name)) return 'No change.';
+  if (!able.length) return why;
+  if (kind === 'dyn') {
+    const [{entry, marks}] = able,
+      dyn = !name || marks.dynamic === name ? null : name;
+    editNotes([entry], (n, text) => (n === entry ? setDynamic(text, dyn) : text), picked);
+    return $('abc').value === v ? 'No change.' : markDone(action, marks);
+  }
+  const all = able.every(t => t.marks.marks.includes(name)),
+    targets = (all ? able : able.filter(t => !t.marks.marks.includes(name))).map(t => t.entry);
+  editNotes(targets, (n, text) => (targets.includes(n) ? toggleDecoration(text, name) : text), picked);
+  return `${MARK_WORDS[name]} ${all ? 'removed from' : 'added to'} ${countWords(targets.length)}.`;
+}
+// Slurs, hairpins and trill lines (lineEdits in score-tools.js). S or the toolbar's Lines group puts one over the
+// selected notes, from the first note to the last (rests at either end are left out of slurs and trill lines; a
+// hairpin may start or end on a rest), or from one selected note to the next. The same press on the same notes takes
+// it off. Each is one undo step that keeps the selection.
+const LINE_WORDS = {slur: 'Slur', crescendo: 'Crescendo', diminuendo: 'Diminuendo', trill: 'Trill line'};
+// Each voice's notes in order, worked out once per render: the toolbar asks about all four kinds of line on every
+// selection change.
+let voicesMemo = null;
+function notesByVoice() {
+  if (voicesMemo?.sources !== noteSources) {
+    const voices = new Map();
+    for (const n of scoreNotes()) voices.get(voiceOf(n))?.push(n) ?? voices.set(voiceOf(n), [n]);
+    voicesMemo = {sources: noteSources, voices};
+  }
+  return voicesMemo.voices;
+}
+// The notes a line of a kind would join for the selection ({first, last, count}; last is null to take off the line
+// that starts on a single selected note), or {why} when it cannot go on.
+function lineEnds(kind, picked = selectedNotes()) {
+  const hairpin = kind === 'crescendo' || kind === 'diminuendo',
+    fits = n => (hairpin ? !!marksOf(n) : pitched(n)),
+    word = LINE_WORDS[kind].toLowerCase();
+  if (!picked.length) return {why: 'Select a note on the score first.'};
+  if (picked.length > 1) {
+    const ends = picked.filter(fits);
+    if (ends.length < 2) return {why: `A ${word} needs two ${hairpin ? 'notes or rests' : 'notes'}.`};
+    return {first: ends[0], last: ends.at(-1), count: picked.indexOf(ends.at(-1)) - picked.indexOf(ends[0]) + 1};
+  }
+  const [first] = picked;
+  if (!fits(first))
+    return {why: hairpin ? 'Invisible rests take no marks.' : `A ${word} starts on a note, not a rest.`};
+  if (lineAt($('abc').value, first.element, null, kind)) return {first, last: null};
+  const voice = notesByVoice().get(voiceOf(first)) || [],
+    i = voice.indexOf(first),
+    j = voice.findIndex((n, k) => k > i && fits(n));
+  if (j < 0) return {why: `There is no next note to end the ${word} on.`};
+  return {first, last: voice[j], count: j - i + 1};
+}
+// Whether the selection has a line of a kind over it (for one note, starting on it), and why the toolbar's button
+// cannot add one.
+function lineState(kind, picked) {
+  const ends = lineEnds(kind, picked);
+  return {why: ends.why || '', on: !ends.why && !!lineAt($('abc').value, ends.first.element, ends.last?.element, kind)};
+}
+function toggleLineSelected(kind, picked = selectedNotes()) {
+  const status = $('selection-status'),
+    ends = lineEnds(kind, picked),
+    v = $('abc').value,
+    change = !ends.why && lineEdits(v, ends.first.element, ends.last?.element ?? null, kind);
+  if (!change) {
+    status.textContent = ends.why || 'No change.';
+    return;
+  }
+  // The selection keeps its notes: positions move with the edits before them, and a slur's ) belongs to the note it
+  // closes.
+  const moved = (at, end) =>
+      at +
+      change.edits.reduce(
+        (sum, e) =>
+          e.at < at || (end && e.at === at && e.insert === ')')
+            ? sum + e.insert.length - Math.min(e.remove, at - e.at)
+            : sum,
+        0
+      ),
+    text = applyLineEdits(v, change.edits),
+    from = Math.min(...change.edits.map(e => e.at)),
+    to = Math.max(...change.edits.map(e => e.at + e.remove));
+  applyNoteEdit(
+    from,
+    to,
+    text.slice(from, to + text.length - v.length),
+    [moved(picked[0].element.startChar), moved(picked.at(-1).element.endChar, true)],
+    null,
+    false,
+    picked.length > 1 ? selectionAnchor || 'first' : null
+  );
+  status.textContent = change.on
+    ? `${LINE_WORDS[kind]} added over ${countWords(ends.count)}.`
+    : `${LINE_WORDS[kind]} removed.`;
+}
+// Tuplets and grace notes (tupletMembers, setGrace and moveGrace in score-tools.js). T or the toolbar's Triplet
+// button splits the selected note or rest into a triplet, and the Tuplet menu into 2, 5, 6 or 7: the note becomes the
+// first member, rests fill the others and the first of them is selected, so letters fill them in turn. The same count
+// on a tuplet whose other members are rests puts the note back, and another count splits it again. Grace adds a grace
+// note one step above the note, Slashed slashes it, and Grace ↑↓ move only the grace notes. Each is one undo step.
+const TUPLET_WORDS = {2: 'Duplet', 3: 'Triplet', 5: 'Quintuplet', 6: 'Sextuplet', 7: 'Septuplet'},
+  tupletWord = p => TUPLET_WORDS[p] || `${p}-tuplet`;
+// The tuplet a note or rest is in: its members in reading order (abcjs marks the first startTriplet and the last
+// endTriplet), its count and its multiplier; null when it is in none.
+function tupletGroup(entry) {
+  const voice = notesByVoice().get(voiceOf(entry)) || [],
+    i = voice.indexOf(entry);
+  for (let s = i; s >= 0; s--) {
+    const el = voice[s].element;
+    if (s < i && el.endTriplet) return null;
+    if (!el.startTriplet) continue;
+    const e = voice.findIndex((n, k) => k >= s && n.element.endTriplet),
+      members = voice.slice(s, e < 0 ? voice.length : e + 1);
+    return members.includes(entry) ? {members, p: el.startTriplet, multiplier: el.tripletMultiplier || 1} : null;
+  }
+  return null;
+}
+// Where a tuplet's opening (3 is written: in its first note's text, or just before it, where abcjs leaves it when a
+// mark follows the ( (as in (3.C).
+function tupletOpening(first) {
+  const v = $('abc').value,
+    {startChar, endChar} = first.element,
+    inside = tupletSpec(v.slice(startChar, endChar));
+  if (inside) return {at: startChar + inside.index, text: inside.text};
+  const before = v.slice(Math.max(0, startChar - 24), startChar).match(/(\(\d+(?::\d*){0,2})\(?$/);
+  return before && {at: startChar - before[0].length, text: before[1]};
+}
+// Why a note's text makes no p-tuplet.
+function tupletWhy(text, p, unit) {
+  const parts = noteParts(noteHead(text)),
+    whole = (parts ? partsLength(parts) : 0) * unit,
+    exact = k => Math.abs(k - Math.round(k)) < 1e-9,
+    word = tupletWord(p).toLowerCase();
+  if (/[<>]/.test(parts?.post || '')) return 'Take off the broken rhythm (> or <) first.';
+  if (exact(Math.log2(whole))) {
+    if (tupletRatio(whole, p)) return `This note is too short to split into a ${word}.`;
+    return `A ${word} goes on a dotted note, such as a dotted quarter.`;
+  }
+  if (exact(Math.log2(whole / 3)))
+    return tupletRatio(whole, p)
+      ? `This note is too short to split into a ${word}.`
+      : `A dotted note already splits into ${p} without a tuplet.`;
+  return 'This length cannot be split into a tuplet.';
+}
+// What a tuplet press would do to a note or rest: {from, to, text, select, done} for one edit, or {why}.
+function tupletPlan(p, sel) {
+  if (!sel) return {why: 'Select a note on the score first.'};
+  const v = $('abc').value,
+    {element} = sel.entry,
+    group = tupletGroup(sel.entry),
+    unit = unitLengthAt(element.startChar);
+  if (element.rest?.type === 'multimeasure') return {why: 'A multi-measure rest cannot be split into a tuplet.'};
+  if (element.rest?.type === 'invisible') return {why: 'An invisible rest cannot be split into a tuplet.'};
+  let from = element.startChar,
+    to = element.endChar,
+    note = v.slice(from, to);
+  if (group) {
+    // Taking a tuplet off (or splitting it again) puts its first note back at the length of the whole group.
+    const [first] = group.members,
+      last = group.members.at(-1),
+      opening = tupletOpening(first),
+      name = tupletWord(group.p).toLowerCase();
+    if (group.members.slice(1).some(pitched))
+      return {why: `To change this ${name}, turn its other notes into rests first.`};
+    if (!opening) return {why: `This ${name} is written in a way the editor cannot change.`};
+    from = Math.min(opening.at, first.element.startChar);
+    to = last.element.endChar;
+    const total = group.members.reduce((sum, n) => sum + (n.element.duration || 0), 0) * group.multiplier,
+      body = v.slice(from, opening.at) + v.slice(opening.at + opening.text.length, first.element.endChar);
+    // Uneven members written by hand, as in (3c2zz, can add up to a length no single note has.
+    if (!oneNoteLength(total))
+      return {why: `This ${name} does not add up to a single note, so the editor cannot change it.`};
+    note = editNoteText(noteHead(body), {length: total / unit}) + noteTail(v.slice(from, to));
+    if (p === group.p) {
+      const head = noteHead(note);
+      return {from, to, text: note, select: [from, from + head.length], done: `${tupletWord(p)} removed.`};
+    }
+  } else {
+    // The note after a > or < shares its length with the note before it (tupletMembers turns down the one before).
+    const voice = notesByVoice().get(voiceOf(sel.entry)) || [],
+      prev = voice[voice.indexOf(sel.entry) - 1]?.element;
+    if (prev && /[<>]/.test(noteParts(v.slice(prev.startChar, prev.endChar))?.post || ''))
+      return {why: 'Take off the broken rhythm (> or <) first.'};
+  }
+  const members = tupletMembers(note, p, unit);
+  if (!members) return {why: tupletWhy(note, p, unit)};
+  // A note stays the first member, so the first rest after it is selected; a rest split up is selected from its start.
+  const onNote = pitched(group ? group.members[0] : sel.entry),
+    at = onNote ? from + members[0].length + 1 : from,
+    selected = onNote ? members[1] : members[0];
+  return {
+    from,
+    to,
+    text: members.join(' ') + noteTail(note),
+    select: [at, at + selected.length],
+    done: `${tupletWord(p)}: type letters to fill its rests.`
+  };
+}
+function tupletSelected(p, sel = selectedNote()) {
+  const plan = tupletPlan(p, sel);
+  if (!plan.why) applyNoteEdit(plan.from, plan.to, plan.text, plan.select);
+  $('selection-status').textContent = plan.why || plan.done;
+}
+// Delete in a tuplet keeps its count, since abcjs would otherwise pull the next note into it: a note becomes a rest
+// that letters can fill, and a rest takes the tuplet off when every member after the first is a rest, as T does.
+// Returns the status line.
+function tupletDelete(sel) {
+  const group = tupletGroup(sel.entry),
+    name = tupletWord(group.p).toLowerCase();
+  if (pitched(sel.entry)) {
+    editNote(sel.entry, sel.display, 'to-rest');
+    return `Changed to a rest, so the ${name} stays whole.`;
+  }
+  const plan = tupletPlan(group.p, sel);
+  if (plan.why) return `This rest is part of a ${name}. Type a letter to fill it.`;
+  applyNoteEdit(plan.from, plan.to, plan.text, plan.select);
+  return plan.done;
+}
+// What a grace note press (grace, grace:slash, grace:up, grace:down, grace:remove) would do: {text, done} or {why}.
+function gracePlan(action, sel) {
+  if (!sel) return {why: 'Select a note on the score first.'};
+  const {startChar, endChar} = sel.entry.element,
+    old = $('abc').value.slice(startChar, endChar),
+    grace = graceOf(old);
+  if (!grace && !pitched(sel.entry)) return {why: 'Grace notes go before notes, not rests.'};
+  if (!grace && action !== 'grace' && action !== 'grace:slash') return {why: 'This note has no grace note.'};
+  if (action === 'grace' || action === 'grace:remove')
+    return grace
+      ? {text: setGrace(old, null), done: 'Grace note removed.'}
+      : {text: setGrace(old, {slashed: false}), done: 'Grace note added.'};
+  if (action === 'grace:slash')
+    return {
+      text: setGrace(old, {slashed: !grace?.slashed}),
+      done: grace?.slashed ? 'Slash removed.' : grace ? 'Grace note slashed.' : 'Slashed grace note added.'
+    };
+  const up = action === 'grace:up';
+  return {text: moveGrace(old, up ? 1 : -1), done: `Grace note moved ${up ? 'up' : 'down'}.`};
+}
+function graceSelected(action, sel = selectedNote()) {
+  const plan = gracePlan(action, sel);
+  if (!plan.why) applyNoteEdit(sel.entry.element.startChar, sel.entry.element.endChar, plan.text);
+  $('selection-status').textContent = plan.why || plan.done;
+}
+// Chord symbols. K, the toolbar's Chord button or the note menu opens a box above the selected note. Enter saves,
+// Tab saves and moves on to the next note (Shift+Tab the one before), Escape cancels, and an empty box removes the
+// symbol. Symbols are typed and shown in written pitch and stored in concert pitch, like the notes.
+let chordEditing = null;
+// The chord symbol the student sees on a note: written pitch on a transposing instrument.
+function shownChord(sel) {
+  const v = $('abc').value,
+    {startChar, endChar} = sel.entry.element;
+  if (!transposing() || !sel.display) return chordSymbolOf(v.slice(startChar, endChar));
+  return chordSymbolOf(writtenNote(sel.display, (renderedSource === v && renderedWritten) || undefined).text);
+}
+// A typed (written) chord symbol in concert pitch, moved back by the letters the written key moved at that note. Other
+// text stays as typed, as the written display leaves it (both go through transposeChordSymbol).
+function concertChord(name, sel) {
+  const shift = transposing();
+  return shift
+    ? transposeChordSymbol(name, -shift, -writtenSteps($('abc').value, sel.entry.element.startChar, shift))
+    : name;
+}
+// The box sits just above the note (below it near the top of the score), inside the score's scrolling paper.
+function placeChordEntry(display) {
+  const box = $('chord-entry'),
+    paper = box.parentElement,
+    note = renderedTune?.engraver?.selectables?.find(s => s.absEl.abcelem.startChar === display.startChar),
+    rect = note?.svgEl.getBoundingClientRect?.(),
+    outer = paper.getBoundingClientRect();
+  if (!rect) return;
+  const left = rect.left - outer.left - paper.clientLeft + paper.scrollLeft,
+    top = rect.top - outer.top - paper.clientTop + paper.scrollTop,
+    above = top - box.offsetHeight - 6;
+  box.style.left =
+    Math.max(paper.scrollLeft + 4, Math.min(left - 8, paper.scrollLeft + paper.clientWidth - box.offsetWidth - 4)) +
+    'px';
+  box.style.top = (above >= 4 ? above : top + rect.height + 6) + 'px';
+}
+function chordHint() {
+  const text = tidyChordSymbol($('chord-input').value);
+  $('chord-hint').textContent =
+    text && !parseChordSymbol(text)
+      ? 'Not a chord name: it will print but not play.'
+      : !text && chordEditing?.had
+        ? 'Empty removes the chord symbol.'
+        : 'Enter saves · Tab next note · Esc cancels';
+}
+// opener is the toolbar button to return to after a keyboard press there; otherwise the keyboard goes back to the score.
+function openChordEntry(sel, opener = null) {
+  if (!sel?.display) return;
+  // On a range selection the box opens on its first note, which becomes the selection.
+  if (selectionAnchor) {
+    selectEntry(sel.entry);
+    sel = selectedNote();
+  }
+  const had = shownChord(sel);
+  chordEditing = {start: sel.entry.element.startChar, source: $('abc').value, had, opener};
+  $('chord-input').value = had || '';
+  $('chord-entry').hidden = false;
+  chordHint();
+  placeChordEntry(sel.display);
+  $('chord-input').focus({preventScroll: true});
+  $('chord-input').select();
+  $('chord-entry').scrollIntoView?.({block: 'nearest'});
+}
+function closeChordEntry(editing, focusTo) {
+  chordEditing = null;
+  $('chord-entry').hidden = true;
+  const to = focusTo || editing?.opener;
+  if (to?.isConnected) to.focus({preventScroll: true});
+  else focusScore();
+}
+// Save the box's text as one undo step, then move on by move notes (1 next, -1 previous) and open the box there.
+// focusTo is where the keyboard goes when the box closes (by default the opener or the score). Returns the status line.
+function commitChord(move = 0, focusTo = null) {
+  const editing = chordEditing;
+  if (!editing) return '';
+  const typed = tidyChordSymbol($('chord-input').value);
+  chordEditing = null;
+  $('chord-entry').hidden = true;
+  const entry = $('abc').value === editing.source && scoreNotes().find(e => e.element.startChar === editing.start);
+  if (!entry) {
+    closeChordEntry(editing, focusTo);
+    toast('Score updated. Select the note again.');
+    return '';
+  }
+  const sel = {entry, display: displayOf(entry)},
+    {startChar: start, endChar: end} = entry.element,
+    old = $('abc').value.slice(start, end);
+  let message = '',
+    moved = 0;
+  if (typed !== (editing.had || '')) {
+    const text = setChordSymbol(old, typed ? concertChord(typed, sel) : null);
+    moved = text.length - old.length;
+    if (text !== old) applyNoteEdit(start, end, text);
+    message = !typed
+      ? 'Chord symbol removed.'
+      : parseChordSymbol(typed)
+        ? `Chord symbol ${typed}.`
+        : `Chord symbol “${typed}” added. It is not a chord name, so it prints but does not play.`;
+  }
+  const notes = scoreNotes(),
+    next = move ? notes[notes.findIndex(e => e.element.startChar === start) + move] : null;
+  if (next) {
+    selectEntry(next);
+    if (message) $('selection-status').textContent = message;
+    openChordEntry(selectedNote(), editing.opener);
+    return message;
+  }
+  const clicked =
+    editing.clicked != null &&
+    editing.clicked !== start &&
+    notes.find(e => e.element.startChar === editing.clicked + (editing.clicked > start ? moved : 0));
+  if (clicked) selectEntry(clicked);
+  if (move) message += (message ? ' ' : '') + (move > 0 ? 'That was the last note.' : 'That was the first note.');
+  if (message) $('selection-status').textContent = message;
+  refreshPalette();
+  closeChordEntry(editing, focusTo);
+  return message;
+}
+$('chord-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === 'Tab') {
+    e.preventDefault();
+    commitChord(e.key === 'Tab' ? (e.shiftKey ? -1 : 1) : 0);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeChordEntry(chordEditing);
+  }
+});
+$('chord-input').addEventListener('input', chordHint);
+// Leaving the box another way (a click or tap elsewhere) saves it, and the keyboard goes where the student went.
+// Switching to another window keeps the box open.
+$('chord-input').addEventListener('blur', e => {
+  if (!chordEditing || !document.hasFocus() || $('chord-entry').contains(e.relatedTarget)) return;
+  commitChord(0, e.relatedTarget || $('notation'));
+});
+// A click or tap on another note while the box is open saves the box, then selects that note (by its place in the
+// source, which the save may move along).
+$('notation').addEventListener(
+  'mousedown',
+  e => {
+    if (!chordEditing) return;
+    const hit = selectableAt(e)?.absEl.abcelem;
+    chordEditing.clicked = (hit?.el_type === 'note' && noteSources.get(hit.startChar)?.element.startChar) ?? null;
+  },
+  true
+);
+// Next is for touch screens without a Tab key; pressing it keeps the box focused.
+$('chord-next').addEventListener('mousedown', e => e.preventDefault());
+$('chord-next').addEventListener('click', () => commitChord(1));
+// Lyrics. L, the toolbar's Lyrics button or the note menu opens a box under the selected note for its syllable in a
+// verse. Space saves the syllable and moves to the next note, - saves it with a hyphen, _ holds it over the next note
+// and * leaves a note without one (see typeLyrics). Backspace in an empty box goes back a note, Tab and Shift+Tab move
+// on or back, Enter starts the next verse at the note where typing started, and Escape (or a click elsewhere) saves
+// and closes. Each save is one undo step. Words go under the notes of the selected note's voice, not under rests.
+let lyricEditing = null;
+// The selected voice's lyric notes for the current source: {notes, at (startChar to place), overlaid (startChars of
+// notes and rests in a voice written with &, which cannot have words)}, parsed once per text.
+let lyricMemo = {source: null, tune: null, voices: new Map()};
+function lyricPlaces(voice) {
+  const source = $('abc').value;
+  if (lyricMemo.source !== source) lyricMemo = {source, tune: ABCJS.parseOnly(source)[0], voices: new Map()};
+  if (!lyricMemo.voices.has(voice)) {
+    const slots = lyricSlots(lyricMemo.tune, voice, source),
+      notes = slots.flatMap(s => s.notes),
+      kept = new Set(slots.map(s => s.line)),
+      overlaid = new Set(
+        lyricSlots(lyricMemo.tune, voice)
+          .filter(s => !kept.has(s.line))
+          .flatMap(s => s.elements.map(e => e.startChar))
+      );
+    lyricMemo.voices.set(voice, {notes, at: new Map(notes.map((e, i) => [e.startChar, i])), overlaid});
+  }
+  return lyricMemo.voices.get(voice);
+}
+// Where lyrics typed from a selection start: the note itself, or the first note after a selected rest.
+function lyricStart(sel) {
+  if (!sel) return null;
+  const voice = voiceOf(sel.entry),
+    {notes, at, overlaid} = lyricPlaces(voice),
+    start = sel.entry.element.startChar,
+    pos = overlaid.has(start) ? -1 : (at.get(start) ?? notes.findIndex(e => e.startChar > start));
+  return pos >= 0 ? {voice, pos} : null;
+}
+// The syllable on a lyric note in a verse ({syllable, divider}), or null.
+function lyricAt(voice, verse, pos) {
+  lyricPlaces(voice);
+  return lyricSession(lyricMemo.source, voice, verse, lyricMemo.tune).get(pos);
+}
+// The first verse's syllable on the selected note, for the toolbar and the note menu.
+function shownLyric(sel) {
+  const start = sel && lyricPlaces(voiceOf(sel.entry)).at.get(sel.entry.element.startChar);
+  return start == null ? null : lyricAt(voiceOf(sel.entry), 0, start)?.syllable || null;
+}
+const lyricWhy = sel =>
+  !sel
+    ? 'Select a note on the score first.'
+    : lyricStart(sel)
+      ? ''
+      : lyricPlaces(voiceOf(sel.entry)).overlaid.has(sel.entry.element.startChar)
+        ? 'Lyrics go under the first voice of a staff, not a voice written after &.'
+        : 'Lyrics go under notes. There is no note after this rest in its staff.';
+// A syllable's own -, _ and * are shown in the box as look-alikes, so they are not read as the typing keys, and are
+// written back as they were.
+const LYRIC_MARKS = {'-': '\u2010', _: '\u02cd', '*': '\u2217'},
+  LYRIC_PLAIN = Object.fromEntries(Object.entries(LYRIC_MARKS).map(([plain, shown]) => [shown, plain])),
+  shownSyllable = text => String(text).replace(/[-_*]/g, c => LYRIC_MARKS[c]),
+  // For typeLyrics, which reads a backslash as making the next character plain.
+  typedSyllable = (text, escape = true) =>
+    String(text).replace(/[\u2010\u02cd\u2217]/g, c => (escape ? '\\' : '') + LYRIC_PLAIN[c]);
+// The bottom of a drawn note's staff (the nearest one across from it), or of the words under it on that line, in page
+// pixels, or null.
+function lyricRowBottom(noteEl) {
+  const r = noteEl.getBoundingClientRect(),
+    y = (r.top + r.bottom) / 2;
+  let best = null,
+    gap = Infinity;
+  for (const staff of document.querySelectorAll('#notation svg .abcjs-staff')) {
+    const b = staff.getBoundingClientRect();
+    if (b.right < r.left || b.left > r.right) continue;
+    const d = y < b.top ? b.top - y : y > b.bottom ? y - b.bottom : 0;
+    if (d < gap) [gap, best] = [d, b.bottom];
+  }
+  // abcjs marks a note and its words with the line (abcjs-l) and voice (abcjs-v) they belong to.
+  const line = [...noteEl.classList].filter(c => /^abcjs-[lv]\d+$/.test(c));
+  if (best != null && line.length === 2)
+    for (const words of document.querySelectorAll(`#notation svg .abcjs-lyric.${line.join('.')}`))
+      best = Math.max(best, words.getBoundingClientRect().bottom);
+  return best;
+}
+// The box sits under the note's staff and the words already there (under the note when it hangs lower), inside the
+// score's scrolling paper, so the line being written stays in view above it.
+function placeLyricEntry(element) {
+  const box = $('lyric-entry'),
+    paper = box.parentElement,
+    note = renderedTune?.engraver?.selectables?.find(
+      s => noteSources.get(s.absEl.abcelem.startChar)?.element.startChar === element.startChar
+    ),
+    rect = note?.svgEl.getBoundingClientRect?.(),
+    outer = paper.getBoundingClientRect();
+  if (!rect) return;
+  const left = rect.left - outer.left - paper.clientLeft + paper.scrollLeft,
+    bottom = Math.max(rect.bottom, lyricRowBottom(note.svgEl) ?? rect.bottom);
+  box.style.left =
+    Math.max(paper.scrollLeft + 4, Math.min(left - 8, paper.scrollLeft + paper.clientWidth - box.offsetWidth - 4)) +
+    'px';
+  box.style.top = bottom - outer.top - paper.clientTop + paper.scrollTop + 4 + 'px';
+}
+function lyricHint() {
+  const e = lyricEditing;
+  if (!e) return;
+  $('lyric-hint').textContent = e.end
+    ? `No more notes · Enter verse ${e.verse + 2} · Backspace goes back · Esc done`
+    : !$('lyric-input').value && e.had
+      ? 'Empty removes the syllable · Backspace goes back · * leaves this note out'
+      : `Space next note · - hyphen · _ hold · * no syllable · Enter verse ${e.verse + 2} · Esc done`;
+}
+// Open the box on lyric note pos of a voice in a verse; run is the note where this run of typing started (Enter goes
+// back to it), and opener the toolbar button to give the keyboard back to. typed is text already typed for this note,
+// and after says the box came here by -, _ or * (a space typed next only separates, see typeLyrics). Typing past the
+// last note leaves the box open after it (pos is then the number of notes), so Enter can still start the next verse
+// and keys typed there never reach the score.
+function openLyricAt({voice, verse, pos, run = pos, opener = null}, typed = null, after = false) {
+  const {notes} = lyricPlaces(voice),
+    end = pos === notes.length,
+    element = notes[end ? pos - 1 : pos],
+    entry = element && scoreNotes().find(e => e.element.startChar === element.startChar);
+  if (!entry) return false;
+  selectEntry(entry);
+  const had = end ? null : lyricAt(voice, verse, pos);
+  lyricEditing = {voice, verse, pos, run, opener, had, after, end, source: $('abc').value};
+  const input = $('lyric-input');
+  input.value = typed ?? shownSyllable(had?.syllable ?? '');
+  input.setAttribute('aria-label', `Lyrics, verse ${verse + 1}`);
+  $('lyric-verse').textContent = `Verse ${verse + 1}`;
+  $('lyric-entry').hidden = false;
+  lyricHint();
+  placeLyricEntry(element);
+  input.focus({preventScroll: true});
+  if (typed) input.setSelectionRange(typed.length, typed.length);
+  else input.select();
+  $('lyric-entry').scrollIntoView?.({block: 'nearest'});
+  $('selection-status').textContent = end
+    ? `That was the last note. Enter starts verse ${verse + 2}.`
+    : `Lyrics, verse ${verse + 1}, measure ${entry.measure}.`;
+  return true;
+}
+function openLyricEntry(sel, opener = null, verse = 0) {
+  const start = lyricStart(sel);
+  if (!start) {
+    $('selection-status').textContent = lyricWhy(sel);
+    return;
+  }
+  openLyricAt({...start, verse, opener});
+}
+function closeLyricEntry(editing, focusTo) {
+  lyricEditing = null;
+  $('lyric-entry').hidden = true;
+  const to = focusTo || editing?.opener;
+  if (to?.isConnected) to.focus({preventScroll: true});
+  else focusScore();
+}
+// Write new source text as one undo step, keeping the edit to the stretch that changed. Returns where it starts and
+// the change in length, so offsets after it can follow, or null when nothing changed.
+function saveLyrics(text) {
+  const old = $('abc').value;
+  if (text === old) return null;
+  let a = 0,
+    z = 0;
+  while (a < old.length && old[a] === text[a]) a++;
+  while (z < old.length - a && z < text.length - a && old[old.length - 1 - z] === text[text.length - 1 - z]) z++;
+  applyNoteEdit(a, old.length - z, text.slice(a, text.length - z), null);
+  return {at: a, moved: text.length - old.length};
+}
+// The box's editing state while the source is still the one it opened on; otherwise the box closes.
+function lyricCurrent() {
+  const editing = lyricEditing;
+  if (!editing) return null;
+  if (editing.source === $('abc').value) return editing;
+  closeLyricEntry(editing);
+  toast('Score updated. Select the note again.');
+  return null;
+}
+// Text typed with a space, -, _ or * in it: save what it finishes and move the box on (see typeLyrics).
+function typeLyric(typed) {
+  const editing = lyricCurrent();
+  if (!editing) return;
+  lyricPlaces(editing.voice);
+  const {voice, verse, pos, after} = editing,
+    done = typeLyrics(lyricMemo.source, voice, verse, pos, typedSyllable(typed), lyricMemo.tune, after);
+  lyricEditing = null;
+  saveLyrics(done.abc);
+  if (!openLyricAt({...editing, pos: done.pos}, done.rest ? shownSyllable(done.rest) : null, done.after))
+    closeLyricEntry(editing);
+  else if (done.over)
+    $('selection-status').textContent = `No more notes for those words. Enter starts verse ${verse + 2}.`;
+}
+// Save the box as it is (an empty box takes the syllable away), then move: step notes on or back, verse to the next
+// verse at the note where typing started, or close the box, sending the keyboard to focusTo. A note clicked while the
+// box was open is selected after the save.
+function finishLyric({step = 0, verse = false, focusTo = null} = {}) {
+  const editing = lyricCurrent();
+  if (!editing) return;
+  const word = tidyLyric(typedSyllable($('lyric-input').value, false)),
+    had = editing.had;
+  lyricEditing = null;
+  $('lyric-entry').hidden = true;
+  let saved = null;
+  if (word !== tidyLyric(had?.syllable)) {
+    lyricPlaces(editing.voice);
+    const session = lyricSession(lyricMemo.source, editing.voice, editing.verse, lyricMemo.tune);
+    session.set(editing.pos, word ? {syllable: word, divider: had?.divider || ' '} : null);
+    saved = saveLyrics(session.text());
+  }
+  let message = !saved ? '' : word ? `Lyric “${word}” saved.` : 'Syllable removed.';
+  if (editing.end && word) message = 'No more notes for those words.';
+  if (verse && openLyricAt({...editing, verse: editing.verse + 1, pos: editing.run})) return;
+  if (step) {
+    if (openLyricAt({...editing, pos: editing.pos + step})) return;
+    openLyricAt(editing);
+    $('selection-status').textContent =
+      (message ? message + ' ' : '') +
+      (step > 0 ? `That was the last note. Enter starts verse ${editing.verse + 2}.` : 'That was the first note.');
+    return;
+  }
+  const clicked =
+    editing.clicked != null &&
+    scoreNotes().find(
+      e => e.element.startChar === editing.clicked + (saved && editing.clicked >= saved.at ? saved.moved : 0)
+    );
+  if (clicked) selectEntry(clicked);
+  else {
+    const {notes} = lyricPlaces(editing.voice),
+      element = notes[Math.min(editing.pos, notes.length - 1)],
+      entry = element && scoreNotes().find(e => e.element.startChar === element.startChar);
+    if (entry) selectEntry(entry);
+  }
+  if (message) $('selection-status').textContent = message;
+  refreshPalette();
+  closeLyricEntry(editing, focusTo);
+}
+$('lyric-input').addEventListener('keydown', e => {
+  if (e.isComposing) return;
+  const empty = !$('lyric-input').value;
+  if (e.key === 'Enter') finishLyric({verse: true});
+  else if (e.key === 'Tab') finishLyric({step: e.shiftKey ? -1 : 1});
+  else if (e.key === 'Escape') finishLyric();
+  else if (e.key === 'Backspace' && empty) finishLyric({step: -1});
+  else return;
+  e.preventDefault();
+});
+// Separators are read from the text rather than from key presses, so phone keyboards (which often report no key, and
+// may hold a word back until it is finished) and pasted words work too.
+function lyricTyped(e) {
+  if (e.isComposing) return;
+  if (/[ \-_*]/.test($('lyric-input').value)) typeLyric($('lyric-input').value);
+  else lyricHint();
+}
+$('lyric-input').addEventListener('input', lyricTyped);
+$('lyric-input').addEventListener('compositionend', lyricTyped);
+// Leaving the box another way (a click or tap elsewhere) saves it, and the keyboard goes where the student went.
+// Switching to another window keeps the box open.
+$('lyric-input').addEventListener('blur', e => {
+  if (!lyricEditing || !document.hasFocus() || $('lyric-entry').contains(e.relatedTarget)) return;
+  finishLyric({focusTo: e.relatedTarget || $('notation')});
+});
+// A click or tap on another note while the box is open saves the box, then selects that note.
+$('notation').addEventListener(
+  'mousedown',
+  e => {
+    if (!lyricEditing) return;
+    const hit = selectableAt(e)?.absEl.abcelem;
+    lyricEditing.clicked = (hit?.el_type === 'note' && noteSources.get(hit.startChar)?.element.startChar) ?? null;
+  },
+  true
+);
+// Next is for touch screens; pressing it keeps the box focused.
+$('lyric-next').addEventListener('mousedown', e => e.preventDefault());
+$('lyric-next').addEventListener('click', () => finishLyric({step: 1}));
+// After notes are added to or taken from a line with words under it, the words may no longer fit the notes: say so
+// until the next change. Lines are told apart by their words (and, for lines with the same words, by their order), so
+// changing the words themselves says nothing, and neither does opening another score (which starts a new undo history).
+let lyricCounts = null;
+function checkLyricLines(original) {
+  // The lyrics box and the toolbar read the notes from this parse too, rather than parsing the score again.
+  if (lyricMemo.source !== renderedSource) lyricMemo = {source: renderedSource, tune: original, voices: new Map()};
+  if (lyricCounts?.source === renderedSource && lyricCounts.history === editHistory) return;
+  const seen = new Map(),
+    counts = new Map(
+      lyricLines(renderedSource, original).map(l => {
+        const key = l.voice + '\u0000' + l.words;
+        seen.set(key, (seen.get(key) || 0) + 1);
+        return [key + '\u0000' + seen.get(key), l.notes];
+      })
+    ),
+    before = lyricCounts?.history === editHistory ? lyricCounts.counts : null;
+  lyricCounts = {history: editHistory, source: renderedSource, counts};
+  $('lyric-check').hidden = !before || ![...counts].some(([key, n]) => before.has(key) && before.get(key) !== n);
+}
+// The note before entry in its voice, when it is tied into entry; null otherwise. A note that becomes a rest takes
+// that tie off, since nothing can be tied to a rest.
+function tiedInto(entry) {
+  const v = $('abc').value,
+    voice = e => e.key.replace(/:\d+$/, ''),
+    prev = scoreNotes()
+      .filter(n => voice(n) === voice(entry) && n.element.startChar < entry.element.startChar)
+      .pop();
+  return prev && /^-/.test(noteParts(v.slice(prev.element.startChar, prev.element.endChar))?.post || '') ? prev : null;
+}
+// One edit on one note, shared by the note menu, the keyboard and the palette. Actions: acc:<^|_|=|>, len:<whole>,
+// dot, tie, to-rest, beam:join, beam:break, deco:<mark>, dyn:<dynamic|>, delete, rest-after, bar-after, play-from,
+// range-from, respell, chord (opens the chord symbol box), lyric (opens the lyrics box), tuplet:<count>, grace,
+// grace:<slash|up|down|remove>. Others do nothing.
 function editNote(entry, display, action) {
   const area = $('abc'),
     v = area.value,
     start = entry.element.startChar,
     end = entry.element.endChar,
     old = v.slice(start, end);
+  fitNote = null;
+  if (/^(deco|dyn):/.test(action)) {
+    // deco toggles an articulation or ornament; dyn sets a dynamic, and the note's own dynamic (or none) removes it.
+    const [kind, name] = action.split(':'),
+      marks = noteMarks(old),
+      known = kind === 'dyn' ? !name || DYNAMICS.includes(name) : NOTE_MARKS.includes(name);
+    if (!marks || !known || markBlocked(action, entry.element)) return;
+    applyNoteEdit(
+      start,
+      end,
+      kind === 'dyn' ? setDynamic(old, marks.dynamic === name ? null : name || null) : toggleDecoration(old, name)
+    );
+    return;
+  }
   if (action === 'play-from') {
     playFromNote(display);
+    return;
+  }
+  if (action === 'chord') {
+    openChordEntry({entry, display});
+    return;
+  }
+  if (action === 'lyric') {
+    openLyricEntry({entry, display});
     return;
   }
   if (action === 'range-from') {
@@ -932,8 +2305,35 @@ function editNote(entry, display, action) {
     setRange(entry.measure, to >= entry.measure ? to : +$('end-measure').max);
     return;
   }
+  if (action === 'respell') {
+    respellSelected({entry, display});
+    return;
+  }
+  if (action.startsWith('tuplet:')) {
+    tupletSelected(+action.slice(7), {entry, display});
+    return;
+  }
+  // Under Keep bars full, Delete changes a note to a rest (clear) and leaves a rest as it is; remove (Shift+Delete)
+  // takes either out. Without it, both remove. In a tuplet both work as Delete always has (see tupletDelete).
+  if (action === 'remove') action = 'delete';
+  else if (action === 'delete' && keepBars() && !tupletGroup(entry)) {
+    if (!entry.element.pitches?.length) {
+      fitNote = {say: 'A rest keeps the bar full. Shift+Delete, or Remove in the note menu, takes it out.'};
+      $('selection-status').textContent = fitNote.say;
+      return;
+    }
+    action = 'clear';
+  }
+  if (action === 'delete' && tupletGroup(entry)) {
+    $('selection-status').textContent = tupletDelete({entry, display});
+    return;
+  }
+  if (/^grace(:(slash|up|down|remove))?$/.test(action)) {
+    graceSelected(action, {entry, display});
+    return;
+  }
   if (action.startsWith('acc:')) {
-    applyNoteEdit(start, end, accidentalEdit(entry, display, action.slice(4)));
+    applyNoteEdit(start, end, accidentalEdit(entry, display, action.slice(4)), undefined, start);
     return;
   }
   if (action === 'tie') {
@@ -944,15 +2344,56 @@ function editNote(entry, display, action) {
     const token =
       action === 'bar-after' ? '|' : 'z' + lengthText((entry.element.duration || beatLength()) / unitLengthAt(end));
     insertAt(end, token, action === 'rest-after');
+    if (action === 'bar-after') $('selection-status').textContent = 'Bar line added. ' + NOTHING_SELECTED;
     return;
   }
+  if (action === 'beam:join' || action === 'beam:break') {
+    // Join by removing the space before the next note; break by adding one. The note stays selected.
+    const gap = beamGap(entry),
+      join = action === 'beam:join';
+    if (gap && gap.joined !== join) applyNoteEdit(gap.from, gap.to, join ? '' : ' ', [start, gap.from]);
+    return;
+  }
+  const newLength = action.startsWith('len:') ? +action.slice(4) : null;
+  if (!(newLength > 0) && !['dot', 'delete', 'to-rest', 'clear'].includes(action)) return;
+  if (action === 'to-rest' && !entry.element.pitches?.length) return;
   const unit = unitLength(),
     len = entry.element.duration || 0,
     dotted = DOTTABLE.some(x => Math.abs(len - x * 1.5) < 1e-9);
+  if (keepBars() && (newLength > 0 || action === 'dot')) {
+    const fit = fitLengths([entry], () => (action === 'dot' ? (dotted ? len / 1.5 : len * 1.5) : newLength));
+    if (fit) {
+      fitNote = fit;
+      if (!fit.extra) $('selection-status').textContent = fit.say;
+      else if (fit.say) $('selection-status').textContent += ' ' + fit.say;
+      return;
+    }
+  }
+  // A cleared note becomes a rest as Cut leaves one: chord symbols, slurs and tuplet marks stay, other marks go.
   const change = t =>
     action === 'delete'
       ? ''
-      : editNoteText(t, {length: (action === 'dot' ? (dotted ? len / 1.5 : len * 1.5) : +action.slice(4)) / unit});
+      : action === 'to-rest'
+        ? editNoteText(t, {rest: true})
+        : action === 'clear'
+          ? restText(t)
+          : editNoteText(t, {length: (action === 'dot' ? (dotted ? len / 1.5 : len * 1.5) : newLength) / unit});
+  const cleared = () => {
+    if (action !== 'clear') return;
+    fitNote = {
+      say: 'Changed to a rest, so the bar stays full. Shift+Delete, or Remove in the note menu, takes a note out.'
+    };
+    $('selection-status').textContent = fitNote.say;
+  };
+  // Nothing can be tied to a rest, so a note that becomes one also takes the tie off the note before it in its voice,
+  // in the same edit (one undo step).
+  const untie = action === 'to-rest' || action === 'clear' ? tiedInto(entry)?.element : null;
+  const edit = (from, to, text) => {
+    if (!untie || untie.endChar > from) return applyNoteEdit(from, to, text);
+    const lead = editNoteText(v.slice(untie.startChar, untie.endChar), {tie: false}) + v.slice(untie.endChar, from),
+      at = untie.startChar + lead.length;
+    applyNoteEdit(untie.startChar, to, lead + text, [at, at + text.length]);
+  };
   const pair = brokenPair(entry);
   if (!pair) {
     // Deleting keeps the previous note selected so typing can carry on from there.
@@ -969,7 +2410,8 @@ function editNote(entry, display, action) {
         '',
         prev ? [prev.element.startChar, prev.element.endChar] : null
       );
-    else applyNoteEdit(start, end, change(old));
+    else edit(start, end, change(old));
+    cleared();
     return;
   }
   // Spell the broken-rhythm pair out with explicit lengths so the neighbour keeps its duration.
@@ -977,7 +2419,8 @@ function editNote(entry, display, action) {
     fixed = n =>
       editNoteText(v.slice(n.element.startChar, n.element.endChar), {
         length: (n.element.duration || 0) / unit,
-        unbroken: true
+        unbroken: true,
+        tie: n.element === untie ? false : undefined
       });
   const first = a === entry ? change(fixed(a)) : fixed(a),
     second = c === entry ? change(fixed(c)) : fixed(c);
@@ -985,7 +2428,9 @@ function editNote(entry, display, action) {
     first ? m : ''
   );
   const spaced = second || !first ? text : text.replace(/\s*$/, ' ');
-  applyNoteEdit(a.element.startChar, c.element.endChar, spaced, action === 'delete' ? null : undefined);
+  if (action === 'delete') applyNoteEdit(a.element.startChar, c.element.endChar, spaced, null);
+  else edit(a.element.startChar, c.element.endChar, spaced);
+  cleared();
 }
 $('note-menu').addEventListener('click', e => {
   const b = e.target.closest('[data-edit]'),
@@ -993,13 +2438,17 @@ $('note-menu').addEventListener('click', e => {
   if (!b || !picked) return;
   e.stopPropagation();
   closeNoteMenu();
-  if (renderedSource !== $('abc').value) {
+  // The menu's note offsets belong to the drawing it was opened on. A new instrument or Concert pitch view draws
+  // other text from the same source, so the source alone does not show that they are stale.
+  if (renderedSource !== $('abc').value || picked.written !== writtenABC()) {
     clearTimeout(renderTimer);
     render();
     toast('Score updated. Right-click the note again.');
     return;
   }
-  editNote(picked.entry, picked.display, b.dataset.edit);
+  if (/^(deco|dyn):/.test(b.dataset.edit)) markNote(picked, b.dataset.edit);
+  else if (/^mark:/.test(b.dataset.edit)) feedbackMenuAction(picked, b.dataset.edit);
+  else editNote(picked.entry, picked.display, b.dataset.edit);
 });
 document.addEventListener('mousedown', e => {
   if (!$('note-menu').hidden && !$('note-menu').contains(e.target)) closeNoteMenu();
@@ -1007,16 +2456,45 @@ document.addEventListener('mousedown', e => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !$('note-menu').hidden) closeNoteMenu();
 });
+// Inside the menu (role="menu"): ↑↓, Home and End move between items (wrapping), a key an item names in
+// aria-keyshortcuts runs that item, and Tab closes the menu, returning the keyboard to the score.
+$('note-menu').addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const items = [...$('note-menu').querySelectorAll('[role^="menuitem"]')],
+    i = items.indexOf(document.activeElement);
+  const to = {ArrowDown: i + 1, ArrowUp: i < 0 ? items.length - 1 : i - 1, Home: 0, End: items.length - 1}[e.key];
+  if (to != null && items.length) {
+    e.preventDefault();
+    items[(to + items.length) % items.length].focus({preventScroll: true});
+    return;
+  }
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    closeNoteMenu();
+    return;
+  }
+  const name = (e.shiftKey && e.key.length > 1 ? 'Shift+' : '') + (e.key.length === 1 ? e.key.toUpperCase() : e.key),
+    item = items.find(b => (b.getAttribute('aria-keyshortcuts') || '').split(' ').includes(name));
+  if (item) {
+    e.preventDefault();
+    item.click();
+  }
+});
 window.addEventListener(
   'scroll',
   () => {
-    if (!$('note-menu').hidden) closeNoteMenu();
+    // The browser can nudge the page a few pixels when the status line above the score rewraps (scroll anchoring);
+    // only a real scroll moves the note away from the menu.
+    if (!$('note-menu').hidden && Math.abs(window.scrollY - +$('note-menu').dataset.scrollY) > 24) closeNoteMenu();
   },
   {passive: true}
 );
 // Keyboard note entry on the score (MuseScore-style): A–G add a note after the selection in the nearest octave,
-// R or 0 a rest, 3–7 set the length (16th…whole), . dots, ↑↓ move by step (Ctrl: octave), ←→ change the selection,
-// # - = set sharp/flat/natural, + ties, | adds a bar line, Delete removes the note.
+// Shift+A–G add a pitch to the selected chord, R or 0 a rest, 3–7 set the length (16th…whole), . dots, ↑↓ move by
+// step (Ctrl: octave), ←→ change the selection, # - = set sharp/flat/natural, + ties, | adds a bar line, Delete
+// removes the note, [ ] halve or double the length, ; : > " ^ toggle staccato, tenuto, accent, marcato and fermata,
+// K opens the chord symbol box, S slurs and T makes a triplet (or takes it off).
+// Shift+←→ and Ctrl/Cmd+A, C, X, V, D work on a range selection (see below).
 const LENGTH_KEYS = {3: 1 / 16, 4: 1 / 8, 5: 1 / 4, 6: 1 / 2, 7: 1};
 function focusScore() {
   $('notation').focus?.({preventScroll: true});
@@ -1027,13 +2505,29 @@ function scoreNotes() {
     .filter(e => e?.element.el_type === 'note')
     .sort((a, b) => a.element.startChar - b.element.startChar);
 }
+// The displayed element of a source entry, from a reverse index kept for each render (a range edit asks for many).
+let displayIndex = null;
 function displayOf(entry) {
-  for (const [key, e] of noteSources) if (e === entry) return shownElements.get(key);
-  return null;
+  if (displayIndex?.sources !== noteSources || displayIndex.shown !== shownElements) {
+    const map = new Map();
+    for (const [key, e] of noteSources) if (!map.has(e)) map.set(e, shownElements.get(key));
+    displayIndex = {sources: noteSources, shown: shownElements, map};
+  }
+  return displayIndex.map.get(entry) ?? null;
 }
+// The selected note, or the first note of a range selection.
 function selectedNote() {
-  const entry = selectedRange && scoreNotes().find(e => e.element.startChar === selectedRange[0]);
+  const entry = selectionAnchor
+    ? selectedNotes()[0]
+    : selectedRange && scoreNotes().find(e => e.element.startChar === selectedRange[0]);
   return entry ? {entry, display: displayOf(entry)} : null;
+}
+// Where note entry goes on from: the selected note, or the last note of a range selection, marked after so that a
+// rest there is kept and the new note goes after it.
+function entrySelection(picked = selectedNotes()) {
+  if (picked.length < 2) return selectedNote();
+  const entry = picked.at(-1);
+  return {entry, display: displayOf(entry), after: true};
 }
 function selectEntry(entry) {
   const display = displayOf(entry);
@@ -1041,8 +2535,8 @@ function selectEntry(entry) {
   scoreClick(display, 0, [], {}, null);
   renderedTune?.engraver?.rangeHighlight?.(display.startChar, display.endChar);
 }
-// Insert a token at a source position with spacing, then select it.
-function insertAt(at, token, select = true) {
+// Insert a token at a source position with spacing, then select it (and sound it, with hear). Returns where it starts.
+function insertAt(at, token, select = true, hear = false, keep = false) {
   const v = $('abc').value,
     before = at > 0 && !/\s/.test(v[at - 1]) ? ' ' : '',
     after = v[at] && !/\s/.test(v[at]) ? ' ' : '';
@@ -1050,13 +2544,17 @@ function insertAt(at, token, select = true) {
     at,
     at,
     before + token + after,
-    select ? [at + before.length, at + before.length + token.length] : null
+    select ? [at + before.length, at + before.length + token.length] : null,
+    hear ? at + before.length : null,
+    keep
   );
+  return at + before.length;
 }
-// Where a new note goes with nothing selected: before the closing bar line, or at the end of the music.
+// Where a new note goes with nothing selected: before the closing bar line, or at the end of the music. In a score
+// with several voices that is the end of the first voice (the top staff).
 function tuneEndPosition() {
   const all = [...new Set(noteSources.values())]
-      .filter(Boolean)
+      .filter(e => e && voiceOf(e) === '0:0')
       .sort((a, b) => a.element.startChar - b.element.startChar),
     last = all.at(-1);
   if (!last) return $('abc').value.length;
@@ -1064,55 +2562,166 @@ function tuneEndPosition() {
     ? last.element.startChar
     : last.element.endChar;
 }
+// Where a new note goes: over the selected rest (typing on a rest writes over it, as in MuseScore), after the
+// selected note, or at the end of the music. After a range selection (sel.after, see entrySelection) a rest at its
+// end is kept and the note goes after it.
+const fillsRest = sel =>
+  sel && !sel.after && !sel.entry.element.pitches?.length && sel.entry.element.rest?.type !== 'multimeasure';
+const entryPosition = sel =>
+  fillsRest(sel) ? sel.entry.element.startChar : sel ? sel.entry.element.endChar : tuneEndPosition();
+// Letters name what the student sees, so pick the octave in written pitch, nearest the previous note.
 function insertNote(letter, sel) {
-  if (sel && !sel.entry.element.pitches?.length && sel.entry.element.rest?.type !== 'multimeasure') {
-    overwriteRest(letter, sel.entry);
+  insertCore(letterToken(letter, entryPosition(sel)), sel);
+}
+// Enter a pitch (or z), without a length, at the input length: a selected rest keeps whatever time is left and
+// stays selected so the next note continues; otherwise the note goes after the selection and is selected. An
+// accidental on the new note does not change later notes in the bar (see keepLaterPitches).
+function insertCore(core, sel) {
+  const keep = /^[_^=]/.test(core),
+    at = entryPosition(sel),
+    start = fillsRest(sel)
+      ? fillRest(sel.entry, core, undefined, keep)
+      : insertAt(at, core + lengthText((inputLength ?? beatLength()) / unitLengthAt(at)), true, core !== 'z', keep);
+  rememberEntry(core === 'z' ? null : start);
+}
+// The note the last entry wrote, while the source and selection are as that entry left them. Filling a rest
+// completely passes the selection on to the next note, so chord pitches still need to know the note just entered.
+let lastEntry = null;
+function rememberEntry(at) {
+  lastEntry = at == null ? null : {at, source: $('abc').value, range: String(selectedRange)};
+}
+// The note a chord pitch goes on: the note just entered, the selected note, or the note just before a selected rest.
+// Entering a note over a rest moves the selection on to what is left of the rest, so that is the note just entered.
+function chordTarget(sel) {
+  if (lastEntry && lastEntry.source === $('abc').value && lastEntry.range === String(selectedRange)) {
+    // abcjs can start a note at the space before it (after a bar line), so look for the note that holds the offset.
+    const {at} = lastEntry,
+      entry = scoreNotes().find(n => n.element.startChar <= at && at < n.element.endChar && n.element.pitches?.length);
+    if (entry) return entry === sel?.entry ? sel : {entry, display: displayOf(entry)};
+  }
+  if (!sel || sel.entry.element.pitches?.length) return sel;
+  const voice = sel.entry.key.split(':').slice(0, 2).join(':') + ':',
+    notes = scoreNotes().filter(n => n.key.startsWith(voice)),
+    prev = notes[notes.indexOf(sel.entry) - 1];
+  return prev?.element.pitches?.length ? {entry: prev, display: displayOf(prev)} : null;
+}
+// Add a pitch (without a length) to the chord target, making it a chord or adding to one; one undo step. A selected
+// rest stays selected, so entry carries on after the chord. Returns false when the pitch is already there.
+function addToChord(sel, core) {
+  const target = chordTarget(sel),
+    start = target.entry.element.startChar,
+    end = target.entry.element.endChar,
+    old = $('abc').value.slice(start, end),
+    text = addChordPitch(old, core),
+    delta = text.length - old.length;
+  if (text === old) return false;
+  const select =
+    target === sel
+      ? [start, start + text.length]
+      : [sel.entry.element.startChar + delta, sel.entry.element.endChar + delta];
+  applyNoteEdit(start, end, text, select, start, /^[_^=]/.test(core));
+  rememberEntry(target === sel ? null : start);
+  return true;
+}
+// Shift+A–G: the letter's pitch just above the chord's top note (in written pitch, letters as the written key names
+// them), as the key signature spells it.
+function addLetterToChord(letter, sel) {
+  const target = chordTarget(sel),
+    steps = writtenSteps($('abc').value, target.entry.element.startChar, displayShift()),
+    top = Math.max(...target.entry.element.pitches.map(p => p.pitch)) + steps,
+    index = 'CDEFGAB'.indexOf(letter),
+    pitch = index + 7 * (Math.floor((top - index) / 7) + 1);
+  $('selection-status').textContent = addToChord(sel, pitchToken(pitch - steps))
+    ? `Added ${letter} to the chord. Shift+A–G adds more.`
+    : `${letter} is already in the chord.`;
+}
+// Z or Respell: spell the selected note or chord another way at the same pitch (C♯ as D♭ and back), as one undo
+// step. The bar's accidentals decide what a plain letter sounds, so the new text is checked against the parse and its
+// accidentals are written out where the plain spelling would change the pitch; later notes in the bar keep theirs,
+// and lose an accidental only the old spelling needed (respellEdit). Pressing again on the same note, with nothing
+// else edited in between, comes back to the very text it started from once the spelling comes round (respellRun).
+let respellRun = null;
+function respellSelected(sel) {
+  const status = $('selection-status');
+  if (!sel?.entry.element.pitches?.length) {
+    status.textContent = 'Z respells a note. Select a note or chord first.';
     return;
   }
-  const at = sel ? sel.entry.element.endChar : tuneEndPosition(),
-    length = inputLength ?? beatLength();
-  let token = 'z';
-  if (letter !== 'z') {
-    // Letters name what the student sees, so pick the octave in written pitch, nearest the previous note.
-    token = letterToken(letter, at);
+  const source = $('abc').value,
+    {startChar: start, endChar: end} = sel.entry.element,
+    old = source.slice(start, end),
+    pitchesAt = (text, at) => noteLabels(ABCJS.parseOnly(text)[0], 'letters').find(l => l.at === at)?.written,
+    midis = pitchesAt(source, start),
+    key = pianoKeyAt(ABCJS.parseOnly(source)[0], start, sel.entry.key.split(':').slice(0, 2).join(':')),
+    sounds = text => String(pitchesAt(source.slice(0, start) + text + source.slice(end), start)) === String(midis);
+  let text = midis && respell(old, key, {midis});
+  if (text && !sounds(text)) text = respell(old, key, {midis, explicit: true});
+  if (!text || text === old) {
+    status.textContent = 'This note has no other spelling.';
+    return;
   }
-  insertAt(at, token + lengthText(length / unitLengthAt(at)));
+  const again = respellRun?.at === start && respellRun.after === source ? respellRun : null;
+  let edit = null;
+  try {
+    edit =
+      again && text === again.note
+        ? sourceEdit(source, again.from, start, end, start + text.length)
+        : respellEdit(source, start, end, text);
+  } catch {}
+  if (edit) applyNoteEdit(start, edit.end, edit.text, [start, start + text.length], start);
+  else applyNoteEdit(start, end, text, undefined, start, true);
+  respellRun = {at: start, note: again ? again.note : old, from: again ? again.from : source, after: $('abc').value};
+  // Name the new spelling as the staff shows it (written pitch for transposing instruments, unless Concert pitch
+  // view is on).
+  const display = selectedNote()?.display,
+    label =
+      display &&
+      midis.length === 1 &&
+      noteLabels(ABCJS.parseOnly(writtenABC())[0], 'letters').find(l => l.at === display.startChar);
+  status.textContent = `${label ? 'Respelled as ' + label.text : 'Respelled the chord'}. Respell again (Z) for the next spelling.`;
 }
-// Written-pitch note token for a letter, in the octave nearest the last note before a source position.
+// Note token for a letter as the staff shows it (written pitch, or concert in Concert pitch view), in the octave
+// nearest the last note before a source position in the same voice, or else the middle of that voice's staff.
 function letterToken(letter, at) {
   if (letter === 'z') return 'z';
-  const steps = Math.round((instruments[currentInstrument()].shift * 7) / 12),
-    prev = scoreNotes()
-      .filter(n => n.element.startChar < at && n.element.pitches?.length)
-      .pop();
-  const ref = prev ? prev.element.pitches[0].pitch + steps : 6 + (staffClefs[0]?.[0] || 0),
+  const notes = scoreNotes(),
+    here = notes.filter(n => n.element.startChar <= at).pop() || notes[0],
+    voice = here ? voiceOf(here) : '0:0',
+    steps = writtenSteps($('abc').value, at, displayShift()),
+    prev = notes.filter(n => n.element.startChar < at && n.element.pitches?.length && voiceOf(n) === voice).pop();
+  const ref = prev ? prev.element.pitches[0].pitch + steps : 6 + (staffClefs[0]?.[+voice.split(':')[0]] || 0),
     letterIndex = 'CDEFGAB'.indexOf(letter);
   return pitchToken(letterIndex + 7 * Math.round((ref - letterIndex) / 7) - steps);
 }
-// Typing on a rest writes over it (as in MuseScore): the note takes its length from the rest and the rest keeps
-// what is left, which stays selected so the next letter continues. A filled rest passes the selection on.
-function overwriteRest(letter, rest) {
-  fillRest(rest, letterToken(letter, rest.element.startChar));
-}
-// Put a note (its pitch token, without a length) at the start of a rest; the rest keeps whatever time is left.
-function fillRest(rest, core, wanted = inputLength ?? beatLength()) {
+// Put a note (its pitch token, without a length) at the start of a rest, taking its length from the rest; the rest
+// keeps what is left, which stays selected so the next note continues. A filled rest passes the selection on.
+// Chord symbols and text written on the rest mark that beat, so the note takes them, and so does a tuplet opening.
+// A rest in a tuplet is filled whole, at its own written length, so the tuplet keeps its count, and a note shorter
+// than a quarter is beamed to the note before it in the tuplet, as tuplets are usually engraved. Returns where the
+// note starts.
+function fillRest(rest, core, wanted = inputLength ?? beatLength(), keep = false) {
   const v = $('abc').value,
-    start = rest.element.startChar,
     end = rest.element.endChar,
-    old = v.slice(start, end),
-    unit = unitLengthAt(start);
+    old = v.slice(rest.element.startChar, end),
+    unit = unitLengthAt(rest.element.startChar),
+    group = tupletGroup(rest),
+    prev = group?.members[group.members.indexOf(rest) - 1],
+    gap = core !== 'z' && prev && pitched(prev) && rest.element.duration < 0.25 ? beamGap(prev) : null,
+    join = !!gap && !gap.joined && gap.to === rest.element.startChar,
+    start = join ? gap.from : rest.element.startChar;
   const restLength = rest.element.duration || 0,
-    length = Math.min(wanted, restLength || Infinity),
-    left = restLength - length;
-  const token = core + lengthText(length / unit),
-    trail = old.match(/\s*$/)[0],
-    lead = old.match(/^\s*/)[0] || (start > 0 && !/\s/.test(v[start - 1]) ? ' ' : '');
+    length = group ? restLength : Math.min(wanted, restLength || Infinity),
+    left = restLength - length,
+    chords = (noteParts(noteHead(old).trimStart())?.pre.match(/"[^"]*"|\(\d+(?::\d*){0,2}/g) || []).join('');
+  const token = chords + core + lengthText(length / unit),
+    trail = noteTail(old),
+    lead = join ? '' : old.match(/^\s*/)[0] || (start > 0 && !/\s/.test(v[start - 1]) ? ' ' : '');
   if (left > 1e-6) {
     const remainder = 'z' + lengthText(left / unit),
       text = lead + token + ' ' + remainder + trail,
       at = start + lead.length + token.length + 1;
-    applyNoteEdit(start, end, text, [at, at + remainder.length]);
-    return;
+    applyNoteEdit(start, end, text, [at, at + remainder.length], start + lead.length, keep);
+    return start + lead.length;
   }
   const text = lead + token + trail,
     delta = text.length - (end - start),
@@ -1123,59 +2732,159 @@ function fillRest(rest, core, wanted = inputLength ?? beatLength()) {
     text,
     next
       ? [next.element.startChar + delta, next.element.endChar + delta]
-      : [start + lead.length, start + lead.length + token.length]
+      : [start + lead.length, start + lead.length + token.length],
+    start + lead.length,
+    keep
   );
+  // The status line says whether the tuplet has rests left to fill.
+  if (group)
+    $('selection-status').textContent =
+      core === 'z' || group.members.some(n => n !== rest && !pitched(n))
+        ? `${tupletWord(group.p)}: type letters to fill its rests.`
+        : `${tupletWord(group.p)} filled.`;
+  return start + lead.length;
+}
+// Keys 3–7 and the palette's length buttons: set the length of new notes, and of the selected note. A selected rest
+// keeps its length, so typing a letter writes a note of the new length over it.
+// With a range selection, every note in it takes the length (rests keep theirs).
+function chooseLength(value, sel = selectedNote()) {
+  inputLength = value;
+  fitNote = null;
+  const name = (NOTE_VALUES[value] || 'that length').replace(/^an? /, ''),
+    picked = selectedNotes();
+  if (picked.length > 1) {
+    const before = $('abc').value;
+    setLengths(picked, n => (pitched(n) ? value : null));
+    $('selection-status').textContent = fitSaid(($('abc').value === before ? 'Already ' : 'Changed to ') + name + 's.');
+  } else if (sel && sel.entry.element.pitches?.length) {
+    const before = $('abc').value;
+    editNote(sel.entry, sel.display, 'len:' + value);
+    $('selection-status').textContent = fitSaid(
+      ($('abc').value === before ? 'Already ' : 'Changed to ') + (NOTE_VALUES[value] || 'that length') + '.'
+    );
+  } else {
+    // Letters write over a selected rest, but go after a multi-measure rest (Z). A rest in a tuplet is filled at its
+    // own length, so the new length is for notes after the tuplet.
+    const over = sel && sel.entry.element.rest?.type !== 'multimeasure',
+      group = sel && tupletGroup(sel.entry);
+    $('selection-status').textContent = group
+      ? `New notes after the ${tupletWord(group.p).toLowerCase()} will be ${name}s. ` +
+        'Letters fill its rests at their own length.'
+      : 'New notes will be ' + name + 's.' + (over ? ' Type a letter to write one over the rest.' : '');
+    refreshPalette();
+  }
 }
 function scoreKey(e) {
-  if (e.metaKey || e.altKey || (e.ctrlKey && !/^Arrow(Up|Down)$/.test(e.key)) || !$('note-menu').hidden) return false;
+  // Ctrl/Cmd+Shift with these letters stays the browser's.
+  // AltGr (Ctrl+Alt on Windows) and Mac Option type | [ ] # on many layouts; they count as no modifier for a symbol.
+  const altGr = e.getModifierState?.('AltGraph') || (e.altKey && e.key.length === 1 && !/[a-z0-9]/i.test(e.key));
+  const mod = (e.ctrlKey && !altGr) || e.metaKey,
+    command = mod && !e.shiftKey && /^[acdvx]$/i.test(e.key);
+  if ((e.altKey && !altGr) || !$('note-menu').hidden) return false;
+  // Ctrl or Cmd+↑↓ moves by an octave (on a Mac, Ctrl+↑↓ belongs to Mission Control).
+  if (mod && !command && !/^Arrow(Up|Down)$/.test(e.key)) return false;
   if (renderedSource !== $('abc').value) {
     clearTimeout(renderTimer);
     render();
   }
   const key = e.key,
     sel = selectedNote(),
-    notes = scoreNotes();
+    notes = scoreNotes(),
+    picked = selectedNotes(),
+    many = picked.length > 1,
+    last = many ? entrySelection(picked) : sel;
+  if (command) {
+    selectionCommand(key.toLowerCase());
+    return true;
+  }
+  if (e.shiftKey && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+    extendSelection(key === 'ArrowLeft' ? -1 : 1);
+    return true;
+  }
   if (key === ' ') {
+    // Holding Space down starts playback once rather than toggling it with each key repeat.
+    if (e.repeat) return true;
     if (playing) stop();
     else if (sel) playFromNote(sel.display);
     else play();
     return true;
   }
+  // Typing after a range selection adds the note after its last note, and Shift+A–G adds to that note's chord.
+  if (e.shiftKey && /^[A-G]$/.test(key) && chordTarget(last)) {
+    addLetterToChord(key, last);
+    return true;
+  }
   if (/^[a-g]$/i.test(key)) {
-    insertNote(key.toUpperCase(), sel);
+    insertNote(key.toUpperCase(), last);
     return true;
   }
   if (key === 'r' || key === 'R' || key === '0') {
-    insertNote('z', sel);
+    insertNote('z', last);
     return true;
   }
   if (LENGTH_KEYS[key]) {
-    inputLength = LENGTH_KEYS[key];
-    if (sel && sel.entry.element.pitches?.length) editNote(sel.entry, sel.display, 'len:' + inputLength);
-    else
-      $('selection-status').textContent =
-        'New notes will be ' + (NOTE_VALUES[inputLength] || 'that length').replace(/^an? /, '') + 's.';
+    chooseLength(LENGTH_KEYS[key], sel);
     return true;
   }
   if (key === '|') {
-    if (sel) editNote(sel.entry, sel.display, 'bar-after');
-    else insertAt(tuneEndPosition(), '|', false);
+    if (last) editNote(last.entry, last.display, 'bar-after');
+    else {
+      insertAt(tuneEndPosition(), '|', false);
+      $('selection-status').textContent = 'Bar line added. ' + NOTHING_SELECTED;
+    }
     return true;
   }
+  // ← and → leave a range selection from its first or last note.
   if (key === 'ArrowLeft' || key === 'ArrowRight') {
     if (!notes.length) return true;
-    const i = sel ? notes.indexOf(sel.entry) : key === 'ArrowLeft' ? notes.length : -1,
+    const from = key === 'ArrowLeft' ? picked[0] : picked.at(-1),
+      i = from ? notes.indexOf(from) : key === 'ArrowLeft' ? notes.length : -1,
       next = notes[Math.max(0, Math.min(notes.length - 1, i + (key === 'ArrowLeft' ? -1 : 1)))];
     selectEntry(next);
+    auditionAt(next.element.startChar);
     return true;
   }
   if (key === 'Escape' && sel) {
     selectedRange = null;
+    selectionAnchor = null;
     renderedTune?.engraver?.rangeHighlight?.(-1, -1);
-    $('selection-status').textContent = 'Nothing selected. Letters add notes at the end.';
+    if (typeof showPianoSelection === 'function') showPianoSelection();
+    $('selection-status').textContent = NOTHING_SELECTED;
+    refreshPalette();
+    return true;
+  }
+  // From the piano strip, Enter or Esc in the box returns the keyboard to the piano key.
+  const opener = e.target?.closest?.('[data-piano-midi]') || null;
+  if (key === 'k' || key === 'K') {
+    if (sel) openChordEntry(sel, opener);
+    else $('selection-status').textContent = 'Select a note on the score first.';
+    return true;
+  }
+  if (key === 'l' || key === 'L') {
+    openLyricEntry(sel, opener);
+    return true;
+  }
+  if (key === 'z' || key === 'Z') {
+    // Respelling works on one note or chord, as the palette's Respell does.
+    if (many) $('selection-status').textContent = 'Z respells one note or chord. Select a single note for this.';
+    else respellSelected(sel);
+    return true;
+  }
+  if (key === 's' || key === 'S') {
+    toggleLineSelected('slur', picked);
+    return true;
+  }
+  if (key === 't' || key === 'T') {
+    if (many) $('selection-status').textContent = 'T makes one note a triplet. Select a single note for this.';
+    else tupletSelected(3, sel);
     return true;
   }
   if (!sel) return false;
+  if (key === '[' || key === ']') {
+    scaleLengths(picked, key === ']' ? 2 : 0.5);
+    return true;
+  }
+  if (many) return rangeKey(e, picked);
   const isNote = !!sel.entry.element.pitches?.length,
     start = sel.entry.element.startChar,
     end = sel.entry.element.endChar;
@@ -1184,13 +2893,23 @@ function scoreKey(e) {
     return true;
   }
   if (key === 'Delete' || key === 'Backspace') {
-    editNote(sel.entry, sel.display, 'delete');
+    editNote(sel.entry, sel.display, e.shiftKey ? 'remove' : 'delete');
+    return true;
+  }
+  if (MARK_KEYS[key]) {
+    markNote(sel, 'deco:' + MARK_KEYS[key]);
     return true;
   }
   if (!isNote) return false;
   if (key === 'ArrowUp' || key === 'ArrowDown') {
     const v = $('abc').value;
-    applyNoteEdit(start, end, moveNoteText(v.slice(start, end), (key === 'ArrowUp' ? 1 : -1) * (e.ctrlKey ? 7 : 1)));
+    applyNoteEdit(
+      start,
+      end,
+      moveNoteText(v.slice(start, end), (key === 'ArrowUp' ? 1 : -1) * (e.ctrlKey || e.metaKey ? 7 : 1)),
+      undefined,
+      start
+    );
     return true;
   }
   const accidental = {'#': '^', '-': '_', '=': '='}[key];
@@ -1214,6 +2933,802 @@ $('notation').addEventListener(
   },
   true
 );
+// Range selection. selectedRange can span a run of notes in one voice, from the anchor (the note where the selection
+// started) to the focus that Shift+←→ and Shift+click move; selectionAnchor says which end the anchor is ('first' or
+// 'last'), and is null for one note. A run stops where another voice's note comes between, so it is always one
+// stretch of source text.
+const voiceOf = entry => entry.key.split(':').slice(0, 2).join(':');
+// The notes from a to b (either order) in reading order.
+function noteRun(a, b) {
+  const notes = scoreNotes(),
+    i = notes.indexOf(a),
+    j = notes.indexOf(b),
+    step = j >= i ? 1 : -1,
+    run = [a];
+  if (i < 0 || j < 0) return run;
+  for (let k = i + step; k !== j + step; k += step) {
+    if (voiceOf(notes[k]) !== voiceOf(a)) break;
+    run.push(notes[k]);
+  }
+  return step > 0 ? run : run.reverse();
+}
+function selectedNotes() {
+  if (!selectedRange) return [];
+  if (!selectionAnchor) {
+    const sel = selectedNote();
+    return sel ? [sel.entry] : [];
+  }
+  const inside = scoreNotes().filter(
+    n => n.element.startChar < selectedRange[1] && n.element.endChar > selectedRange[0]
+  );
+  if (!inside.length) return [];
+  return selectionAnchor === 'last' ? noteRun(inside.at(-1), inside[0]) : noteRun(inside[0], inside.at(-1));
+}
+function highlightRun(run) {
+  const a = displayOf(run[0]),
+    b = displayOf(run.at(-1));
+  if (a && b) renderedTune?.engraver?.rangeHighlight?.(a.startChar, b.endChar);
+}
+// Select from anchor a to focus b; a note in another voice is selected on its own.
+function selectNotesBetween(a, b) {
+  if (voiceOf(a) !== voiceOf(b)) a = b;
+  const run = noteRun(a, b);
+  if (run.length < 2) {
+    selectEntry(a);
+    return run;
+  }
+  const first = run[0],
+    last = run.at(-1);
+  selectedRange = [first.element.startChar, last.element.endChar];
+  selectionAnchor = a === first ? 'first' : 'last';
+  $('abc').setSelectionRange(...selectedRange);
+  highlightRun(run);
+  const where =
+    first.measure === last.measure ? `measure ${first.measure}` : `measures ${first.measure}–${last.measure}`;
+  $('selection-status').textContent =
+    `${run.length} notes selected in ${where} · Copy, Cut or Duplicate them (Ctrl+C, X, D) · ↑↓, # and [ ] change them all`;
+  refreshTranspose();
+  refreshPalette();
+  if (typeof showPianoSelection === 'function') showPianoSelection();
+  return run;
+}
+// Shift+← and Shift+→: move the focus one note, within the voice.
+function extendSelection(step) {
+  const picked = selectedNotes(),
+    notes = scoreNotes();
+  if (!notes.length) return;
+  if (!picked.length) {
+    selectEntry(step < 0 ? notes.at(-1) : notes[0]);
+    return;
+  }
+  const anchor = selectionAnchor === 'last' ? picked.at(-1) : picked[0],
+    focus = anchor === picked[0] ? picked.at(-1) : picked[0],
+    next = notes[notes.indexOf(focus) + step];
+  if (!next || voiceOf(next) !== voiceOf(anchor)) return;
+  selectNotesBetween(anchor, next);
+  auditionAt(next.element.startChar);
+}
+// Ctrl/Cmd+A: every note of the voice around the selection (the first voice when nothing is selected).
+function selectAllNotes() {
+  const notes = scoreNotes(),
+    from = selectedNotes()[0] || notes[0];
+  if (!from) return;
+  let i = notes.indexOf(from),
+    j = i;
+  while (i > 0 && voiceOf(notes[i - 1]) === voiceOf(from)) i--;
+  while (j < notes.length - 1 && voiceOf(notes[j + 1]) === voiceOf(from)) j++;
+  selectNotesBetween(notes[i], notes[j]);
+}
+// The bar lines around a run in its voice. A run of whole measures starts a measure and ends at a bar line or at the
+// end of the voice's music (open: no bar line closes it).
+function runBars(run) {
+  const voice = voiceOf(run[0]),
+    items = [...new Set(noteSources.values())]
+      .filter(e => e && voiceOf(e) === voice)
+      .sort((a, b) => a.element.startChar - b.element.startChar),
+    i = items.indexOf(run[0]),
+    j = items.indexOf(run.at(-1)),
+    bar = e => (e?.element.el_type === 'bar' ? e : null),
+    before = bar(items[i - 1]),
+    after = bar(items[j + 1]),
+    open = j === items.length - 1;
+  return {before, after, open, whole: (!!after || open) && (i === 0 || !!before), items: items.slice(i, j + 1)};
+}
+const plainBar = b => !!b && b.element.type === 'bar_thin' && !b.element.startEnding;
+// Accidentals last to the end of their measure, so an edit that adds, removes or moves one can change the pitch of
+// notes after it that it never touched. pitchWalk reads each pitch as noteLabels does: a written accidental, else the
+// accidental carried through a tie or earlier in the measure (at that octave), else the key signature, inline key
+// changes included. It gives each note's alterations (semitones off the plain letter, chord pitches in source order,
+// grace notes aside) by startChar. want(element) may name the alterations a note should have; a pitch that reads
+// otherwise is listed in fixes with the accidental it needs, and the reading goes on as if it had it.
+function pitchWalk(tune, want = () => null) {
+  const alters = new Map(),
+    fixes = [],
+    voices = new Map();
+  for (const line of tune?.lines || [])
+    for (const [s, staff] of (line.staff || []).entries())
+      for (const [v, voice] of (staff.voices || []).entries()) {
+        const id = s + ':' + v,
+          state = voices.get(id) || {key: {}, carried: {}, tied: {}};
+        voices.set(id, state);
+        if (staff.key) state.key = keyAlters(staff.key);
+        for (const e of voice) {
+          if (e.el_type === 'key') state.key = keyAlters(e);
+          if (e.el_type === 'bar') state.carried = {};
+          if (e.el_type !== 'note' || !e.pitches?.length || e.rest) continue;
+          const wanted = want(e),
+            tied = {},
+            fix = [];
+          const read = e.pitches.map((p, k) => {
+            let alter = p.accidental
+              ? (ALTER[p.accidental] ?? 0)
+              : ((p.endTie ? state.tied[p.pitch] : null) ??
+                state.carried[p.pitch] ??
+                state.key['CDEFGAB'[posMod(p.pitch, 7)]] ??
+                0);
+            if (wanted?.[k] != null && wanted[k] !== alter) alter = fix[k] = wanted[k];
+            if (p.accidental || fix[k] != null) state.carried[p.pitch] = alter;
+            if (p.startTie) tied[p.pitch] = alter;
+            return alter;
+          });
+          alters.set(e.startChar, read);
+          state.tied = tied;
+          if (fix.length) fixes.push({start: e.startChar, end: e.endChar, fix});
+        }
+      }
+  return {alters, fixes};
+}
+// Write the accidentals a note needs (fix: alterations by pitch, in source order) into its text.
+function setAccidentals(text, fix) {
+  let k = 0;
+  return text.replace(/"[^"]*"|![^!]*!|\+[^+]*\+|\{[^}]*\}|(\^{1,2}|_{1,2}|=)?([A-Ga-g])/g, (m, acc, letter) => {
+    if (!letter) return m;
+    const alter = fix[k++];
+    return alter == null ? m : ACC_TEXT[alter] + letter;
+  });
+}
+const solidAt = (text, at) => {
+  while (/[ \t]/.test(text[at] || '')) at++;
+  return at;
+};
+// applyNoteEdit for edits that move notes about (paste, duplicate, cut, delete and the multi-note edits): every note
+// outside start..end keeps the pitch it had, with an accidental of its own where it now needs one. pasted ({start,
+// end, alters}, positions in the new text) gives the notes pasted there the pitches they had where they were copied,
+// spelled for the key and the accidentals around them. The fixes go into the same undo step.
+function editKeepingPitches(start, end, text, select, hear = null, anchor = null, pasted = null) {
+  const v = $('abc').value,
+    delta = text.length - (end - start),
+    shifts = [];
+  let next = v.slice(0, start) + text + v.slice(end);
+  try {
+    // Notes are matched by where their music starts, as abcjs counts a space before a note after a bar line as its own.
+    const kept = new Map(),
+      copied = new Map();
+    for (const [at, alters] of pitchWalk(ABCJS.parseOnly(v)[0]).alters) {
+      const p = solidAt(v, at);
+      if (p < start) kept.set(p, alters);
+      else if (p >= end) kept.set(p + delta, alters);
+    }
+    const tune = ABCJS.parseOnly(next)[0];
+    if (pasted?.alters) {
+      const notes = scoreEvents(tune)
+        .map(e => e.element)
+        .filter(e => e.el_type === 'note' && e.pitches?.length && !e.rest)
+        .filter(e => solidAt(next, e.startChar) >= pasted.start && solidAt(next, e.startChar) < pasted.end)
+        .sort((a, b) => a.startChar - b.startChar);
+      if (notes.length === pasted.alters.length) notes.forEach((e, i) => copied.set(e.startChar, pasted.alters[i]));
+    }
+    const {fixes} = pitchWalk(tune, e => copied.get(e.startChar) ?? kept.get(solidAt(next, e.startChar)));
+    for (const f of fixes.sort((a, b) => b.start - a.start)) {
+      const fixed = setAccidentals(next.slice(f.start, f.end), f.fix);
+      next = next.slice(0, f.start) + fixed + next.slice(f.end);
+      shifts.push([f.start, fixed.length - (f.end - f.start)]);
+    }
+  } catch {
+    shifts.length = 0;
+  }
+  if (!shifts.length) return applyNoteEdit(start, end, text, select, hear, false, anchor);
+  // Positions in the new text move by the fixes before them; a fix at a position belongs to the note starting there.
+  const moved = at => at + shifts.reduce((sum, [from, d]) => sum + (from < at ? d : 0), 0);
+  let same = 0;
+  while (same < Math.min(v.length, next.length) - start && v.at(-1 - same) === next.at(-1 - same)) same++;
+  applyNoteEdit(
+    start,
+    v.length - same,
+    next.slice(start, next.length - same),
+    select && select.map(moved),
+    hear == null ? null : moved(hear),
+    false,
+    anchor
+  );
+}
+// One edit over several notes: change(entry, text) gives each note's new source text and the text between them stays.
+// The selection becomes the rewritten picked notes, keeping its anchor; hear (an entry) sounds that note. Notes after
+// them keep their pitch.
+function editNotes(entries, change, picked = entries, hear = null) {
+  const v = $('abc').value,
+    list = [...new Set([...entries, ...picked])].sort((a, b) => a.element.startChar - b.element.startChar),
+    from = list[0].element.startChar,
+    spans = new Map();
+  let text = '',
+    at = from;
+  for (const n of list) {
+    text += v.slice(at, n.element.startChar);
+    const next = change(n, v.slice(n.element.startChar, n.element.endChar));
+    spans.set(n, [from + text.length, from + text.length + next.length]);
+    text += next;
+    at = n.element.endChar;
+  }
+  const first = spans.get(picked[0]),
+    last = spans.get(picked.at(-1));
+  editKeepingPitches(
+    from,
+    at,
+    text,
+    [first[0], last[1]],
+    hear ? spans.get(hear)[0] : null,
+    picked.length > 1 ? selectionAnchor || 'first' : null
+  );
+}
+const pitched = n => !!n.element.pitches?.length;
+// Keep bars full (Noteflight's duration rules): a note that gets shorter leaves rests for the difference, one that
+// gets longer takes its time from the rests after it in its bar or is refused, and Delete leaves a rest (Shift+Delete
+// removes the note). It is on for scores written here (blank sheets, templates, writing prompts and assignments) and
+// off for library editions and imported or shared music; a saved score or a draft keeps the setting it had (fit).
+const keepBars = () => $('keep-bars')?.checked === true,
+  keepBarsFor = item => item?.fit ?? (!item?.rights && !!item?.prompt);
+// What the last length change or Delete said under Keep bars full: {say, extra}, where extra means say follows the
+// usual message ("Changed to a quarter note.") and otherwise replaces it (a refusal). Null when it had nothing to say.
+let fitNote = null;
+const fitSaid = base => (fitNote && !fitNote.extra ? fitNote.say : fitNote?.say ? base + ' ' + fitNote.say : base);
+function fitWhy(r, m, many) {
+  if (r.why === 'tuplet') return 'Notes in a tuplet keep their length while Keep bars full is on.';
+  if (r.why === 'broken')
+    return 'This note is half of a dotted pair (> or <). Turn off Keep bars full to change its length.';
+  if (r.why === 'multi') return 'A multi-measure rest lasts whole bars.';
+  const rest = r.room > 1e-9 ? `only ${beatWords(r.room, m.meter)} of rest` : 'no rest';
+  return (
+    `No room in measure ${m.measure}: there is ${rest} after ${many ? 'these notes' : 'this note'}. ` +
+    'Delete a later note to make room, or turn off Keep bars full.'
+  );
+}
+// Give notes new lengths (lengthOf, whole notes; null keeps a note's own) and keep their bars full, as one undo step
+// that keeps the selection. Returns {say, extra} for fitNote, or null in free time (M:none), where there is no bar to
+// keep and lengths change as usual.
+function fitLengths(picked, lengthOf) {
+  const v = $('abc').value,
+    tune = ABCJS.parseOnly(v)[0],
+    where = new Map(),
+    plans = new Map();
+  for (const m of barLengths(tune)) m.notes.forEach((n, i) => where.set(n.element.startChar, [m, i]));
+  // A bar left short may also give its missing time to a longer note.
+  const short = new Map(
+    barProblems(tune)
+      .filter(m => m.length < m.expected)
+      .map(m => [m.voice + '|' + m.measure, m.expected - m.length])
+  );
+  // In a range, rests keep their length and make room, as the rests after it do.
+  for (const n of picked) {
+    const length = picked.length > 1 && !pitched(n) ? null : lengthOf(n),
+      [m, i] = where.get(n.element.startChar) || [];
+    if (length == null || !m) continue;
+    if (m.meter === 'free') return null;
+    if (!plans.has(m))
+      plans.set(
+        m,
+        m.notes.map(() => null)
+      );
+    plans.get(m)[i] = length;
+  }
+  const edits = [];
+  let added = 0,
+    taken = 0,
+    rests = 0;
+  for (const [m, lengths] of plans) {
+    const r = fitBar(
+      v,
+      m,
+      lengths,
+      unitLengthIn(v, m.notes[0].element.startChar),
+      short.get(m.voice + '|' + m.measure)
+    );
+    if (r.why) return {say: fitWhy(r, m, picked.length > 1)};
+    edits.push(...r.edits);
+    added += r.added;
+    taken += r.taken;
+    rests += r.rests;
+  }
+  if (!edits.length) return {say: '', extra: true};
+  let next;
+  try {
+    next = spliceAll(v, edits);
+  } catch (e) {
+    return {say: e.message};
+  }
+  // Positions move by the edits before them; a rest written right after a note is not part of it.
+  const moved = p =>
+      p +
+      edits.reduce(
+        (sum, e) => sum + (e.end < p || (e.end === p && e.start < p) ? e.text.length - e.end + e.start : 0),
+        0
+      ),
+    head = n => {
+      const t = v.slice(n.element.startChar, n.element.endChar);
+      return [n.element.startChar + t.match(/^\s*/)[0].length, n.element.startChar + noteHead(t).length];
+    },
+    // A rest in the selection that a longer note took up whole is gone; the selection ends at the note before it.
+    gone = n => edits.some(e => !e.text && e.start <= head(n)[0] && e.end >= head(n)[1]),
+    last = [...picked].reverse().find(n => !gone(n)) || picked[0];
+  const start = Math.min(...edits.map(e => e.start)),
+    end = Math.max(...edits.map(e => e.end));
+  applyNoteEdit(
+    start,
+    end,
+    next.slice(start, end + next.length - v.length),
+    [moved(picked[0].element.startChar), moved(head(last)[1])],
+    null,
+    false,
+    picked.length > 1 ? selectionAnchor || 'first' : null
+  );
+  const many = picked.length > 1;
+  return {
+    say:
+      added > 1e-9
+        ? rests === 1
+          ? 'A rest fills the gap.'
+          : 'Rests fill the gap.'
+        : taken > 1e-9
+          ? `${many ? 'They' : 'It'} took time from the rests after ${many ? 'them' : 'it'}.`
+          : '',
+    extra: true
+  };
+}
+// Give notes new lengths (whole notes; null keeps a note's own). A note joined by > or < to a neighbour is spelled
+// out with explicit lengths, with its neighbour, so the neighbour keeps its duration.
+function setLengths(picked, lengthOf) {
+  fitNote = null;
+  if (keepBars()) {
+    const fit = fitLengths(picked, lengthOf);
+    if (fit) {
+      fitNote = fit;
+      if (!fit.extra) $('selection-status').textContent = fit.say;
+      return !!fit.extra;
+    }
+  }
+  const touched = [...picked],
+    paired = new Set();
+  for (const n of picked)
+    for (const m of brokenPair(n) || []) {
+      paired.add(m);
+      if (!touched.includes(m)) touched.push(m);
+    }
+  editNotes(
+    touched,
+    (n, text) => {
+      const length = picked.includes(n) ? lengthOf(n) : null;
+      if (length == null && !paired.has(n)) return text;
+      return editNoteText(text, {
+        length: (length ?? n.element.duration ?? 0) / unitLengthAt(n.element.startChar),
+        unbroken: paired.has(n)
+      });
+    },
+    picked,
+    picked.find(pitched)
+  );
+  return true;
+}
+// [ and ]: halve or double every length in the selection.
+function scaleLengths(picked, factor) {
+  const lengths = picked.map(n => (n.element.duration || 0) * factor);
+  if (lengths.some(l => l > 2 + 1e-9)) {
+    $('selection-status').textContent = 'That would make a note longer than two whole notes.';
+    return;
+  }
+  if (lengths.some(l => l && l < 1 / 64 - 1e-9)) {
+    $('selection-status').textContent = 'That would make a note shorter than a 64th note.';
+    return;
+  }
+  if (!setLengths(picked, n => (n.element.duration || 0) * factor)) return;
+  $('selection-status').textContent = fitSaid(
+    `${factor > 1 ? 'Doubled' : 'Halved'} the length of ${countWords((keepBars() ? picked.filter(pitched) : picked).length)}.`
+  );
+}
+const countWords = n => (n === 1 ? '1 note' : `${n} notes`);
+const isDotted = n => DOTTABLE.some(x => Math.abs((n.element.duration || 0) - x * 1.5) < 1e-9);
+// Keys on a range selection: ↑↓ (Ctrl: octave), sharp/flat/natural, dot, tie, Delete and the articulation keys act on
+// every note.
+function rangeKey(e, picked) {
+  const key = e.key,
+    first = picked.find(pitched),
+    each = fn => editNotes(picked, (n, text) => (pitched(n) ? fn(n, text) : text), picked, first);
+  if (key === 'ArrowUp' || key === 'ArrowDown') {
+    const steps = (key === 'ArrowUp' ? 1 : -1) * (e.ctrlKey || e.metaKey ? 7 : 1);
+    each((n, text) => moveNoteText(text, steps));
+    return true;
+  }
+  const accidental = {'#': '^', '-': '_', '=': '='}[key];
+  if (accidental) {
+    const batch = writtenBatch();
+    each(n => accidentalEdit(n, displayOf(n), accidental, batch));
+    return true;
+  }
+  if (key === '+') {
+    const tie = !picked
+      .filter(pitched)
+      .every(n => /^-/.test(noteParts($('abc').value.slice(n.element.startChar, n.element.endChar))?.post || ''));
+    each((n, text) => editNoteText(text, {tie}));
+    return true;
+  }
+  if (key === '.') {
+    const all = picked.every(isDotted),
+      before = $('abc').value;
+    if (setLengths(picked, n => (all ? n.element.duration / 1.5 : isDotted(n) ? null : n.element.duration * 1.5)))
+      $('selection-status').textContent = fitSaid(
+        $('abc').value === before ? 'No change.' : `Changed ${countWords(picked.filter(pitched).length)}.`
+      );
+    return true;
+  }
+  if (key === 'Delete' || key === 'Backspace') {
+    if (keepBars() && !e.shiftKey) clearRun(picked);
+    else deleteRun(picked);
+    return true;
+  }
+  if (MARK_KEYS[key]) {
+    $('selection-status').textContent = markRange(picked, 'deco:' + MARK_KEYS[key]);
+    return true;
+  }
+  return false;
+}
+// The notation palette on a range selection: Dot, Tie, Sharp, Flat, Natural and Delete act on every selected note,
+// as their keys do. Returns false, and changes nothing, for one note or another action.
+const RANGE_PALETTE = {dot: '.', tie: '+', 'acc:^': '#', 'acc:_': '-', 'acc:=': '=', delete: 'Delete'};
+function rangePalette(action, picked = selectedNotes()) {
+  return picked.length > 1 && !!RANGE_PALETTE[action] && rangeKey({key: RANGE_PALETTE[action]}, picked);
+}
+// Delete under Keep bars full: the notes of a run become rests of the same length, as Cut leaves them. A note tied
+// into the first one loses its tie in the same step, as a single note's Delete does.
+function clearRun(picked) {
+  const notes = picked.filter(pitched);
+  if (!notes.length) {
+    $('selection-status').textContent =
+      'Rests keep the bars full. Shift+Delete, or Delete with Keep bars full off, takes them out.';
+    return;
+  }
+  const untie = pitched(picked[0]) ? tiedInto(picked[0]) : null;
+  editNotes(
+    untie ? [untie, ...picked] : picked,
+    (n, text) => (n === untie ? editNoteText(text, {tie: false}) : restText(text)),
+    picked
+  );
+  $('selection-status').textContent =
+    `Changed ${countWords(notes.length)} to rests, so the bars stay full. ` +
+    'Shift+Delete, or Delete with Keep bars full off, takes notes out.';
+}
+// Delete a run. Whole measures go with one of their bar lines, so no empty measure is left behind, and a line left
+// with nothing on it goes with its line break: a blank line ends the tune in ABC, which would drop every measure
+// after it. A line break between notes that stay is kept. Anything else between the notes (an inline field, a
+// comment) stays, and then only the notes go. The notes after the run keep their pitch.
+// A run's source text, from where it opens to its last note's end. abcjs starts a note at its first mark, so a slur,
+// tuplet or line opened just before that mark ((.E, (3.C, !<(!(!mf!E) sits outside the note's text. Such openings
+// (openings, as {element: {startChar, endChar}}) go with their note when the run holds what they open: all of a
+// tuplet, and for the first note every slur and line they open; the run starts at the first note's openings then.
+// loose lists the slur and line ends in the run whose other end is outside it ({at, text, close, kind}), which a copy
+// leaves out and a deletion keeps on the notes either side, so no slur or line is left half open.
+function runSpan(picked) {
+  const v = $('abc').value,
+    first = picked[0].element.startChar,
+    end = picked.at(-1).element.endChar,
+    {pairs} = linePairs(v),
+    openings = [];
+  for (const [i, n] of picked.entries()) {
+    const at = n.element.startChar,
+      prefix = v.slice(Math.max(0, at - 64), at).match(/(?:\(\d+(?::\d*){0,2}|\(|![^!\s]*\(!)+$/)?.[0] || '',
+      group = /\(\d/.test(prefix) && tupletGroup(n);
+    if (
+      prefix &&
+      (!/\(\d/.test(prefix) || (group && group.members.every(m => picked.includes(m)))) &&
+      (i > 0 || !pairs.some(p => p.open && p.open[0] >= at - prefix.length && p.open[0] < at && !(p.close?.[0] < end)))
+    )
+      openings.push({element: {startChar: at - prefix.length, endChar: at}});
+  }
+  const start = openings[0]?.element.endChar === first ? openings[0].element.startChar : first,
+    inside = at => at != null && at >= start && at < end,
+    loose = [];
+  for (const p of pairs) {
+    if (inside(p.close?.[0]) && !inside(p.open?.[0]))
+      loose.push({at: p.close[0], text: v.slice(...p.close), close: true, kind: p.kind});
+    else if (inside(p.open?.[0]) && !inside(p.close?.[0]))
+      loose.push({at: p.open[0], text: v.slice(...p.open), close: false, kind: p.kind});
+  }
+  return {start, end, openings, loose: loose.sort((a, b) => a.at - b.at)};
+}
+function deleteRun(picked) {
+  const v = $('abc').value,
+    {before, after, whole, items} = runBars(picked),
+    span = runSpan(picked);
+  let start = span.start,
+    end = picked.at(-1).element.endChar;
+  if (whole && plainBar(after)) end = after.element.endChar;
+  else if (whole && plainBar(before)) start = before.element.startChar;
+  const parts = [
+    ...items,
+    ...[before, after].filter(b => b && b.element.startChar >= start && b.element.endChar <= end)
+  ];
+  // The openings just before its notes go with them (runSpan).
+  const opening = span.openings.filter(o => o.element.startChar >= start);
+  let rest = v.slice(start, end);
+  for (const n of [...parts, ...opening].sort((a, b) => b.element.startChar - a.element.startChar))
+    rest = rest.slice(0, n.element.startChar - start) + rest.slice(n.element.endChar - start);
+  let text = '';
+  if (rest.trim()) {
+    // Keep what is not a note: remove each note's text only.
+    start = span.start;
+    end = picked.at(-1).element.endChar;
+    text = v.slice(start, end);
+    for (const n of [...picked, ...opening].sort((a, b) => b.element.startChar - a.element.startChar))
+      text = text.slice(0, n.element.startChar - start) + text.slice(n.element.endChar - start);
+  } else {
+    // Close the gap over the spaces on both sides: a whole line goes with one line break, a line's start or end
+    // closes up, and in the middle of a line one space stays (none between beamed notes).
+    let a = start,
+      b = end;
+    while (a > 0 && /[ \t]/.test(v[a - 1])) a--;
+    while (b < v.length && /[ \t]/.test(v[b])) b++;
+    const lineStart = a === 0 || v[a - 1] === '\n',
+      lineEnd = b === v.length || v[b] === '\n';
+    if (lineStart && lineEnd) {
+      if (b < v.length) b++;
+      else if (a > 0) a--;
+    } else if (!lineStart && !lineEnd) text = rest.includes('\n') && !whole ? '\n' : a < start || b > end ? ' ' : '';
+    start = a;
+    end = b;
+  }
+  const voice = scoreNotes().filter(n => voiceOf(n) === voiceOf(picked[0])),
+    prev = voice.filter(n => n.element.startChar < Math.min(start, picked[0].element.startChar)).pop(),
+    next = voice.find(n => n.element.startChar >= picked.at(-1).element.endChar);
+  // A slur or line end in the run that closes one opened before it moves onto the note before the run, and an
+  // opening whose end is after the run moves onto the note after it. A ) goes after that note's length; a hairpin or
+  // trill line end is a decoration, which marks the note after it, so it goes before the note's pitch (lineSlot).
+  const ends = span.loose.filter(t => t.close && prev),
+    opens = span.loose.filter(t => !t.close && next);
+  let select = prev ? [prev.element.startChar, Math.min(prev.element.endChar, start)] : null;
+  if (ends.length) {
+    const from = prev.element.startChar,
+      own = v.slice(from, prev.element.endChar),
+      head = from + noteHead(own).length,
+      marks = ends
+        .map(t => ({at: t.kind === 'slur' ? head : from + lineSlot(own, t.kind), text: t.text}))
+        .filter(m => m.at <= start)
+        .sort((a, b) => a.at - b.at);
+    if (marks.length) {
+      const at = marks[0].at;
+      let moved = v.slice(at, start);
+      for (const m of [...marks].reverse()) moved = moved.slice(0, m.at - at) + m.text + moved.slice(m.at - at);
+      text = moved + text;
+      start = at;
+      select = [from, head + marks.filter(m => m.at < head).reduce((n, m) => n + m.text.length, 0)];
+    }
+  }
+  if (opens.length) {
+    const at = solidAt(v, next.element.startChar);
+    if (at >= end) {
+      text += v.slice(end, at) + opens.map(t => t.text).join('');
+      end = at;
+    }
+  }
+  // A slur or line whose notes between its ends were all deleted would be left on one note; it comes off.
+  const edited = v.slice(0, start) + text + v.slice(end),
+    to = start + text.length,
+    stray = oneNoteLines(edited, start, to);
+  if (stray.length) {
+    const lo = Math.min(start, ...stray.map(e => e.at)),
+      hi = Math.max(to, ...stray.map(e => e.at + e.remove)),
+      shift = at => at - stray.reduce((n, e) => n + (e.at + e.remove <= at ? e.remove : 0), 0);
+    text = applyLineEdits(
+      edited.slice(lo, hi),
+      stray.map(e => ({...e, at: e.at - lo}))
+    );
+    end += hi - to;
+    start = lo;
+    if (select) select = select.map(shift);
+  }
+  editKeepingPitches(start, end, text, select);
+  $('selection-status').textContent = `Deleted ${countWords(picked.length)}.`;
+}
+// The clipboard. Copy keeps the selection's source text in memory (and offers it to the system clipboard when the
+// browser allows), with what it needs to paste elsewhere: its total length, the unit length it was written in, the
+// pitch each note sounded (accidentals carry through a measure, so a note's text alone does not say), and whether it
+// is whole measures (then the bar line after it comes along).
+let clip = null;
+// Fields inside the music: inline ones such as [K:D] or [L:1/8], and field or %% lines between lines of music.
+const MUSIC_FIELDS = /[ \t]*\[[A-Za-z]:[^\]\n]*\]|\n(?:[A-Za-z+]:|%%)[^\n]*/g;
+function clipOf(picked) {
+  const v = $('abc').value,
+    span = runSpan(picked),
+    start = picked[0].element.startChar,
+    unit = unitLengthAt(start),
+    {whole} = runBars(picked),
+    alters = pitchWalk(ABCJS.parseOnly(v)[0]).alters;
+  // The clip holds whole slurs and lines only (runSpan): ends whose other end is outside the run stay behind.
+  let notes = v.slice(span.start, span.end);
+  for (const t of [...span.loose].reverse())
+    notes = notes.slice(0, t.at - span.start) + notes.slice(t.at - span.start + t.text.length);
+  notes = notes.trim();
+  // A field in the clip would go on applying to the music after the paste. The notes keep the lengths (written out
+  // in the clip's unit length) and pitches (in alters) it gave them, and the fields stay behind.
+  if (notes.search(MUSIC_FIELDS) >= 0) {
+    if (/\[L:|\nL:/.test(notes)) notes = rescaleMusic(notes, unit, unit);
+    notes = notes.replace(MUSIC_FIELDS, '').trim();
+  }
+  return {
+    notes,
+    bar: whole,
+    count: picked.length,
+    length: picked.reduce((sum, n) => {
+      const shown = displayOf(n);
+      return sum + ((shown && noteDurations.get(shown.startChar)) ?? (n.element.duration || 0));
+    }, 0),
+    unit,
+    alters: picked.filter(pitched).map(n => alters.get(n.element.startChar) || [])
+  };
+}
+const unitText = unit => {
+  const t = lengthText(unit) || '1';
+  return t.startsWith('/') ? '1' + t : t;
+};
+// Respell the lengths of a stretch of music for another unit length (L:), each note with its own explicit length.
+function rescaleMusic(text, from, to) {
+  const head = `X:1\nL:${unitText(from)}\nK:C\n`,
+    tune = ABCJS.parseOnly(head + text)[0];
+  let out = head + text;
+  for (const {element: n} of scoreEvents(tune)
+    .filter(e => e.element.el_type === 'note')
+    .sort((a, b) => b.element.startChar - a.element.startChar))
+    out =
+      out.slice(0, n.startChar) +
+      editNoteText(out.slice(n.startChar, n.endChar), {length: (n.duration || 0) / to, unbroken: true}) +
+      out.slice(n.endChar);
+  return out.slice(head.length);
+}
+// The clip's text for a place in the open score, rewritten for that place's unit length so every note keeps its
+// length. Pitches are spelled for the place's key and bar as it goes in (see pasteText).
+function clipText(c, at) {
+  const unit = unitLengthAt(at);
+  try {
+    if (Math.abs(unit - c.unit) > 1e-9) return rescaleMusic(c.notes, c.unit, unit);
+  } catch {}
+  return c.notes;
+}
+// Put the clip's text in place of start..end and select it, its notes at the pitches they were copied at (and the
+// notes after them at theirs). lead and tail go around it.
+function pasteText(c, start, end, lead, notes, tail) {
+  const at = start + lead.length;
+  editKeepingPitches(start, end, lead + notes + tail, [at, at + notes.length], at, c.count > 1 ? 'first' : null, {
+    start: at,
+    end: at + notes.length,
+    alters: c.alters
+  });
+}
+// Put a clip after a note (at the end of the music without one), then select it. Whole measures go after the bar
+// line that ends the note's measure, or before it when it is a closing or repeat bar line, or after a new bar line
+// at the end of music that has none.
+function pasteAfter(last, c, verb) {
+  const v = $('abc').value,
+    bars = last && runBars([last]);
+  let at = last ? last.element.endChar : tuneEndPosition(),
+    before = '',
+    behind = '';
+  if (c.bar && plainBar(bars?.after)) {
+    at = bars.after.element.endChar;
+    behind = ' |';
+  } else if (c.bar && (bars?.after || bars?.open)) {
+    if (bars.after) at = bars.after.element.startChar;
+    before = '| ';
+  }
+  const lead = at > 0 && !/\s/.test(v[at - 1]) ? ' ' : '',
+    trail = v[at] && !/\s/.test(v[at]) ? ' ' : '';
+  pasteText(c, at, at, lead + before, clipText(c, at), behind + trail);
+  $('selection-status').textContent = `${verb} ${countWords(c.count)}.`;
+}
+// Ctrl+V: a selected rest at least as long as the clip is written over from its start, keeping what is left as a
+// rest; otherwise the clip goes after the selection. Pasting never re-bars; the bar check reports any overflow.
+function pasteClip(picked) {
+  if (!clip) {
+    $('selection-status').textContent = 'Nothing to paste yet. Select notes, then Copy (Ctrl+C).';
+    return;
+  }
+  const v = $('abc').value,
+    rest = picked.length === 1 && !pitched(picked[0]) ? picked[0] : null,
+    old = rest ? v.slice(rest.element.startChar, rest.element.endChar) : '',
+    shown = rest && displayOf(rest),
+    room = rest ? ((shown && noteDurations.get(shown.startChar)) ?? (rest.element.duration || 0)) : 0;
+  if (!rest || !/^\s*z[\d/]*\s*$/.test(old) || room < clip.length - 1e-9) {
+    pasteAfter(picked.at(-1) || scoreNotes().at(-1), clip, 'Pasted');
+    return;
+  }
+  const start = rest.element.startChar,
+    unit = unitLengthAt(start),
+    left = room - clip.length,
+    lead = old.match(/^\s*/)[0] || (start > 0 && !/\s/.test(v[start - 1]) ? ' ' : ''),
+    trail = old.match(/\s*$/)[0] || (/[A-Za-z^_=[(]/.test(v[rest.element.endChar] || '') ? ' ' : '');
+  pasteText(
+    clip,
+    start,
+    rest.element.endChar,
+    lead,
+    clipText(clip, start),
+    (left > 1e-6 ? ' z' + lengthText(left / unit) : '') + trail
+  );
+  $('selection-status').textContent = `Pasted ${countWords(clip.count)} over the rest.`;
+}
+// A rest as long as a note, for Cut: the length as written, so tuplets and broken rhythm still add up. Slurs, tuplet
+// marks and chord symbols stay; decorations, grace notes and ties go.
+function restText(text) {
+  const p = noteParts(text);
+  if (!p || /^[zx]/.test(p.core)) return text;
+  const inner = p.core[0] === '[' ? lengthValue(p.core.match(/[A-Ga-g][,']*(\d*\/*\d*)/)?.[1] || '') : 1,
+    pre = (p.pre.match(/"[^"]*"|![^!]*!|\+[^+]*\+|\{[^}]*\}|\((?:\d+(?::\d*){0,2})?|[.~HLMOPSTuv]|\s/g) || [])
+      .filter(t => /^["(\s]/.test(t))
+      .join('');
+  return pre + 'z' + lengthText(p.length * inner) + p.post.replace(/-/g, '');
+}
+function copySelection(picked, verb = 'Copied') {
+  clip = clipOf(picked);
+  try {
+    navigator.clipboard?.writeText?.(clip.notes + (clip.bar ? ' |' : ''))?.catch?.(() => {});
+  } catch {}
+  $('selection-status').textContent =
+    `${verb} ${countWords(picked.length)}. Paste (Ctrl+V) puts them after the selection.`;
+}
+// Ctrl/Cmd with A (select all), C (copy), X (cut to rests), V (paste) and D (duplicate after itself, then select the
+// copy). Each edit is one undo step.
+function selectionCommand(command) {
+  if (renderedSource !== $('abc').value) {
+    clearTimeout(renderTimer);
+    render();
+  }
+  if (command === 'a') {
+    selectAllNotes();
+    return;
+  }
+  const picked = selectedNotes();
+  if (command === 'v') {
+    pasteClip(picked);
+    return;
+  }
+  if (!picked.length) {
+    $('selection-status').textContent =
+      'Select notes first: click a note, then Select ▸ (Shift+→) or Shift+click another to select more.';
+    return;
+  }
+  if (command === 'c') copySelection(picked);
+  if (command === 'x') {
+    copySelection(picked);
+    editNotes(picked, (n, text) => restText(text), picked);
+    $('selection-status').textContent =
+      `Cut ${countWords(picked.length)}; rests keep their place. Paste (Ctrl+V) puts the notes after the selection.`;
+  }
+  if (command === 'd') pasteAfter(picked.at(-1), clipOf(picked), 'Duplicated');
+}
+// Buttons for the same commands, for touch screens.
+for (const [id, command] of [
+  ['copy-notes', 'c'],
+  ['cut-notes', 'x'],
+  ['paste-notes', 'v'],
+  ['duplicate-notes', 'd']
+])
+  $(id).onclick = () => selectionCommand(command);
+for (const [id, step] of [
+  ['select-left', -1],
+  ['select-right', 1]
+])
+  $(id).onclick = () => {
+    if (renderedSource !== $('abc').value) {
+      clearTimeout(renderTimer);
+      render();
+    }
+    extendSelection(step);
+  };
 function updateFingering(source) {
   const option = $('fingering-option'),
     kind = FINGERING[currentInstrument()];
@@ -1262,9 +3777,168 @@ function updateFingering(source) {
     svg.appendChild(g);
   }
 }
+// Classroom colors and letters in noteheads, drawn on the engraved SVG after each render. Both stay in print and SVG
+// export (worksheets), so they are set as attributes; the class only lets a selected or playing note show as one.
+// Each head names its written pitch in data-name ("^c", "A,"), which covers chords and grace notes; heads without
+// one pair with the pitches by height, lowest first, and grace heads with the grace notes in order.
+// abcjs shrinks grace heads with a CSS scale that getBBox() ignores, so they are found by that style instead.
+// Every head is read and measured before anything is drawn: measuring after each note's letter goes in would make
+// the browser lay out the whole score again for every note.
+function updateNoteColors() {
+  const colors = noteColorsShown(),
+    letters = lettersInHeads();
+  if (!colors && !letters) return;
+  const letter = pitch => (pitch == null ? null : 'CDEFGAB'[((pitch % 7) + 7) % 7]),
+    drawn = [];
+  for (const sel of renderedTune?.engraver?.selectables || []) {
+    const note = sel.absEl.abcelem;
+    if (note.el_type !== 'note' || note.rest || !note.pitches?.length) continue;
+    const heads = [...sel.svgEl.querySelectorAll('.abcjs-notehead')],
+      grace = heads.map(h => /scale\(/.test(h.getAttribute('style') || ''));
+    let names = heads.map(h => (h.getAttribute('data-name') || '').match(/[A-G]/i)?.[0].toUpperCase());
+    const unnamed = names.some(n => !n),
+      boxes = heads.map((h, i) => ((letters || unnamed) && !grace[i] && h.getBBox?.()) || null);
+    if (unnamed) {
+      const pitches = note.pitches.map(p => p.pitch).sort((a, b) => a - b),
+        graces = (note.gracenotes || []).map(g => g.pitch);
+      names = heads.map((h, i) => (grace[i] ? letter(graces.shift()) : null));
+      heads
+        .map((h, i) => [i, boxes[i]?.y || 0])
+        .filter(([i]) => !grace[i])
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([i], n) => (names[i] = letter(pitches[n])));
+    }
+    drawn.push({sel, heads, names, grace, boxes, hollow: note.duration >= 0.5});
+  }
+  const ns = 'http://www.w3.org/2000/svg';
+  // Half and whole heads are hollow, so their letter is drawn in ink; grace heads are too small for one.
+  for (const {sel, heads, names, grace, boxes, hollow} of drawn) {
+    heads.forEach((head, i) => {
+      const color = colors && NOTE_COLORS[names[i]];
+      if (color) {
+        head.setAttribute('fill', color.fill);
+        head.classList.add('classroom-color');
+        if (color.stroke) {
+          head.setAttribute('stroke', color.stroke);
+          head.setAttribute('stroke-width', '0.6');
+        }
+      }
+      const box = boxes[i];
+      if (!letters || !names[i] || grace[i] || !box) return;
+      // The letter goes last in the note's group so ledger lines do not cross it.
+      const cx = box.x + box.width / 2,
+        cy = box.y + box.height / 2,
+        text = document.createElementNS(ns, 'text');
+      text.setAttribute('class', 'notehead-letter' + (hollow ? ' hollow' : color ? '' : ' on-ink'));
+      text.setAttribute('x', cx);
+      text.setAttribute('y', cy);
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('dominant-baseline', 'central');
+      text.setAttribute('font-family', 'sans-serif');
+      text.setAttribute('font-weight', 'bold');
+      text.setAttribute('font-size', Math.max(5, box.height).toFixed(1));
+      text.setAttribute('fill', hollow ? 'black' : color ? color.ink : 'white');
+      text.setAttribute('aria-hidden', 'true');
+      text.textContent = names[i];
+      sel.svgEl.appendChild(text);
+    });
+  }
+}
+// Trill lines (!trill(! … !trill)!): abcjs draws only the tr (see writtenABC), so a wavy line goes from it to the end
+// of the line's last note, carrying on across system breaks. It is part of the score, so prints and SVG exports keep it.
+// A score drawn while the studio is hidden (openScore draws it before showing it) cannot be measured, so its lines
+// wait until the studio shows.
+let trillsPending = null;
+function updateTrillLines() {
+  const svg = $('notation').querySelector('svg'),
+    selectables = renderedTune?.engraver?.selectables || [],
+    // An embedded score has nothing selectable, so its notes are found through the drawn tune's elements instead.
+    drawn = selectables.length
+      ? selectables.map(s => [s.absEl.abcelem?.startChar, s.svgEl])
+      : (renderedTune?.lines || [])
+          .flatMap(l => l.staff || [])
+          .flatMap(s => s.voices.flat())
+          .filter(e => e.abselem?.elemset?.[0])
+          .map(e => [e.startChar, e.abselem.elemset[0]]);
+  trillsPending = null;
+  if (!svg || !drawn.length || !/[!+]trill\(/.test($('abc').value)) return;
+  svg.querySelectorAll('.trill-line').forEach(p => p.remove());
+  if (!svg.getBoundingClientRect().width) {
+    trillsPending = renderedTune;
+    return;
+  }
+  const byStart = new Map(drawn),
+    svgOf = entry => byStart.get(displayOf(entry)?.startChar),
+    lineOf = el => el.getAttribute('class')?.match(/abcjs-l(\d+)/)?.[1] ?? '',
+    box = el => {
+      try {
+        return el?.getBBox?.() || null;
+      } catch {
+        return null;
+      }
+    },
+    // The top lines of a system's staves, top to bottom.
+    tops = line =>
+      [...svg.querySelectorAll(`.abcjs-staff.abcjs-l${line} .abcjs-top-line`)]
+        .map(l => box(l)?.y ?? 0)
+        .sort((a, b) => a - b);
+  const draw = run => {
+    const els = run.map(svgOf).filter(Boolean),
+      tr = box(els[0]?.querySelector('[data-name="scripts.trill"]'));
+    if (!tr) return;
+    const lines = new Map();
+    for (const el of els) lines.get(lineOf(el))?.push(el) ?? lines.set(lineOf(el), [el]);
+    // On a later system the line keeps its height above the same staff.
+    const first = lineOf(els[0]),
+      y0 = tr.y + tr.height / 2,
+      head = box(els[0].querySelector('.abcjs-notehead')),
+      staff = Math.max(0, tops(first).filter(y => y <= (head?.y ?? y0)).length - 1),
+      above = y0 - (tops(first)[staff] ?? 0);
+    for (const [line, group] of lines) {
+      const heads = group.map(el => box(el.querySelector('.abcjs-notehead') || el)).filter(Boolean);
+      if (!heads.length) continue;
+      const x0 = line === first ? tr.x + tr.width + 1 : Math.min(...heads.map(b => b.x)) - 2,
+        x1 = Math.max(...heads.map(b => b.x + b.width)),
+        y = line === first ? y0 : (tops(line)[staff] ?? 0) + above;
+      if (x1 - x0 < 3) continue;
+      let d = `M ${x0.toFixed(1)} ${y.toFixed(1)}`;
+      for (let x = x0; x + 3 <= x1; x += 3) d += ' q 0.75 -2 1.5 0 q 0.75 2 1.5 0';
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('class', 'trill-line');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', 'currentColor');
+      path.setAttribute('stroke-width', '1.1');
+      path.setAttribute('aria-hidden', 'true');
+      svg.appendChild(path);
+    }
+  };
+  // Each voice's trill lines, from the note that opens one to the note that closes it (or just its first note).
+  for (const notes of notesByVoice().values()) {
+    let start = null;
+    notes.forEach((n, i) => {
+      const deco = n.element.decoration || [];
+      if (start != null && deco.includes('trill)')) {
+        draw(notes.slice(start, i + 1));
+        start = null;
+      }
+      if (deco.includes('trill(')) start = i;
+    });
+    if (start != null) draw(notes.slice(start, start + 1));
+  }
+}
+if (typeof MutationObserver === 'function')
+  new MutationObserver(() => {
+    if (trillsPending && trillsPending === renderedTune && !$('studio').hidden) updateTrillLines();
+  }).observe($('studio'), {attributes: true, attributeFilter: ['hidden']});
 // Writing prompts: a short assignment with a blank score (one whole-bar rest per bar) and goals that tick off live.
 function promptById(id) {
   return (typeof writingPrompts === 'undefined' ? [] : writingPrompts).find(p => p.id === id);
+}
+// The open score's prompt: a built-in prompt's id, or a teacher's assignment object. An object can come from a link,
+// a backup or storage, so it is checked every time it is used.
+function activePrompt(prompt = current?.prompt) {
+  return typeof prompt === 'string' ? promptById(prompt) : validPrompt(prompt) || undefined;
 }
 function renderPromptCards() {
   $('prompt-cards').innerHTML = writingPrompts
@@ -1278,6 +3952,8 @@ function togglePrompts(open) {
   $('prompt-picker').hidden = !open;
   $('open-prompts').setAttribute('aria-expanded', open);
   if (open) {
+    if (typeof toggleAssignmentBuilder === 'function') toggleAssignmentBuilder(false);
+    if (typeof toggleNewScore === 'function') toggleNewScore(false);
     renderPromptCards();
     $('prompt-picker').scrollIntoView({block: 'nearest', behavior: 'smooth'});
   }
@@ -1299,7 +3975,8 @@ function startPrompt(prompt) {
     kind: 'personal',
     abc,
     instrument: currentInstrument(),
-    prompt: prompt.id
+    prompt: prompt.id,
+    fit: true
   });
   togglePrompts(false);
   const first = scoreNotes()[0];
@@ -1309,25 +3986,289 @@ function startPrompt(prompt) {
 }
 function updatePromptCheck(shown) {
   const box = $('prompt-check'),
-    prompt = current?.prompt && promptById(current.prompt);
+    prompt = activePrompt();
   if (!box) return;
   if (!prompt) {
     box.hidden = true;
     box.innerHTML = '';
     return;
   }
+  // Goals are written pitch (a B-flat clarinet asked for G major writes in G), so Concert pitch view checks a written
+  // copy of the score and says so above the checklist.
+  const concert = concertView();
+  if (concert) shown = ABCJS.parseOnly(writtenABC(instrumentShift()))[0];
+  // A teacher's assignment may have instructions and no goals; then there is no checklist.
   const goals = checkPrompt(prompt, melodyBars(shown)),
-    done = goals.every(g => g.ok);
+    done = goals.length > 0 && goals.every(g => g.ok);
   box.hidden = false;
   box.classList.toggle('done', done);
-  box.innerHTML = `<div class="prompt-check-head"><strong>Writing prompt · ${esc(prompt.title)}</strong><span class="small">${goals.filter(g => g.ok).length} of ${goals.length} goals</span></div><p>${esc(prompt.text)}</p><ul>${goals.map(g => `<li class="${g.ok ? 'met' : ''}"><span aria-hidden="true">${g.ok ? '✓' : '○'}</span> ${esc(g.label)}<span class="sr-only">${g.ok ? ' (done)' : ' (not yet)'}</span></li>`).join('')}</ul>${done ? '<p class="prompt-done">All goals met. Play it back, then save it or export it to hand in.</p>' : ''}`;
+  box.innerHTML = `<div class="prompt-check-head"><strong>${prompt.level === 'Custom' ? 'Assignment' : 'Writing prompt'} · ${esc(prompt.title)}</strong>${goals.length ? `<span class="small">${goals.filter(g => g.ok).length} of ${goals.length} goals</span>` : ''}</div>${prompt.text ? `<p class="prompt-text">${esc(prompt.text)}</p>` : ''}${concert && goals.length ? '<p class="small">Goals are in written pitch; turn off Concert pitch to see the written part.</p>' : ''}${goals.length ? `<ul>${goals.map(g => `<li class="${g.ok ? 'met' : ''}"><span aria-hidden="true">${g.ok ? '✓' : '○'}</span> ${esc(g.label)}<span class="sr-only">${g.ok ? ' (done)' : ' (not yet)'}</span></li>`).join('')}</ul>` : ''}${done ? `<p class="prompt-done">${current?.submission ? 'All goals met.' : 'All goals met. Play it back, then press Turn in to send it to your teacher.'}</p>` : ''}`;
 }
 $('open-prompts').onclick = () => togglePrompts($('prompt-picker').hidden);
-$('close-prompts').onclick = () => togglePrompts(false);
+// Closing the picker (✕ or Esc inside it) returns the keyboard to its button, as the other studio panels do.
+$('close-prompts').onclick = () => {
+  togglePrompts(false);
+  $('open-prompts').focus();
+};
+$('prompt-picker').addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  e.stopPropagation();
+  togglePrompts(false);
+  $('open-prompts').focus();
+});
 $('prompt-cards').addEventListener('click', e => {
   const b = e.target.closest('[data-prompt]');
   if (b) startPrompt(promptById(b.dataset.prompt));
 });
+// Key changes and transposing. Keys here are the source's concert keys. Picking a key asks first: move the notes to
+// the new key, or keep them where they are and change only the signature. A score without notes just changes key.
+function fillKeySelect(select) {
+  for (const group of new Set(KEY_LIST.map(k => k.group))) {
+    const g = document.createElement('optgroup');
+    g.label = group;
+    for (const k of KEY_LIST.filter(x => x.group === group)) g.append(new Option(k.label, k.value));
+    select.append(g);
+  }
+}
+const sourceKey = () => canonicalKey(field('K', 'C'));
+let keyPending = null;
+function hideKeyChoice() {
+  keyPending = null;
+  if ($('key-choice')) $('key-choice').hidden = true;
+}
+function chooseKey(value) {
+  const from = sourceKey();
+  if (value === from) {
+    hideKeyChoice();
+    return;
+  }
+  const notes = scoreEvents(ABCJS.parseOnly($('abc').value)[0]).some(e => e.element.pitches?.length);
+  if (!notes) {
+    changeKey(value, false);
+    return;
+  }
+  keyPending = value;
+  $('key-choice-text').textContent = `Change the key to ${keyLabel(value)}:`;
+  $('key-transpose').disabled = !keyInterval(from, value);
+  $('key-choice').hidden = false;
+}
+function cancelKeyChoice() {
+  hideKeyChoice();
+  assignSelect('key', sourceKey(), keyLabel(field('K', 'C')));
+}
+// "up a major 2nd", or a count of semitones for moves that are not one of the listed intervals.
+function intervalWords(semitones, letters) {
+  const i = TRANSPOSE_INTERVALS.find(x => x.semitones === Math.abs(semitones) && x.letters === Math.abs(letters)),
+    way = semitones < 0 ? 'down' : 'up';
+  if (i) return `${way} ${/^[aeiou]/.test(i.name) ? 'an' : 'a'} ${i.name}`;
+  return `${way} ${Math.abs(semitones)} semitone${Math.abs(semitones) === 1 ? '' : 's'}`;
+}
+// Record a rewrite of the whole source, made from before, as one undo step. A rewrite that changed nothing is not an edit.
+function commitSource(before, message) {
+  if ($('abc').value === before) {
+    syncFields();
+    toast('Nothing to change.');
+    return;
+  }
+  dirty = true;
+  $('save-status').textContent = 'Unsaved changes';
+  selectedRange = null;
+  clearTimeout(renderTimer);
+  syncFields();
+  render();
+  $('selection-status').textContent = message;
+  toast(message);
+}
+function changeKey(value, transpose) {
+  flushTyping();
+  hideKeyChoice();
+  const before = $('abc').value,
+    move = transpose ? keyInterval(sourceKey(), value) : null;
+  try {
+    if (move) $('abc').value = transposeABC($('abc').value, move.semitones, move.letters, 7);
+  } catch (e) {
+    toast(e.message);
+    cancelKeyChoice();
+    return;
+  }
+  setHeader('K', value);
+  const words = !move
+    ? 'The notes stay where they are.'
+    : move.semitones
+      ? `The notes moved ${intervalWords(move.semitones, move.letters)}.`
+      : 'The notes keep their pitches.';
+  commitSource(before, `Key: ${keyLabel(value)}. ${words}`);
+}
+// The choice's buttons hide with it, so focus goes back to the Key menu.
+for (const [id, transpose] of [
+  ['key-transpose', true],
+  ['key-keep', false]
+])
+  $(id).onclick = () => {
+    if (!keyPending) return;
+    changeKey(keyPending, transpose);
+    $('key').focus();
+  };
+$('key-cancel').onclick = () => {
+  cancelKeyChoice();
+  $('key').focus();
+};
+$('key').addEventListener('keydown', e => {
+  if (e.key === 'Escape' && keyPending) cancelKeyChoice();
+});
+$('key-choice').addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  e.stopPropagation();
+  cancelKeyChoice();
+  $('key').focus();
+});
+// The Transpose panel: by an interval up or down, or to a key the nearer way round, for the whole score or only the
+// selected measures (the practice range when one is set, otherwise the selected note's measure).
+function transposeTarget() {
+  const {from, to, total} = measureRange();
+  if (noteSources.size && !(from === 1 && to === total)) return {from, to};
+  const picked = selectedNotes();
+  return picked.length ? {from: picked[0].measure, to: picked.at(-1).measure} : null;
+}
+const measuresText = t => (t.from === t.to ? `measure ${t.from}` : `measures ${t.from}–${t.to}`);
+// What the panel would do, or null when the score's key cannot move (K:HP).
+function transposePlan() {
+  if ($('transpose-by-key').checked) {
+    const to = $('transpose-key').value,
+      move = keyInterval(sourceKey(), to);
+    return move && {...move, to};
+  }
+  if (keyFifths(sourceKey()) == null) return null;
+  const i = TRANSPOSE_INTERVALS.find(x => x.id === $('transpose-interval').value),
+    way = +$('transpose-direction').value;
+  return {semitones: i.semitones * way, letters: i.letters * way};
+}
+// Bring the open panel up to date with the score, its key and the selection; render() calls this after every change,
+// so a new score, an undo or a key change never leaves a stale summary or a stale Selection only box.
+function refreshTranspose() {
+  if ($('transpose-panel')?.hidden !== false) return;
+  const byKey = $('transpose-by-key').checked,
+    target = transposeTarget(),
+    only = $('transpose-selection');
+  $('transpose-interval-row').hidden = byKey;
+  $('transpose-key-row').hidden = !byKey;
+  only.disabled = !target;
+  if (!target) only.checked = false;
+  const plan = transposePlan(),
+    key = sourceKey();
+  let note;
+  try {
+    if (!plan) note = 'This key cannot be transposed.';
+    else {
+      const moved = intervalWords(plan.semitones, plan.letters);
+      if (plan.to === key) note = `The score is already in ${keyLabel(key)}.`;
+      else if (only.checked)
+        note = plan.semitones
+          ? `The notes in ${measuresText(target)} move ${moved}. The key signature stays.`
+          : 'The selected notes keep their pitches.';
+      else if (!plan.semitones) note = `${keyLabel(key)} becomes ${keyLabel(plan.to)}: the same pitches, spelled anew.`;
+      else {
+        const head = transposeABC(`X:1\nK:${key}\n`, plan.semitones, plan.letters, plan.to ? 7 : 6),
+          next = plan.to || keyParts(keyFields(head)[0].value).key;
+        note =
+          canonicalKey(next) === key
+            ? `The notes move ${moved}. The key stays ${keyLabel(key)}. Chord symbols move too.`
+            : `${keyLabel(key)} becomes ${keyLabel(next)}: the notes move ${moved}. Chord symbols move too.`;
+      }
+      if (transposing()) note += ` Keys are concert pitch; the score shows written pitch for ${currentInstrument()}.`;
+    }
+  } catch {
+    note = 'This key cannot be transposed.';
+  }
+  // Only changed text is written, so screen readers do not hear the same summary after every edit.
+  const label = target
+    ? `Selection only: ${measuresText(target)}`
+    : 'Selection only (click a note, or Shift+click to choose measures)';
+  if ($('transpose-selection-label').textContent !== label) $('transpose-selection-label').textContent = label;
+  if ($('transpose-note').textContent !== note) $('transpose-note').textContent = note;
+  $('transpose-apply').disabled = !plan || (!plan.semitones && !posMod(plan.letters, 7));
+}
+function toggleTranspose(open) {
+  $('transpose-panel').hidden = !open;
+  $('transpose-open').setAttribute('aria-expanded', open);
+  if (!open) return;
+  // Each opening starts on the whole score, so an old selection is never transposed by surprise.
+  $('transpose-selection').checked = false;
+  assignSelect('transpose-key', sourceKey(), keyLabel(field('K', 'C')));
+  refreshTranspose();
+  $('transpose-panel').querySelector('input:checked')?.focus();
+}
+function applyTranspose() {
+  // Read the box first: a render refreshes the panel, and an emptied selection clears the box.
+  const only = $('transpose-selection').checked;
+  if (renderedSource !== $('abc').value) {
+    clearTimeout(renderTimer);
+    render();
+  }
+  flushTyping();
+  const plan = transposePlan(),
+    target = only ? transposeTarget() : null,
+    value = $('abc').value;
+  if (!plan) {
+    toast('This key cannot be transposed.');
+    return;
+  }
+  // Selection only with nothing selected must not fall back to moving the whole score.
+  if (only && !target) {
+    refreshTranspose();
+    toast('No measures are selected. Click a note, or clear Selection only.');
+    return;
+  }
+  let text = value;
+  try {
+    if (target)
+      for (const s of measureSpans(ABCJS.parseOnly(value)[0], target.from, target.to).reverse()) {
+        const unit = '1/' + Math.round(1 / unitLengthAt(s.start)),
+          moved = transposeSlice(
+            value.slice(s.start, s.end),
+            keyAt(value, s.start),
+            unit,
+            plan.semitones,
+            plan.letters
+          );
+        text = text.slice(0, s.start) + moved + text.slice(s.end);
+      }
+    else text = transposeABC(value, plan.semitones, plan.letters, plan.to ? 7 : 6);
+  } catch (e) {
+    toast(e.message);
+    return;
+  }
+  $('abc').value = text;
+  if (plan.to && !target) setHeader('K', plan.to);
+  const moved = plan.semitones ? `moved ${intervalWords(plan.semitones, plan.letters)}` : 'kept their pitches';
+  toggleTranspose(false);
+  commitSource(
+    value,
+    target ? `The notes in ${measuresText(target)} ${moved}.` : `The notes ${moved}. Key: ${keyLabel(field('K', 'C'))}.`
+  );
+  $('transpose-open').focus();
+}
+$('transpose-open').onclick = () => toggleTranspose($('transpose-panel').hidden);
+$('transpose-close').onclick = () => {
+  toggleTranspose(false);
+  $('transpose-open').focus();
+};
+$('transpose-apply').onclick = applyTranspose;
+$('transpose-panel').addEventListener('input', refreshTranspose);
+$('transpose-panel').addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  e.stopPropagation();
+  toggleTranspose(false);
+  $('transpose-open').focus();
+});
+// The selection and the practice range can change while the panel is open.
+for (const [id, type] of [
+  ['notation', 'click'],
+  ['notation', 'keyup'],
+  ['start-measure', 'change'],
+  ['end-measure', 'change']
+])
+  $(id).addEventListener(type, refreshTranspose);
 // Bar check fixes.
 $('bar-check').addEventListener('click', e => {
   const b = e.target.closest('[data-bar-fix]'),
@@ -1344,6 +4285,8 @@ $('bar-check').addEventListener('click', e => {
     start = m.notes[0].element.startChar,
     end = (m.bar || m.notes.at(-1).element).endChar;
   if (b.dataset.barFix === 'show') {
+    // Up to 1100px wide the ABC text may be folded away under Write notes & ABC (app.js); open it first.
+    if (typeof revealFold === 'function') revealFold(area);
     area.focus({preventScroll: true});
     area.setSelectionRange(start, end);
     const rect = $('notation').querySelector(`.bar-flag[data-measure="${m.measure}"]`);
@@ -1366,14 +4309,16 @@ $('bar-check').addEventListener('click', e => {
   applyNoteEdit(at, at, text, null);
 });
 // Undo/redo buttons and shortcuts (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or Ctrl+Y). In the ABC box they replace the browser's
-// own undo, which doesn't know about edits made on the score.
+// own undo, which doesn't know about edits made on the score. Other text fields keep their own; menus, sliders and
+// boxes have none, so a key change made from the Key menu undoes from there. The shortcut sheet is modal, so the
+// score behind it stays as it is.
 $('undo').onclick = () => stepHistory(-1);
 $('redo').onclick = () => stepHistory(1);
 document.addEventListener('keydown', e => {
-  if (!(e.ctrlKey || e.metaKey) || e.altKey || $('studio').hidden) return;
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || $('studio').hidden || $('shortcuts')?.hidden === false) return;
   const key = e.key.toLowerCase(),
     field = e.target.closest?.('input,select,textarea');
-  if (field && field.id !== 'abc') return;
+  if (field && field.id !== 'abc' && !/^(select-one|checkbox|radio|range)$/.test(field.type)) return;
   if (key === 'z' && !e.shiftKey) {
     e.preventDefault();
     stepHistory(-1);
@@ -1384,22 +4329,80 @@ document.addEventListener('keydown', e => {
 });
 
 // Share by link. The link carries the score itself, so anyone with it gets a copy; nothing is uploaded.
-// Scores from a library edition carry the edition's id, so the rights notice travels with them.
+// Scores from a library edition carry the edition's id, so the rights notice travels with them. The share panel also
+// gives the same payload as embed code (#e=, a read-only view for an iframe) and as a QR code of the link.
 const SHARE_WARN_LENGTH = 8000;
+// The longest link a QR code holds (version 40 at error correction level M, byte mode), and the longest that fits
+// version 25 (117 modules); longer links make codes dense enough that a camera may need them shown full screen.
+const QR_MAX_BYTES = 2331,
+  QR_DENSE_BYTES = 997;
+// The library edition the open score came from: the edition itself or its Mixer copy, then a saved copy's or an
+// imported export's libraryId, or a shared copy's or draft's own id. Copies saved before libraryId, and exports from
+// before it, are matched on their rights text and source address (closestEdition).
 function shareSourceId() {
   if (!current) return undefined;
-  const source = catalog.find(
-    x => x === current || (x.rights && x.rights === current.rights && x.source === current.source)
-  );
-  return source?.id;
+  const library = libraryEntry();
+  if (library) return library.id;
+  for (const id of [current.libraryId, current.id])
+    if (typeof id === 'string' && catalog.some(x => x.id === id)) return id;
+  if (!current.rights) return undefined;
+  return closestEdition(catalog.filter(x => x.rights === current.rights && x.source === current.source))?.id;
+}
+// Whole tunebooks share one rights text and source address, so of the editions that match on those, the one the copy
+// is closest to is named: its music unchanged, then its title (the credit's workTitle, the saved title or the T:
+// line), then the most of the edition's other details the copy kept, then its X: number. They all carry the same
+// license, so when nothing tells them apart the first is named and the license notice still travels. Feedback marks
+// are not part of the music.
+const T_LINE = /^T:(.*)$/m,
+  X_LINE = /^X:(.*)$/m;
+function closestEdition(matches) {
+  const text = unmarkedSource($('abc').value),
+    names = [current.workTitle, current.title, text.match(T_LINE)?.[1].trim()].filter(Boolean),
+    number = text.match(X_LINE)?.[1].trim();
+  let best = null,
+    top = -1;
+  for (const x of matches) {
+    let score = (x.abc === text ? 1e6 : 0) + (names.includes(x.title) ? 1e4 : 0);
+    for (const [key, value] of Object.entries(x))
+      if (key !== 'id' && key !== 'abc' && key !== 'title' && typeof value !== 'object' && value === current[key])
+        score += 10;
+    if (x.abc.match(X_LINE)?.[1].trim() === number) score += 1;
+    if (score > top) [best, top] = [x, score];
+  }
+  return best;
+}
+const shareBase = () => `${location.origin}${location.pathname}`;
+// The payload and title the panel's link, embed code and QR code were made from, so later edits or another score
+// cannot mix into them; closeShare() clears them when a different score opens. shareRun counts shares and closes, so
+// a link still being compressed when the panel closes or another share starts is dropped.
+let shareCode = '',
+  shareTitle = '',
+  shareRun = 0;
+// The open score as a link payload; turning in and the teacher's return link add their own keys to it.
+function sharePayload() {
+  const payload = {v: 1, a: $('abc').value, i: currentInstrument()},
+    source = shareSourceId();
+  if (source) payload.s = source;
+  // The mixer's settings (m), when any differ from the defaults; older apps ignore them.
+  const mix = validMixer(current?.mixer);
+  if (mix) payload.m = mix;
+  // A built-in prompt travels by id (p); a teacher's assignment travels whole (q). Older apps ignore q.
+  const prompt = activePrompt();
+  if (prompt?.level === 'Custom') payload.q = prompt;
+  else if (prompt) payload.p = prompt.id;
+  return payload;
 }
 async function shareLink() {
-  const payload = {v: 1, a: $('abc').value, i: currentInstrument()};
-  const source = shareSourceId();
-  if (source) payload.s = source;
-  if (current?.prompt) payload.p = current.prompt;
-  const url = `${location.origin}${location.pathname}#s=${await encodeShare(payload)}`;
+  const attempt = ++shareRun,
+    payload = sharePayload();
+  const title = field('T', 'Untitled'),
+    code = await encodeShare(payload);
+  if (attempt !== shareRun) return;
+  shareCode = code;
+  shareTitle = title;
+  const url = `${shareBase()}#s=${shareCode}`;
   const panel = $('share-panel');
+  if (panel.hidden) showShareTab('link');
   panel.hidden = false;
   $('share-url').value = url;
   $('share-note').textContent =
@@ -1407,6 +4410,8 @@ async function shareLink() {
     (url.length > SHARE_WARN_LENGTH
       ? 'Some messaging apps cut links this long; export ABC for a safer copy.'
       : 'Anyone with the link gets a copy of the score. Nothing is uploaded; the music is inside the link.');
+  updateEmbedCode();
+  updateShareQR(url);
   let copied = false;
   try {
     if (typeof navigator.clipboard?.writeText !== 'function') throw new Error('no clipboard');
@@ -1415,43 +4420,398 @@ async function shareLink() {
   } catch {}
   toast(copied ? 'Link copied. Paste it anywhere.' : 'Select the link and copy it.');
   if (!copied) {
+    showShareTab('link');
     $('share-url').focus();
     $('share-url').select();
   }
 }
+// The score a link carries, ready to open: the library edition's credits come with it when the link names one.
+function sharedItem(payload) {
+  const source = catalog.find(x => x.id === payload.s);
+  return {
+    ...(source || {}),
+    // The credit names the edition's own title (workTitle), whatever the sender called their copy.
+    ...(source ? {workTitle: source.title} : {}),
+    title: payload.a.match(/^T:(.*)$/m)?.[1]?.trim() || 'Shared score',
+    composer: source?.composer || payload.a.match(/^C:(.*)$/m)?.[1]?.trim() || '',
+    kind: 'shared',
+    abc: payload.a,
+    instrument: knownInstrument(payload.i),
+    mixer: validMixer(payload.m)
+  };
+}
 // A shared score opens as a copy, in the sender's instrument, with the library edition's credits when it has one.
-async function openSharedLink(hash) {
-  const payload = await decodeShare(hash.slice(2));
+// payload is the link already decoded, when the caller has read it first.
+async function openSharedLink(hash, payload = null) {
+  payload ||= await decodeShare(hash.slice(2));
   if (!payload) {
     toast('This link did not contain a readable score.');
     return false;
   }
-  const source = catalog.find(x => x.id === payload.s);
-  const title = payload.a.match(/^T:(.*)$/m)?.[1]?.trim() || 'Shared score';
-  openScore({
-    ...(source || {}),
-    title,
-    composer: source?.composer || payload.a.match(/^C:(.*)$/m)?.[1]?.trim() || '',
-    kind: 'shared',
-    abc: payload.a,
-    instrument: instruments[payload.i] ? payload.i : undefined,
-    prompt: payload.p
-  });
+  // A teacher's assignment opens only if it passes validPrompt; otherwise the score still opens, without it.
+  const assignment = 'q' in payload ? validPrompt(payload.q) : null,
+    prompt = assignment || (typeof payload.p === 'string' && promptById(payload.p) ? payload.p : undefined);
+  // A turned-in assignment (n, t, x) and a teacher's feedback (c) come along; turn-in.js reads them.
+  const extras = typeof linkExtras === 'function' ? linkExtras(payload, activePrompt(prompt)) : {};
+  openScore({...sharedItem(payload), prompt, ...extras});
   // The link was the only copy and show() has replaced it in the address bar, so treat the score as unsaved work.
   dirty = true;
   cleanKey = '';
   $('save-status').textContent = 'Shared copy, not yet saved on this device. Save it to My scores to keep it.';
-  toast('Opened a shared score. Save it to My scores to keep a copy.');
+  // An assignment starts like a writing prompt: the first note or rest is selected, ready for typing.
+  const first = assignment && scoreNotes()[0];
+  if (first) {
+    selectEntry(first);
+    $('selection-status').textContent =
+      'The first note is selected. Type note letters (A–G) to write from there; 3–7 change the length.';
+  }
+  toast(
+    extras.submission
+      ? `Opened the work ${extras.submission.name} turned in.`
+      : extras.feedback
+        ? 'Opened your work with feedback from your teacher. Save it to My scores to keep it.'
+        : assignment
+          ? 'Opened an assignment. Its goals tick off as you write; save it to My scores to keep your work.'
+          : 'q' in payload
+            ? 'This link’s assignment could not be read, so only the score opened.'
+            : 'Opened a shared score. Save it to My scores to keep a copy.'
+  );
+  scheduleDraft();
   return true;
 }
-$('share-link').onclick = () => shareLink().catch(e => toast('Could not make a link: ' + e.message));
-$('share-copy').onclick = async () => {
-  try {
-    await navigator.clipboard.writeText($('share-url').value);
-    toast('Link copied.');
-  } catch {
-    $('share-url').focus();
-    $('share-url').select();
+// The embedded view (#e=…, in an iframe on a class website): the score read-only with Play, Stop, speed and its
+// credits, and a link that opens an editable copy in FretFree. body.embed hides everything else; shared.js keeps
+// storage untouched, and show() leaves the address alone so reloading the frame keeps the score.
+async function openEmbed(hash) {
+  const code = hash.slice(2),
+    payload = await decodeShare(code);
+  show('studio');
+  $('embed-bar').hidden = false;
+  $('notation').removeAttribute('tabindex');
+  if (!payload) {
+    document.body.classList.add('embed-unreadable');
+    $('embed-title').textContent = 'This embedded score could not be read.';
+    $('embed-open').hidden = true;
+    return false;
   }
+  // An assignment's goals and checklist belong to the student's own copy, so the embed shows only the score.
+  openScore(sharedItem(payload));
+  const part = embedPart(currentInstrument());
+  $('embed-title').textContent = current.title;
+  $('embed-part').textContent = part;
+  $('embed-part').hidden = !part;
+  document.title = current.title + ' · FretFree';
+  $('notation').setAttribute(
+    'aria-label',
+    `Score: ${current.title}.${part ? ' ' + part : ''} Read-only; press Play to hear it.`
+  );
+  $('embed-open').href = `${location.href.split('#')[0]}#s=${code}`;
+  return true;
+}
+// A transposing instrument's part is drawn in written pitch while playback sounds at concert pitch, so the embed, which
+// hides the instrument menu, names the part and how it sounds. Empty for parts that sound as written.
+function embedPart(name) {
+  const written = instruments[name] ? writtenAboveSound(instruments[name]) : 0;
+  return written
+    ? `${name} part, in written pitch: it sounds ${intervalPhrase(written)} ${written > 0 ? 'lower' : 'higher'}.`
+    : '';
+}
+// The iframe snippet for a score page. Width is pixels (with or without "px") or a percentage up to 100% (else 100%);
+// height is 200 to 2,000 pixels (else clamped to that range, or 420 when empty). A field whose value is replaced is
+// marked aria-invalid.
+const embedWidthOK = width => /^[1-9]\d{0,3}(px|%)?$/i.test(width) && !(width.endsWith('%') && parseInt(width) > 100);
+const embedHeightOK = height => /^\d+$/.test(height) && height >= 200 && height <= 2000;
+function embedSnippet(code, title, width = '100%', height = 420) {
+  width = String(width).trim();
+  width = embedWidthOK(width) ? width.replace(/px$/i, '') : '100%';
+  height = Math.max(200, Math.min(2000, Math.round(+height) || 420));
+  return `<iframe src="${esc(`${shareBase()}#e=${code}`)}" width="${width}" height="${height}" title="${esc('Score: ' + title)}" loading="lazy"></iframe>`;
+}
+function updateEmbedCode() {
+  if (!shareCode) return;
+  const width = $('embed-width').value.trim(),
+    height = $('embed-height').value.trim();
+  $('embed-width').setAttribute('aria-invalid', !embedWidthOK(width));
+  $('embed-height').setAttribute('aria-invalid', !embedHeightOK(height));
+  $('embed-code').value = embedSnippet(shareCode, shareTitle, width, height);
+  $('embed-preview').href = `${shareBase()}#e=${shareCode}`;
+}
+// A QR code as SVG, drawn here from the vendored encoder (vendor/qrcode.js): dark modules on white with the standard
+// four-module quiet zone, each row's runs as one path. It is drawn at QR_MODULE_PX per module (at least QR_MIN_PX), so
+// a camera can still read a long link's dense code from a laptop screen. Null when the encoder is missing or the text
+// is too long.
+const QR_MODULE_PX = 3,
+  QR_MIN_PX = 280;
+function qrSVG(text, label) {
+  if (typeof qrcode !== 'function') return null;
+  let code;
+  try {
+    code = qrcode(0, 'M');
+    code.addData(text);
+    code.make();
+  } catch {
+    return null;
+  }
+  const count = code.getModuleCount(),
+    side = count + 8,
+    size = Math.max(QR_MIN_PX, side * QR_MODULE_PX);
+  let d = '';
+  for (let y = 0; y < count; y++)
+    for (let x = 0; x < count; x++) {
+      if (!code.isDark(y, x)) continue;
+      let run = 1;
+      while (x + run < count && code.isDark(y, x + run)) run++;
+      d += `M${x + 4} ${y + 4}h${run}v1h-${run}z`;
+      x += run - 1;
+    }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${side} ${side}" shape-rendering="crispEdges" role="img" aria-label="${esc(label)}"><rect width="${side}" height="${side}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+}
+function updateShareQR(url) {
+  const bytes = new TextEncoder().encode(url).length,
+    svg = bytes <= QR_MAX_BYTES ? qrSVG(url, `QR code of the link to ${shareTitle}`) : null;
+  $('share-qr').innerHTML = svg || '';
+  $('share-qr').hidden = !svg;
+  $('qr-large').hidden = !svg || !document.fullscreenEnabled;
+  $('qr-note').textContent = svg
+    ? 'Scan it with a phone or tablet camera to open a copy of this score.' +
+      (bytes <= QR_DENSE_BYTES
+        ? ''
+        : document.fullscreenEnabled
+          ? ' This long link makes a dense code: show it full screen, or share the link if a camera can’t read it.'
+          : ' This long link makes a dense code: if a camera can’t read it, share the link instead.')
+    : typeof qrcode !== 'function'
+      ? 'QR codes could not be drawn in this browser. Share the link instead.'
+      : `This link is too long for a QR code: ${bytes.toLocaleString()} characters, and a QR code holds about 2,300. Share the link or the embed code instead, or share a few measures at a time.`;
+}
+const SHARE_TABS = ['link', 'embed', 'qr'];
+function showShareTab(name, focus = false) {
+  for (const tab of SHARE_TABS) {
+    const button = $('share-tab-' + tab),
+      on = tab === name;
+    button.setAttribute('aria-selected', on);
+    button.tabIndex = on ? 0 : -1;
+    $('share-pane-' + tab).hidden = !on;
+    if (on && focus) button.focus();
+  }
+}
+for (const tab of SHARE_TABS) $('share-tab-' + tab).onclick = () => showShareTab(tab);
+// Tabs follow the ARIA tabs pattern: arrow keys, Home and End move between them.
+$('share-tab-link').parentElement.addEventListener('keydown', e => {
+  const at = SHARE_TABS.findIndex(tab => $('share-tab-' + tab) === e.target),
+    to = {ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: SHARE_TABS.length - 1}[e.key];
+  if (at < 0 || to == null) return;
+  e.preventDefault();
+  showShareTab(SHARE_TABS[(to + SHARE_TABS.length) % SHARE_TABS.length], true);
+});
+// Copy a field's text, or select it for copying by hand when the clipboard is not allowed (and say so, if asked).
+async function copyField(id, message, fallback = '') {
+  try {
+    await navigator.clipboard.writeText($(id).value);
+    toast(message);
+  } catch {
+    $(id).focus();
+    $(id).select();
+    if (fallback) toast(fallback);
+  }
+}
+$('share-link').onclick = () => shareLink().catch(e => toast('Could not make a link: ' + e.message));
+$('share-copy').onclick = () => copyField('share-url', 'Link copied.');
+$('embed-copy').onclick = () => copyField('embed-code', 'Embed code copied. Paste it into your page’s HTML.');
+for (const id of ['embed-width', 'embed-height']) $(id).addEventListener('input', updateEmbedCode);
+// A projector shows the code full screen; browsers without the Fullscreen API (iPhone) keep the panel's size.
+$('qr-large').onclick = () =>
+  $('share-qr')
+    .requestFullscreen?.()
+    .catch(() => {});
+// The panel describes the score it was made for, so it closes when another score opens (openScore).
+function closeShare() {
+  shareRun++;
+  $('share-panel').hidden = true;
+  shareCode = shareTitle = '';
+  $('share-url').value = $('embed-code').value = '';
+  $('share-qr').innerHTML = '';
+}
+// ✕ or Esc inside the panel closes it and returns the keyboard to Share link, as the other studio panels do.
+$('share-close').onclick = () => {
+  closeShare();
+  $('share-link').focus();
 };
-$('share-close').onclick = () => ($('share-panel').hidden = true);
+$('share-panel').addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  e.stopPropagation();
+  closeShare();
+  $('share-link').focus();
+});
+
+// Unsaved-work recovery. While the score has unsaved changes, a copy goes to the local draft list two seconds later
+// (at once when the tab is hidden), so a discarded tab or a closed window does not lose the work. Each tab keeps one
+// entry, marked with its own tab id, so a second open tab never overwrites or clears the first tab's work. Saving,
+// undoing back to the opened text, or replacing the score removes this tab's entry; render() runs after each of these,
+// so it is the hook. Drafts found at start-up are offered newest first and stay stored until restored or discarded.
+const DRAFT_DELAY = 2000,
+  DRAFT_MAX_LENGTH = 500 * 1024,
+  DRAFT_LIMIT = 3,
+  draftTab = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+let draftTimer = null,
+  draftOwned = false,
+  pendingDrafts = [],
+  draftCount = 0;
+function draftData() {
+  return {
+    abc: $('abc').value,
+    instrument: currentInstrument(),
+    title: field('T', current?.title || 'Untitled'),
+    prompt: current?.prompt,
+    mixer: validMixer(current?.mixer),
+    feedback: current?.feedback,
+    submission: current?.submission,
+    sourceId: shareSourceId(),
+    savedId,
+    // Which recorded takes belong to the work (record.js).
+    takes: typeof recordKey === 'function' ? recordKey() : undefined,
+    kind: current?.kind,
+    fit: keepBars(),
+    tab: draftTab,
+    at: Date.now()
+  };
+}
+const sameDraft = (a, b) => a.tab === b.tab && a.at === b.at;
+// The stored drafts, newest first, without damaged entries.
+function storedDrafts() {
+  const list = storage.get(KEYS.draft, []);
+  return (Array.isArray(list) ? list : [])
+    .filter(d => d && typeof d === 'object' && typeof d.abc === 'string' && d.abc.trim())
+    .sort((a, b) => (+b.at || 0) - (+a.at || 0));
+}
+function storeDrafts(list) {
+  if (list.length) return storage.set(KEYS.draft, list);
+  storage.remove(KEYS.draft);
+  return true;
+}
+function removeDrafts(match) {
+  const list = storedDrafts(),
+    rest = list.filter(d => !match(d));
+  if (rest.length < list.length) storeDrafts(rest);
+}
+// This tab's draft goes first. The oldest other drafts make room when the list is over its count or size limit;
+// with `keep`, nothing is written instead, so two open tabs never take turns pushing each other out.
+function writeDraft(keep = false) {
+  clearTimeout(draftTimer);
+  draftTimer = null;
+  if (!dirty) return;
+  const data = draftData();
+  // Very long scores are skipped rather than crowding saved scores out of storage; a full quota is ignored.
+  if (JSON.stringify(data).length > DRAFT_MAX_LENGTH) return;
+  const list = [data, ...storedDrafts().filter(d => d.tab !== draftTab)];
+  while (list.length > 1 && (list.length > DRAFT_LIMIT || JSON.stringify(list).length > DRAFT_MAX_LENGTH)) {
+    if (keep) return;
+    list.pop();
+  }
+  if (storeDrafts(list)) draftOwned = true;
+}
+function scheduleDraft() {
+  if (!dirty) clearDraft();
+  else if (!draftTimer) draftTimer = setTimeout(() => writeDraft(), DRAFT_DELAY);
+}
+function flushDraft() {
+  if (draftTimer) writeDraft();
+}
+function clearDraft() {
+  clearTimeout(draftTimer);
+  draftTimer = null;
+  if (!draftOwned) return;
+  draftOwned = false;
+  removeDrafts(d => d.tab === draftTab);
+}
+// Another tab's banner can restore or discard this tab's draft while this tab is still open. If the work here is
+// still unsaved, it goes back in the list.
+function keepDraft() {
+  if (draftOwned && dirty && !storedDrafts().some(d => d.tab === draftTab)) writeDraft(true);
+}
+// The drafts to offer at start-up. One that matches the saved score it came from, text and instrument, is dropped;
+// a saved score from before instruments were saved never matches, so its draft is kept.
+function loadDrafts() {
+  const list = storedDrafts();
+  pendingDrafts = list.filter(draft => {
+    const entry = draft.savedId && saved.find(x => x.id === draft.savedId);
+    return !entry || entry.abc !== draft.abc || entry.instrument !== draft.instrument;
+  });
+  if (pendingDrafts.length < list.length) storeDrafts(pendingDrafts);
+  draftCount = pendingDrafts.length;
+  return pendingDrafts;
+}
+function draftTime(at) {
+  const when = new Date(at);
+  if (!Number.isFinite(when.getTime())) return 'earlier';
+  return when.toDateString() === new Date().toDateString()
+    ? when.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})
+    : when.toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
+}
+// Shown at start-up, and again after Discard while more drafts wait. Focus moves to Restore so the choice is announced
+// and one key away; the start-up score would otherwise hold focus, with every note a tab stop before the banner. The
+// reload's scroll restoration is turned off so the banner at the top stays in view.
+function offerDraft() {
+  const banner = $('draft-banner'),
+    draft = pendingDrafts[0];
+  banner.hidden = !draft;
+  if (!draft) return;
+  const place = draftCount > 1 ? ` (${draftCount - pendingDrafts.length + 1} of ${draftCount})` : '';
+  $('draft-text').textContent =
+    `Unsaved work from ${draftTime(draft.at)}: ${String(draft.title || 'Untitled')}${place}.`;
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  $('draft-restore').focus({preventScroll: true});
+}
+// Restoring rebuilds the score as a shared link does: the library edition's credits, the saved entry it belongs to,
+// and the draft's own text, instrument, prompt and recorded takes, marked unsaved. Other waiting drafts stay stored for
+// the next visit.
+function restoreDraft() {
+  const draft = pendingDrafts[0];
+  if (!draft || !allowReplace()) return;
+  pendingDrafts = [];
+  $('draft-banner').hidden = true;
+  dirty = false;
+  const source = catalog.find(x => x.id === draft.sourceId),
+    entry = draft.savedId ? saved.find(x => x.id === draft.savedId) : null,
+    title = String(draft.title || 'Untitled'),
+    // Turned-in work a teacher was correcting comes back as that work, with its "Turned in by" bar.
+    submission = typeof draftSubmission === 'function' ? draftSubmission(draft, activePrompt(draft.prompt)) : null;
+  openScore(
+    {
+      ...(source || {}),
+      ...(entry || {}),
+      ...(source && !entry?.workTitle ? {workTitle: source.title} : {}),
+      title,
+      composer: entry?.composer ?? source?.composer ?? (draft.abc.match(/^C:(.*)$/m)?.[1]?.trim() || ''),
+      kind: draft.kind || source?.kind || 'personal',
+      abc: draft.abc,
+      instrument: knownInstrument(draft.instrument),
+      prompt: draft.prompt,
+      ...(typeof draft.fit === 'boolean' ? {fit: draft.fit} : {}),
+      mixer: validMixer(draft.mixer ?? entry?.mixer),
+      ...(readFeedback(draft.feedback) ? {feedback: readFeedback(draft.feedback)} : {}),
+      ...(submission ? {submission} : {})
+    },
+    entry ? entry.id : null
+  );
+  if (typeof takesRestored === 'function') takesRestored(draft.takes);
+  dirty = true;
+  cleanKey = '';
+  updateRights();
+  $('save-status').textContent = `Restored unsaved work from ${draftTime(draft.at)}. Save it to keep it.`;
+  focusScore();
+  // The work is now this tab's own draft; the entry it came from goes once that copy is stored.
+  writeDraft();
+  if (draftOwned) removeDrafts(d => sameDraft(d, draft));
+}
+// Discarding removes only the offered draft; the next one, if any, takes its place in the banner.
+function discardDraft() {
+  const draft = pendingDrafts.shift();
+  if (!draft) return;
+  removeDrafts(d => sameDraft(d, draft));
+  toast('Unsaved work discarded.');
+  if (pendingDrafts.length) offerDraft();
+  else {
+    $('draft-banner').hidden = true;
+    document.querySelector('.nav.active')?.focus();
+  }
+}

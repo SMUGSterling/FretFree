@@ -7,10 +7,13 @@ function show(view) {
   if (view === 'saved') {
     renderSaved();
     renderBackupStatus();
+    if (typeof renderInbox === 'function') renderInbox();
   }
   if (view !== 'studio') stop();
-  if (view !== 'library') stopPreview();
-  history.replaceState(null, '', '#' + view);
+  // A preview stops when its view goes: card previews live in the library, History previews in My scores.
+  if (view !== (previewId === 'history' ? 'saved' : 'library')) stopPreview();
+  // An embedded score keeps its #e= address, so reloading the frame shows the same score.
+  if (!embedView) history.replaceState(null, '', '#' + view);
   window.scrollTo({top: 0, behavior: 'smooth'});
 }
 function allowReplace() {
@@ -18,24 +21,37 @@ function allowReplace() {
 }
 function openScore(item, id = null) {
   if (!allowReplace()) return;
+  // The assignment builder and the share and audio file panels describe the score they were opened on, so they close
+  // with it.
+  toggleAssignmentBuilder(false);
+  closeShare();
+  closeWav();
+  if (typeof closeTurnIn === 'function') closeTurnIn();
   stop();
   stopPreview();
   current = item;
   savedId = id;
+  if (typeof takesOpened === 'function') takesOpened(item);
+  if (typeof checksOpened === 'function') checksOpened();
   dirty = false;
   selectedRange = null;
+  toggleTranspose(false);
   $('selection-status').textContent =
     'Click a note to select its ABC text; Shift+click another to practice from the first to the second. Drag up/down to change pitch; chords move together.';
   $('start-measure').value = 1;
   $('end-measure').value = '';
   $('abc').value = item.abc;
   inputLength = null;
+  $('keep-bars').checked = keepBarsFor(item);
+  // A saved or restored entry may name an instrument this app does not have; it opens on the default.
   $('instrument').value =
-    item.instrument || ($('instrument-filter').value === 'all' ? 'Flute' : $('instrument-filter').value);
+    knownInstrument(item.instrument) ||
+    ($('instrument-filter').value === 'all' ? 'Flute' : $('instrument-filter').value);
   resetHistory();
   syncFields();
   render();
   $('save-status').textContent = '';
+  if (catalog.includes(item)) played = new Set(storedNames(KEYS.played));
   if (catalog.includes(item) && !played.has(item.id)) {
     played.add(item.id);
     storage.set(KEYS.played, [...played]);
@@ -55,14 +71,111 @@ function newScore(bars) {
     title: 'Untitled melody',
     composer: '',
     kind: 'personal',
-    abc: promptSource({title: 'Untitled melody', meter: '4/4', unit: '1/4', tempo: 100, key: 'C', bars})
+    abc: promptSource({title: 'Untitled melody', meter: '4/4', unit: '1/4', tempo: 100, key: 'C', bars}),
+    fit: true
   });
   const first = scoreNotes()[0];
   if (first) selectEntry(first);
   $('selection-status').textContent =
     `Blank sheet of ${bars} bars. Click a bar and type A–G, or turn on Draw notes and click the staff; each bar fills from its rest. ＋ 4 bars adds more.`;
 }
-for (const name of Object.keys(instruments)) $('instrument').add(new Option(name, name));
+// The New score panel: a template with title, key, time signature, tempo, pickup and bars. templateSource
+// (score-tools.js) writes the ABC. Templates with fixed clefs bring their own non-transposing instrument; Melody,
+// Lead sheet and Duet keep the current one.
+for (const t of SCORE_TEMPLATES) $('new-template').add(new Option(t.name, t.id));
+fillKeySelect($('new-key'));
+for (const o of $('meter').options) if (o.value !== 'none') $('new-meter').add(new Option(o.text, o.value));
+function newScoreChoices() {
+  return {
+    template: $('new-template').value,
+    title: $('new-title').value.trim(),
+    key: $('new-key').value,
+    meter: $('new-meter').value,
+    tempo: Math.max(40, Math.min(200, Math.round(+$('new-tempo').value) || 100)),
+    bars: Math.max(1, Math.min(64, Math.round(+$('new-bars').value) || DEFAULT_BARS)),
+    pickup: +$('new-pickup').value || 0
+  };
+}
+// Pickups longer than the meter allows are greyed out (2/4 and 6/8 take one beat at most).
+function refreshNewScore() {
+  const meter = templateMeter($('new-meter').value);
+  for (const o of $('new-pickup').options) o.disabled = +o.value > meter.pickups;
+  if ($('new-pickup').selectedOptions[0]?.disabled) $('new-pickup').value = '0';
+  const c = newScoreChoices(),
+    t = SCORE_TEMPLATES.find(x => x.id === c.template) || SCORE_TEMPLATES[0],
+    beats = c.pickup === 1 ? '1-beat pickup' : `${c.pickup}-beat pickup`;
+  $('new-score-summary').textContent =
+    `${t.name}: ${t.words}. ${c.pickup ? `A ${beats}, then ` : ''}${c.bars} ${c.bars === 1 ? 'bar' : 'bars'} of ` +
+    `${c.meter} in ${keyLabel(c.key)} at ${c.tempo} BPM.`;
+}
+function toggleNewScore(open) {
+  $('new-score-panel').hidden = !open;
+  $('new-score-open').setAttribute('aria-expanded', open);
+  if (open) {
+    togglePrompts(false);
+    if (typeof toggleAssignmentBuilder === 'function') toggleAssignmentBuilder(false);
+    refreshNewScore();
+    $('new-score-panel').scrollIntoView({block: 'nearest', behavior: 'smooth'});
+    $('new-title').focus({preventScroll: true});
+  }
+}
+// Opens the new score with its first rest selected and the score focused, so letters write straight away.
+function createScore(choices = newScoreChoices()) {
+  const t = SCORE_TEMPLATES.find(x => x.id === choices.template) || SCORE_TEMPLATES[0],
+    abc = templateSource(choices);
+  if (!allowReplace()) return false;
+  dirty = false;
+  openScore({
+    title: abc.match(/^T:(.*)$/m)[1],
+    composer: '',
+    kind: 'personal',
+    abc,
+    instrument: t.instrument || currentInstrument(),
+    fit: true
+  });
+  toggleNewScore(false);
+  $('new-title').value = '';
+  const first = scoreNotes()[0];
+  if (first) selectEntry(first);
+  focusScore();
+  const staves = t.staves.length > 1 ? `, ${t.staves.length} staves` : '';
+  $('selection-status').textContent =
+    `New score from the ${t.name} template${staves}. The first rest is selected: type A–G to write over it, or click a rest on any staff. ＋ 4 bars adds bars to every staff.`;
+  return true;
+}
+$('new-score-open').onclick = () => toggleNewScore($('new-score-panel').hidden);
+$('close-new-score').onclick = () => {
+  toggleNewScore(false);
+  $('new-score-open').focus();
+};
+$('new-score-panel').addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  e.stopPropagation();
+  toggleNewScore(false);
+  $('new-score-open').focus();
+});
+$('new-score-form').addEventListener('input', refreshNewScore);
+$('new-score-form').onsubmit = e => {
+  e.preventDefault();
+  createScore();
+};
+// The editor's instrument menu and the library's instrument filter both list `instruments` (catalog.js), by family.
+function fillInstrumentSelect(select) {
+  const groups = new Map();
+  for (const [name, config] of Object.entries(instruments)) {
+    const family = config.family || 'Other';
+    if (!groups.has(family))
+      groups.set(family, select.appendChild(Object.assign(document.createElement('optgroup'), {label: family})));
+    groups.get(family).append(new Option(name, name));
+  }
+}
+fillInstrumentSelect($('instrument'));
+fillInstrumentSelect($('instrument-filter'));
+fillKeySelect($('key'));
+fillKeySelect($('transpose-key'));
+for (const i of TRANSPOSE_INTERVALS)
+  $('transpose-interval').add(new Option(i.name[0].toUpperCase() + i.name.slice(1), i.id));
+$('transpose-interval').value = 'M2';
 for (const note of 'CDEFGAB') {
   $('note-buttons').insertAdjacentHTML('beforeend', `<button data-token="${note}">${note}</button>`);
 }
@@ -75,7 +188,16 @@ document.querySelectorAll('.brand').forEach(
     })
 );
 $('browse').onclick = () => $('library-top').scrollIntoView({behavior: 'smooth'});
-$('start-writing').onclick = $('new-score').onclick = $('saved-new').onclick = newScore;
+// The quick start stays one click: a blank 8-bar melody, whatever the New score panel is set to.
+$('start-writing').onclick = $('new-score').onclick = () => {
+  toggleNewScore(false);
+  newScore(DEFAULT_BARS);
+};
+// My scores' ＋ New score opens the same setup panel as the studio's.
+$('saved-new').onclick = () => {
+  show('studio');
+  toggleNewScore(true);
+};
 for (const id of [
   'search',
   'level-filter',
@@ -101,6 +223,14 @@ $('next-page').onclick = () => {
   renderCards();
   $('library-top').scrollIntoView({behavior: 'smooth'});
 };
+// What deleting a saved score deletes with it: its history and its recorded takes.
+function deletedAlong(id) {
+  const takes = typeof takeCount === 'function' ? takeCount('saved:' + id) : 0,
+    along = [versionsOf(id).length && 'its history', takes && (takes === 1 ? 'its take' : `its ${takes} takes`)].filter(
+      Boolean
+    );
+  return along.length ? ' and ' + along.join(' and ') : '';
+}
 document.addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
@@ -119,6 +249,7 @@ document.addEventListener('click', e => {
   }
   if (b.dataset.favorite) {
     const id = b.dataset.favorite;
+    favorites = storedNames(KEYS.favorites);
     const next = favorites.includes(id) ? favorites.filter(x => x !== id) : [...favorites, id];
     if (storage.set(KEYS.favorites, next)) {
       favorites = next;
@@ -126,12 +257,17 @@ document.addEventListener('click', e => {
       renderSaved();
     } else toast('This browser could not save favorites.');
   }
-  if (b.dataset.delete && confirm('Delete this locally saved score?')) {
+  if (b.dataset.history) openHistory(b.dataset.history);
+  if (b.dataset.delete && confirm(`Delete this locally saved score${deletedAlong(b.dataset.delete)}?`)) {
+    saved = storedScores();
     const next = saved.filter(x => x.id !== b.dataset.delete);
-    if (storage.set(KEYS.scores, next)) {
+    if (storeScores(next)) {
       saved = next;
+      removeVersions(b.dataset.delete);
       renderSaved();
       if (savedId === b.dataset.delete) savedId = null;
+      if (typeof deleteTakesOf === 'function') deleteTakesOf(['saved:' + b.dataset.delete]);
+      if (typeof deleteChecksOf === 'function') deleteChecksOf('saved:' + b.dataset.delete);
     } else toast('Deletion could not be saved.');
   }
   if (b.dataset.token) insertToken(b.dataset.token);
@@ -145,54 +281,97 @@ for (const [id, header] of [
   ['title', 'T'],
   ['composer', 'C'],
   ['meter', 'M'],
-  ['key', 'K'],
   ['bpm', 'Q']
 ])
   $(id).addEventListener('input', () => {
     noteTyping(id);
-    setHeader(header, id === 'bpm' ? '1/4=' + $(id).value : $(id).value);
+    setHeader(header, id === 'bpm' ? sliderBeat().replace(/\d+$/, $(id).value) : $(id).value);
     $('bpm-value').textContent = $('bpm').value;
+    if (id === 'meter') syncFeel();
     changed();
-  }); // On a prompt score the assignment is in written pitch, so a new instrument transposes the concert source to keep
+  });
+$('key').addEventListener('input', () => chooseKey($('key').value));
+// Feel writes the swing tempo text and %%MIDI swing into the ABC, so it prints, saves and shares with the score.
+$('feel').addEventListener('input', () => {
+  noteTyping('feel');
+  $('abc').value = setSwing($('abc').value, +$('feel').value);
+  // The Tempo slider follows the beat that swing writes out for a score with no Q:.
+  syncFields();
+  changed();
+});
+// On a prompt score the assignment is in written pitch, so a new instrument transposes the concert source to keep
 // every written note, and the written key, exactly where the student put them.
 $('instrument').onchange = () => {
   const before = instruments[instrumentShown]?.shift || 0,
     after = instruments[currentInstrument()].shift || 0,
     source = $('abc').value;
-  if (current?.prompt && promptById(current.prompt) && before !== after) {
+  if (activePrompt() && before !== after) {
     flushTyping();
-    $('abc').value = ABCJS.strTranspose(source, ABCJS.parseOnly(source), before - after);
+    try {
+      $('abc').value = transposeABC(source, before - after);
+    } catch {
+      $('abc').value = ABCJS.strTranspose(source, ABCJS.parseOnly(source), before - after);
+    }
     selectedRange = null;
   }
   instrumentShown = currentInstrument();
+  updateWavSummary();
   changed();
 };
-$('volume').oninput = () => {
-  if (playing) {
-    stop();
-    toast('Volume updated. Press Play to resume.');
-  }
+// Concert pitch view is display only: the source, playback and the undo history stay as they are. An open note menu
+// points into the old drawing, so it closes first.
+$('concert-pitch').onchange = () => {
+  storage.set(KEYS.concertPitch, $('concert-pitch').checked);
+  closeNoteMenu();
+  clearTimeout(renderTimer);
+  render();
 };
+// Volume is live: the master bus follows the slider, so playback carries on.
+$('volume').oninput = updateVolume;
 $('help-toggle').onclick = () => {
   $('abc-help').hidden = !$('abc-help').hidden;
 };
 $('save').onclick = () => {
-  const id = savedId || globalThis.crypto?.randomUUID?.() || 'score-' + Date.now();
+  saved = storedScores();
+  const id = savedId || globalThis.crypto?.randomUUID?.() || 'score-' + Date.now(),
+    previous = saved.find(x => x.id === id),
+    takesKey = typeof recordKey === 'function' ? recordKey() : null;
+  // Turned-in work saved to My scores is a copy of one's own: "Turned in by" stays behind, and it can be turned in.
+  const {submission, ...item} = current || {};
+  // A copy of a library edition keeps the edition's id and title, which the new id and T: line would otherwise hide,
+  // so its share links and credits still name that edition.
+  const libraryId = typeof shareSourceId === 'function' ? shareSourceId() : undefined,
+    edition = libraryId && catalog.find(x => x.id === libraryId),
+    workTitle = item.workTitle || (item.rights && edition ? edition.title : undefined);
+  // Each save of a score gets its own time, which names the version it later becomes.
   const entry = {
-    ...current,
+    ...item,
+    ...(libraryId ? {libraryId} : {}),
+    ...(workTitle ? {workTitle} : {}),
     id,
     title: field('T', 'Untitled'),
     composer: field('C'),
     abc: $('abc').value,
     instrument: currentInstrument(),
-    updated: Date.now()
+    // Keep bars full stays as it was left (see keepBarsFor), even where that is the score's default.
+    fit: keepBars(),
+    updated: Math.max(Date.now(), (previous?.updated || 0) + 1)
   };
   const next = saved.filter(x => x.id !== id).concat(entry);
-  if (storage.set(KEYS.scores, next)) {
+  if (storeScores(next)) {
     saved = next;
+    // The copy this save replaced goes into the score's History, if its music changed.
+    if (previous && previous.abc !== entry.abc) keepVersion(previous);
     savedId = id;
+    // Takes recorded and play-along checks made before the first save stay with the score.
+    if (takesKey) rekeyTakes(takesKey, recordKey());
+    if (takesKey && typeof rekeyChecks === 'function') rekeyChecks(takesKey, recordKey());
     dirty = false;
     markClean();
+    if (submission) {
+      if (typeof saveFeedback === 'function') saveFeedback();
+      current = item;
+    }
     $('save-status').textContent = 'Saved on this device. Back up from My scores to keep it safe.';
     renderBackupStatus();
     toast('Score saved');
@@ -202,32 +381,67 @@ $('save').onclick = () => {
   }
 };
 $('import').onclick = () => $('import-file').click();
+// Opening a file: ABC as it is, or MusicXML (.musicxml, .xml, or compressed .mxl) converted to ABC on this device.
+const MUSICXML_FILE = /\.(musicxml|xml|mxl)$/i;
+function importReport(result) {
+  const size = `${result.parts} ${result.parts === 1 ? 'part' : 'parts'}, ${result.measures} ${
+    result.measures === 1 ? 'measure' : 'measures'
+  }`;
+  return (
+    `Imported from MusicXML (${size}). Save or export to keep a copy.` +
+    (result.skipped.length ? ' Left out: ' + listWords(result.skipped) + '.' : '')
+  );
+}
 $('import-file').onchange = async () => {
   const file = $('import-file').files[0];
   if (!file) return;
-  if (file.size > 1024 * 1024) {
-    toast('Please use an ABC file smaller than 1 MB.');
+  const musicXML = MUSICXML_FILE.test(file.name);
+  if (file.size > (musicXML ? 5 : 1) * 1024 * 1024) {
+    toast(musicXML ? 'Please use a MusicXML file smaller than 5 MB.' : 'Please use an ABC file smaller than 1 MB.');
+    $('import-file').value = '';
     return;
   }
   try {
-    const source = await file.text();
-    if (ABCJS.numberOfTunes(source) !== 1) throw new Error('Please import one ABC tune at a time.');
-    if (!/^K:/m.test(source) || !/^X:/m.test(source)) throw new Error('Expected an ABC score with X: and K: headers.');
+    let source,
+      metadata = {},
+      result = null;
+    if (musicXML) {
+      try {
+        result = await readMusicXMLFile(file);
+      } catch (e) {
+        // Messages written for people pass through; anything else means the file was not what it claimed.
+        throw /^(This|There)\b/.test(e.message) ? e : Error('This MusicXML file could not be read. It may be damaged.');
+      }
+      source = result.abc;
+      metadata = importedRights(result.metadata);
+    } else {
+      source = await file.text();
+      // Tunes are counted by their X: lines: a FretFree export's notice comes before X:1, and abcjs's numberOfTunes
+      // would count that preamble as a tune of its own.
+      if ((source.match(/^X:/gm) || []).length !== 1) throw new Error('Please import one ABC tune at a time.');
+      if (!/^K:/m.test(source) || !/^X:/m.test(source))
+        throw new Error('Expected an ABC score with X: and K: headers.');
+      const notice = source.match(/^% FretFree-Rights: (.*)$/m);
+      if (notice) {
+        try {
+          metadata = importedRights(JSON.parse(notice[1]));
+        } catch {}
+      }
+    }
     if (!allowReplace()) return;
     dirty = false;
-    const notice = source.match(/^% FretFree-Rights: (.*)$/m);
-    let metadata = {};
-    if (notice) {
-      try {
-        metadata = JSON.parse(notice[1]);
-        if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) metadata = {};
-      } catch {}
-    }
-    openScore({...metadata, kind: 'personal', abc: source});
+    openScore({
+      ...metadata,
+      kind: 'personal',
+      abc: source,
+      ...(knownInstrument(result?.instrument) ? {instrument: result.instrument} : {})
+    });
     dirty = true;
-    $('save-status').textContent = 'Imported locally. Save or export to keep a copy.';
+    scheduleDraft();
+    $('save-status').textContent = result ? importReport(result) : 'Imported locally. Save or export to keep a copy.';
   } catch (e) {
     toast(e.message);
+    $('save-status').textContent = e.message;
   } finally {
     $('import-file').value = '';
   }
@@ -242,10 +456,43 @@ for (const id of ['start-measure', 'end-measure'])
 function applyStoredSettings() {
   for (const id of ['loop', 'metronome', 'count-in', 'trainer'])
     $(id).checked = !!storage.get(KEYS.practice(id), false);
+  $('chords').checked = storage.get(KEYS.practice('chords'), true) !== false;
   $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
   $('note-names').value = storage.get(KEYS.noteNames, 'off');
+  $('note-colors').value = storage.get(KEYS.noteColors, 'off');
+  $('audition').checked = storage.get(KEYS.audition, true) !== false;
+  if (typeof applyRecordSettings === 'function') applyRecordSettings();
+  if (typeof applyCheckSettings === 'function') applyCheckSettings();
+  if (typeof setPiano === 'function') setPiano(storage.get(KEYS.piano, false) === true, false);
+  applyStoredLayout();
+  applyTheme();
   prepareTrainer();
+  updateFoldMarks();
 }
+// Zoom, measures per line and Concert pitch view are read before the first render, so the start-up score is drawn
+// once as the student left it.
+function applyStoredLayout() {
+  $('concert-pitch').checked = storage.get(KEYS.concertPitch, false) === true;
+  showZoom(storage.get(KEYS.zoom, 100));
+  $('measures-per-line').value = String(validMeasuresPerLine(storage.get(KEYS.measuresPerLine, 0)));
+}
+// Theme and Dark paper only change colors in style.css, so the score is not redrawn. Each choice applies even when
+// it cannot be saved.
+$('theme').onchange = () => {
+  storage.set(KEYS.theme, $('theme').value);
+  applyTheme($('theme').value, $('dark-paper').checked);
+};
+$('dark-paper').onchange = () => {
+  storage.set(KEYS.darkPaper, $('dark-paper').checked);
+  applyTheme($('theme').value, $('dark-paper').checked);
+};
+$('zoom-out').onclick = () => stepZoom(-1);
+$('zoom-in').onclick = () => stepZoom(1);
+$('zoom-reset').onclick = () => stepZoom(0);
+$('measures-per-line').onchange = () => {
+  storage.set(KEYS.measuresPerLine, measuresPerLine());
+  render();
+};
 for (const id of ['loop', 'metronome', 'count-in', 'trainer']) {
   $(id).checked = !!storage.get(KEYS.practice(id), false);
   $(id).addEventListener('change', () => {
@@ -253,13 +500,25 @@ for (const id of ['loop', 'metronome', 'count-in', 'trainer']) {
     if (id === 'trainer') prepareTrainer();
   });
 }
+// Chords plays the chord symbols as an accompaniment (on by default). Switching it while the score plays carries on
+// from the same place; MIDI export always keeps the chords.
+$('chords').checked = storage.get(KEYS.practice('chords'), true) !== false;
+$('chords').addEventListener('change', () => {
+  storage.set(KEYS.practice('chords'), $('chords').checked);
+  const position = playPosition();
+  if (position != null) {
+    stop();
+    play(position);
+  }
+});
 $('trainer-goal').addEventListener('change', () => {
   $('trainer-goal').value = trainerGoal();
   prepareTrainer();
 });
 $('speed').oninput = () => {
-  const position = playing ? playOrigin + Math.max(0, audio.currentTime - playClock) * playSpeed : null;
+  const position = playPosition();
   $('speed-value').textContent = $('speed').value + '%';
+  updateWavSummary();
   if (position != null) {
     stop();
     play(position);
@@ -269,7 +528,10 @@ $('speed-reset').onclick = () => {
   $('speed').value = 100;
   $('speed').oninput();
 };
-$('stop').onclick = stop;
+$('stop').onclick = () => {
+  if (typeof cancelStartingRecording === 'function') cancelStartingRecording();
+  stop();
+};
 $('print').onclick = () => {
   render();
   const appendix = $('print-appendix');
@@ -277,7 +539,7 @@ $('print').onclick = () => {
     ? '<h2>Editable source and GPL license</h2><pre>' +
       esc(
         exportCredit(current) +
-          '\n\nCorresponding editable ABC (FretFree export, 2026-10-03):\n' +
+          `\n\nCorresponding editable ABC (FretFree export, ${new Date().toLocaleDateString('en-CA')}):\n` +
           $('abc').value +
           '\n\n' +
           GPL_LICENSE
@@ -294,6 +556,20 @@ $('export-midi').onclick = () => {
     toast(e.message);
   }
 };
+// MusicXML is written at concert pitch from the ABC; a transposing instrument's name would mislead, so only a
+// concert-pitch instrument names the part.
+$('export-musicxml').onclick = () => {
+  try {
+    const instrument = currentInstrument();
+    download(
+      abcToMusicXML($('abc').value, {item: current, instrument: instruments[instrument]?.shift ? '' : instrument}),
+      safeName() + '.musicxml',
+      'application/vnd.recordare.musicxml+xml'
+    );
+  } catch (e) {
+    toast(e.message);
+  }
+};
 $('export-svg').onclick = () => {
   try {
     clearTimeout(renderTimer);
@@ -303,14 +579,195 @@ $('export-svg').onclick = () => {
     toast(e.message);
   }
 };
+// WAV export: a panel says what goes in the file and makes it. Include metronome and Include chords start from the
+// transport's switches; Include chords shows only when the score's chord symbols play. The summary names the speed and
+// the instrument, so it follows them while the panel is open. A bar shows how far the file has got, where the browser
+// can tell. Closing the panel, or opening another score, stops a file still being made and drops it.
+let wavRun = 0,
+  wavStop = null;
+function playsChords(source) {
+  try {
+    return parseMidi(midiBytes(source)).notes.length > parseMidi(midiBytes(source, {chordsOff: true})).notes.length;
+  } catch {
+    return false;
+  }
+}
+function showWavSummary() {
+  $('wav-summary').textContent = offlineAudio()
+    ? `The whole score in the ${currentInstrument()} sound at ${$('speed').value}% speed, as Play sounds it. ` +
+      (mixChanged() ? `The mixer’s settings apply${mixSilences() ? ': muted tracks are left out' : ''}. ` : '') +
+      'The file is made on this device; nothing is uploaded.'
+    : 'This browser can’t make audio files. Export MIDI instead, or try Chrome, Edge, Firefox or Safari.';
+}
+function updateWavSummary() {
+  if (!$('wav-panel').hidden) showWavSummary();
+}
+function openWav() {
+  $('wav-panel').hidden = false;
+  $('export-wav').setAttribute('aria-expanded', 'true');
+  $('wav-metronome').checked = $('metronome').checked;
+  $('wav-chords').checked = $('chords').checked;
+  $('wav-chords-option').hidden = !playsChords($('abc').value);
+  $('wav-make').disabled = !offlineAudio();
+  $('wav-status').textContent = '';
+  showWavSummary();
+  $('wav-panel').scrollIntoView?.({block: 'nearest', behavior: 'smooth'});
+  ($('wav-make').disabled ? $('wav-close') : $('wav-make')).focus({preventScroll: true});
+}
+function closeWav() {
+  if ($('wav-panel').hidden) return;
+  wavRun++;
+  wavStop?.abort();
+  wavStop = null;
+  $('wav-panel').hidden = true;
+  $('wav-progress').hidden = true;
+  $('wav-panel').removeAttribute('aria-busy');
+  $('export-wav').setAttribute('aria-expanded', 'false');
+}
+async function makeWav() {
+  const run = ++wavRun,
+    name = safeName() + '.wav',
+    bar = $('wav-progress');
+  // Without AbortController (older browsers) closing the panel still drops the file, after it is made.
+  wavStop = typeof AbortController === 'function' ? new AbortController() : null;
+  $('wav-make').disabled = true;
+  $('wav-panel').setAttribute('aria-busy', 'true');
+  $('wav-status').textContent = 'Making the audio file…';
+  // No value until the first report: a browser that cannot report progress shows a busy bar.
+  bar.removeAttribute('value');
+  bar.hidden = false;
+  showWavSummary();
+  try {
+    const wav = await renderWav({
+      metronome: $('wav-metronome').checked,
+      chords: $('wav-chords').checked,
+      signal: wavStop?.signal,
+      progress: done => {
+        if (run === wavRun) bar.value = done;
+      }
+    });
+    if (run !== wavRun) return;
+    download(wav.bytes, name, 'audio/wav');
+    $('wav-status').textContent =
+      `Downloaded ${name} (${clockTime(wav.seconds)}, ${(wav.bytes.length / 1048576).toFixed(1)} MB).`;
+  } catch (e) {
+    if (run === wavRun) $('wav-status').textContent = e.message;
+  } finally {
+    if (run === wavRun) {
+      wavStop = null;
+      bar.hidden = true;
+      $('wav-make').disabled = false;
+      $('wav-panel').removeAttribute('aria-busy');
+    }
+  }
+}
+$('export-wav').onclick = () => ($('wav-panel').hidden ? openWav() : closeWav());
+$('wav-close').onclick = () => {
+  closeWav();
+  $('export-wav').focus();
+};
+$('wav-panel').addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  e.stopPropagation();
+  closeWav();
+  $('export-wav').focus();
+});
+$('wav-make').onclick = makeWav;
 window.addEventListener('beforeunload', e => {
   if (dirty) {
     e.preventDefault();
     e.returnValue = '';
   }
 });
+// A hidden tab may be discarded without warning (Chromebooks do this), so a pending draft is written straight away.
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) stop();
+  if (document.hidden) {
+    stop();
+    flushDraft();
+  }
+});
+window.addEventListener('pagehide', flushDraft);
+// Another tab may have restored or discarded this tab's draft from its banner; while the work here is unsaved, it goes
+// back. A page coming back from the back/forward cache may have missed that, so it checks too.
+window.addEventListener('storage', e => {
+  if (e.key === KEYS.draft || e.key === null) keepDraft();
+  // Scores, favorites or played marks saved in another tab show here too.
+  if ([KEYS.scores, KEYS.favorites, KEYS.played, null].includes(e.key)) {
+    rereadLists();
+    renderSaved();
+    renderCards();
+    renderBackupStatus();
+  }
+});
+window.addEventListener('pageshow', keepDraft);
+$('draft-restore').onclick = restoreDraft;
+$('draft-discard').onclick = discardDraft;
+// Offline use. sw.js keeps the app and the library in this browser after one visit. Browsers allow a service worker
+// only on https or localhost; elsewhere, or without the API, the site works online as before. An embedded score keeps
+// nothing on the visitor's device, so it registers no worker.
+const offlineCapable = () =>
+  !embedView &&
+  !!navigator.serviceWorker &&
+  (location.protocol === 'https:' || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname));
+function showOnline() {
+  $('offline-status').textContent = navigator.onLine === false ? '● Working offline' : '';
+}
+window.addEventListener('online', showOnline);
+window.addEventListener('offline', () => {
+  showOnline();
+  if (!embedView) toast('You are offline. FretFree keeps working; a PDF opens only if you opened it before.');
+});
+showOnline();
+$('offline-ready').textContent = offlineCapable()
+  ? 'Keeping a copy in this browser for offline use…'
+  : 'This browser cannot keep an offline copy of this page, so it needs the internet to open.';
+// Scripts and styles loaded before the worker took charge are handed to it, so the first visit is enough.
+function keepForOffline(registration) {
+  const urls = [...document.querySelectorAll('script[src], link[rel="stylesheet"][href]')].map(el => el.src || el.href);
+  registration.active?.postMessage({type: 'keep', urls});
+}
+if (offlineCapable()) {
+  let complete = true;
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data?.type !== 'kept') return;
+    complete = e.data.kept >= e.data.total;
+    $('offline-ready').textContent = complete
+      ? 'This browser has an offline copy of FretFree.'
+      : 'Part of the offline copy is missing; open FretFree once more while online.';
+  });
+  // A copy cut short by a lost connection is finished when the connection comes back.
+  window.addEventListener('online', () => complete || navigator.serviceWorker.ready.then(keepForOffline));
+  const register = () =>
+    navigator.serviceWorker
+      .register('sw.js')
+      .then(() => navigator.serviceWorker.ready)
+      .then(keepForOffline)
+      .catch(() => ($('offline-ready').textContent = 'This browser could not keep an offline copy.'));
+  if (document.readyState === 'complete') register();
+  else window.addEventListener('load', register, {once: true});
+}
+// Install app appears when the browser offers installing (Chrome and Edge); each offer can be used once.
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  installPrompt = e;
+  $('install-app').hidden = false;
+});
+$('install-app').onclick = async () => {
+  const prompt = installPrompt;
+  if (!prompt) return;
+  installPrompt = null;
+  try {
+    await prompt.prompt();
+    await prompt.userChoice;
+  } catch {}
+  $('install-app').hidden = true;
+  document.querySelector('.nav.active')?.focus();
+};
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  $('install-app').hidden = true;
+  toast('FretFree is installed. Open it from your apps, with or without internet.');
 });
 const initialView = location.hash.slice(1);
 for (const name of [...new Set(catalog.map(scoreCollection))].sort())
@@ -327,24 +784,130 @@ ABCJS.renderAbc('hero-notation', catalog[0].abc, {
   paddingtop: 25,
   paddingbottom: 30
 });
-renderCards();
-newScore();
-if (initialView.startsWith('s=')) {
+// An embedded score opens on its own: no library cards, no blank sheet first, no draft offer and no storage
+// (storage.get gives every default there, so the layout starts at 100% and written pitch).
+if (!embedView) renderCards();
+applyStoredLayout();
+// Unsaved work from an earlier visit is offered once the start-up score is open; a share link opens first.
+loadDrafts();
+if (!embedView) newScore();
+if (embedView) openEmbed(initialView);
+else if (initialView.startsWith('s=')) {
   show('studio');
   openSharedLink(initialView).then(ok => {
     if (!ok) show('library');
+    offerDraft();
   });
-} else show(['studio', 'saved', 'about'].includes(initialView) ? initialView : 'library');
+} else {
+  show(['studio', 'saved', 'about'].includes(initialView) ? initialView : 'library');
+  offerDraft();
+}
+// A share link pasted into this tab's address bar opens too (show() keeps the address with replaceState, which fires
+// no hashchange). The link is read first: a damaged one is refused before unsaved work is asked about, so that work
+// stays unsaved work (and keeps its draft). A refused or declined link leaves the address as it was, so pasting the
+// same link again opens it.
+window.addEventListener('hashchange', async e => {
+  if (embedView || !location.hash.startsWith('#s=')) return;
+  const hash = location.hash.slice(1),
+    payload = await decodeShare(hash.slice(2)),
+    back = () => {
+      if (location.hash.slice(1) === hash)
+        history.replaceState(null, '', new URL(e.oldURL || location.href).hash || location.pathname + location.search);
+    };
+  if (!payload) {
+    toast('This link did not contain a readable score.');
+    back();
+    return;
+  }
+  if (location.hash.slice(1) !== hash) return;
+  if (!allowReplace()) {
+    back();
+    return;
+  }
+  dirty = false;
+  show('studio');
+  openSharedLink(hash, payload);
+});
 $('fingering').checked = storage.get(KEYS.fingering, true) !== false;
 $('fingering').onchange = () => {
   storage.set(KEYS.fingering, $('fingering').checked);
   render();
 };
+$('audition').checked = storage.get(KEYS.audition, true) !== false;
+$('audition').onchange = () => storage.set(KEYS.audition, $('audition').checked);
+// Keep bars full belongs to the open score (see keepBarsFor), so it is not stored as a setting.
+$('keep-bars').onchange = () => {
+  closeNoteMenu();
+  refreshPalette();
+  $('selection-status').textContent = $('keep-bars').checked
+    ? 'Keep bars full is on: shorter notes leave rests, longer notes use the rests after them, and Delete leaves a rest.'
+    : 'Keep bars full is off: lengths change freely and Delete removes notes.';
+};
 $('note-names').value = storage.get(KEYS.noteNames, 'off');
-if (noteNamesMode() !== 'off') render();
+$('note-colors').value = storage.get(KEYS.noteColors, 'off');
+if (noteNamesMode() !== 'off' || lettersInHeads() || noteColorsShown()) render();
 $('note-names').onchange = () => {
   storage.set(KEYS.noteNames, $('note-names').value);
   render();
 };
+$('note-colors').onchange = () => {
+  storage.set(KEYS.noteColors, $('note-colors').value);
+  render();
+};
 // A remembered speed trainer needs the same below-goal start as a freshly ticked one.
 prepareTrainer();
+// Compact-layout folds (up to 1100px wide). Each .disclose button toggles .open on the element it controls; style.css
+// folds only in the compact layout, so wide screens show everything whatever the state. The choice is remembered per
+// device, along with whether the keyboard keys are open.
+const FOLDS = ['score-settings', 'write-notes', 'practice-panel', 'view-options'];
+const foldState = (s => (s && typeof s === 'object' && !Array.isArray(s) ? s : {}))(storage.get(KEYS.studioPanels, {}));
+function setFold(id, open, save = true) {
+  $(id).classList.toggle('open', open);
+  document.querySelector(`.disclose[aria-controls="${id}"]`)?.setAttribute('aria-expanded', open);
+  if (save) storage.set(KEYS.studioPanels, Object.assign(foldState, {[id]: open}));
+}
+for (const id of FOLDS) setFold(id, foldState[id] === true, false);
+document.addEventListener('click', e => {
+  const b = e.target.closest('button.disclose');
+  if (b) setFold(b.getAttribute('aria-controls'), b.getAttribute('aria-expanded') !== 'true');
+});
+$('keyboard-help').open = foldState['keyboard-help'] === true;
+$('keyboard-help').addEventListener('toggle', e =>
+  storage.set(KEYS.studioPanels, Object.assign(foldState, {'keyboard-help': e.target.open}))
+);
+// Opens the fold around el when the fold hides it, for code that moves the focus into it (the bar check's Show, which
+// selects a bar in the ABC text). Wide screens fold nothing, so there the remembered choice stays as it was.
+function revealFold(el) {
+  const fold = el?.closest('.panel-body, #practice-panel, #view-options');
+  if (fold && !fold.classList.contains('open') && !el.getClientRects().length) setFold(fold.id, true);
+}
+// A folded toggle says when something inside it is on, so a student can see that Loop or a 70% speed is still active.
+function markFold(id, on, words) {
+  const b = document.querySelector(`.disclose[aria-controls="${id}"]`);
+  b.classList.toggle('in-use', on);
+  b.querySelector('.disclose-state').textContent = on ? ` (${words})` : '';
+}
+// Also called by shadeRange (editor.js) whenever the practice range changes or the score is drawn again.
+function updateFoldMarks() {
+  const {from, to, total} = measureRange();
+  markFold(
+    'practice-panel',
+    ['loop', 'metronome', 'count-in', 'trainer'].some(id => $(id).checked) ||
+      $('speed').value !== '100' ||
+      from !== 1 ||
+      to !== total,
+    'settings on'
+  );
+  markFold(
+    'view-options',
+    $('note-names').value !== 'off' || $('note-colors').value !== 'off' || $('measures-per-line').value !== '0',
+    'settings on'
+  );
+  markFold('write-notes', $('warnings').textContent.trim() !== '', 'check the ABC warnings');
+}
+for (const id of ['practice-panel', 'view-options']) $(id).addEventListener('change', updateFoldMarks);
+$('practice-panel').addEventListener('input', updateFoldMarks);
+// Code changes these without an event too: a render's warnings, the speed trainer's next speed.
+for (const id of ['warnings', 'speed-value'])
+  new MutationObserver(updateFoldMarks).observe($(id), {childList: true, characterData: true, subtree: true});
+updateFoldMarks();
