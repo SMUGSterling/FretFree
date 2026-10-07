@@ -1,6 +1,7 @@
 # Bounded share-link decoding · 2026-10-07
 
 - Share, assignment, return and turn-in codes are decoded within limits: a code over 3 MB is refused, and decompression stops past 2 MB. A crafted link a few kilobytes long could otherwise expand to many megabytes and freeze the tab, for example when a teacher pastes turn-ins. Real scores are far smaller; the largest library score is about 12 KB.
+- The playback row keeps Mixer on its first line at laptop widths even with a wide system font (slightly narrower buttons and gaps from 1101 to 1366px). CI now runs the browser suites with Inter as the UI font (`tests/fonts.conf`), the font their layout checks were written against, and allows 30 minutes for the larger suites.
 - The offline browser test also tells newer Chromium that the network is down (`Network.overrideNetworkState`), as a real device does, since Playwright's offline switch no longer changes `navigator.onLine` there.
 
 ---

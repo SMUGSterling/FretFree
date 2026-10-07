@@ -2314,10 +2314,22 @@ body.embed #practice-panel {
     min-width: 40px;
   }
 }
-/* Laptop widths: a shorter Volume slider keeps Mixer on the first playback row with the other controls. */
+/* Laptop widths: Mixer stays on the first playback row with the other controls, even with a wide system font such as
+   DejaVu Sans: slightly narrower buttons and gaps, and a Volume slider at its 72px touch minimum. */
 @media (min-width: 1101px) and (max-width: 1366px) {
+  .transport {
+    gap: 6px;
+  }
+  .transport > button {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .transport .history-buttons {
+    padding: 0 6px;
+    margin: 0;
+  }
   .transport .volume input {
-    width: 80px;
+    width: 72px;
   }
 }
 @media (max-width: 1100px) {
