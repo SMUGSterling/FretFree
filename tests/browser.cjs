@@ -3180,11 +3180,16 @@ const {chromium} = require('playwright'),
         },
         [id, value]
       );
+    // The badge follows the phone-width media query, whose change reaches the page on its next frame.
+    const resized = async width => {
+      await phone.setViewportSize({width, height: 844});
+      await phone.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    };
     await setFilter('level-filter', 'Beginner');
     assert.deepEqual(await filtersBadge(), ['1', 'More filters (1 on)'], 'Filters counts Level on a phone');
-    await phone.setViewportSize({width: 1024, height: 844});
+    await resized(1024);
     assert.deepEqual(await filtersBadge(), ['', 'More filters'], 'More filters leaves the shown Level out');
-    await phone.setViewportSize({width: 390, height: 844});
+    await resized(390);
     assert.deepEqual(await filtersBadge(), ['1', 'More filters (1 on)'], 'and counts it again on a phone');
     await setFilter('level-filter', 'all');
     // About's jump chips move the keyboard to their heading, which shows the focus ring.
@@ -5150,7 +5155,10 @@ const {chromium} = require('playwright'),
     await wide.keyboard.press('Enter');
     await wide.keyboard.press('Escape');
     await wide.locator('#notation').focus();
+    // A new window size reaches the page's resize and media-query handlers on its next frame, not at once.
+    const settled = tab => tab.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
     await wide.setViewportSize({width: 683, height: 700});
+    await settled(wide);
     await wide.focus('#practice-toggle');
     await wide.keyboard.press('Tab');
     assert.deepEqual(
@@ -5167,7 +5175,8 @@ const {chromium} = require('playwright'),
     await wide.keyboard.press('Enter');
     assert.equal(await active(), 'draw-mode');
     await wide.setViewportSize({width: 700, height: 768});
-    await wide.waitForFunction(() => document.activeElement !== document.body);
+    // The focus stays on the hidden Draw notes until the phone-width handler closes Edit and moves it.
+    await wide.waitForFunction(() => $('menu-edit').getAttribute('aria-expanded') === 'false');
     assert.equal(await active(), 'phone-menu', 'Edit closed by a narrower window hands the focus to ☰');
     await wide.setViewportSize({width: 1440, height: 1000});
     await openOde(wide);
@@ -5634,6 +5643,8 @@ const {chromium} = require('playwright'),
       [820, 1180]
     ]) {
       await ipad.setViewportSize({width, height});
+      // The page's resize handlers run on the next frame; Marks must still be open after them.
+      await ipad.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
       assert.deepEqual(
         [await ipad.isVisible('#palette-marks'), await ipad.evaluate(() => document.activeElement.dataset.palette)],
         [true, 'deco:staccato'],
