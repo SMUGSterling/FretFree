@@ -2030,12 +2030,16 @@ input[type='range'] {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0 10px;
+  gap: 0 22px;
+  overflow: hidden;
 }
 .studio-meta #score-caption {
   margin: 0;
 }
+/* The dot between the caption and the summary sits in the gap before the summary, so a summary that wraps to its own
+   line starts with no stray dot (.studio-meta clips it). The beat glyph matches the text around it. */
 .score-summary {
+  position: relative;
   font-variant-numeric: tabular-nums;
 }
 @media (max-width: 360px) {
@@ -2045,7 +2049,13 @@ input[type='range'] {
 }
 .score-summary:not(:empty)::before {
   content: '·' / '';
-  margin-right: 10px;
+  position: absolute;
+  left: -14px;
+}
+.beat-glyph {
+  margin-right: -0.2em;
+  font-size: 1.6em;
+  line-height: 0;
 }
 .slot {
   display: contents;
@@ -2112,7 +2122,7 @@ html {
 .tool-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px 14px;
   padding: 6px;
   background: var(--panel);
@@ -2216,6 +2226,24 @@ html {
 .status-right > :empty {
   display: none;
 }
+/* ✎ Draw notes on a blank sheet: the Edit menu's switch, in reach on a tablet or phone. */
+.status-chip {
+  min-height: 40px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 650;
+  border-color: var(--tint-border);
+  background: var(--tint);
+  color: var(--green);
+}
+.status-chip[aria-pressed='true'] {
+  background: var(--green);
+  border-color: var(--green);
+  color: var(--on-green);
+}
+.status-chip[aria-pressed='true']:hover {
+  background: var(--green-hover);
+}
 .abc-warn {
   min-height: 40px;
   padding: 4px 12px;
@@ -2254,7 +2282,7 @@ html {
 }
 .menu-label {
   margin: 0;
-  padding: 8px 10px 4px;
+  padding: 8px 13px 4px;
   font-size: 10px;
   font-weight: 750;
   letter-spacing: 1.2px;
@@ -2283,7 +2311,7 @@ html {
   gap: 8px;
   min-height: 40px;
   padding: 8px 12px;
-  border-color: transparent;
+  border: 1px solid transparent;
   border-radius: 6px;
   background: none;
   color: var(--ink);
@@ -2314,17 +2342,29 @@ html {
   font-weight: 500;
   color: var(--muted);
 }
-/* A switch in a menu that is on (Draw notes, Piano keys, MIDI input) shows a check mark. */
+/* A switch in a menu (Draw notes, Piano keys, MIDI input, ABC source) has a box like the checkboxes beside it, empty
+   when off and checked when on, so it reads as a switch either way and lines up with them. */
 .entry-tools > [aria-pressed]::before,
 #write-toggle::before {
   content: '' / '';
-  display: inline-block;
-  width: 1em;
-  color: var(--green);
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--muted);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
 }
 .entry-tools > [aria-pressed='true']::before,
 #write-toggle[aria-expanded='true']::before {
   content: '✓' / '';
+  border-color: var(--green);
+  background: var(--green);
+  color: var(--on-green);
 }
 .entry-tools > [aria-pressed='true'],
 .view-options > #write-toggle[aria-expanded='true'] {
@@ -2351,7 +2391,7 @@ html {
 .score-settings {
   padding: 4px 8px 0;
 }
-.menu-pop input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.menu-pop input:not([type='checkbox']):not([type='radio']),
 .menu-pop select {
   min-height: 40px;
 }
@@ -2394,14 +2434,14 @@ html {
   min-height: 40px;
   padding: 6px 8px;
 }
-.view-options #dark-paper-option {
+.view-options :is(#dark-paper-option, #fingering-option) {
   justify-content: flex-start;
 }
 .zoom-controls {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 12px;
+  padding: 4px 13px;
 }
 .zoom-label {
   margin-right: auto;
@@ -2433,19 +2473,19 @@ html {
   font-weight: 650;
   color: var(--green);
 }
-/* The notation toolbar. The strip keeps its groups together and wraps between them. */
+/* The notation toolbar. It takes the room beside the transport, and its groups (the strip's, then the triggers) wrap
+   one by one inside it, so a narrow window keeps the lengths on the transport's line. The strip is one box only for
+   the scripts and screen readers; its groups are the toolbar's flex items. */
 #palette {
   display: flex;
+  flex: 1 1 0;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 14px;
   margin: 0;
 }
 .palette-strip {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 14px;
+  display: contents;
 }
 .palette-strip > [role='group'] {
   flex-wrap: nowrap;
@@ -2467,7 +2507,7 @@ html {
 .palette-strip .label-text {
   display: none;
 }
-@media (min-width: 1367px) {
+@media (min-width: 1280px) {
   .palette-strip .label-text {
     display: inline;
   }
@@ -2541,14 +2581,16 @@ html {
 #add-bars {
   white-space: nowrap;
 }
-/* Keep open: the popover becomes a row under the toolbar. */
+/* Keep open: the popover becomes a row under the toolbar. As a flex item it would still make a stacking context at
+   the popovers' z-index and paint over a popover opened after it, so it drops the z-index. */
 .palette-pop.pinned {
   position: static;
-  flex-basis: 100%;
+  z-index: auto;
+  flex-basis: calc(100% + var(--palette-indent, 0px));
   width: auto;
   max-width: none;
   max-height: none;
-  margin: 0;
+  margin: 0 0 0 calc(-1 * var(--palette-indent, 0px));
   box-shadow: none;
 }
 .sheet-done {
@@ -2863,8 +2905,10 @@ html {
   .menu-row.sheet-open > .sheet-head {
     order: -2;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
+    gap: 6px 0;
     position: sticky;
     top: 0;
     z-index: 1;
@@ -2874,6 +2918,17 @@ html {
   }
   .sheet-title {
     font: 700 16px system-ui;
+  }
+  /* Section buttons under the sheet's title: each scrolls to its section. */
+  .sheet-jump {
+    display: flex;
+    flex: 1 1 100%;
+    gap: 4px;
+  }
+  .sheet-jump > button {
+    flex: 1 1 0;
+    padding: 6px 4px;
+    font-size: 13px;
   }
   .menu-row.sheet-open > #save {
     order: -1;
@@ -2956,7 +3011,7 @@ html {
     max-height: 50dvh;
     overflow: auto;
     overscroll-behavior: contain;
-    padding: 0 12px 12px;
+    padding: 6px 12px 12px;
     background: var(--paper);
     border-top: 1px solid var(--border);
     border-radius: 14px 14px 0 0;
@@ -2978,7 +3033,7 @@ html {
     box-shadow: none;
   }
   .palette-pops.sheet-open .pop-head {
-    padding-bottom: 2px;
+    padding: 4px 0 8px;
   }
   .palette-pops.sheet-open .sheet-done {
     display: block;
@@ -4317,11 +4372,27 @@ button.mark-where {
 .teacher-tools [aria-pressed='true'] {
   border-color: var(--ink);
 }
+/* On a phone the group keeps one row: Comment takes the spare width and the four swatches stay square. The narrowest
+   phones drop the Feedback word (the group is named for screen readers). */
 @media (max-width: 720px) {
   .teacher-tools {
     gap: 4px;
   }
-  .teacher-tools button {
+  .teacher-tools-label {
+    font-size: 9px;
+    letter-spacing: 0.5px;
+  }
+  .teacher-tools [data-teacher='comment'] {
     flex: 1 1 auto;
+    padding: 6px 8px;
+    white-space: nowrap;
+  }
+  .teacher-tools [data-teacher^='color:'] {
+    flex: none;
+  }
+}
+@media (max-width: 380px) {
+  .teacher-tools-label {
+    display: none;
   }
 }

@@ -295,4 +295,22 @@ $('palette').addEventListener('focusin', e => {
   if (e.target.matches(TOOLBAR_STOPS)) paletteTabStop(e.target);
 });
 paletteTabStop(document.querySelector(TOOLBAR_STOPS));
+// The stop never stays on a button the layout hides: at phone width Marks and Measure go, and Notes (which opens them)
+// takes the stop; a strip button that held it keeps it. The focus follows when it was on the hidden button.
+function keepPaletteTabStop() {
+  if (!document.documentElement.getClientRects().length) return;
+  const all = [...document.querySelectorAll(TOOLBAR_STOPS)],
+    stop = all.find(b => b.tabIndex === 0);
+  if (stop?.getClientRects().length) return;
+  const shown = all.filter(b => b.getClientRects().length > 0),
+    to =
+      (stop && PALETTE_TRIGGERS.includes(stop.dataset.palette)
+        ? shown.find(b => PALETTE_TRIGGERS.includes(b.dataset.palette))
+        : null) || shown[0];
+  if (!to) return;
+  paletteTabStop(to);
+  if (stop && document.activeElement === stop) to.focus({preventScroll: true});
+}
+window.matchMedia?.('(max-width: 720px)').addEventListener?.('change', keepPaletteTabStop);
+window.addEventListener('resize', keepPaletteTabStop);
 updatePalette();

@@ -12,38 +12,38 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-    <script src="theme.js?v=fa5fc48c0602"></script>
-    <link rel="stylesheet" href="style.css?v=fa5fc48c0602" />
-    <script defer src="vendor/abcjs-basic-min.js?v=fa5fc48c0602"></script>
-    <script defer src="vendor/qrcode.js?v=fa5fc48c0602"></script>
-    <script defer src="catalog.js?v=fa5fc48c0602"></script>
-    <script defer src="catalog-expanded.js?v=fa5fc48c0602"></script>
-    <script defer src="score-tools.js?v=fa5fc48c0602"></script>
-    <script defer src="rights-tools.js?v=fa5fc48c0602"></script>
-    <script defer src="musicxml.js?v=fa5fc48c0602"></script>
-    <script defer src="catalog-licensed.js?v=fa5fc48c0602"></script>
-    <script defer src="catalog-lieder.js?v=fa5fc48c0602"></script>
-    <script defer src="catalog-quartets.js?v=fa5fc48c0602"></script>
-    <script defer src="catalog-pgh.js?v=fa5fc48c0602"></script>
-    <script defer src="catalog-skills.js?v=fa5fc48c0602"></script>
-    <script defer src="prompts.js?v=fa5fc48c0602"></script>
-    <script defer src="shared.js?v=fa5fc48c0602"></script>
-    <script defer src="library.js?v=fa5fc48c0602"></script>
-    <script defer src="backup.js?v=fa5fc48c0602"></script>
-    <script defer src="editor.js?v=fa5fc48c0602"></script>
-    <script defer src="measure-tools.js?v=fa5fc48c0602"></script>
-    <script defer src="menus.js?v=fa5fc48c0602"></script>
-    <script defer src="palette.js?v=fa5fc48c0602"></script>
-    <script defer src="shortcuts.js?v=fa5fc48c0602"></script>
-    <script defer src="playback.js?v=fa5fc48c0602"></script>
-    <script defer src="mixer.js?v=fa5fc48c0602"></script>
-    <script defer src="keyboard.js?v=fa5fc48c0602"></script>
-    <script defer src="assignments.js?v=fa5fc48c0602"></script>
-    <script defer src="turn-in.js?v=fa5fc48c0602"></script>
-    <script defer src="record.js?v=fa5fc48c0602"></script>
-    <script defer src="assess.js?v=fa5fc48c0602"></script>
-    <script defer src="marks.js?v=fa5fc48c0602"></script>
-    <script defer src="app.js?v=fa5fc48c0602"></script>
+    <script src="theme.js?v=1f977c394d0c"></script>
+    <link rel="stylesheet" href="style.css?v=1f977c394d0c" />
+    <script defer src="vendor/abcjs-basic-min.js?v=1f977c394d0c"></script>
+    <script defer src="vendor/qrcode.js?v=1f977c394d0c"></script>
+    <script defer src="catalog.js?v=1f977c394d0c"></script>
+    <script defer src="catalog-expanded.js?v=1f977c394d0c"></script>
+    <script defer src="score-tools.js?v=1f977c394d0c"></script>
+    <script defer src="rights-tools.js?v=1f977c394d0c"></script>
+    <script defer src="musicxml.js?v=1f977c394d0c"></script>
+    <script defer src="catalog-licensed.js?v=1f977c394d0c"></script>
+    <script defer src="catalog-lieder.js?v=1f977c394d0c"></script>
+    <script defer src="catalog-quartets.js?v=1f977c394d0c"></script>
+    <script defer src="catalog-pgh.js?v=1f977c394d0c"></script>
+    <script defer src="catalog-skills.js?v=1f977c394d0c"></script>
+    <script defer src="prompts.js?v=1f977c394d0c"></script>
+    <script defer src="shared.js?v=1f977c394d0c"></script>
+    <script defer src="library.js?v=1f977c394d0c"></script>
+    <script defer src="backup.js?v=1f977c394d0c"></script>
+    <script defer src="editor.js?v=1f977c394d0c"></script>
+    <script defer src="measure-tools.js?v=1f977c394d0c"></script>
+    <script defer src="menus.js?v=1f977c394d0c"></script>
+    <script defer src="palette.js?v=1f977c394d0c"></script>
+    <script defer src="shortcuts.js?v=1f977c394d0c"></script>
+    <script defer src="playback.js?v=1f977c394d0c"></script>
+    <script defer src="mixer.js?v=1f977c394d0c"></script>
+    <script defer src="keyboard.js?v=1f977c394d0c"></script>
+    <script defer src="assignments.js?v=1f977c394d0c"></script>
+    <script defer src="turn-in.js?v=1f977c394d0c"></script>
+    <script defer src="record.js?v=1f977c394d0c"></script>
+    <script defer src="assess.js?v=1f977c394d0c"></script>
+    <script defer src="marks.js?v=1f977c394d0c"></script>
+    <script defer src="app.js?v=1f977c394d0c"></script>
   </head>
   <body>
     <header>
@@ -253,6 +253,13 @@
                 <div class="sheet-head">
                   <h2 class="sheet-title">Menu</h2>
                   <button id="sheet-close" type="button" aria-label="Close menu">✕</button>
+                  <div class="sheet-jump" role="group" aria-label="Go to a section">
+                    <button type="button" data-jump="edit-bar">Edit</button
+                    ><button type="button" data-jump="score-menu">Score</button
+                    ><button type="button" data-jump="sound-menu">Sound</button
+                    ><button type="button" data-jump="view-options">View</button
+                    ><button type="button" data-jump="share-menu">Share</button>
+                  </div>
                 </div>
                 <div class="menu-wrap wrap-score">
                   <button
@@ -1319,6 +1326,16 @@
                   Playback speed leaves the score tempo unchanged.
                 </p>
                 <div class="status-right">
+                  <button
+                    id="draw-chip"
+                    type="button"
+                    class="status-chip"
+                    aria-pressed="false"
+                    title="Click or tap the staff to add notes (also in the Edit menu)"
+                    hidden
+                  >
+                    <span aria-hidden="true">✎</span> Draw notes
+                  </button>
                   <button id="abc-warn" type="button" class="abc-warn" aria-controls="write-notes" hidden>
                     <span aria-hidden="true">⚠</span> ABC warnings
                   </button>

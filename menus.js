@@ -33,17 +33,20 @@ function rememberPanel(key, value) {
   storage.set(KEYS.studioPanels, {...panelState(), [key]: value});
 }
 
-// Keeps a popover inside the window: under its trigger, 16px from either edge, and no taller than the room below.
+// Keeps a popover under its trigger and inside the bar (and the window, 16px from either edge), no taller than the
+// room below.
 function placeMenu(pop, trigger) {
   if (pop.classList.contains('pinned') || openSheet) return;
   pop.style.left = pop.style.top = pop.style.maxHeight = '';
   const base = pop.offsetParent;
   if (!base || getComputedStyle(pop).position !== 'absolute') return;
   const box = base.getBoundingClientRect(),
+    bar = $('app-bar').getBoundingClientRect(),
     t = trigger.getBoundingClientRect(),
     width = pop.offsetWidth,
-    edge = document.documentElement.clientWidth - 16,
-    left = Math.max(16, Math.min(t.left, edge - width));
+    start = Math.max(16, bar.left),
+    edge = Math.min(document.documentElement.clientWidth - 16, bar.right),
+    left = Math.max(start, Math.min(t.left, edge - width));
   pop.style.left = `${Math.round(left - box.left)}px`;
   pop.style.top = `${Math.round(t.bottom - box.top + 4)}px`;
   pop.style.maxHeight = `${Math.max(220, Math.floor(innerHeight - t.bottom - 12))}px`;
@@ -60,7 +63,8 @@ function setMenu(pop, open, {focus = false} = {}) {
   trigger.setAttribute('aria-expanded', open);
   if (open) {
     placeMenu(pop, trigger);
-    if (focus) menuItems(pop)[0]?.focus({preventScroll: true});
+    if (isPalettePop(pop)) keepPopStop(pop);
+    if (focus) firstItem(pop)?.focus({preventScroll: true});
   }
   // The notation popovers show the selected note's state while open; Measure's selects are filled when it opens.
   if (isPalettePop(pop) && typeof updatePalette === 'function') updatePalette();
@@ -90,6 +94,29 @@ function menuItems(pop) {
   const items = [...pop.querySelectorAll(MENU_ITEMS)].filter(shownEl);
   return [...items.filter(b => !b.matches('.pop-pin')), ...items.filter(b => b.matches('.pop-pin'))];
 }
+// Where a keyboard open puts the focus: the first control in the menu (Volume in Sound, a slider the arrow keys leave
+// alone), or a notation popover's first tool.
+function firstItem(pop) {
+  if (isPalettePop(pop) || pop.id === 'palette-pops') return menuItems(pop)[0];
+  return [...pop.querySelectorAll(FOCUSABLE)].find(el => shownEl(el) && el.tabIndex >= 0) || menuItems(pop)[0];
+}
+// A notation popover is one tab stop, like the toolbar: the tool last used in it (the arrow keys move between them).
+// So a popover pinned under the toolbar, or open on the way to the score, adds one stop to Tab, not one per tool.
+const POP_STOPS = '[data-palette], .pop-pin';
+function popTabStop(pop, target) {
+  for (const b of pop.querySelectorAll(POP_STOPS)) b.tabIndex = b === target ? 0 : -1;
+}
+// The popover's stop moves to its first tool when the one it had is not shown (Keep open on a phone, say).
+function keepPopStop(pop) {
+  const stop = [...pop.querySelectorAll(POP_STOPS)].find(b => b.tabIndex === 0);
+  if (!stop || !shownEl(stop)) popTabStop(pop, menuItems(pop)[0] || pop.querySelector('.pop-body [data-palette]'));
+}
+for (const pop of document.querySelectorAll('.palette-pop'))
+  popTabStop(pop, pop.querySelector('.pop-body [data-palette]'));
+document.addEventListener('focusin', e => {
+  const pop = e.target.closest?.('.palette-pop');
+  if (pop && e.target.matches(POP_STOPS)) popTabStop(pop, e.target);
+});
 
 // Keep open: a notation popover shown as a row under the toolbar, with no light dismiss, until unpinned. Not on phones.
 function setPinned(pop, on, remember = true) {
@@ -102,6 +129,7 @@ function setPinned(pop, on, remember = true) {
   pop.style.left = pop.style.top = pop.style.maxHeight = '';
   pop.hidden = !on;
   trigger?.setAttribute('aria-expanded', on);
+  if (on) keepPopStop(pop);
   if (remember) rememberPanel('pin:' + key, on);
   if (typeof updatePalette === 'function') updatePalette();
 }
@@ -125,8 +153,26 @@ function openMenuSheet() {
   sheetBackdrop.className = 'sheet-backdrop';
   sheetBackdrop.addEventListener('click', () => closeSheet());
   document.body.append(sheetBackdrop);
+  padSheets();
   $('save').focus({preventScroll: true});
 }
+// The sheets scroll under a sticky header (☰) or a sticky Done (Notes); scroll padding keeps what the keyboard
+// focuses, or a section jumped to, clear of them.
+function padSheets() {
+  const head = $('menu-row').querySelector('.sheet-head'),
+    done = $('palette-sheet-close');
+  $('menu-row').style.scrollPaddingTop = openSheet === 'menu' ? `${head.offsetHeight + 8}px` : '';
+  $('palette-pops').style.scrollPaddingBottom = openSheet === 'notes' ? `${done.offsetHeight + 16}px` : '';
+}
+// The ☰ sheet's section buttons (Edit, Score, Sound, View, Share) scroll to a section and move the focus to its first
+// control, so Share or Zoom is not three screens down.
+$('menu-row').addEventListener('click', e => {
+  const jump = e.target.closest('[data-jump]');
+  if (!jump || openSheet !== 'menu') return;
+  const section = $(jump.dataset.jump);
+  section.scrollIntoView({block: 'start', behavior: 'instant'});
+  firstItem(section)?.focus({preventScroll: true});
+});
 function openNotesSheet(keyboard = false) {
   closeMenus();
   if (openSheet) closeSheet(false);
@@ -136,8 +182,10 @@ function openNotesSheet(keyboard = false) {
   for (const id of PALETTE_MENUS) menuPop($(id)).hidden = false;
   document.body.classList.add('notes-sheet-open');
   document.body.style.paddingBottom = `${$('palette-pops').offsetHeight}px`;
+  padSheets();
+  for (const id of PALETTE_MENUS) keepPopStop(menuPop($(id)));
   keepNoteAboveSheet();
-  if (keyboard) menuItems($('palette-pops'))[0]?.focus({preventScroll: true});
+  if (keyboard) firstItem($('palette-pops'))?.focus({preventScroll: true});
   if (typeof updatePalette === 'function') updatePalette();
 }
 // Closes the open sheet; the focus goes back to its button unless it is already somewhere else on purpose.
@@ -154,6 +202,7 @@ function closeSheet(refocus = true) {
     for (const id of ROW_MENUS) menuPop($(id)).hidden = true;
     sheetBackdrop?.remove();
     sheetBackdrop = null;
+    padSheets();
     const at = document.activeElement;
     if (refocus && (!at || at === document.body || !shownEl(at) || $('menu-row').contains(at)))
       $('phone-menu').focus({preventScroll: true});
@@ -166,6 +215,7 @@ function closeSheet(refocus = true) {
     }
     document.body.classList.remove('notes-sheet-open');
     document.body.style.paddingBottom = '';
+    padSheets();
     const at = document.activeElement;
     if (refocus && (!at || at === document.body || $('palette-pops').contains(at) || !shownEl(at)))
       $('menu-notes').focus({preventScroll: true});
@@ -309,7 +359,7 @@ document.addEventListener('keydown', e => {
     e.stopPropagation();
     const pop = menuPop(at);
     if (pop.hidden) toggleMenu(at, {keyboard: true});
-    else menuItems(openSheet === 'notes' ? $('palette-pops') : pop)[0]?.focus({preventScroll: true});
+    else firstItem(openSheet === 'notes' ? $('palette-pops') : pop)?.focus({preventScroll: true});
     return;
   }
   // The first row: ArrowLeft and ArrowRight move between its buttons, wrapping.
@@ -340,16 +390,19 @@ document.addEventListener('keydown', e => {
   e.stopPropagation();
   items[to].focus();
 });
-// The ☰ sheet is modal: Tab and Shift+Tab stay inside it, in the order the sections are shown.
+// The ☰ sheet is modal: Tab and Shift+Tab stay inside it, in the order the sections are shown: the header (✕ and the
+// section buttons), Save, Edit, Score, Sound, View, Share, then All shortcuts. The order comes from the sections' CSS
+// order and the DOM inside each, not from where things are on screen, which the sticky header changes as it scrolls.
+function sheetStops() {
+  return [...$('menu-row').children]
+    .map((el, i) => ({el, i, order: parseFloat(getComputedStyle(el).order) || 0}))
+    .sort((a, b) => a.order - b.order || a.i - b.i)
+    .flatMap(({el}) => (el.matches(FOCUSABLE) ? [el] : [...el.querySelectorAll(FOCUSABLE)]))
+    .filter(el => shownEl(el) && el.tabIndex >= 0);
+}
 document.addEventListener('keydown', e => {
   if (e.key !== 'Tab' || openSheet !== 'menu') return;
-  const stops = [...$('menu-row').querySelectorAll(FOCUSABLE)]
-      .filter(el => shownEl(el) && el.tabIndex >= 0)
-      .sort((a, b) => {
-        const p = a.getBoundingClientRect(),
-          q = b.getBoundingClientRect();
-        return p.top - q.top || p.left - q.left;
-      }),
+  const stops = sheetStops(),
     i = stops.indexOf(document.activeElement);
   if (!stops.length) return;
   e.preventDefault();
@@ -366,19 +419,38 @@ document.addEventListener('focusin', e => {
 window.addEventListener('resize', () => {
   if (openPop) placeMenu(openPop, menuTrigger(openPop));
   keepNoteAboveSheet();
+  padSheets();
 });
+// Crossing the phone width with the focus in a menu or a sheet that closes hands it to what holds that control now:
+// the menu's trigger, ☰ or Notes (focusHome), never to the page.
+// The browser may already have dropped the focus from a control the new layout hides, so the last focused one counts.
+let lastFocus = null;
+document.addEventListener('focusin', e => (lastFocus = e.target));
 window.matchMedia?.('(max-width: 720px)').addEventListener?.('change', e => {
+  const at = !document.activeElement || document.activeElement === document.body ? lastFocus : document.activeElement,
+    held =
+      at &&
+      ((openPop && openPop.contains(at)) ||
+        (openSheet === 'menu' && $('menu-row').contains(at)) ||
+        (openSheet === 'notes' && $('palette-pops').contains(at)));
   if (e.matches) closeMenus();
   else if (openSheet) closeSheet(false);
   for (const pop of document.querySelectorAll('.palette-pop'))
     if (!e.matches && panelState()['pin:' + pop.id.replace('palette-', '')] === true) setPinned(pop, true, false);
+  if (held && !shownEl(at)) focusHome(at);
 });
 
 // Where the bar sticks to the top of the window, the page scrolls things into view below it (scroll-padding-top),
 // and the ABC source sticks under it; --bar-height is its height then, and 0 where it scrolls away.
+// The toolbar sits beside the transport, so a pinned row reaches back under the transport by --palette-indent to span
+// the whole tool row (0 when the toolbar starts its own line).
 function measureBar() {
   const sticky = getComputedStyle($('app-bar')).position === 'sticky';
   document.documentElement.style.setProperty('--bar-height', `${sticky ? $('app-bar').offsetHeight : 0}px`);
+  const palette = $('palette').getBoundingClientRect(),
+    transport = document.querySelector('.tool-row > .transport')?.getBoundingClientRect(),
+    beside = transport && !phoneLayout() && palette.top < transport.bottom && palette.left > transport.left;
+  $('palette').style.setProperty('--palette-indent', `${beside ? Math.round(palette.left - transport.left) : 0}px`);
 }
 if (typeof ResizeObserver === 'function') new ResizeObserver(measureBar).observe($('app-bar'));
 window.addEventListener('resize', measureBar);
@@ -398,6 +470,13 @@ function focusHome(id) {
   to?.focus({preventScroll: true});
   return to || null;
 }
+// Where a control is, for the status line's hints: ✎ Draw notes on a blank sheet, else in Edit (☰ on a phone); and
+// ＋ 4 bars in Measure (the Notes sheet on a phone).
+function drawNotesPlace() {
+  if (shownEl($('draw-chip'))) return '✎ Draw notes';
+  return phoneLayout() ? '☰ ▸ Draw notes' : 'Edit ▸ Draw notes';
+}
+const addBarsPlace = () => (phoneLayout() ? 'Notes ▸ ＋ 4 bars at end' : 'Measure ▸ ＋ 4 bars at end');
 // revealControl: opens whatever hides el (a menu, the Practice band, the ABC source, or a phone sheet) and says
 // whether el is now on screen. revealFold (app.js) is the same.
 function revealControl(el) {

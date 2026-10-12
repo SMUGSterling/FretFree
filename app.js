@@ -31,6 +31,8 @@ function openScore(item, id = null) {
   stopPreview();
   current = item;
   savedId = id;
+  // A blank sheet offers ✎ Draw notes in the status line until another score opens (see blankSheet).
+  if ($('draw-chip')) $('draw-chip').hidden = !blankSheet(item?.abc);
   if (typeof takesOpened === 'function') takesOpened(item);
   if (typeof checksOpened === 'function') checksOpened();
   dirty = false;
@@ -62,6 +64,16 @@ function openScore(item, id = null) {
 }
 // A new score is a blank sheet: whole-bar rests in 4/4, so drawing or typing writes straight onto empty bars.
 const DEFAULT_BARS = 8;
+// A score with rests and no notes yet. It gets ✎ Draw notes in the status line, the way in on a tablet or phone, where
+// the Edit menu's Draw notes is otherwise two taps away. The switch stays while notes go in, so nothing moves.
+function blankSheet(abc = '') {
+  const body = abc
+    .split('\n')
+    .filter(line => !/^\s*(%|[A-Za-z]:)/.test(line))
+    .join('\n')
+    .replace(/"[^"]*"|![^!]*!|\[[A-Za-z]:[^\]]*\]/g, '');
+  return /[zxZ]/.test(body) && !/[A-Ga-g]/.test(body);
+}
 function newScore(bars) {
   if (typeof bars !== 'number') bars = +$('new-bars')?.value || DEFAULT_BARS;
   bars = Math.max(1, Math.min(64, Math.round(bars) || DEFAULT_BARS));
@@ -76,8 +88,9 @@ function newScore(bars) {
   });
   const first = scoreNotes()[0];
   if (first) selectEntry(first);
-  $('selection-status').textContent =
-    `Blank sheet of ${bars} bars. Click a bar and type A–G, or turn on Draw notes and click the staff; each bar fills from its rest. ＋ 4 bars adds more.`;
+  $('selection-status').textContent = phoneLayout()
+    ? `Blank sheet of ${bars} bars. Press ${drawNotesPlace()} and tap the staff, or tap a bar and type A–G; each bar fills from its rest. ${addBarsPlace()} adds more.`
+    : `Blank sheet of ${bars} bars. Click a bar and type A–G, or press ${drawNotesPlace()} and click the staff; each bar fills from its rest. ${addBarsPlace()} adds more.`;
 }
 // The New score panel: a template with title, key, time signature, tempo, pickup and bars. templateSource
 // (score-tools.js) writes the ABC. Templates with fixed clefs bring their own non-transposing instrument; Melody,
@@ -140,7 +153,7 @@ function createScore(choices = newScoreChoices()) {
   focusScore();
   const staves = t.staves.length > 1 ? `, ${t.staves.length} staves` : '';
   $('selection-status').textContent =
-    `New score from the ${t.name} template${staves}. The first rest is selected: type A–G to write over it, or click a rest on any staff. ＋ 4 bars adds bars to every staff.`;
+    `New score from the ${t.name} template${staves}. The first rest is selected: type A–G to write over it, or click a rest on any staff. ${addBarsPlace()} adds bars to every staff.`;
   return true;
 }
 $('new-score-open').onclick = () => toggleNewScore($('new-score-panel').hidden);
@@ -880,7 +893,12 @@ function setFold(id, open, save = true) {
 for (const id of FOLDS) setFold(id, foldState[id] === true, false);
 document.addEventListener('click', e => {
   const b = e.target.closest('button.disclose');
-  if (b) setFold(b.getAttribute('aria-controls'), b.getAttribute('aria-expanded') !== 'true');
+  if (!b) return;
+  const open = b.getAttribute('aria-expanded') !== 'true';
+  setFold(b.getAttribute('aria-controls'), open);
+  // View ▸ ABC source from the keyboard puts the keyboard in the ABC text, as the warnings chip does. A tap does not,
+  // so a phone's on-screen keyboard stays down.
+  if (b.id === 'write-toggle' && open && e.detail === 0) $('abc').focus();
 });
 $('keyboard-help').open = foldState['keyboard-help'] === true;
 $('keyboard-help').addEventListener('toggle', e => rememberPanel('keyboard-help', e.target.open));
