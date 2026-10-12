@@ -1,9 +1,9 @@
 'use strict';
-// Notation palette: a toolbar above the score for the selected note's length, dot, tie, rest, tuplets (other counts
-// under Tuplet), accidental, beam, articulations, dynamics, chord symbol, lyrics, lines (slur, hairpins, trill line),
-// grace notes, ornaments (under More), a feedback comment, and Delete.
+// Notation palette: a toolbar above the score. Its strip has the selected note's length, dot, tie, rest and accidental;
+// Notes (spelling, tuplets, beam, grace notes, chord symbol, lyrics, a feedback comment and Delete), Marks
+// (articulations, ornaments, dynamics and lines) and Measure open popovers (menus.js) whose buttons stay in #palette.
 // Buttons light up (aria-pressed) to show the selection's state and send the same action as the note menu or the
-// matching key to editNote, so each press is one undo step. The Measure panel (measure-tools.js) adds bar, bar line,
+// matching key to editNote, so each press is one undo step. The Measure popover (measure-tools.js) adds bar, bar line,
 // repeat, form and key, time and clef tools. Later notation tools add their own groups here.
 const PALETTE_DONE = {
   'to-rest': 'Changed to a rest.',
@@ -93,11 +93,49 @@ function paletteBlocked(action, state) {
   }
   return '';
 }
-// The compact layout (style.css, up to 1100px wide) folds the second tier of the palette behind More. jsdom has no
-// matchMedia, so there the palette is always wide.
-const compactPalette = () => !!window.matchMedia?.('(max-width: 1100px)').matches;
-// How More's label names a lit second-tier button whose own label does not read well after "this note has".
-const TIER_WORDS = {'beam:join': 'a beam', grace: 'a grace note', 'grace:slash': ''};
+// The popover triggers in the toolbar, and what a closed popover's trigger says the selected note has in it.
+const PALETTE_TRIGGERS = ['notes', 'marks', 'measure'];
+const HAS_WORDS = {'beam:join': 'a beam', grace: 'a grace note', 'grace:slash': '', 'acc:': ''};
+// The words for the lit buttons in a closed Notes or Marks popover, as "is in a triplet" and "has a trill and mf".
+function popoverWords(pop, state) {
+  if (!pop) return [];
+  const has = [],
+    lit = [...pop.querySelectorAll('[data-palette][aria-pressed="true"], [data-palette].in-use')];
+  let inTuplet = '';
+  for (const b of lit) {
+    const action = b.dataset.palette;
+    if (action.startsWith('tuplet:')) inTuplet = `is in a ${tupletWord(+action.slice(7)).toLowerCase()}`;
+    else if (action === 'chord') has.push(`a chord symbol ${state.chord}`);
+    else if (action === 'lyric') has.push(`lyrics ${state.lyric}`);
+    else if (action.startsWith('deco:')) has.push(MARK_WORDS[action.slice(5)]?.toLowerCase() || action.slice(5));
+    else if (action.startsWith('dyn:')) has.push(action.slice(4));
+    else if (action in HAS_WORDS) HAS_WORDS[action] && has.push(HAS_WORDS[action]);
+    else has.push((b.getAttribute('aria-label') || b.textContent).trim().split(/[,(]/)[0].trim().toLowerCase());
+  }
+  return [inTuplet, has.length ? `has ${listWords(has)}` : ''].filter(Boolean);
+}
+// A closed popover's trigger is marked when the selected note has something in it, and its name says what. On a
+// phone Notes opens the Marks and Measure tools too, so it names the marks as well.
+function summarizeTrigger(key, state) {
+  const trigger = $('menu-' + key),
+    pop = $('palette-' + key);
+  if (!trigger || !pop) return;
+  const phone = !!window.matchMedia?.('(max-width: 720px)').matches,
+    closed = pop.hidden,
+    parts = closed ? popoverWords(pop, state) : [];
+  if (key === 'notes' && phone && closed) {
+    const marks = popoverWords($('palette-marks'), state).filter(p => p.startsWith('has '));
+    if (marks.length) {
+      const i = parts.findIndex(p => p.startsWith('has '));
+      if (i < 0) parts.push(marks[0]);
+      else parts[i] = `has ${listWords([parts[i].slice(4), marks[0].slice(4)])}`;
+    }
+  }
+  const name = key[0].toUpperCase() + key.slice(1);
+  if (typeof markTrigger === 'function') markTrigger(trigger, parts.length, `this note ${parts.join(' and ')}`);
+  else trigger.classList.toggle('in-use', parts.length > 0);
+  trigger.setAttribute('aria-label', parts.length ? `${name} (this note ${parts.join(' and ')})` : name);
+}
 // The status line after the last press, and the selection it was about.
 let paletteMessage = null;
 function updatePalette() {
@@ -115,39 +153,12 @@ function updatePalette() {
         : NOTHING_SELECTED;
     paletteMessage = null;
   }
-  // While More is closed, its label names the marks under it that the selected note has. In the compact layout More
-  // also holds the second tier (beam to grace notes), so it names that tier's lit buttons too.
-  const more = bar.querySelector('[data-palette="more"]'),
-    hidden = $('palette-more').hidden
-      ? (state.marks?.marks || []).filter(name => $('palette-more').querySelector(`[data-palette="deco:${name}"]`))
-      : [],
-    folded =
-      $('palette-more').hidden && compactPalette()
-        ? [...bar.querySelectorAll(':scope > .tier-2 [aria-pressed="true"]')]
-            .map(b =>
-              b.dataset.palette in TIER_WORDS
-                ? TIER_WORDS[b.dataset.palette]
-                : (b.getAttribute('aria-label') || b.textContent).trim().split(',')[0].toLowerCase()
-            )
-            .filter(Boolean)
-        : [];
-  more.classList.toggle('in-use', hidden.length + folded.length > 0);
-  more.setAttribute(
-    'aria-label',
-    hidden.length || folded.length
-      ? `More marks (this note has ${listWords([...hidden.map(n => MARK_WORDS[n].toLowerCase()), ...folded])})`
-      : 'More marks'
-  );
-  keepPaletteTabStop();
-  // Tuplet is marked while its menu is closed and the note is in a tuplet the menu holds, and its name says which.
-  const tuplets = bar.querySelector('[data-palette="tuplets"]'),
-    inMenu = $('palette-tuplets').hidden && state.tuplet && state.tuplet !== 3 ? tupletWord(state.tuplet) : '';
-  tuplets.classList.toggle('in-use', !!inMenu);
-  tuplets.setAttribute('aria-label', inMenu ? `Tuplet (this note is in a ${inMenu.toLowerCase()})` : 'Tuplet');
   // Chord is marked when the note has a chord symbol, and its name says which.
   const chord = bar.querySelector('[data-palette="chord"]');
-  chord.classList.toggle('in-use', !!state.chord);
-  chord.setAttribute('aria-label', state.chord ? `Chord symbol (${state.chord})` : 'Chord symbol');
+  if (chord) {
+    chord.classList.toggle('in-use', !!state.chord);
+    chord.setAttribute('aria-label', state.chord ? `Chord symbol (${state.chord})` : 'Chord symbol');
+  }
   const lyric = bar.querySelector('[data-palette="lyric"]');
   if (lyric) {
     lyric.classList.toggle('in-use', !!state.lyric);
@@ -156,13 +167,7 @@ function updatePalette() {
   for (const b of bar.querySelectorAll('[data-palette]')) {
     const action = b.dataset.palette;
     // The Measure panel's buttons are brought up to date while it is open.
-    if (
-      action === 'more' ||
-      action === 'tuplets' ||
-      action === 'measure' ||
-      (MEASURE_ACTION.test(action) && $('palette-measure').hidden)
-    )
-      continue;
+    if (PALETTE_TRIGGERS.includes(action) || (MEASURE_ACTION.test(action) && $('palette-measure').hidden)) continue;
     let pressed = null;
     if (MEASURE_ACTION.test(action)) pressed = measurePressed(action, state.measure);
     else if (action.startsWith('len:')) pressed = near(state.length, +action.slice(4));
@@ -179,6 +184,9 @@ function updatePalette() {
     if (pressed != null) b.setAttribute('aria-pressed', pressed);
     b.setAttribute('aria-disabled', !!paletteBlocked(action, state));
   }
+  // The triggers of closed popovers name what the selected note has in them.
+  summarizeTrigger('notes', state);
+  summarizeTrigger('marks', state);
   if (typeof updateMeasureTools === 'function') updateMeasureTools(state.measure);
 }
 $('palette').addEventListener('click', e => {
@@ -189,20 +197,16 @@ $('palette').addEventListener('click', e => {
 // pointer press, so the score gets the keyboard back).
 function pressPalette(b, keyboard = false) {
   const action = b.dataset.palette;
-  if (action === 'more' || action === 'tuplets' || action === 'measure') {
-    const panel = $(b.getAttribute('aria-controls')),
-      open = panel.hidden,
-      // In the compact layout More also opens or closes the second tier, which sits above it. The page scrolls by as
-      // much, so More stays under the finger and the marks it opens below it stay on screen.
-      top = action === 'more' && compactPalette() ? b.getBoundingClientRect().top : null;
-    panel.hidden = !open;
-    b.setAttribute('aria-expanded', open);
-    $('palette').classList.toggle('more-open', !$('palette-more').hidden);
-    // Closing hides buttons that may hold the tab stop, so the toggle takes it.
+  // Notes, Marks and Measure open their popovers (menus.js); from the keyboard the focus moves into the popover.
+  if (PALETTE_TRIGGERS.includes(action)) {
     paletteTabStop(b);
+    if (typeof toggleMenu === 'function') toggleMenu(b, {keyboard});
+    else {
+      const panel = $(b.getAttribute('aria-controls'));
+      panel.hidden = !panel.hidden;
+      b.setAttribute('aria-expanded', !panel.hidden);
+    }
     updatePalette();
-    if (top !== null) window.scrollBy(0, b.getBoundingClientRect().top - top);
-    if (!keyboard) focusScore();
     return;
   }
   if (renderedSource !== $('abc').value) {
@@ -267,23 +271,19 @@ function pressPalette(b, keyboard = false) {
   if (keyboard) b.focus({preventScroll: true});
   else focusScore();
 }
-// One tab stop for the toolbar: the last button used. Arrow keys, Home and End move between the shown buttons.
+// One tab stop for the toolbar's strip and triggers: the last one used. Arrow keys, Home and End move between them,
+// skipping a trigger the layout hides (Marks and Measure on a phone). The popovers' buttons are reached from their
+// triggers, and menus.js moves between them.
+const TOOLBAR_STOPS = '#palette :is(.palette-strip, .palette-triggers) [data-palette]';
 function paletteTabStop(target) {
-  for (const b of $('palette').querySelectorAll('[data-palette]')) b.tabIndex = b === target ? 0 : -1;
+  for (const b of document.querySelectorAll(TOOLBAR_STOPS)) b.tabIndex = b === target ? 0 : -1;
 }
-// When the compact layout folds the second tier while one of its buttons holds the tab stop (a window made narrower,
-// an iPad turned upright), More takes the stop, or Tab would pass the whole toolbar by.
-function keepPaletteTabStop() {
-  const stop = $('palette').querySelector('[data-palette][tabindex="0"]');
-  if (compactPalette() && $('palette-more').hidden && stop?.closest('.tier-2'))
-    paletteTabStop($('palette').querySelector('[data-palette="more"]'));
-}
-window.matchMedia?.('(max-width: 1100px)').addEventListener?.('change', keepPaletteTabStop);
 $('palette').addEventListener('keydown', e => {
-  // Arrow keys skip hidden buttons, and in the compact layout the second tier while More is closed.
-  const folded = compactPalette() && !$('palette').classList.contains('more-open'),
-    buttons = [...$('palette').querySelectorAll('[data-palette]')].filter(
-      b => !b.closest('[hidden]') && !(folded && b.closest('.tier-2'))
+  if (e.target.closest('.menu-pop')) return;
+  // jsdom lays nothing out, so there every trigger counts as shown.
+  const laidOut = document.documentElement.getClientRects().length > 0,
+    buttons = [...document.querySelectorAll(TOOLBAR_STOPS)].filter(
+      b => !b.closest('[hidden]') && (!laidOut || b.getClientRects().length > 0)
     ),
     i = buttons.indexOf(e.target),
     to = {ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: buttons.length - 1}[e.key];
@@ -292,7 +292,25 @@ $('palette').addEventListener('keydown', e => {
   buttons[(to + buttons.length) % buttons.length].focus();
 });
 $('palette').addEventListener('focusin', e => {
-  if (e.target.matches('[data-palette]')) paletteTabStop(e.target);
+  if (e.target.matches(TOOLBAR_STOPS)) paletteTabStop(e.target);
 });
-paletteTabStop($('palette').querySelector('[data-palette]'));
+paletteTabStop(document.querySelector(TOOLBAR_STOPS));
+// The stop never stays on a button the layout hides: at phone width Marks and Measure go, and Notes (which opens them)
+// takes the stop; a strip button that held it keeps it. The focus follows when it was on the hidden button.
+function keepPaletteTabStop() {
+  if (!document.documentElement.getClientRects().length) return;
+  const all = [...document.querySelectorAll(TOOLBAR_STOPS)],
+    stop = all.find(b => b.tabIndex === 0);
+  if (stop?.getClientRects().length) return;
+  const shown = all.filter(b => b.getClientRects().length > 0),
+    to =
+      (stop && PALETTE_TRIGGERS.includes(stop.dataset.palette)
+        ? shown.find(b => PALETTE_TRIGGERS.includes(b.dataset.palette))
+        : null) || shown[0];
+  if (!to) return;
+  paletteTabStop(to);
+  if (stop && document.activeElement === stop) to.focus({preventScroll: true});
+}
+window.matchMedia?.('(max-width: 720px)').addEventListener?.('change', keepPaletteTabStop);
+window.addEventListener('resize', keepPaletteTabStop);
 updatePalette();

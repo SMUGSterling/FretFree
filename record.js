@@ -679,7 +679,7 @@ applyRecordSettings();
 $('record').onclick = () => toggleRecordPanel();
 $('record-close').onclick = () => {
   toggleRecordPanel(false);
-  $('record').focus();
+  focusHome('record');
 };
 $('record-start').onclick = () => startRecording();
 $('record-calibrate').onclick = () => calibrate();

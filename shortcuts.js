@@ -314,14 +314,17 @@ function openShortcuts() {
   $('shortcuts-search').focus({preventScroll: true});
 }
 // Closing gives the keyboard back to where it was (the score, or the Shortcuts button); running a command gives it
-// to the score.
+// to the score. Opening the sheet closed the menus, so a control in one hands over to its trigger, or ☰ (focusHome).
 function closeShortcuts(toScore = false) {
   if ($('shortcuts').hidden) return;
   $('shortcuts').hidden = true;
   $('shortcuts-open')?.setAttribute('aria-expanded', 'false');
-  const back = !toScore && shortcutsReturn?.isConnected && !shortcutsReturn.closest('#shortcuts') && shortcutsReturn;
-  if (back && back !== document.body) back.focus({preventScroll: true});
-  else focusScore();
+  const back = !toScore && shortcutsReturn?.isConnected && !shortcutsReturn.closest('#shortcuts') && shortcutsReturn,
+    home =
+      back &&
+      back !== document.body &&
+      (typeof focusHome === 'function' ? focusHome(back) : (back.focus({preventScroll: true}), back));
+  if (!home) focusScore();
   shortcutsReturn = null;
 }
 function chooseShortcut(i) {

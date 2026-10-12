@@ -31,6 +31,8 @@ function openScore(item, id = null) {
   stopPreview();
   current = item;
   savedId = id;
+  // A blank sheet offers ✎ Draw notes in the status line until another score opens (see blankSheet).
+  if ($('draw-chip')) $('draw-chip').hidden = !blankSheet(item?.abc);
   if (typeof takesOpened === 'function') takesOpened(item);
   if (typeof checksOpened === 'function') checksOpened();
   dirty = false;
@@ -62,6 +64,16 @@ function openScore(item, id = null) {
 }
 // A new score is a blank sheet: whole-bar rests in 4/4, so drawing or typing writes straight onto empty bars.
 const DEFAULT_BARS = 8;
+// A score with rests and no notes yet. It gets ✎ Draw notes in the status line, the way in on a tablet or phone, where
+// the Edit menu's Draw notes is otherwise two taps away. The switch stays while notes go in, so nothing moves.
+function blankSheet(abc = '') {
+  const body = abc
+    .split('\n')
+    .filter(line => !/^\s*(%|[A-Za-z]:)/.test(line))
+    .join('\n')
+    .replace(/"[^"]*"|![^!]*!|\[[A-Za-z]:[^\]]*\]/g, '');
+  return /[zxZ]/.test(body) && !/[A-Ga-g]/.test(body);
+}
 function newScore(bars) {
   if (typeof bars !== 'number') bars = +$('new-bars')?.value || DEFAULT_BARS;
   bars = Math.max(1, Math.min(64, Math.round(bars) || DEFAULT_BARS));
@@ -76,8 +88,9 @@ function newScore(bars) {
   });
   const first = scoreNotes()[0];
   if (first) selectEntry(first);
-  $('selection-status').textContent =
-    `Blank sheet of ${bars} bars. Click a bar and type A–G, or turn on Draw notes and click the staff; each bar fills from its rest. ＋ 4 bars adds more.`;
+  $('selection-status').textContent = phoneLayout()
+    ? `Blank sheet of ${bars} bars. Press ${drawNotesPlace()} and tap the staff, or tap a bar and type A–G; each bar fills from its rest. ${addBarsPlace()} adds more.`
+    : `Blank sheet of ${bars} bars. Click a bar and type A–G, or press ${drawNotesPlace()} and click the staff; each bar fills from its rest. ${addBarsPlace()} adds more.`;
 }
 // The New score panel: a template with title, key, time signature, tempo, pickup and bars. templateSource
 // (score-tools.js) writes the ABC. Templates with fixed clefs bring their own non-transposing instrument; Melody,
@@ -140,19 +153,19 @@ function createScore(choices = newScoreChoices()) {
   focusScore();
   const staves = t.staves.length > 1 ? `, ${t.staves.length} staves` : '';
   $('selection-status').textContent =
-    `New score from the ${t.name} template${staves}. The first rest is selected: type A–G to write over it, or click a rest on any staff. ＋ 4 bars adds bars to every staff.`;
+    `New score from the ${t.name} template${staves}. The first rest is selected: type A–G to write over it, or click a rest on any staff. ${addBarsPlace()} adds bars to every staff.`;
   return true;
 }
 $('new-score-open').onclick = () => toggleNewScore($('new-score-panel').hidden);
 $('close-new-score').onclick = () => {
   toggleNewScore(false);
-  $('new-score-open').focus();
+  focusHome('new-score-open');
 };
 $('new-score-panel').addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   e.stopPropagation();
   toggleNewScore(false);
-  $('new-score-open').focus();
+  focusHome('new-score-open');
 });
 $('new-score-form').addEventListener('input', refreshNewScore);
 $('new-score-form').onsubmit = e => {
@@ -664,13 +677,13 @@ async function makeWav() {
 $('export-wav').onclick = () => ($('wav-panel').hidden ? openWav() : closeWav());
 $('wav-close').onclick = () => {
   closeWav();
-  $('export-wav').focus();
+  focusHome('export-wav');
 };
 $('wav-panel').addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   e.stopPropagation();
   closeWav();
-  $('export-wav').focus();
+  focusHome('export-wav');
 });
 $('wav-make').onclick = makeWav;
 window.addEventListener('beforeunload', e => {
@@ -856,36 +869,72 @@ $('note-colors').onchange = () => {
 };
 // A remembered speed trainer needs the same below-goal start as a freshly ticked one.
 prepareTrainer();
-// Compact-layout folds (up to 1100px wide). Each .disclose button toggles .open on the element it controls; style.css
-// folds only in the compact layout, so wide screens show everything whatever the state. The choice is remembered per
-// device, along with whether the keyboard keys are open.
-const FOLDS = ['score-settings', 'write-notes', 'practice-panel', 'view-options'];
-const foldState = (s => (s && typeof s === 'object' && !Array.isArray(s) ? s : {}))(storage.get(KEYS.studioPanels, {}));
+// About's jump chips scroll to their heading and move the focus there; the hash router never sees #about-….
+document.querySelector('#about .jump-chips')?.addEventListener('click', e => {
+  const link = e.target.closest('a[data-jump]'),
+    heading = link && $(link.getAttribute('href').slice(1));
+  if (!heading) return;
+  e.preventDefault();
+  heading.scrollIntoView({block: 'start', behavior: 'smooth'});
+  heading.focus({preventScroll: true});
+});
+// Folds: the Practice band under the bar and the ABC source beside (or above) the score. Each .disclose button toggles
+// .open on the element it controls. They start closed, and the choice is remembered per device, along with whether
+// the keyboard keys in the Edit menu are open and which notation popovers are pinned (menus.js).
+const FOLDS = ['write-notes', 'practice-panel'];
+const foldState = panelState();
 function setFold(id, open, save = true) {
   $(id).classList.toggle('open', open);
   document.querySelector(`.disclose[aria-controls="${id}"]`)?.setAttribute('aria-expanded', open);
-  if (save) storage.set(KEYS.studioPanels, Object.assign(foldState, {[id]: open}));
+  // The score row makes room for the ABC source (a class, so no :has() is needed).
+  if (id === 'write-notes') document.querySelector('.score-row')?.classList.toggle('with-abc', open);
+  if (save) rememberPanel(id, open);
 }
 for (const id of FOLDS) setFold(id, foldState[id] === true, false);
 document.addEventListener('click', e => {
   const b = e.target.closest('button.disclose');
-  if (b) setFold(b.getAttribute('aria-controls'), b.getAttribute('aria-expanded') !== 'true');
+  if (!b) return;
+  const open = b.getAttribute('aria-expanded') !== 'true';
+  setFold(b.getAttribute('aria-controls'), open);
+  // View ▸ ABC source from the keyboard puts the keyboard in the ABC text, as the warnings chip does. A tap does not,
+  // so a phone's on-screen keyboard stays down.
+  if (b.id === 'write-toggle' && open && e.detail === 0) $('abc').focus();
 });
 $('keyboard-help').open = foldState['keyboard-help'] === true;
-$('keyboard-help').addEventListener('toggle', e =>
-  storage.set(KEYS.studioPanels, Object.assign(foldState, {'keyboard-help': e.target.open}))
-);
-// Opens the fold around el when the fold hides it, for code that moves the focus into it (the bar check's Show, which
-// selects a bar in the ABC text). Wide screens fold nothing, so there the remembered choice stays as it was.
-function revealFold(el) {
-  const fold = el?.closest('.panel-body, #practice-panel, #view-options');
-  if (fold && !fold.classList.contains('open') && !el.getClientRects().length) setFold(fold.id, true);
-}
-// A folded toggle says when something inside it is on, so a student can see that Loop or a 70% speed is still active.
+$('keyboard-help').addEventListener('toggle', e => rememberPanel('keyboard-help', e.target.open));
+// The ABC source closes with its ✕, and opens from the warnings chip in the status line with the text focused.
+$('write-close').onclick = () => {
+  setFold('write-notes', false);
+  focusHome('write-toggle');
+};
+$('abc-warn').onclick = () => {
+  setFold('write-notes', true);
+  $('abc').focus({preventScroll: true});
+  $('write-notes').scrollIntoView?.({block: 'nearest', behavior: 'smooth'});
+};
+// Escape with the focus in the Practice band or the ABC source closes it, and the focus goes to its toggle.
+for (const [id, toggle] of [
+  ['practice-panel', 'practice-toggle'],
+  ['write-notes', 'write-toggle']
+])
+  $(id).addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || e.defaultPrevented || embedView) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setFold(id, false);
+    focusHome(toggle);
+  });
+// Opens what hides el, for code that moves the focus into it (the bar check's Show, which selects a bar in the ABC
+// text). See revealControl (menus.js).
+const revealFold = el => revealControl(el);
+// A toggle or menu trigger says when something inside it is on, so a student can see that Loop or a 70% speed is
+// still active with the band closed.
 function markFold(id, on, words) {
-  const b = document.querySelector(`.disclose[aria-controls="${id}"]`);
-  b.classList.toggle('in-use', on);
-  b.querySelector('.disclose-state').textContent = on ? ` (${words})` : '';
+  markTrigger(
+    document.querySelector(`.disclose[aria-controls="${id}"], [aria-haspopup][aria-controls="${id}"]`),
+    on,
+    words
+  );
 }
 // Also called by shadeRange (editor.js) whenever the practice range changes or the score is drawn again.
 function updateFoldMarks() {
@@ -900,10 +949,16 @@ function updateFoldMarks() {
   );
   markFold(
     'view-options',
-    $('note-names').value !== 'off' || $('note-colors').value !== 'off' || $('measures-per-line').value !== '0',
+    $('note-names').value !== 'off' ||
+      $('note-colors').value !== 'off' ||
+      $('measures-per-line').value !== '0' ||
+      zoomPercent !== 100,
     'settings on'
   );
-  markFold('write-notes', $('warnings').textContent.trim() !== '', 'check the ABC warnings');
+  const warned = $('warnings').textContent.trim() !== '';
+  markFold('write-notes', warned, 'check the ABC warnings');
+  $('abc-warn').hidden = !warned;
+  updateMenuBadges();
 }
 for (const id of ['practice-panel', 'view-options']) $(id).addEventListener('change', updateFoldMarks);
 $('practice-panel').addEventListener('input', updateFoldMarks);

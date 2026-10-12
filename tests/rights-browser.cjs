@@ -11,16 +11,23 @@ const {chromium} = require('playwright'),
   page.on('pageerror', e => errors.push(e.message));
   page.on('dialog', d => d.accept());
   await page.goto(process.env.FRETFREE_URL || 'http://localhost:8000');
+  // Collection and License are under More filters, which a user opens first.
+  const moreFilters = async () => {
+    if ((await page.getAttribute('#more-filters', 'aria-expanded')) !== 'true') await page.click('#more-filters');
+  };
   for (const collection of await page.evaluate(() => [...new Set(catalog.map(scoreCollection))])) {
+    await moreFilters();
     await page.selectOption('#collection-filter', collection);
     const count = await page.evaluate(() => filteredCatalog().length);
     assert.ok(count > 0);
     assert.equal(count, await page.evaluate(c => catalog.filter(x => scoreCollection(x) === c).length, collection));
   }
+  await moreFilters();
   await page.selectOption('#collection-filter', 'all');
   const licenses = await page.evaluate(() => [...new Set(catalog.map(scoreLicense))]);
   for (const license of licenses) {
     await page.evaluate(() => show('library'));
+    await moreFilters();
     await page.selectOption('#license-filter', license);
     const id = await page.evaluate(() => filteredCatalog()[0].id);
     await page.evaluate(id => openScore(catalog.find(x => x.id === id)), id);
@@ -125,6 +132,7 @@ const {chromium} = require('playwright'),
     'Personal WAV info'
   );
   await page.evaluate(() => show('library'));
+  await moreFilters();
   await page.selectOption('#license-filter', 'all');
   const length = await page.evaluate(() => catalog.length);
   const renderErrors = [],

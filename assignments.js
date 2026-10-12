@@ -218,13 +218,13 @@ function toggleAssignmentBuilder(open) {
 $('open-assignment').onclick = () => toggleAssignmentBuilder($('assignment-builder').hidden);
 $('close-assignment').onclick = () => {
   toggleAssignmentBuilder(false);
-  $('open-assignment').focus();
+  focusHome('open-assignment');
 };
 $('assignment-builder').addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   e.stopPropagation();
   toggleAssignmentBuilder(false);
-  $('open-assignment').focus();
+  focusHome('open-assignment');
 });
 // Changing a goal's setting ticks that goal.
 $('assignment-goals').addEventListener('input', e => {
@@ -238,7 +238,7 @@ function useAssignment(share) {
   setAssignment(prompt);
   toggleAssignmentBuilder(false);
   // Focus goes back to the button; shareLink moves it to the link itself when it could not copy it.
-  $('open-assignment').focus();
+  focusHome('open-assignment');
   if (share) shareLink().catch(e => toast('Could not make a link: ' + e.message));
   else toast('Assignment added. Share link hands it out; Save keeps it here.');
 }
@@ -250,6 +250,6 @@ $('assignment-apply').onclick = () => useAssignment(false);
 $('assignment-remove').onclick = () => {
   setAssignment(undefined);
   toggleAssignmentBuilder(false);
-  $('open-assignment').focus();
+  focusHome('open-assignment');
   toast('Assignment removed from this score.');
 };

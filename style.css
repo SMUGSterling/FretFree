@@ -544,17 +544,6 @@ select {
   font-size: 45px;
   margin-bottom: 10px;
 }
-.workspace {
-  display: grid;
-  grid-template-columns: 340px 1fr;
-  gap: 24px;
-}
-.editor-panel {
-  padding: 22px;
-  background: var(--paper);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
 .editor-title {
   display: flex;
   justify-content: space-between;
@@ -564,7 +553,6 @@ select {
 .editor-title h2 {
   font: 650 15px system-ui;
 }
-.editor-panel > label,
 .panel-body > label,
 .pair {
   margin-bottom: 14px;
@@ -667,29 +655,8 @@ textarea {
   color: var(--ink);
   min-height: 230px;
 }
-.editor-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 14px;
-}
-.editor-actions button {
-  font-size: 11px;
-  padding: 10px;
-}
 .music-panel {
   min-width: 0;
-}
-.transport {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-  background: var(--panel);
-  border-radius: 8px;
-  padding: 14px;
-}
-.transport button {
-  font-size: 12px;
 }
 .inline {
   flex-direction: row;
@@ -703,11 +670,6 @@ textarea {
 .volume input {
   width: 70px;
 }
-.transport #play-status {
-  font-size: 10px;
-  color: var(--muted);
-  margin-left: auto;
-}
 .notation-paper {
   margin: 20px 0;
   background: var(--score-paper);
@@ -717,20 +679,6 @@ textarea {
   border: 1px solid var(--border);
   box-shadow: 0 7px 18px var(--shadow-faint);
   overflow-x: auto;
-}
-.export-bar {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.export-bar span {
-  margin-right: auto;
-  color: var(--muted);
-  font-size: 11px;
-}
-.export-bar button {
-  font-size: 11px;
 }
 .rights-box {
   margin-top: 24px;
@@ -807,19 +755,39 @@ input[type='range'] {
   color: var(--danger);
   overflow-wrap: anywhere;
 }
-@media (max-width: 1100px) {
+/* The header keeps one row down to 820px: the tagline and the privacy note go first, then the word Theme (its menu
+   keeps the name Theme). */
+@media (max-width: 1279px) {
   .privacy,
   .brand-note {
     display: none;
   }
+}
+@media (min-width: 721px) and (max-width: 1100px) {
+  .theme-choice .theme-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  nav {
+    gap: 2px;
+  }
+  .nav {
+    padding: 11px 12px;
+  }
+  header {
+    gap: 12px;
+  }
+}
+@media (max-width: 1100px) {
   .hero {
     gap: 30px;
   }
   .cards {
     grid-template-columns: repeat(2, 1fr);
-  }
-  .workspace {
-    grid-template-columns: 310px 1fr;
   }
   .filters {
     flex-wrap: wrap;
@@ -872,9 +840,6 @@ input[type='range'] {
   .filters label {
     flex-basis: 40%;
   }
-  .workspace {
-    grid-template-columns: 1fr;
-  }
   .section-title {
     align-items: start;
   }
@@ -902,9 +867,6 @@ input[type='range'] {
   }
   header,
   footer,
-  .editor-panel,
-  .transport,
-  .export-bar,
   .rights-box,
   .section-title,
   #toast {
@@ -945,10 +907,116 @@ input[type='range'] {
 .library-options {
   display: flex;
   gap: 16px;
-  margin: 16px 0;
+  margin: 12px 0 0;
+  padding: 0 18px;
 }
 .library-options label {
   min-width: 190px;
+}
+/* More filters closes the first row; the note about practice parts is one quiet line under the filters. */
+.more-filters {
+  position: relative;
+  flex: none;
+  align-self: flex-end;
+  min-height: 42px;
+  white-space: nowrap;
+}
+.more-filters .label-short {
+  display: none;
+}
+.more-filters .disclose-badge {
+  font-variant-numeric: tabular-nums;
+}
+.filters-note {
+  margin: 10px 0 0;
+}
+.filters .search input {
+  font-size: 14px;
+}
+/* My scores: the how-to under the one-line summary. */
+.howto {
+  margin: 4px 0 8px;
+  max-width: 640px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.howto summary {
+  cursor: pointer;
+  min-height: 40px;
+  padding: 10px 0;
+  font-weight: 650;
+  color: var(--ink);
+}
+.howto p {
+  margin: 0 0 8px;
+  line-height: 1.7;
+}
+/* About: chips that jump to each section, and the feature lists. */
+.jump-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -6px 0 22px;
+  justify-content: flex-start;
+}
+.jump-chips a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+}
+.jump-chips a:hover {
+  background: var(--hover);
+}
+.prose h2[tabindex='-1']:focus:not(:focus-visible) {
+  outline: none;
+}
+.prose h2 {
+  scroll-margin-top: 16px;
+}
+.prose h3 {
+  margin: 22px 0 4px;
+  font: 700 15px/1.4 system-ui;
+}
+.prose ul {
+  margin: 0;
+  padding-left: 1.2em;
+}
+.prose li {
+  margin: 4px 0;
+}
+@media (max-width: 720px) {
+  .more-filters .label-long {
+    display: none;
+  }
+  .more-filters .label-short {
+    display: inline;
+  }
+  /* Collapsed on a phone, the filters show the search box and Filters; open, both rows. */
+  .filters:not(.expanded) > label:not(.search) {
+    display: none;
+  }
+  .filters .search {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .filters:not(.expanded) {
+    flex-wrap: nowrap;
+  }
+  .library-options {
+    padding: 0;
+  }
+}
+@media print {
+  .more-filters {
+    display: none !important;
+  }
 }
 .pagination {
   display: flex;
@@ -1733,27 +1801,9 @@ input[type='range'] {
   font-weight: 700;
   font-size: 15px;
 }
-.palette-more:not([hidden]) {
-  display: contents;
-}
-.palette [data-palette='more'].in-use,
-.palette [data-palette='tuplets'].in-use,
 .palette [data-palette='chord'].in-use {
   border-color: var(--green);
   box-shadow: inset 0 -3px 0 var(--green);
-}
-.palette [data-palette='measure'][aria-expanded='true'] {
-  border-color: var(--green);
-  box-shadow: inset 0 -3px 0 var(--green);
-}
-.palette-measure:not([hidden]) {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  flex-basis: 100%;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
 }
 .palette .boxed {
   display: inline-block;
@@ -1937,19 +1987,6 @@ input[type='range'] {
     display: none !important;
   }
 }
-/* Copy, cut, paste and duplicate for the selected notes; the same commands as Ctrl+C, X, V and D, for touch screens.
-   The buttons keep the full button size, as big a target as Undo and Play. */
-.selection-tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 6px 0;
-}
-@media print {
-  .selection-tools {
-    display: none !important;
-  }
-}
 /* Classroom colors and letters in noteheads: a selected or playing note still shows its highlight color. Both print. */
 #notation .abcjs-note_selected .classroom-color,
 #notation .abcjs-playing .classroom-color {
@@ -1969,29 +2006,451 @@ input[type='range'] {
     print-color-adjust: exact;
   }
 }
-/* Zoom and measures per line sit just above the score; they change the engraving, not the source. */
-.score-view {
+/* Compose. Under the title, one app bar: the menus (Score, Edit, Sound, View, Share) with Save on the first row;
+   playback, Practice and the notation toolbar on the second; and the status line under them. What the menus open goes
+   to the panel dock under the bar; the ABC source opens beside the score (above it on narrower screens). Nothing
+   appears or disappears when a note is selected, so the score never moves under a finger. On a phone the first row is
+   a sheet behind ☰, and Notes opens a sheet with every notation tool. */
+.workspace {
+  display: block;
+}
+#studio > .studio-head {
+  align-items: flex-end;
+  margin: 18px 0 12px;
+}
+#studio .studio-head .eyebrow {
+  display: none;
+}
+#studio .studio-heading {
+  font-size: 30px;
+  letter-spacing: -0.5px;
+  margin: 0 0 4px;
+}
+.studio-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 22px;
+  overflow: hidden;
+}
+.studio-meta #score-caption {
+  margin: 0;
+}
+/* The dot between the caption and the summary sits in the gap before the summary, so a summary that wraps to its own
+   line starts with no stray dot (.studio-meta clips it). The beat glyph matches the text around it. */
+.score-summary {
+  position: relative;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 360px) {
+  .score-summary {
+    display: none;
+  }
+}
+.score-summary:not(:empty)::before {
+  content: '·' / '';
+  position: absolute;
+  left: -14px;
+}
+.beat-glyph {
+  margin-right: -0.2em;
+  font-size: 1.6em;
+  line-height: 0;
+}
+.slot {
+  display: contents;
+}
+/* The bar. It stays at the top of the window while the score scrolls, on screens wider than a phone and tall enough. */
+.app-bar {
+  position: relative;
+  z-index: 20;
+  background: var(--bg);
+}
+@media (min-width: 721px) and (min-height: 600px) {
+  body:not(.embed) .app-bar {
+    position: sticky;
+    top: 0;
+  }
+}
+html {
+  scroll-padding-top: var(--bar-height, 0px);
+}
+.menu-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
-  gap: 8px 18px;
-  margin: 14px 0 -8px;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px 10px 0 0;
 }
-.zoom-controls {
-  display: inline-flex;
+.menu-row button,
+.tool-row button {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 6px 10px;
+  font-size: 14px;
+  line-height: 1.1;
+}
+.menu-wrap > [aria-haspopup] {
+  border-color: transparent;
+  background: none;
+  font-weight: 600;
+  padding: 6px 12px;
+}
+.menu-wrap > [aria-haspopup]:hover {
+  background: var(--hover);
+}
+.menu-spacer {
+  flex: 1 1 auto;
+}
+.menu-row .shortcuts-open {
+  font-size: 15px;
+}
+.menu-row .sheet-label,
+.menu-row .sheet-head,
+#phone-menu {
+  display: none;
+}
+/* While an assignment is open, Turn in is the primary button and Save steps back. */
+#turn-in:not([hidden]) ~ #save {
+  background: var(--paper);
+  color: var(--ink);
+  border-color: var(--border);
+}
+.tool-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px 14px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-top-color: var(--tint-border);
+  border-radius: 0 0 10px 10px;
+}
+.transport {
+  display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 4px;
 }
-.zoom-label {
-  margin-right: 4px;
-  font-size: 11px;
+.transport #play {
+  padding: 6px 14px;
+}
+.transport #stop,
+.transport #undo,
+.transport #redo {
+  font-size: 17px;
+}
+/* Triggers: a caret, the open look (green underline, the caret turned up), and a badge when something inside is on.
+   Screen readers get the words from .disclose-state; the badge is aria-hidden. */
+.menu-caret {
+  display: inline-block;
+  margin-left: 2px;
+  font-size: 10px;
+  opacity: 0.75;
+}
+[aria-haspopup][aria-expanded='true'],
+.disclose[aria-expanded='true'] {
+  border-color: var(--border);
+  background: var(--paper);
+  box-shadow: inset 0 -3px 0 var(--green);
+}
+[aria-expanded='true'] > .menu-caret {
+  transform: rotate(180deg);
+}
+.disclose {
+  position: relative;
+  white-space: nowrap;
+}
+.disclose-badge {
+  display: none;
+}
+.in-use > .disclose-badge {
+  display: block;
+  position: absolute;
+  top: -7px;
+  right: -6px;
+  min-width: 18px;
+  padding: 0 5px;
+  border: 1.5px solid var(--orange);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font:
+    700 10px/14px system-ui,
+    sans-serif;
+  text-align: center;
+}
+.in-use > .disclose-badge.warn {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+  color: var(--danger);
+}
+.menu-wrap > [aria-haspopup],
+.palette-triggers > button {
+  position: relative;
+}
+[aria-expanded='true'] > .disclose-badge {
+  display: none;
+}
+/* The status line: what is selected on the left; warnings, MIDI, playback and saving on the right. */
+.status-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 14px;
+  padding: 6px 4px 2px;
+}
+.status-line #selection-status {
+  flex: 1 1 360px;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.status-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-left: auto;
+}
+.status-right > p,
+.status-right > span {
+  margin: 0;
+  font-size: 12px;
+}
+.status-right > :empty {
+  display: none;
+}
+/* ✎ Draw notes on a blank sheet: the Edit menu's switch, in reach on a tablet or phone. */
+.status-chip {
+  min-height: 40px;
+  padding: 4px 12px;
+  font-size: 12px;
   font-weight: 650;
+  border-color: var(--tint-border);
+  background: var(--tint);
+  color: var(--green);
+}
+.status-chip[aria-pressed='true'] {
+  background: var(--green);
+  border-color: var(--green);
+  color: var(--on-green);
+}
+.status-chip[aria-pressed='true']:hover {
+  background: var(--green-hover);
+}
+.abc-warn {
+  min-height: 40px;
+  padding: 4px 12px;
+  font-size: 12px;
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+  color: var(--danger);
+}
+/* Popovers. Opened under their trigger (menus.js keeps them 16px inside the window), and scrolling inside when tall. */
+.menu-pop {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 40;
+  min-width: 240px;
+  max-width: calc(100vw - 32px);
+  max-height: 70vh;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px var(--shadow-menu);
+  text-align: left;
+}
+.pop-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  margin: 0;
+}
+.menu-label {
+  margin: 0;
+  padding: 8px 13px 4px;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
   color: var(--muted);
+}
+.menu-pop hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 6px 0;
+}
+/* Menu items: full-width rows, at least 40px tall. */
+.menu-list > button,
+.entry-tools > button,
+.selection-tools > button,
+.sound-menu > button,
+.view-options > button,
+.menu-pop .menu-check,
+.entry-tools > .inline,
+.view-options > .inline,
+.sound-menu > .volume {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 550;
+  text-align: left;
+}
+.menu-list > button:hover,
+.entry-tools > button:hover,
+.selection-tools > button:hover,
+.sound-menu > button:hover,
+.view-options > button:hover,
+.menu-pop .inline:hover {
+  background: var(--hover);
+}
+.menu-pop .inline {
+  flex-direction: row;
+}
+.menu-pop .inline input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+.key-hint {
+  margin-left: auto;
+  padding-left: 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+/* A switch in a menu (Draw notes, Piano keys, MIDI input, ABC source) has a box like the checkboxes beside it, empty
+   when off and checked when on, so it reads as a switch either way and lines up with them. */
+.entry-tools > [aria-pressed]::before,
+#write-toggle::before {
+  content: '' / '';
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--muted);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+.entry-tools > [aria-pressed='true']::before,
+#write-toggle[aria-expanded='true']::before {
+  content: '✓' / '';
+  border-color: var(--green);
+  background: var(--green);
+  color: var(--on-green);
+}
+.entry-tools > [aria-pressed='true'],
+.view-options > #write-toggle[aria-expanded='true'] {
+  background: none;
+  box-shadow: none;
+  border-color: transparent;
+}
+/* Score: the File commands beside the score settings, which apply as they change. */
+.score-menu {
+  width: min(720px, calc(100vw - 32px));
+}
+@media (min-width: 760px) {
+  .score-menu:not([hidden]) {
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 4px 16px;
+    align-items: start;
+  }
+  .score-menu .menu-list {
+    border-right: 1px solid var(--border);
+    padding-right: 8px;
+  }
+}
+.score-settings {
+  padding: 4px 8px 0;
+}
+.menu-pop input:not([type='checkbox']):not([type='radio']),
+.menu-pop select {
+  min-height: 40px;
+}
+.score-settings .editor-title {
+  margin-bottom: 12px;
+}
+.score-settings > label,
+.score-settings .pair {
+  margin-bottom: 12px;
+}
+.edit-bar {
+  width: min(340px, calc(100vw - 32px));
+}
+.edit-bar .selection-tools {
+  display: block;
+  margin: 0;
+}
+.edit-bar #keyboard-help {
+  margin: 6px 4px 2px;
+}
+.edit-bar #keyboard-help .kb-groups {
+  font-size: 11px;
+}
+.sound-menu {
+  width: min(300px, calc(100vw - 32px));
+}
+.sound-menu > .volume input {
+  flex: 1 1 auto;
+  width: auto;
+}
+.view-options {
+  width: min(330px, calc(100vw - 32px));
+}
+.view-options > .inline {
+  justify-content: space-between;
+}
+.view-options select {
+  width: auto;
+  max-width: 11em;
+  min-height: 40px;
+  padding: 6px 8px;
+}
+.view-options :is(#dark-paper-option, #fingering-option) {
+  justify-content: flex-start;
+}
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 13px;
+}
+.zoom-label {
+  margin-right: auto;
+  font-size: 14px;
+  font-weight: 550;
 }
 .zoom-controls button {
   min-width: 40px;
-  min-height: 36px;
+  min-height: 40px;
   padding: 6px 10px;
   font-variant-numeric: tabular-nums;
 }
@@ -2007,90 +2466,161 @@ input[type='range'] {
   cursor: default;
   opacity: 0.45;
 }
-@media print {
-  .score-view {
-    display: none !important;
-  }
+.share-menu {
+  width: min(290px, calc(100vw - 32px));
 }
-/* Studio layout. The music panel runs in bands: playback (with Undo and Redo), practice, note entry, the notation
-   palette, help and status, then the score view strip on top of the paper. Up to 1100px wide (iPads, small
-   Chromebook windows, phones) the editor panel's two halves, the practice band and the view options fold behind
-   .disclose toggles and the palette's second tier waits behind More, so the score comes first. Wider, nothing folds and
-   the toggles are hidden. The empty .slot elements mark where features still to come put their controls. */
-.slot {
+#share-link {
+  font-weight: 650;
+  color: var(--green);
+}
+/* The notation toolbar. It takes the room beside the transport, and its groups (the strip's, then the triggers) wrap
+   one by one inside it, so a narrow window keeps the lengths on the transport's line. The strip is one box only for
+   the scripts and screen readers; its groups are the toolbar's flex items. */
+#palette {
+  display: flex;
+  flex: 1 1 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin: 0;
+}
+.palette-strip {
   display: contents;
 }
-.disclose {
-  display: none;
-  position: relative;
-  min-height: 40px;
-  padding: 6px 12px;
-  font-size: 13px;
-  font-weight: 650;
-  white-space: nowrap;
-  align-items: center;
+.palette-strip > [role='group'] {
+  flex-wrap: nowrap;
+  gap: 3px;
+}
+.palette-strip > [aria-label='Rest'] {
+  margin-left: -11px;
+}
+.palette-triggers {
+  display: flex;
   gap: 4px;
 }
-/* Open: the green underline, and the mark points up. */
-.disclose[aria-expanded='true'] {
-  border-color: var(--green);
-  box-shadow: inset 0 -3px 0 var(--green);
+.palette-triggers > button {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 12px;
 }
-.disclose-mark {
-  display: inline-block;
-}
-.disclose[aria-expanded='true'] .disclose-mark {
-  transform: rotate(180deg);
-}
-/* Something inside is on (Loop, a slower speed, note names), or the ABC has warnings: a badge on the corner, so a
-   folded toggle shows it. Screen readers get the words from .disclose-state instead; the badge is aria-hidden. */
-.disclose-badge {
+/* Dot, Tie and Rest show their words only where the second row has room for them. */
+.palette-strip .label-text {
   display: none;
 }
-.disclose.in-use .disclose-badge {
-  display: block;
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 18px;
-  padding: 0 5px;
-  border: 1px solid var(--green);
-  border-radius: 999px;
-  background: var(--green);
-  color: var(--on-green);
-  font:
-    700 10px/14px system-ui,
-    sans-serif;
-  text-align: center;
+@media (min-width: 1280px) {
+  .palette-strip .label-text {
+    display: inline;
+  }
 }
-.disclose.in-use .disclose-badge.warn {
-  border-color: var(--warn-border);
-  background: var(--warn-bg);
-  color: var(--danger);
+.palette-pops {
+  display: contents;
 }
-.panel-toggles {
-  display: none;
+.palette-pop {
+  width: min(560px, calc(100vw - 32px));
 }
-.transport {
+.pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 0 2px 6px;
 }
-.transport button {
+.palette-pop .pop-title {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip: auto;
+  font: 650 13px system-ui;
+}
+.pop-pin {
   min-height: 40px;
-  font-size: 13px;
+  padding: 4px 12px;
+  font-size: 12px;
 }
-.transport .history-buttons {
-  padding: 0 8px;
-  margin: 0 2px;
-  border-left: 1px solid var(--tint-border);
-  border-right: 1px solid var(--tint-border);
+.pop-pin[aria-pressed='true'] {
+  background: var(--tint);
+  color: var(--green);
+  border-color: var(--tint-border);
 }
-.transport .history-buttons button {
-  padding: 6px 10px;
+.pop-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px 16px;
 }
-.transport .inline,
-.practice-toggles .inline,
-.edit-bar .inline {
+/* Group headings in the popovers. Every group gets the top padding so the ones without a heading line up. The empty
+   alt text keeps the heading out of the accessibility tree; each group has its own label. Ink at 80% keeps the
+   headings quieter than the buttons and above 4.5:1 in both themes (--muted is 4.2:1 on --bg). */
+.pop-body [role='group'] {
+  position: relative;
+  padding-top: 16px;
+}
+.palette .pop-body [data-heading]::before {
+  content: attr(data-heading) / '';
+  position: absolute;
+  top: 0;
+  left: 1px;
+  font:
+    650 9.5px/1 system-ui,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  opacity: 0.8;
+  white-space: nowrap;
+}
+.palette-tuplets,
+.palette-more {
+  display: contents;
+}
+.palette-measure .measure-changes,
+.palette-measure .measure-key-choice {
+  flex-basis: 100%;
+}
+#add-bars {
+  white-space: nowrap;
+}
+/* Keep open: the popover becomes a row under the toolbar. As a flex item it would still make a stacking context at
+   the popovers' z-index and paint over a popover opened after it, so it drops the z-index. */
+.palette-pop.pinned {
+  position: static;
+  z-index: auto;
+  flex-basis: calc(100% + var(--palette-indent, 0px));
+  width: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0 0 0 calc(-1 * var(--palette-indent, 0px));
+  box-shadow: none;
+}
+.sheet-done {
+  display: none;
+}
+/* The panel dock: what the menus open, under the bar and above the score. */
+.panel-dock > * {
+  margin-top: 10px;
+}
+.panel-dock > .prompt-picker {
+  margin-bottom: 0;
+}
+.practice-controls {
+  gap: 8px 16px;
+}
+#practice-panel:not(.open) {
+  display: none;
+}
+#practice-panel.open {
+  padding: 10px 12px;
+  background: var(--subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.practice-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.practice-toggles .inline {
   min-height: 40px;
   padding: 0 10px;
   border: 1px solid var(--border);
@@ -2100,18 +2630,10 @@ input[type='range'] {
   font-size: 12px;
   font-weight: 650;
 }
-.transport .volume {
-  font-size: 12px;
-  font-weight: 650;
-}
-.practice-controls {
-  gap: 8px 16px;
-  padding: 10px 0 4px;
-}
-.practice-toggles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+.practice-controls > button {
+  min-height: 40px;
+  padding: 6px 12px;
+  font-size: 13px;
 }
 .practice-controls > label,
 .practice-controls .speed-control {
@@ -2126,11 +2648,11 @@ input[type='range'] {
 }
 .practice-controls .range-inputs input[type='number'] {
   width: 3.8rem;
-  min-height: 36px;
+  min-height: 40px;
   padding: 6px 8px;
 }
 #speed-reset {
-  min-height: 36px;
+  min-height: 40px;
   padding: 6px 12px;
   font-size: 12px;
 }
@@ -2148,71 +2670,16 @@ input[type='range'] {
   padding: 0;
   margin-right: 8px;
 }
-.practice-controls .trainer input[type='number'] {
+.practice-controls .trainer input[type='number'],
+.practice-controls .trainer select {
   width: 3.8rem;
-  min-height: 32px;
-}
-/* The wider column gap sets the selection tools apart from the entry tools. A rule between them would hang at the
-   start of the second row whenever the bar wraps. */
-.edit-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 28px;
-  padding: 8px 0;
-  margin-top: 6px;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-.entry-tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-.edit-bar button {
   min-height: 40px;
-  padding: 6px 10px;
-  font-size: 13px;
-}
-.edit-bar .selection-tools {
-  margin: 0;
-}
-.edit-bar #midi-status {
-  flex-basis: 100%;
-  margin: 0;
-}
-.palette {
-  margin-top: 10px;
-}
-.help-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 4px 14px;
-  align-items: center;
-  margin-top: 8px;
-}
-.help-row #keyboard-help {
-  grid-column: 1;
-  margin: 0;
-}
-/* Open, the keys take the whole row; the summary stays where it was and the status moves below. */
-.help-row #keyboard-help[open] {
-  grid-column: 1 / -1;
-}
-.help-row #selection-status {
-  grid-column: 2;
-  margin: 0;
-  font-size: 12px;
-}
-.help-row .shortcuts-open {
-  grid-column: 3;
 }
 #keyboard-help > summary {
   cursor: pointer;
-  min-height: 32px;
+  min-height: 40px;
   display: list-item;
-  padding: 6px 0;
+  padding: 10px 8px;
   font-weight: 650;
   white-space: nowrap;
 }
@@ -2237,154 +2704,128 @@ input[type='range'] {
 #keyboard-help dd {
   margin: 0;
 }
-.score-view {
-  justify-content: flex-start;
-  gap: 8px 12px;
-  margin: 12px 0 0;
-  padding: 6px 10px;
-  background: var(--subtle);
-  border: 1px solid var(--border);
-  border-bottom: 0;
-  border-radius: 8px 8px 0 0;
+/* The ABC source: beside the score on wide screens, a sticky column under the bar; above the score on narrower
+   ones. Closed, it keeps its warnings (a live region) for screen readers, so new ones are still announced; the
+   status line's chip shows them on screen. */
+.score-row.with-abc {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 0 16px;
+  align-items: start;
 }
-.score-view + .notation-paper {
-  margin-top: 0;
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-}
-.view-options {
+#write-notes.open {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  align-items: center;
+  flex-direction: column;
+  margin: 14px 0;
+  padding: 14px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  position: sticky;
+  top: calc(var(--bar-height, 0px) + 8px);
+  max-height: calc(100vh - var(--bar-height, 0px) - 16px);
+  overflow: auto;
 }
-#score-view select {
-  width: auto;
-  max-width: 9em;
-  min-height: 34px;
-  padding: 4px 8px;
+#write-notes.open #abc {
+  flex: 1 1 auto;
+  min-height: 200px;
+}
+#write-notes .editor-title {
+  gap: 8px;
+}
+#write-notes .editor-title h2 {
+  margin-right: auto;
+}
+.drawer-close {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 6px;
+}
+#write-notes:not(.open) > :not(#warnings) {
+  display: none;
+}
+#write-notes:not(.open) > #warnings {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.notation-paper {
+  margin: 14px 0 20px;
 }
 #score-view #dark-paper-option {
-  margin-left: auto;
+  margin: 0;
 }
-/* The embed shows the speed slider at every width, whatever the fold. */
-body.embed #practice-panel {
-  display: flex;
-}
-/* Wide screens: small headings over the palette groups. Every group gets the top padding so the ones without a heading
-   line up. The empty alt text keeps the heading out of the accessibility tree; each group has its own label. Ink at
-   80% keeps the headings quieter than the buttons and above 4.5:1 in both themes (--muted is 4.2:1 on --bg). */
-@media (min-width: 1101px) {
-  .palette {
-    gap: 6px 10px;
-  }
-  .palette > [role='group'],
-  .palette-more > [role='group'],
-  .palette-measure > [role='group'] {
-    position: relative;
-    padding-top: 14px;
-  }
-  .palette [data-heading]::before {
-    content: attr(data-heading) / '';
-    position: absolute;
-    top: 0;
-    left: 1px;
-    font:
-      650 9.5px/1 system-ui,
-      sans-serif;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--ink);
-    opacity: 0.8;
-    white-space: nowrap;
-  }
-}
-/* Wide screens: slightly tighter note-entry buttons and a smaller gap before Select keep the bar, with Keep bars full,
-   on one row at 1440px. Every button stays at least 40px wide. */
-@media (min-width: 1101px) {
-  .edit-bar {
-    column-gap: 20px;
-  }
-  .edit-bar button,
-  .edit-bar .inline {
-    padding-left: 8px;
-    padding-right: 8px;
-  }
-  .edit-bar button {
-    min-width: 40px;
-  }
-}
-/* Laptop widths: Mixer stays on the first playback row with the other controls, even with a wide system font such as
-   DejaVu Sans: slightly narrower buttons and gaps, and a Volume slider at its 72px touch minimum. */
-@media (min-width: 1101px) and (max-width: 1366px) {
-  .transport {
-    gap: 6px;
-  }
-  .transport > button {
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-  .transport .history-buttons {
-    padding: 0 6px;
-    margin: 0;
-  }
-  .transport .volume input {
-    width: 72px;
-  }
-}
+/* Tablets and Chromebook windows (721–1100px): the same bar; the ABC source opens above the score. */
 @media (max-width: 1100px) {
-  .workspace {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-  #studio > .section-title {
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-bottom: 12px;
-  }
-  #studio .section-title .eyebrow {
-    display: none;
-  }
-  .studio-heading {
-    font-size: 30px;
-    margin-bottom: 2px;
-  }
-  #studio .studio-actions {
-    flex: 1 1 100%;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 6px;
-  }
-  #studio .studio-actions button {
-    min-height: 40px;
-    padding: 6px 10px;
-    font-size: 13px;
-  }
-  .editor-panel {
-    padding: 12px;
-  }
-  .panel-toggles {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-  }
-  .panel-toggles .disclose {
+  .score-row.with-abc {
     display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .score-row.with-abc > #write-notes {
+    order: -1;
+    position: static;
+    max-height: none;
+    margin-bottom: 0;
+  }
+  #write-notes.open #abc {
+    min-height: 160px;
+    max-height: 40vh;
+  }
+}
+/* Phones: ☰, playback and Practice on the first row; the notation strip and Notes under them. Marks and Measure are
+   in the Notes sheet. The menus, Save and All shortcuts are in the ☰ sheet. */
+@media (max-width: 720px) {
+  #studio .studio-heading {
+    font-size: 26px;
+  }
+  .app-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  #phone-menu {
+    display: inline-flex;
     justify-content: center;
-    width: 100%;
+    align-items: center;
+    min-width: 44px;
+    font-size: 18px;
   }
-  .panel-body:not(.open) {
+  .menu-row:not(.sheet-open) {
+    display: contents;
+  }
+  .menu-row:not(.sheet-open) > * {
     display: none;
   }
-  /* Folded, Write notes keeps its warnings (a live region) for screen readers, so new ones are still announced; the
-     toggle's badge shows them on screen. */
-  #write-notes:not(.open) {
+  /* Turn in stays in view while an assignment is open: a full row under the toolbar. */
+  .menu-row:not(.sheet-open) > #turn-in:not([hidden]) {
     display: block;
+    order: 3;
+    flex: 1 1 100%;
   }
-  #write-notes:not(.open) > :not(#warnings) {
-    display: none;
+  .tool-row {
+    display: contents;
   }
-  #write-notes:not(.open) > #warnings {
+  .transport {
+    flex: 1 1 auto;
+    gap: 4px;
+  }
+  .transport button {
+    padding: 6px 8px;
+  }
+  .transport #play {
+    flex: 1 1 auto;
+    padding: 6px 10px;
+  }
+  #practice-toggle .label-text {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -2392,109 +2833,226 @@ body.embed #practice-panel {
     clip: rect(0 0 0 0);
     white-space: nowrap;
   }
-  .panel-body.open {
-    padding-top: 12px;
+  #palette {
+    flex: 1 1 100%;
+    gap: 4px 6px;
   }
-  .editor-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    margin-top: 6px;
-  }
-  .editor-actions button {
-    min-height: 40px;
-  }
-  #save-status:empty {
-    display: none;
-  }
-  .disclose {
-    display: inline-flex;
-  }
-  #practice-panel:not(.open),
-  #view-options:not(.open) {
-    display: none;
-  }
-  #practice-panel.open {
-    padding: 10px 12px;
-    margin-top: 6px;
-    background: var(--subtle);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-  }
-  #view-options.open {
-    flex-basis: 100%;
-  }
-  #palette:not(.more-open) > .tier-2 {
-    display: none;
-  }
-}
-@media (max-width: 720px) {
-  .transport {
-    padding: 8px;
-    gap: 6px;
-  }
-  .transport #play {
-    flex: 1 1 auto;
-  }
-  .transport button {
-    padding: 6px 10px;
-  }
-  .transport .history-buttons {
-    border: 0;
-    padding: 0;
-    margin: 0;
-  }
-  /* Volume takes the rest of its row, so the slider is wider than its 72px minimum for fine touch adjustment. */
-  .transport .volume {
-    flex: 1 1 auto;
-  }
-  .transport .volume input {
-    flex: 1 1 72px;
-    width: 72px;
-  }
-  .transport #play-status {
-    margin-left: auto;
-  }
-  .edit-bar {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 6px;
-  }
-  /* A plain div with no role, so display: contents loses nothing for assistive technology. */
-  .edit-bar .entry-tools {
+  .palette-strip {
     display: contents;
   }
-  .edit-bar button,
-  .edit-bar .inline {
-    font-size: 12px;
-    padding: 4px 6px;
-    justify-content: center;
-    min-width: 0;
+  .palette-strip > [role='group'] {
+    gap: 6px;
   }
-  /* Each selection button is as wide as its label plus a share of the rest, so Duplicate fits on a 360px phone. */
-  .edit-bar .selection-tools {
-    grid-column: 1 / -1;
+  .palette-strip > [aria-label='Rest'] {
+    margin-left: 0;
+  }
+  .palette .palette-strip button {
+    min-width: 40px;
+    padding: 4px 6px;
+  }
+  #menu-marks,
+  #menu-measure,
+  .pop-pin {
+    display: none;
+  }
+  #teacher-tools {
+    flex: 1 1 100%;
+  }
+  /* The status line sits under the bar's box, on the page background. The sheets are fixed to the window and stack
+     above the page, so the bar makes no stacking context of its own here. */
+  .app-bar {
+    z-index: auto;
+    padding-bottom: 0;
+  }
+  .status-line {
+    order: 4;
+    flex: 1 1 100%;
+    margin: 0 -7px -1px;
+    padding: 8px 8px 0;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+  }
+  /* Room for the longest status line, so the score below does not move between a tap's touch events and the mouse
+     events the browser sends after them (abcjs selects on both, and would pick the note now under the finger). */
+  .status-line #selection-status {
+    flex-basis: 100%;
+    min-height: 80px;
+    min-height: 4lh;
+    font-size: 12px;
+  }
+  .status-right {
+    margin-left: 0;
+  }
+  /* The ☰ sheet: a modal bottom sheet with every first-row menu as a titled section, Save first. */
+  .menu-row.sheet-open {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 0;
+    max-height: 85vh;
+    max-height: 85dvh;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 0 16px 20px;
+    border-radius: 14px 14px 0 0;
+    background: var(--paper);
+    box-shadow: 0 -10px 30px var(--shadow-menu);
+  }
+  .menu-row.sheet-open > .sheet-head {
+    order: -2;
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px 0;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 8px 0;
+    background: var(--paper);
+    border-bottom: 1px solid var(--border);
+  }
+  .sheet-title {
+    font: 700 16px system-ui;
+  }
+  /* Section buttons under the sheet's title: each scrolls to its section. */
+  .sheet-jump {
+    display: flex;
+    flex: 1 1 100%;
     gap: 4px;
   }
-  .edit-bar .selection-tools button {
-    flex: 1 1 auto;
-    padding: 4px 2px;
+  .sheet-jump > button {
+    flex: 1 1 0;
+    padding: 6px 4px;
+    font-size: 13px;
   }
-  .edit-bar #midi-status {
-    grid-column: 1 / -1;
+  .menu-row.sheet-open > #save {
+    order: -1;
+    margin: 10px 0 4px;
+    min-height: 44px;
   }
+  .menu-row.sheet-open > .wrap-edit {
+    order: 1;
+  }
+  .menu-row.sheet-open > .wrap-score {
+    order: 2;
+  }
+  .menu-row.sheet-open > .wrap-sound {
+    order: 3;
+  }
+  .menu-row.sheet-open > .wrap-view {
+    order: 4;
+  }
+  .menu-row.sheet-open > .wrap-share {
+    order: 5;
+  }
+  .menu-row.sheet-open > #turn-in {
+    order: 6;
+    margin-top: 8px;
+  }
+  .menu-row.sheet-open > #shortcuts-open {
+    order: 7;
+    margin-top: 8px;
+    justify-content: flex-start;
+  }
+  .menu-row.sheet-open .sheet-label {
+    display: inline;
+  }
+  .menu-row.sheet-open .menu-spacer,
+  .menu-row.sheet-open .menu-wrap > [aria-haspopup] {
+    display: none;
+  }
+  .menu-row.sheet-open .menu-pop {
+    position: static;
+    display: block;
+    width: auto;
+    max-width: none;
+    max-height: none;
+    overflow: visible;
+    padding: 4px 0 8px;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .menu-row.sheet-open .pop-title {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+    padding: 12px 0 2px;
+    font: 750 11px/1 system-ui;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--green);
+  }
+  .menu-row.sheet-open .score-menu .menu-list {
+    border: 0;
+    padding: 0;
+  }
+  .sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: #0006;
+  }
+  /* The Notes sheet: fixed to the bottom of the screen without a backdrop, so the score above stays tappable. */
+  .palette-pops.sheet-open {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 50;
+    display: block;
+    max-height: 50vh;
+    max-height: 50dvh;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 6px 12px 12px;
+    background: var(--paper);
+    border-top: 1px solid var(--border);
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -10px 30px var(--shadow-menu);
+  }
+  .palette-pops:not(.sheet-open) > .palette-pop {
+    display: none;
+  }
+  .palette-pops.sheet-open > .palette-pop {
+    position: static;
+    width: auto;
+    max-width: none;
+    max-height: none;
+    overflow: visible;
+    padding: 8px 0;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .palette-pops.sheet-open .pop-head {
+    padding: 4px 0 8px;
+  }
+  .palette-pops.sheet-open .sheet-done {
+    display: block;
+    position: sticky;
+    bottom: 0;
+    width: 100%;
+    margin-top: 8px;
+  }
+  .palette-pops.sheet-open .measure-changes select {
+    max-width: 100%;
+  }
+  .palette-pops.sheet-open .measure-changes label {
+    flex: 1 1 100%;
+  }
+  /* Touch sizes in the Practice band: 40px tall, and the speed slider takes the rest of its row. */
   .practice-controls .trainer {
     border-radius: 8px;
     flex-wrap: wrap;
     padding: 4px 10px;
-  }
-  /* Touch sizes: 40px tall, and the speed slider takes the rest of its row. */
-  #speed-reset,
-  .practice-controls .range-inputs input[type='number'],
-  .practice-controls .trainer input[type='number'],
-  .practice-controls .trainer select {
-    min-height: 40px;
   }
   .practice-controls .speed-control {
     flex: 1 1 auto;
@@ -2503,49 +3061,32 @@ body.embed #practice-panel {
     flex: 1 1 7rem;
     min-width: 7rem;
   }
-  .palette {
-    gap: 4px;
-  }
-  .palette [role='group'] {
-    gap: 3px;
-  }
-  .palette button {
-    padding: 4px 6px;
-  }
-  .help-row {
-    grid-template-columns: 1fr;
-  }
   /* Phones have no hardware keyboard; All shortcuts still lists every command. */
-  .help-row #keyboard-help {
+  .edit-bar #keyboard-help {
     display: none;
   }
-  /* Room for the longest status line, so the score below does not move between a tap's touch events and the mouse
-     events the browser sends after them (abcjs selects on both, and would pick the note now under the finger). */
-  .help-row #selection-status {
-    grid-column: 1;
-    min-height: 80px;
-    min-height: 4lh;
-  }
-  .help-row .shortcuts-open {
-    grid-column: 1;
-    justify-self: start;
-    font-size: 13px;
-  }
-  .score-view {
-    padding: 6px 8px;
-  }
-  #score-view #dark-paper-option {
-    margin-left: 0;
+  .sound-menu > .volume input {
+    min-width: 72px;
   }
 }
 @media print {
-  .edit-bar,
+  #app-bar,
+  .menu-row,
+  .tool-row,
+  .menu-pop,
   .help-row,
-  .panel-toggles,
+  .status-line,
+  #panel-dock,
+  #write-notes,
+  .sheet-backdrop,
+  #score-summary,
   .disclose,
   #mixer-panel,
   #playalong-panel {
     display: none !important;
+  }
+  .score-row.with-abc {
+    display: block;
   }
 }
 /* Chord symbol box: over the score, just above the selected note. 16px text keeps phones from zooming in. */
@@ -2682,7 +3223,7 @@ body.embed #practice-panel {
 }
 /* Below 820px the theme choice leaves the nav too little room, so it moves up beside the brand and the nav takes a row
    of its own (iPad mini and older iPads in portrait are 744 and 768px wide). */
-@media (max-width: 820px) {
+@media (max-width: 819px) {
   header {
     flex-wrap: wrap;
   }
@@ -2857,11 +3398,63 @@ body.embed > footer,
 body.embed #draft-banner,
 body.embed #studio > :not(.workspace),
 body.embed .workspace > :not(.music-panel),
-body.embed .music-panel > :not(.embed-bar, .transport, .practice-controls, .notation-paper, #rights),
-body.embed .transport > :not(#play, #stop, .volume, #play-status),
+body.embed .music-panel > :not(.embed-bar, #app-bar, #panel-dock, .score-row, #rights),
+body.embed .menu-row > :not(.wrap-sound),
+body.embed #menu-sound,
+body.embed .sound-menu > :not(.volume),
+body.embed .tool-row > :not(.transport),
+body.embed :is(#phone-menu, #practice-toggle, #undo, #redo, #teacher-tools),
+body.embed .help-row > :not(.status-right),
+body.embed .status-right > :not(#play-status),
+body.embed #panel-dock > :not(#practice-panel),
 body.embed .practice-controls > :not(.speed-control, #speed-reset),
+body.embed .score-row > #write-notes,
 body.embed-unreadable .music-panel > :not(.embed-bar) {
   display: none !important;
+}
+/* Play, Stop and Volume on one row, the playback status at its end, and the speed under it. */
+body.embed .app-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 0;
+  border-radius: 8px;
+}
+body.embed :is(.menu-row, .tool-row, .wrap-sound, .help-row) {
+  display: contents;
+}
+body.embed #sound-menu {
+  display: contents !important;
+}
+body.embed .sound-menu > .volume {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  width: auto;
+  min-height: 40px;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+}
+body.embed .sound-menu > .volume input {
+  width: 90px;
+}
+body.embed .transport {
+  order: -1;
+}
+body.embed .status-right {
+  margin-left: auto;
+}
+body.embed #practice-panel {
+  display: flex !important;
+  padding: 8px 0 0;
+  background: none;
+  border: 0;
 }
 body.embed main {
   padding: 10px 12px;
@@ -2873,9 +3466,6 @@ body.embed .notation-paper {
   min-height: 0;
   margin: 10px 0;
   padding: 12px 8px;
-}
-body.embed .practice-controls {
-  padding: 8px 0 0;
 }
 body.embed .rights-box {
   margin-top: 10px;
@@ -2905,9 +3495,6 @@ body.embed #notation .abcjs-bar {
 }
 .embed-bar .button-link {
   padding: 7px 10px;
-}
-body.embed .transport {
-  padding: 8px 10px;
 }
 body.embed .transport button {
   padding: 8px 14px;
@@ -3749,9 +4336,9 @@ button.mark-where {
     color: inherit;
   }
 }
-/* The teacher's Feedback group in the note-entry bar, while turned-in work is open: Comment and the four colors. A
-   pressed color has a ring in its own color, so the state does not rest on the button's fill alone. It never prints
-   (the edit bar does not). */
+/* The teacher's Feedback group at the end of the tool row, while turned-in work is open: Comment and the four colors.
+   A pressed color has a ring in its own color, so the state does not rest on the button's fill alone. It never prints
+   (the app bar does not). */
 .teacher-tools {
   display: flex;
   flex-wrap: wrap;
@@ -3785,12 +4372,27 @@ button.mark-where {
 .teacher-tools [aria-pressed='true'] {
   border-color: var(--ink);
 }
+/* On a phone the group keeps one row: Comment takes the spare width and the four swatches stay square. The narrowest
+   phones drop the Feedback word (the group is named for screen readers). */
 @media (max-width: 720px) {
-  .edit-bar .teacher-tools {
-    grid-column: 1 / -1;
+  .teacher-tools {
     gap: 4px;
   }
-  .edit-bar .teacher-tools button {
+  .teacher-tools-label {
+    font-size: 9px;
+    letter-spacing: 0.5px;
+  }
+  .teacher-tools [data-teacher='comment'] {
     flex: 1 1 auto;
+    padding: 6px 8px;
+    white-space: nowrap;
+  }
+  .teacher-tools [data-teacher^='color:'] {
+    flex: none;
+  }
+}
+@media (max-width: 380px) {
+  .teacher-tools-label {
+    display: none;
   }
 }
