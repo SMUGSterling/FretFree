@@ -526,3 +526,6 @@ if (typeof MutationObserver === 'function')
     subtree: true
   });
 for (const id of ['edit-bar', 'sound-menu']) $(id).addEventListener('change', updateMenuBadges);
+// The mixer marks Mixer… (.mixed) whenever its settings change or reset (mixer.js), so Sound follows it.
+if (typeof MutationObserver === 'function' && $('mixer-toggle'))
+  new MutationObserver(updateMenuBadges).observe($('mixer-toggle'), {attributes: true, attributeFilter: ['class']});

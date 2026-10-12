@@ -3166,6 +3166,40 @@ const {chromium} = require('playwright'),
         await phone.waitForTimeout(300);
       };
     assert.equal(await phone.evaluate(() => $('studio').hidden && !$('piano').hidden), true, 'Starts on the library');
+    // On a phone Filters also folds away the first row's filters, so its badge counts them; a wider window does not.
+    const filtersBadge = () =>
+      phone.evaluate(() => [
+        $('more-filters').querySelector('.disclose-badge').textContent,
+        $('more-filters').getAttribute('aria-label')
+      ]);
+    const setFilter = (id, value) =>
+      phone.evaluate(
+        ([id, value]) => {
+          $(id).value = value;
+          $(id).dispatchEvent(new Event('input', {bubbles: true}));
+        },
+        [id, value]
+      );
+    await setFilter('level-filter', 'Beginner');
+    assert.deepEqual(await filtersBadge(), ['1', 'More filters (1 on)'], 'Filters counts Level on a phone');
+    await phone.setViewportSize({width: 1024, height: 844});
+    assert.deepEqual(await filtersBadge(), ['', 'More filters'], 'More filters leaves the shown Level out');
+    await phone.setViewportSize({width: 390, height: 844});
+    assert.deepEqual(await filtersBadge(), ['1', 'More filters (1 on)'], 'and counts it again on a phone');
+    await setFilter('level-filter', 'all');
+    // About's jump chips move the keyboard to their heading, which shows the focus ring.
+    await phone.evaluate(() => show('about'));
+    await phone.focus('#about .jump-chips a[href="#about-privacy"]');
+    await phone.keyboard.press('Enter');
+    assert.deepEqual(
+      await phone.evaluate(() => [
+        document.activeElement.id,
+        getComputedStyle(document.activeElement).outlineStyle !== 'none'
+      ]),
+      ['about-privacy', true],
+      'A jump chip focuses its heading with a visible ring'
+    );
+    await phone.evaluate(() => show('library'));
     await phone.evaluate(() => {
       const bars = Array(40).fill('z4').join(' | ');
       openScore({abc: 'X:1\nT:Touch\nM:4/4\nL:1/4\nK:C\n' + bars + ' |]', instrument: 'Flute'});
@@ -4897,6 +4931,14 @@ const {chromium} = require('playwright'),
     await wide.click('#chords');
     await wide.mouse.click(5, 300);
     assert.equal((await named('menu-sound'))[0], false);
+    // The mixer's settings mark Sound as they change, and its reset clears the mark.
+    await wide.click('#menu-sound');
+    await wide.click('#mixer-toggle');
+    await wide.click('#mixer-tracks .mixer-mute');
+    assert.ok((await named('menu-sound'))[0], 'Sound is marked with a track muted');
+    await wide.click('#mixer-reset');
+    assert.equal((await named('menu-sound'))[0], false, 'Resetting the mix clears the mark on Sound');
+    await wide.click('#mixer-close');
     await wide.click('#menu-edit');
     await wide.click('#draw-mode');
     await wide.mouse.click(5, 300);

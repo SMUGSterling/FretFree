@@ -974,7 +974,7 @@ input[type='range'] {
 .jump-chips a:hover {
   background: var(--hover);
 }
-.prose h2[tabindex='-1']:focus {
+.prose h2[tabindex='-1']:focus:not(:focus-visible) {
   outline: none;
 }
 .prose h2 {

@@ -50,10 +50,19 @@ const MORE_FILTERS = {
   'genre-filter': 'all',
   'sort-filter': 'featured'
 };
+// On a phone the first row's filters fold away behind Filters too (style.css), so they count there as well.
+const FIRST_FILTERS = {
+  'instrument-filter': 'all',
+  'skill-filter': 'all',
+  'level-filter': 'all',
+  'kind-filter': 'all'
+};
+const phoneFilters = window.matchMedia?.('(max-width: 720px)');
 function updateMoreFilters() {
   const button = $('more-filters');
   if (!button) return;
-  const on = Object.entries(MORE_FILTERS).filter(([id, value]) => $(id).value !== value).length;
+  const counted = {...MORE_FILTERS, ...(phoneFilters?.matches ? FIRST_FILTERS : {})},
+    on = Object.entries(counted).filter(([id, value]) => $(id).value !== value).length;
   button.classList.toggle('in-use', on > 0);
   button.querySelector('.disclose-badge').textContent = on || '';
   button.setAttribute('aria-label', on ? `More filters (${on} on)` : 'More filters');
@@ -64,6 +73,7 @@ function toggleMoreFilters(open = $('library-options').hidden) {
   document.querySelector('#library .filters').classList.toggle('expanded', open);
 }
 $('more-filters')?.addEventListener('click', () => toggleMoreFilters());
+phoneFilters?.addEventListener?.('change', updateMoreFilters);
 function renderCards() {
   updateMoreFilters();
   const list = filteredCatalog();

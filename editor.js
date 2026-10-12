@@ -4449,6 +4449,8 @@ async function shareLink() {
     await navigator.clipboard.writeText(url);
     copied = true;
   } catch {}
+  // The panel may have closed (or made a newer link) while the clipboard answered.
+  if (attempt !== shareRun) return;
   toast(copied ? 'Link copied. Paste it anywhere.' : 'Select the link and copy it.');
   if (!copied) {
     showShareTab('link');
