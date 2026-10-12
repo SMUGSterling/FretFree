@@ -265,6 +265,9 @@ document.addEventListener(
     if (sheet) closeSheet(false);
     else if (pop && !pop.classList.contains('pinned') && !pop.hidden) setMenu(pop, false);
     else return;
+    // The item is hidden now, so the keyboard waits on the trigger while the command runs (a slow one, like a share
+    // link, included); a command that focuses something of its own moves it on from there.
+    if (item === document.activeElement || item.contains(document.activeElement)) home?.focus({preventScroll: true});
     setTimeout(() => {
       const at = document.activeElement;
       if (!at || at === document.body || at === item || !shownEl(at)) home?.focus({preventScroll: true});

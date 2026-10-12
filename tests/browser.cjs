@@ -4069,7 +4069,10 @@ const {chromium} = require('playwright'),
   const importBox = await importButton.boundingBox();
   assert.ok(importBox && importBox.x >= 0 && importBox.x + importBox.width <= 390, 'Open button fits a phone screen');
   // Other tabs were opened above, and headless Chromium shows a file chooser only from the tab in front. The tab can
-  // take a moment to come to the front under load, so Enter is pressed again if no chooser opened.
+  // take a moment to come to the front under load, so Enter is pressed again if no chooser opened. A listener added
+  // first turns Playwright's chooser interception on before Enter, which otherwise races it.
+  const armChooser = () => {};
+  page.on('filechooser', armChooser);
   let chooser = null;
   for (let attempt = 0; !chooser && attempt < 3; attempt++) {
     await page.bringToFront();
@@ -4080,6 +4083,7 @@ const {chromium} = require('playwright'),
       page.keyboard.press('Enter')
     ]);
   }
+  page.off('filechooser', armChooser);
   assert.ok(chooser, 'Enter on the open button opens the file chooser');
   await chooser.setFiles(require('node:path').join(__dirname, 'fixtures/morning-walk.mxl'));
   await page.waitForFunction(() => /^Imported from MusicXML/.test($('save-status').textContent));
@@ -5181,6 +5185,8 @@ const {chromium} = require('playwright'),
     ]) {
       await closeAll(wide);
       for (const step of path) await wide.click(step);
+      // Some panels open after an await (Share link builds its link first), so the focus goes in once they show.
+      await wide.waitForSelector(inside, {state: 'visible'});
       await wide.focus(inside);
       await wide.keyboard.press('Escape');
       assert.deepEqual(
