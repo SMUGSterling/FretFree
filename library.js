@@ -41,7 +41,31 @@ function filteredCatalog() {
   if (order === 'composer') list.sort((a, b) => a.composer.localeCompare(b.composer) || a.title.localeCompare(b.title));
   return list;
 }
+// More filters: Collection, License, Genre and Sort, behind a disclosure at the end of the first filter row. Its badge
+// and name count the ones changed from their defaults, so a closed row still shows that it narrows the list. On a phone
+// it reads Filters and also shows the first row's menus, which sit behind it there.
+const MORE_FILTERS = {
+  'collection-filter': 'all',
+  'license-filter': 'all',
+  'genre-filter': 'all',
+  'sort-filter': 'featured'
+};
+function updateMoreFilters() {
+  const button = $('more-filters');
+  if (!button) return;
+  const on = Object.entries(MORE_FILTERS).filter(([id, value]) => $(id).value !== value).length;
+  button.classList.toggle('in-use', on > 0);
+  button.querySelector('.disclose-badge').textContent = on || '';
+  button.setAttribute('aria-label', on ? `More filters (${on} on)` : 'More filters');
+}
+function toggleMoreFilters(open = $('library-options').hidden) {
+  $('library-options').hidden = !open;
+  $('more-filters').setAttribute('aria-expanded', open);
+  document.querySelector('#library .filters').classList.toggle('expanded', open);
+}
+$('more-filters')?.addEventListener('click', () => toggleMoreFilters());
 function renderCards() {
+  updateMoreFilters();
   const list = filteredCatalog();
   const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
   libraryPage = Math.min(libraryPage, pages - 1);

@@ -1,0 +1,1186 @@
+[
+ {
+  "sel": "#open-prompts",
+  "name": "✎ Writing prompts",
+  "wide": [
+   "#settings-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#open-assignment",
+  "name": "✎ Assignment",
+  "wide": [
+   "#menu-share"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#new-score-open",
+  "name": "＋ New score",
+  "wide": [
+   "#settings-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#new-score",
+  "name": "Blank melody",
+  "wide": [
+   "#settings-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#title",
+  "name": "",
+  "wide": [
+   "#settings-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#composer",
+  "name": "",
+  "wide": [
+   "#settings-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#instrument",
+  "name": "FluteRecorderOboeClarinet in B♭BassoonAl",
+  "wide": [
+   "#settings-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#meter",
+  "name": "4/4\n                    3/4\n            ",
+  "wide": [
+   "#settings-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#bpm",
+  "name": "",
+  "wide": [
+   "#settings-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#key",
+  "name": "C majorG major (1♯)D major (2♯)A major (",
+  "wide": [
+   "#settings-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#feel",
+  "name": "Straight\n                  Light swing (",
+  "wide": [
+   "#settings-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#transpose-open",
+  "name": "Transpose…",
+  "wide": [
+   "#settings-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#help-toggle",
+  "name": "ABC help",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "#duration",
+  "name": "Quarter note\n                    Eighth ",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "#octave",
+  "name": "Middle C–B\n                    C–B above",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "[data-token=\"C\"]",
+  "name": "C",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "[data-token=\"D\"]",
+  "name": "D",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "[data-token=\"E\"]",
+  "name": "E",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "[data-token=\"F\"]",
+  "name": "F",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "[data-token=\"G\"]",
+  "name": "G",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "[data-token=\"A\"]",
+  "name": "A",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "[data-token=\"B\"]",
+  "name": "B",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "[data-token=\"z\"]",
+  "name": "Rest",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "[data-token=\"|\"]",
+  "name": "Bar |",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "[data-token=\"^\"]",
+  "name": "Sharp ♯",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "[data-token=\"_\"]",
+  "name": "Flat ♭",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "[data-token=\"=\"]",
+  "name": "Natural ♮",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "#add-bars",
+  "name": "＋ 4 bars",
+  "wide": [
+   "#menu-measure"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#abc",
+  "name": "",
+  "wide": [
+   "#view-toggle",
+   "#write-toggle"
+  ],
+  "phone": [
+   "#phone-menu",
+   "#write-toggle"
+  ]
+ },
+ {
+  "sel": "#save",
+  "name": "Save to my scores",
+  "wide": [],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#import",
+  "name": "Open ABC or MusicXML",
+  "wide": [
+   "#settings-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#play",
+  "name": "▶ Play",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#stop",
+  "name": "Stop playback",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#undo",
+  "name": "↶ Undo",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#redo",
+  "name": "↷ Redo",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#record",
+  "name": "● Record",
+  "wide": [
+   "#practice-toggle"
+  ],
+  "phone": [
+   "#practice-toggle"
+  ]
+ },
+ {
+  "sel": "#chords",
+  "name": "",
+  "wide": [
+   "#menu-sound"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#volume",
+  "name": "",
+  "wide": [
+   "#menu-sound"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#mixer-toggle",
+  "name": "Mixer",
+  "wide": [
+   "#menu-sound"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#loop",
+  "name": "",
+  "wide": [
+   "#practice-toggle"
+  ],
+  "phone": [
+   "#practice-toggle"
+  ]
+ },
+ {
+  "sel": "#metronome",
+  "name": "",
+  "wide": [
+   "#practice-toggle"
+  ],
+  "phone": [
+   "#practice-toggle"
+  ]
+ },
+ {
+  "sel": "#count-in",
+  "name": "",
+  "wide": [
+   "#practice-toggle"
+  ],
+  "phone": [
+   "#practice-toggle"
+  ]
+ },
+ {
+  "sel": "#assess",
+  "name": "✓ Check",
+  "wide": [
+   "#practice-toggle"
+  ],
+  "phone": [
+   "#practice-toggle"
+  ]
+ },
+ {
+  "sel": "#start-measure",
+  "name": "First measure",
+  "wide": [
+   "#practice-toggle"
+  ],
+  "phone": [
+   "#practice-toggle"
+  ]
+ },
+ {
+  "sel": "#end-measure",
+  "name": "Last measure",
+  "wide": [
+   "#practice-toggle"
+  ],
+  "phone": [
+   "#practice-toggle"
+  ]
+ },
+ {
+  "sel": "#speed",
+  "name": "",
+  "wide": [
+   "#practice-toggle"
+  ],
+  "phone": [
+   "#practice-toggle"
+  ]
+ },
+ {
+  "sel": "#speed-reset",
+  "name": "Reset to 100%",
+  "wide": [
+   "#practice-toggle"
+  ],
+  "phone": [
+   "#practice-toggle"
+  ]
+ },
+ {
+  "sel": "#trainer",
+  "name": "",
+  "wide": [
+   "#practice-toggle"
+  ],
+  "phone": [
+   "#practice-toggle"
+  ]
+ },
+ {
+  "sel": "#trainer-step",
+  "name": "Speed increase per loop",
+  "wide": [
+   "#practice-toggle"
+  ],
+  "phone": [
+   "#practice-toggle"
+  ]
+ },
+ {
+  "sel": "#trainer-goal",
+  "name": "Goal speed",
+  "wide": [
+   "#practice-toggle"
+  ],
+  "phone": [
+   "#practice-toggle"
+  ]
+ },
+ {
+  "sel": "#draw-mode",
+  "name": "✎ Draw notes",
+  "wide": [
+   "#menu-edit"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#audition",
+  "name": "",
+  "wide": [
+   "#menu-edit"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#keep-bars",
+  "name": "",
+  "wide": [
+   "#menu-edit"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#piano-toggle",
+  "name": "Piano keys",
+  "wide": [
+   "#menu-edit"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#midi-toggle",
+  "name": "MIDI input",
+  "wide": [
+   "#menu-edit"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#select-left",
+  "name": "Select left",
+  "wide": [
+   "#menu-edit"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#select-right",
+  "name": "Select right",
+  "wide": [
+   "#menu-edit"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#copy-notes",
+  "name": "Copy",
+  "wide": [
+   "#menu-edit"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#cut-notes",
+  "name": "Cut",
+  "wide": [
+   "#menu-edit"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#paste-notes",
+  "name": "Paste",
+  "wide": [
+   "#menu-edit"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#duplicate-notes",
+  "name": "Duplicate",
+  "wide": [
+   "#menu-edit"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"len:1\"]",
+  "name": "Whole note",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#palette [data-palette=\"len:0.5\"]",
+  "name": "Half note",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#palette [data-palette=\"len:0.25\"]",
+  "name": "Quarter note",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#palette [data-palette=\"len:0.125\"]",
+  "name": "Eighth note",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#palette [data-palette=\"len:0.0625\"]",
+  "name": "16th note",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#palette [data-palette=\"dot\"]",
+  "name": "· Dot",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#palette [data-palette=\"tie\"]",
+  "name": "⁀ Tie",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#palette [data-palette=\"to-rest\"]",
+  "name": "𝄽 Rest",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#palette [data-palette=\"tuplet:3\"]",
+  "name": "Triplet",
+  "wide": [
+   "#menu-notes"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"tuplets\"]",
+  "name": "Tuplet",
+  "removed": true
+ },
+ {
+  "sel": "#palette [data-palette=\"acc:^\"]",
+  "name": "Sharp",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#palette [data-palette=\"acc:_\"]",
+  "name": "Flat",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#palette [data-palette=\"acc:=\"]",
+  "name": "Natural",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#palette [data-palette=\"acc:\"]",
+  "name": "None",
+  "wide": [
+   "#menu-notes"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"respell\"]",
+  "name": "♯♭ Respell",
+  "wide": [
+   "#menu-notes"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"beam:join\"]",
+  "name": "Join beam to the next note",
+  "wide": [
+   "#menu-notes"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"beam:break\"]",
+  "name": "Break beam after this note",
+  "wide": [
+   "#menu-notes"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"deco:staccato\"]",
+  "name": "Staccato",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"deco:tenuto\"]",
+  "name": "Tenuto",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"deco:accent\"]",
+  "name": "Accent",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"deco:marcato\"]",
+  "name": "Marcato",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"deco:fermata\"]",
+  "name": "Fermata",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"dyn:ppp\"]",
+  "name": "ppp, very, very soft",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"dyn:pp\"]",
+  "name": "pp, very soft",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"dyn:p\"]",
+  "name": "p, soft",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"dyn:mp\"]",
+  "name": "mp, medium soft",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"dyn:mf\"]",
+  "name": "mf, medium loud",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"dyn:f\"]",
+  "name": "f, loud",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"dyn:ff\"]",
+  "name": "ff, very loud",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"dyn:fff\"]",
+  "name": "fff, very, very loud",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"dyn:sfz\"]",
+  "name": "sfz, sudden accent",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"chord\"]",
+  "name": "Chord symbol",
+  "wide": [
+   "#menu-notes"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"lyric\"]",
+  "name": "Lyrics",
+  "wide": [
+   "#menu-notes"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"comment\"]",
+  "name": "Comment",
+  "wide": [
+   "#menu-notes"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"line:slur\"]",
+  "name": "Slur",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"line:crescendo\"]",
+  "name": "Crescendo",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"line:diminuendo\"]",
+  "name": "Diminuendo",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"line:trill\"]",
+  "name": "Trill line",
+  "wide": [
+   "#menu-marks"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"grace\"]",
+  "name": "Grace",
+  "wide": [
+   "#menu-notes"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"grace:slash\"]",
+  "name": "Slashed",
+  "wide": [
+   "#menu-notes"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"grace:up\"]",
+  "name": "Grace up",
+  "wide": [
+   "#menu-notes"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"grace:down\"]",
+  "name": "Grace down",
+  "wide": [
+   "#menu-notes"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"more\"]",
+  "name": "More marks",
+  "removed": true
+ },
+ {
+  "sel": "#palette [data-palette=\"delete\"]",
+  "name": "✕ Delete",
+  "wide": [
+   "#menu-notes"
+  ],
+  "phone": [
+   "#menu-notes"
+  ]
+ },
+ {
+  "sel": "#palette [data-palette=\"measure\"]",
+  "name": "Measure ▾",
+  "wide": [],
+  "phone": [
+   "#menu-notes"
+  ],
+  "phoneSel": "#palette-measure [data-palette=\"bar:before\"]"
+ },
+ {
+  "sel": "#keyboard-help > summary",
+  "name": "⌨ Keyboard keys",
+  "wide": [
+   "#menu-edit"
+  ],
+  "phone": null,
+  "why": "Phones have no hardware keyboard; All shortcuts lists every command."
+ },
+ {
+  "sel": "#shortcuts-open",
+  "name": "All shortcuts ?",
+  "wide": [],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#zoom-out",
+  "name": "Zoom out",
+  "wide": [
+   "#view-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#zoom-reset",
+  "name": "Zoom 100%. Reset to 100%",
+  "wide": [
+   "#view-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#zoom-in",
+  "name": "Zoom in",
+  "wide": [
+   "#view-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#measures-per-line",
+  "name": "Auto\n                    2\n             ",
+  "wide": [
+   "#view-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#note-names",
+  "name": "Off\n                    Letters\n        ",
+  "wide": [
+   "#view-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#note-colors",
+  "name": "Off\n                    Classroom",
+  "wide": [
+   "#view-toggle"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#print",
+  "name": "Print / PDF",
+  "wide": [
+   "#menu-share"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#export-abc",
+  "name": "ABC",
+  "wide": [
+   "#menu-share"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#export-midi",
+  "name": "MIDI",
+  "wide": [
+   "#menu-share"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#export-wav",
+  "name": "WAV",
+  "wide": [
+   "#menu-share"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#export-svg",
+  "name": "SVG",
+  "wide": [
+   "#menu-share"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#export-musicxml",
+  "name": "MusicXML",
+  "wide": [
+   "#menu-share"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#share-link",
+  "name": "Share link",
+  "wide": [
+   "#menu-share"
+  ],
+  "phone": [
+   "#phone-menu"
+  ]
+ },
+ {
+  "sel": "#next-up button >> nth=0",
+  "name": "Open score ↗",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#next-up button >> nth=1",
+  "name": "Open score ↗",
+  "wide": [],
+  "phone": []
+ },
+ {
+  "sel": "#next-up button >> nth=2",
+  "name": "Open score ↗",
+  "wide": [],
+  "phone": []
+ }
+]

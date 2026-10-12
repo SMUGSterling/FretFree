@@ -177,6 +177,8 @@ function showZoom(z) {
     $('zoom-reset').textContent = zoomPercent + '%';
     $('zoom-reset').setAttribute('aria-label', `Zoom ${zoomPercent}%. Reset to 100%`);
   }
+  // View's trigger shows a zoom other than 100%.
+  if (typeof updateFoldMarks === 'function') updateFoldMarks();
 }
 // step -1 or +1 moves one zoom level; 0 goes back to 100%. The choice is remembered and the score redrawn. The zoom
 // buttons keep their names, so the status line announces the new size, and says so when a limit is reached.
@@ -482,6 +484,24 @@ function updateCaption() {
   $('score-caption').textContent =
     `${currentInstrument()} · ${staves > 1 ? `${staves} staves` : `${config.clef} clef`} · ${pitch}`;
   if ($('concert-pitch-option')) $('concert-pitch-option').hidden = !transposesInstrument();
+  updateScoreSummary();
+}
+// The score's time signature, key and tempo beside the caption, so they show with the Score menu closed.
+const BEAT_GLYPHS = {'1/1': '𝅝', '1/2': '𝅗𝅥', '3/4': '𝅗𝅥.', '1/4': '♩', '3/8': '♩.', '1/8': '♪', '3/16': '♪.'};
+function updateScoreSummary() {
+  if (!$('score-summary')) return;
+  const meter = field('M', '4/4'),
+    [, beat, bpm] = sliderBeat().match(/^([^=]+)=(\d+)$/) || [],
+    tempo = bpm ? `${BEAT_GLYPHS[beat] || beat} = ${bpm}` : '',
+    swing = swingAmount($('abc').value) > 50 ? 'Swing' : '';
+  $('score-summary').textContent = [
+    meter === 'none' ? 'Free time' : meter,
+    keyLabel(field('K', 'C')).replace(/ \(.*\)$/, ''),
+    tempo,
+    swing
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 // Links to the complete source edition behind a library practice part.
 function updateSourceEdition() {
@@ -4008,13 +4028,13 @@ $('open-prompts').onclick = () => togglePrompts($('prompt-picker').hidden);
 // Closing the picker (✕ or Esc inside it) returns the keyboard to its button, as the other studio panels do.
 $('close-prompts').onclick = () => {
   togglePrompts(false);
-  $('open-prompts').focus();
+  focusHome('open-prompts');
 };
 $('prompt-picker').addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   e.stopPropagation();
   togglePrompts(false);
-  $('open-prompts').focus();
+  focusHome('open-prompts');
 });
 $('prompt-cards').addEventListener('click', e => {
   const b = e.target.closest('[data-prompt]');
@@ -4246,12 +4266,12 @@ function applyTranspose() {
     value,
     target ? `The notes in ${measuresText(target)} ${moved}.` : `The notes ${moved}. Key: ${keyLabel(field('K', 'C'))}.`
   );
-  $('transpose-open').focus();
+  focusHome('transpose-open');
 }
 $('transpose-open').onclick = () => toggleTranspose($('transpose-panel').hidden);
 $('transpose-close').onclick = () => {
   toggleTranspose(false);
-  $('transpose-open').focus();
+  focusHome('transpose-open');
 };
 $('transpose-apply').onclick = applyTranspose;
 $('transpose-panel').addEventListener('input', refreshTranspose);
@@ -4259,7 +4279,7 @@ $('transpose-panel').addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   e.stopPropagation();
   toggleTranspose(false);
-  $('transpose-open').focus();
+  focusHome('transpose-open');
 });
 // The selection and the practice range can change while the panel is open.
 for (const [id, type] of [
@@ -4634,13 +4654,13 @@ function closeShare() {
 // ✕ or Esc inside the panel closes it and returns the keyboard to Share link, as the other studio panels do.
 $('share-close').onclick = () => {
   closeShare();
-  $('share-link').focus();
+  focusHome('share-link');
 };
 $('share-panel').addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   e.stopPropagation();
   closeShare();
-  $('share-link').focus();
+  focusHome('share-link');
 });
 
 // Unsaved-work recovery. While the score has unsaved changes, a copy goes to the local draft list two seconds later

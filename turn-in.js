@@ -137,13 +137,13 @@ function turnInFile({name, at, title, met, total, checks, url, abc}, item = curr
 $('turn-in').onclick = () => ($('turn-in-panel').hidden ? openTurnIn() : closeTurnIn());
 $('turn-in-close').onclick = () => {
   closeTurnIn();
-  $('turn-in').focus();
+  focusHome('turn-in');
 };
 $('turn-in-panel').addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   e.stopPropagation();
   closeTurnIn();
-  $('turn-in').focus();
+  focusHome('turn-in');
 });
 $('turn-in-form').addEventListener('submit', e => {
   e.preventDefault();

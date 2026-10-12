@@ -207,13 +207,13 @@ function toggleMixer(open) {
 $('mixer-toggle').onclick = () => toggleMixer($('mixer-panel').hidden);
 $('mixer-close').onclick = () => {
   toggleMixer(false);
-  $('mixer-toggle').focus();
+  focusHome('mixer-toggle');
 };
 $('mixer-panel').addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   e.stopPropagation();
   toggleMixer(false);
-  $('mixer-toggle').focus();
+  focusHome('mixer-toggle');
 });
 $('mixer-reset').onclick = () => {
   setMix(undefined);
