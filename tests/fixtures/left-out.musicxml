@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- CC0 1.0. Written for the FretFree tests: a timewise score full of things ABC cannot show. The people and the rights line are made up. -->
+<score-timewise version="4.0">
+<movement-title>Odds &amp; Ends</movement-title>
+<identification><creator type="composer">Sam Writer</creator><creator type="lyricist">Lee Poet</creator><rights>© 2026 Sam Writer. CC BY 4.0</rights></identification>
+<part-list>
+<score-part id="T"><part-name>Trumpet in B♭</part-name></score-part>
+<score-part id="G"><part-name>Guitar</part-name></score-part>
+<score-part id="TAB"><part-name>Guitar tab</part-name></score-part>
+</part-list>
+<measure number="1">
+<part id="T">
+<attributes><divisions>2</divisions><key><fifths>2</fifths><mode>major</mode></key><time><beats>3</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef><transpose><diatonic>-1</diatonic><chromatic>-2</chromatic></transpose></attributes>
+<direction placement="above"><direction-type><words>Brightly</words></direction-type><direction-type><metronome><beat-unit>quarter</beat-unit><beat-unit-dot/><per-minute>60</per-minute></metronome></direction-type><sound tempo="90"/></direction>
+<direction><direction-type><pedal type="start"/></direction-type></direction>
+<harmony><root><root-step>E</root-step></root><kind>minor-seventh</kind><bass><bass-step>B</bass-step></bass></harmony>
+<note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><lyric number="1"><syllabic>begin</syllabic><text>Hel</text></lyric><lyric number="2"><syllabic>single</syllabic><text>Two</text></lyric></note>
+<note><pitch><step>F</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><accidental>natural</accidental><lyric number="1"><syllabic>end</syllabic><text>lo</text><extend/></lyric></note>
+<note><pitch><step>F</step><alter>0.5</alter><octave>4</octave></pitch><duration>2</duration><tie type="start"/><voice>1</voice><type>quarter</type><notations><ornaments><tremolo>3</tremolo></ornaments><fermata/></notations></note>
+</part>
+<part id="G">
+<attributes><divisions>4</divisions><key><fifths>0</fifths></key><time><beats>3</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change></clef></attributes>
+<note><grace slash="yes"/><pitch><step>D</step><octave>3</octave></pitch><voice>1</voice><type>eighth</type></note>
+<note><grace/><chord/><pitch><step>F</step><octave>3</octave></pitch><voice>1</voice><type>eighth</type></note>
+<note><pitch><step>E</step><octave>3</octave></pitch><duration>4</duration><voice>1</voice><type>quarter</type><notations><technical><fret>2</fret><string>4</string></technical></notations></note>
+<note><pitch><step>E</step><octave>3</octave></pitch><duration>4</duration><voice>1</voice><type>quarter</type></note>
+<note><cue/><pitch><step>E</step><octave>3</octave></pitch><duration>4</duration><voice>1</voice><type>quarter</type></note>
+</part>
+<part id="TAB"><attributes><divisions>1</divisions><clef><sign>TAB</sign><line>5</line></clef></attributes><note><pitch><step>E</step><octave>3</octave></pitch><duration>3</duration><voice>1</voice><type>half</type><dot/></note></part>
+</measure>
+<measure number="2">
+<part id="T">
+<attributes><key><cancel>2</cancel><key-step>F</key-step><key-alter>1</key-alter><key-step>B</key-step><key-alter>-1</key-alter></key></attributes>
+<direction><direction-type><octave-shift type="down" size="8"/></direction-type></direction>
+<direction><direction-type><rehearsal>B</rehearsal></direction-type></direction>
+<note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>2</duration><tie type="stop"/><voice>1</voice><type>quarter</type></note>
+<note><pitch><step>B</step><alter>-1</alter><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type><notations><articulations><staccato/><caesura/></articulations></notations></note>
+<note><pitch><step>B</step><alter>-1</alter><octave>4</octave></pitch><duration>1</duration><voice>1</voice><type>eighth</type></note>
+<backup><duration>1</duration></backup>
+<note><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><type>eighth</type></note>
+<barline location="right"><bar-style>light-heavy</bar-style><repeat direction="backward" times="3"/></barline>
+</part>
+<part id="G">
+<note><unpitched><display-step>B</display-step><display-octave>4</display-octave></unpitched><duration>8</duration><voice>1</voice><type>half</type><notehead>x</notehead></note>
+<figured-bass><figure><figure-number>6</figure-number></figure></figured-bass>
+<forward><duration>4</duration></forward>
+</part>
+<part id="TAB"><note><pitch><step>E</step><octave>3</octave></pitch><duration>3</duration><voice>1</voice><type>half</type><dot/></note></part>
+</measure>
+</score-timewise>

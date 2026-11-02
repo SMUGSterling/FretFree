@@ -33,7 +33,8 @@ function licenseLabel(item) {
 function exportCredit(item) {
   if (!item?.rights) return '';
   return [
-    item.title || 'Music',
+    // A saved or shared copy keeps the edition's title as workTitle, since title follows the student's T: line.
+    item.workTitle || item.title || 'Music',
     item.attribution || item.composer,
     'Collection: ' + scoreCollection(item),
     'Notation/edition license: ' + scoreLicense(item),
@@ -47,6 +48,71 @@ function exportCredit(item) {
   ]
     .filter(Boolean)
     .join('\n');
+}
+// Rights metadata read back from an opened file: a FretFree export's FretFree-Rights line or fretfree-rights field.
+// Anyone can write such a file, so only the credit and source fields come back, as text, and a link only when it is a
+// web address or a path on this site; a javascript: or data: link would run code or show a fake page when clicked.
+const RIGHTS_TEXT = [
+    'title',
+    'workTitle',
+    'composer',
+    'lyricist',
+    'attribution',
+    'rights',
+    'collection',
+    'notationLicense',
+    'declaredLicense',
+    'compositionStatus',
+    'copyrightDeclaration',
+    'studyTransform',
+    'sourceLabel',
+    'edition',
+    'credits',
+    'date',
+    'opus',
+    'set',
+    'origin',
+    'originalInstrument',
+    'sourceCommit'
+  ],
+  RIGHTS_LINKS = [
+    'source',
+    'licenseURL',
+    'localLicense',
+    'sourceFile',
+    'sourceMirror',
+    'pdfURL',
+    'midURL',
+    'lyURL',
+    'pdf',
+    'originalMidi',
+    'originalSource',
+    'originalSourceDownload'
+  ];
+function webLink(text) {
+  try {
+    return /^https?:$/.test(new URL(text, 'https://fretfree.invalid/').protocol);
+  } catch {
+    return false;
+  }
+}
+function importedRights(value) {
+  const rights = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return rights;
+  for (const key of RIGHTS_TEXT) if (typeof value[key] === 'string') rights[key] = value[key];
+  for (const key of RIGHTS_LINKS) if (typeof value[key] === 'string' && webLink(value[key])) rights[key] = value[key];
+  // The library edition the export was made from (a saved copy's libraryId, or the edition's own id) comes back as
+  // libraryId, so share links and drafts name it, but only when it has the same rights text and source as the file.
+  const library = typeof catalog === 'undefined' ? [] : catalog,
+    edition =
+      typeof rights.rights === 'string' &&
+      [value.libraryId, value.id].find(
+        id =>
+          typeof id === 'string' &&
+          library.some(x => x.id === id && x.rights === rights.rights && x.source === rights.source)
+      );
+  if (edition) rights.libraryId = edition;
+  return rights;
 }
 function creditedABC(source, item) {
   if (!item?.rights) return source;
@@ -74,13 +140,19 @@ function creditedABC(source, item) {
     source
   );
 }
+// The ABC a drawing or a recording carries with its credit: without the teacher's feedback marks (marks.js), which
+// are notes to one student and not part of the music. The ABC export keeps them.
+const unmarkedSource = source => (typeof writeMarks === 'function' ? writeMarks(source, []) : source);
 function vlqBytes(n) {
   const a = [n & 127];
   while ((n >>= 7)) a.unshift((n & 127) | 128);
   return a;
 }
+// Without a FretFree credit, a copyright line kept from an imported file (%%abc-copyright) is the notice.
 function creditedMidi(bytes, source, item) {
-  const credit = exportCredit(item);
+  const credit =
+    exportCredit(item) ||
+    [...String(source).matchAll(/^%%abc-copyright[ \t]+(.+)$/gm)].map(m => m[1].trim()).join('\n');
   if (!credit) return bytes;
   const encoder = new TextEncoder();
   const event = (type, text) => {
@@ -89,7 +161,7 @@ function creditedMidi(bytes, source, item) {
   };
   const events = [
     ...event(2, credit),
-    ...event(1, 'Corresponding editable ABC source:\n' + creditedABC(source, item)),
+    ...event(1, 'Corresponding editable ABC source:\n' + creditedABC(unmarkedSource(source), item)),
     0,
     255,
     47,
@@ -107,6 +179,26 @@ function creditedMidi(bytes, source, item) {
   view.setUint16(10, view.getUint16(10) + 1);
   return out;
 }
+// The text a WAV export carries (wavBytes): the title and composer, and for a library edition its license and the full
+// credit with the corresponding editable ABC, as the MIDI export carries them. A score of your own carries only its
+// title and composer, or a copyright line kept from an imported file.
+function creditedWavInfo(source, item) {
+  const header = key =>
+      String(source)
+        .match(new RegExp(`^${key}:[ \\t]*(\\S.*)$`, 'm'))?.[1]
+        .trim() || '',
+    credit = exportCredit(item),
+    kept = [...String(source).matchAll(/^%%abc-copyright[ \t]+(.+)$/gm)].map(m => m[1].trim()).join('\n');
+  const info = {
+    title: header('T') || item?.title || '',
+    artist: (credit && (item.attribution || item.composer)) || header('C') || item?.composer || ''
+  };
+  if (credit) {
+    info.copyright = scoreLicense(item);
+    info.comment = credit + '\nCorresponding editable ABC source:\n' + creditedABC(unmarkedSource(source), item);
+  } else if (kept) info.copyright = kept;
+  return info;
+}
 function creditedSVG(container, source, item) {
   const svgs = [...container.querySelectorAll('svg')];
   if (!svgs.length) throw Error('There is no rendered score to export.');
@@ -114,11 +206,16 @@ function creditedSVG(container, source, item) {
     root = document.createElementNS(ns, 'svg');
   root.setAttribute('xmlns', ns);
   root.setAttribute('style', 'color:black;background:white');
+  // The canvas is as wide as the score, so a zoomed-in score fills it (large print), and the credit wraps to fit.
   let y = 0,
-    width = 800;
+    width = 0;
   for (const svg of svgs) {
     const copy = svg.cloneNode(true);
-    copy.querySelectorAll('.range-shade,.bar-flag,.draw-ghost').forEach(el => el.remove());
+    copy
+      .querySelectorAll('.range-shade,.bar-flag,.draw-ghost,.assess-mark,.feedback-bubble')
+      .forEach(el => el.remove());
+    for (const head of copy.querySelectorAll('.feedback-head'))
+      head.classList.remove('feedback-head', 'mark-red', 'mark-orange', 'mark-green', 'mark-blue');
     const vb = svg.getAttribute('viewBox')?.split(/[ ,]+/).map(Number);
     const w = vb?.[2] || parseFloat(svg.getAttribute('width')) || 800,
       h = vb?.[3] || parseFloat(svg.getAttribute('height')) || 500;
@@ -133,9 +230,13 @@ function creditedSVG(container, source, item) {
   const credit = exportCredit(item);
   if (credit) {
     const metadata = document.createElementNS(ns, 'metadata');
-    metadata.textContent = credit + '\nCorresponding editable ABC source:\n' + creditedABC(source, item);
+    metadata.textContent =
+      credit + '\nCorresponding editable ABC source:\n' + creditedABC(unmarkedSource(source), item);
     root.appendChild(metadata);
-    const lines = credit.split('\n').flatMap(line => line.match(/.{1,105}(?:\s|$)|.{1,105}/g) || ['']);
+    // At most 105 characters a line, and fewer on a narrow score: 12 units of margin a side, 7.2 units a character.
+    const n = Math.max(20, Math.min(105, Math.floor((width - 24) / 7.2))),
+      wrap = new RegExp(`.{1,${n}}(?:\\s|$)|.{1,${n}}`, 'g');
+    const lines = credit.split('\n').flatMap(line => line.match(wrap) || ['']);
     for (const line of lines) {
       const t = document.createElementNS(ns, 'text');
       t.setAttribute('x', '12');

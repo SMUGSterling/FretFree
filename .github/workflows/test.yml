@@ -6,7 +6,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,6 +18,12 @@ jobs:
       - name: Node suites (catalog, library UI, editor and playback)
         run: npm test
       - run: npx playwright install --with-deps chromium
+      # The browser suites measure layout, which depends on the UI font's width; pin it to the one the layout uses.
+      - name: Pin the UI font (Inter) for the layout checks
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fonts-inter
+          echo "FONTCONFIG_FILE=$GITHUB_WORKSPACE/tests/fonts.conf" >> "$GITHUB_ENV"
       - name: Browser suites against a local static server
         run: |
           python3 -m http.server 8000 >/dev/null 2>&1 &
