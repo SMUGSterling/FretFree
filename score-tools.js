@@ -427,7 +427,7 @@ function linePairs(abc) {
     voice = id;
   };
   enter(base, 0);
-  for (let m; (m = token.exec(abc)); ) {
+  for (let m; (m = token.exec(abc));) {
     const t = m[0],
       at = m.index;
     const field = /^\n?\[?([VX]):\s*([^\s\]]*)/.exec(t);
@@ -5164,7 +5164,7 @@ function alignPlace(old, cur, i, open = {}) {
     for (let b = m - 1; b >= 0; b--)
       common[a][b] = old[a] === cur[b] ? common[a + 1][b + 1] + 1 : Math.max(common[a + 1][b], common[a][b + 1]);
   const pairs = [];
-  for (let a = 0, b = 0; a < n && b < m; )
+  for (let a = 0, b = 0; a < n && b < m;)
     if (old[a] === cur[b]) pairs.push([a++, b++]);
     else if (common[a + 1][b] >= common[a][b + 1]) a++;
     else b++;

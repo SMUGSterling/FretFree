@@ -1037,7 +1037,7 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
       chunks = [];
     assert.equal(text(0, 4) + text(8, 4), 'RIFFWAVE');
     assert.equal(view.getUint32(4, true), bytes.length - 8, 'RIFF size');
-    for (let at = 12; at < bytes.length; ) {
+    for (let at = 12; at < bytes.length;) {
       const size = view.getUint32(at + 4, true);
       chunks.push({id: text(at, 4), at: at + 8, size});
       at += 8 + size + (size & 1);
@@ -1049,7 +1049,7 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
       info = {};
     if (list) {
       assert.equal(text(list.at, 4), 'INFO');
-      for (let at = list.at + 4; at < list.at + list.size; ) {
+      for (let at = list.at + 4; at < list.at + list.size;) {
         const size = view.getUint32(at + 4, true),
           value = bytes.slice(at + 8, at + 8 + size);
         assert.equal(value[size - 1], 0, 'INFO text ends in a zero byte');
