@@ -2100,114 +2100,296 @@ function withKey(source) {
   return lines.join('\n');
 }
 // Transpose a whole tune by semitones, spelled letters names away (by default the usual interval for the distance:
-// 2 is a major 2nd, 6 a diminished 5th). abcjs's strTranspose moves the notes, keys and chord symbols; around it, K:
-// modifiers such as clef= are set aside (strTranspose garbles them), and each key it spells differently from the
-// interval is respelled, F# rather than Gb for an augmented 4th up from C, unless that needs more than maxAccidentals.
-// strTranspose also moves some keys an octave off (F# major asked up 12 semitones stays put, Bb major asked down 11
-// goes up 1, Cb major asked for 0 goes up 12), so whole octaves move here, and each note it moves is checked against
-// the source and put back in the octave the interval calls for.
+// 2 is a major 2nd, 6 a diminished 5th). Each key moves by the interval's letters unless that needs more than
+// maxAccidentals (B up a major 2nd is Db, not C#, unless seven are allowed). Every note then moves by its key's letters
+// and takes the accidental its new key and bar call for; lengths, ties, grace notes, decorations, comments and
+// everything else stay as written. K: modifiers (clef=, middle=) stay, explicit signature accidentals (K:EPhr ^G) move
+// with the key, chord symbols move by the key's letters, and text that is not a chord name (N.C., Coda) stays.
+// This replaces abcjs's strTranspose, which drops a natural the bar needs (after ^D a later =D), loses note lengths in
+// chords ([F/c/]), drops decorations before a grace note's slur and moves some keys an octave off.
 function transposeABC(source, semitones, letters = Math.round((semitones * 7) / 12), maxAccidentals = 6) {
   if (!semitones && !posMod(letters, 7)) return source;
   source = withKey(source);
-  const octaves = Math.trunc(semitones / 12),
-    within = semitones - 12 * octaves;
   const fields = keyFields(source).map((f, i) => ({...f, ...keyParts(f.value), first: i === 0}));
   if (fields.some(f => keyFifths(f.value) == null)) throw new Error('Bagpipe keys (K:HP) cannot be transposed.');
-  // A header K: without a key means C; strTranspose needs to see it. Inline clef-only fields keep the key in force.
-  let stripped = source;
-  for (const f of fields.slice().reverse())
-    if (f.tonic || f.first) stripped = stripped.slice(0, f.start) + (f.key || 'C') + stripped.slice(f.end);
-  const tune = ABCJS.parseOnly(stripped),
-    moved = within ? ABCJS.strTranspose(stripped, tune, within) : stripped,
-    after = keyFields(moved);
-  if (after.length !== fields.length) throw new Error('Could not transpose the key signatures.');
-  const regions = fields.map((f, i) => {
-    const res = keyParts(after[i].value),
-      region = {
-        start: after[i].start,
-        end: after[i].end,
-        keyed: !!(f.tonic || f.first),
-        key: res.key,
-        d: 0,
-        chords: letters
+  // Staff steps for a key moved `keyLetters` letters, in the octave the semitones call for.
+  const stepsFor = keyLetters => keyLetters + 7 * Math.round(((semitones * 7) / 12 - keyLetters) / 7),
+    edits = [],
+    edit = (at, length, text) => edits.push({at, length, text});
+  const regions = [];
+  for (const f of fields) {
+    // A clef-only inline field keeps the key in force; a header K: without a key means C.
+    if (!f.tonic && !f.first) continue;
+    const tonic = f.tonic || 'C';
+    if (tonic === 'none') {
+      regions.push({start: f.start, steps: stepsFor(letters), letters, none: true});
+      continue;
+    }
+    const from = 'CDEFGAB'.indexOf(tonic[0]),
+      alter = tonic[1] === '#' ? 1 : tonic[1] === 'b' ? -1 : 0,
+      spell = l => {
+        const to = posMod(from + l, 7),
+          acc = posMod(LETTER_SEMIS[from] + alter + semitones - LETTER_SEMIS[to] + 6, 12) - 6,
+          name = 'CDEFGAB'[to] + (acc > 0 ? '#' : acc < 0 ? 'b' : '');
+        return Math.abs(acc) <= 1 ? {letters: l, tonic: name, fifths: Math.abs(keyFifths(name + f.mode))} : null;
       };
-    if (!region.keyed) return {...region, key: after[i].value};
-    const rest = f.tonic ? f.rest : (f.rest.trim() ? ' ' : '') + f.rest.trim();
-    if (!res.tonic || res.tonic === 'none') return {...region, key: res.key + rest};
-    const from = 'CDEFGAB'.indexOf((f.tonic || 'C')[0]),
-      want = posMod(from + letters, 7),
-      have = 'CDEFGAB'.indexOf(res.tonic[0]),
-      d = posMod(want - have + 3, 7) - 3,
-      pc = LETTER_SEMIS[have] + (res.tonic[1] === '#' ? 1 : res.tonic[1] === 'b' ? -1 : 0),
-      acc = posMod(pc - LETTER_SEMIS[want] + 6, 12) - 6,
-      tonic = 'CDEFGAB'[want] + (acc > 0 ? '#' : acc < 0 ? 'b' : ''),
-      key = tonic + res.key.slice(res.tonic.length);
-    // Chord symbols move by the letters this key ends up moved: abcjs's, or the interval's once respelled.
-    if (Math.abs(d) !== 1 || Math.abs(acc) > 1 || Math.abs(keyFifths(key)) > maxAccidentals)
-      return {...region, key: res.key + rest, chords: have - from};
-    return {...region, key: key + rest, plain: res.key + rest, d};
-  });
-  const edits = regions.map(r => ({start: r.start, end: r.end, text: r.key}));
-  // Notes, and bar lines with text before them ("D.C."|), which abcjs moves like a chord symbol.
-  const notesOf = t =>
-      (t.lines || []).flatMap(line =>
-        (line.staff || []).flatMap(staff =>
-          (staff.voices || []).flat().filter(e => e.el_type === 'note' || (e.el_type === 'bar' && e.chord))
-        )
-      ),
-    pitchesOf = text => {
-      const list = [];
-      mapMusic(text, ({pitch}) => (list.push(pitch), ''));
-      return list;
-    },
-    chordsOf = text => {
-      const list = [];
-      mapMusic(
-        text,
-        () => '',
-        name => (list.push(name), name)
+    let pick = spell(letters);
+    // A key may keep as many accidentals as it had (Cb major down an octave stays Cb).
+    const most = Math.max(maxAccidentals, Math.abs(keyFifths(f.value) ?? 0));
+    if (!pick || pick.fifths > most) {
+      const near = [spell(letters - 1), spell(letters + 1)].filter(Boolean).sort((a, b) => a.fifths - b.fifths)[0];
+      if (near && (!pick || near.fifths < pick.fifths)) pick = near;
+    }
+    if (!pick) throw new Error('Could not transpose the key signatures.');
+    const steps = stepsFor(pick.letters),
+      full = f.tonic ? f.rest : (f.rest.trim() ? ' ' : '') + f.rest.trim(),
+      // A comment on the key line (K:C ^F % exp) is kept as it is and never read as key syntax.
+      cut = full.indexOf('%'),
+      rest = cut < 0 ? full : full.slice(0, cut),
+      comment = cut < 0 ? '' : full.slice(cut),
+      ACC_TOKEN = /(^|\s)(\^\^|\^|__|_|=)([A-Ga-g])(?=\s|$)/g,
+      movedToken = (letter, alter) => {
+        const at = 'CDEFGAB'.indexOf(letter.toUpperCase()),
+          to = 'CDEFGAB'[posMod(at + steps, 7)],
+          a = movedAlter(at, alter, steps, semitones);
+        if (Math.abs(a) > 2) throw new Error('A key signature accidental would need a triple sharp or flat.');
+        return ACC_TEXT[a] + (letter === letter.toLowerCase() ? to.toLowerCase() : to);
+      };
+    // Extra signature accidentals (K:EPhr ^G) move with the key.
+    let tail = rest.replace(ACC_TOKEN, (all, lead, acc, letter) => lead + movedToken(letter, ACC_VALUE[acc]));
+    // An exp key has only the accidentals it lists, so it lists the whole moved signature (C exp ^F up a tone is
+    // D exp ^c ^f ^g: its E becomes F#). abcjs adds the tonic's own signature to an exp list (K:G exp ^c sharpens F
+    // too), so the source signature is read as abcjs reads it, and the letters the new tonic's signature touches are
+    // listed too, naturals included: the list then reads the same either way.
+    if (/(^|\s)exp(?=\s|$)/.test(rest)) {
+      const state = {};
+      setKey(state, ABCJS.parseOnly(`X:1\nK:${f.tonic ? f.key : 'C'}${rest}\nz|]`)[0].lines[0].staff[0].key);
+      const sig = movedSignature(state.key, steps, semitones),
+        fifths = keyFifths(pick.tonic + f.mode),
+        tonicSig = {};
+      for (let i = 0; i < Math.abs(fifths); i++)
+        tonicSig['CDEFGAB'.indexOf((fifths > 0 ? 'FCGDAEB' : 'BEADGCF')[i])] = Math.sign(fifths);
+      if (Object.values(sig).some(v => Math.abs(v) > 2))
+        throw new Error('A key signature accidental would need a triple sharp or flat.');
+      const list = [...'CDEFGAB'].flatMap((letter, i) =>
+        sig[i] || tonicSig[i] ? [ACC_TEXT[sig[i] ?? 0] + letter.toLowerCase()] : []
       );
-      return list;
-    };
-  const starts = regions.filter(r => r.keyed),
-    was = notesOf(tune[0]),
-    now = within ? notesOf(ABCJS.parseOnly(moved)[0]) : was,
-    steps = Math.round((within * 7) / 12);
-  if (was.length !== now.length) throw new Error('Could not transpose the notes.');
-  for (const [n, e] of now.entries()) {
-    const region = starts.filter(r => r.start < e.startChar).at(-1);
-    if (!within && !octaves && !region?.d) continue;
-    const old = pitchesOf(stripped.slice(was[n].startChar, was[n].endChar)),
-      oldChords = chordsOf(stripped.slice(was[n].startChar, was[n].endChar));
-    let j = 0,
-      k = 0,
-      text = mapMusic(moved.slice(e.startChar, e.endChar), ({acc, pitch}) => {
-        // A note moved a whole octave off the interval's letters is abcjs's octave slip; move it back.
-        const slip = j < old.length ? Math.round((pitch - old[j] - steps) / 7) : 0;
-        j++;
-        return (acc == null ? '' : ACC_TEXT[acc]) + pitchToken(pitch + 7 * (octaves - slip));
-      });
-    if (region?.d) text = respellMusic(text, region.d);
-    // abcjs spells moved chord symbols without regard to the key (D# for Eb) and moves any text starting with A–G
-    // (Coda to Doda), so each is redone here from the source's own: chord names moved by the key's letters, other text
-    // (N.C., Coda, D.C.) left as it was.
-    if (text != null && oldChords.length)
-      text = mapMusic(
-        text,
-        ({acc, pitch}) => (acc == null ? '' : ACC_TEXT[acc]) + pitchToken(pitch),
-        name => (k < oldChords.length ? transposeChordSymbol(oldChords[k++], within, region?.chords ?? letters) : name)
-      );
-    // A pitch that would need a triple sharp or flat: keep abcjs's spelling everywhere.
-    if (text == null) return transposeABC(source, semitones, letters, -1);
-    if (text !== moved.slice(e.startChar, e.endChar)) edits.push({start: e.startChar, end: e.endChar, text});
+      tail = rest
+        .replace(ACC_TOKEN, '')
+        .replace(/(^|\s)exp(?=\s|$)/, m => m + (list.length ? ' ' + list.join(' ') : ''));
+    }
+    edit(f.start, f.end - f.start, pick.tonic + (f.tonic ? f.key.slice(f.tonic.length) : '') + tail + comment);
+    regions.push({start: f.start, steps, letters: pick.letters});
   }
-  let out = '',
-    at = 0;
-  for (const e of edits.sort((a, b) => a.start - b.start)) {
-    out += moved.slice(at, e.start) + e.text;
-    at = e.end;
+  const regionAt = at => regions.filter(r => r.start < at).at(-1) || regions[0];
+  for (const tune of ABCJS.parseOnly(source)) {
+    const voices = new Map(),
+      voiceFor = (state, at) => {
+        let out = voices.get(state);
+        if (!out) voices.set(state, (out = {ties: new Map(), pending: new Map()}));
+        const region = regionAt(at);
+        if (out.region !== region || out.key !== state.key) {
+          out.region = region;
+          out.key = state.key;
+          out.signature = region.none ? state.key : movedSignature(state.key, region.steps, semitones);
+        }
+        if (out.barSerial !== state.barSerial) {
+          out.barSerial = state.barSerial;
+          out.bar = new Map();
+        }
+        return out;
+      };
+    let tokens = [],
+      textStart = 0;
+    notePitches(
+      tune,
+      entry => {
+        const midi = soundingPitch(entry),
+          out = voiceFor(entry.state, entry.element.startChar),
+          i = tokens.findIndex(k => k.grace === entry.grace && k.pitch === entry.pitch);
+        // A quarter tone has no place in another key, and a note missing from the text would be left behind.
+        if (midi == null) throw new Error('Quarter-tone accidentals cannot be transposed.');
+        if (i < 0) throw new Error('A note could not be found in the text.');
+        const [token] = tokens.splice(i, 1),
+          written = /^[\^_=]/.test(source.substr(textStart + token.at, token.length)),
+          tieEnd = entry.endTie && out.pending.has(entry.pitch);
+        let pos = tieEnd ? out.pending.get(entry.pitch) : entry.pitch + out.region.steps,
+          need = entry.written + semitones - diatonicSemis(pos) - 60,
+          accidental = '';
+        if (tieEnd) {
+          // A tied-over note continues its first note; it shows an accidental only where the source wrote one.
+          if (written && Math.abs(need) <= 2) accidental = ACC_TEXT[need];
+        } else {
+          // Beyond a double sharp or flat, the neighbouring letter; and a tie that ends here on a different note never
+          // lands on its first note's line (after a key change the two can meet), which abcjs would merge.
+          const tied = new Set(out.pending.values()),
+            fits = p =>
+              Math.abs(entry.written + semitones - diatonicSemis(p) - 60) <= 2 && !(entry.endTie && tied.has(p));
+          if (!fits(pos)) {
+            const way = Math.sign(need) || 1,
+              alt = [pos, pos + way, pos - way, pos + 2 * way, pos - 2 * way]
+                .filter(fits)
+                .sort(
+                  (a, b) =>
+                    Math.abs(entry.written + semitones - diatonicSemis(a) - 60) -
+                    Math.abs(entry.written + semitones - diatonicSemis(b) - 60)
+                )[0];
+            if (alt == null) throw new Error('A note would need a triple sharp or flat.');
+            pos = alt;
+            need = entry.written + semitones - diatonicSemis(pos) - 60;
+          }
+          const implied = out.bar.has(pos) ? out.bar.get(pos) : (out.signature[posMod(pos, 7)] ?? 0);
+          if (need !== implied || written) {
+            out.bar.set(pos, need);
+            accidental = ACC_TEXT[need];
+          }
+        }
+        if (entry.startTie) out.ties.set(entry.pitch, pos);
+        edit(textStart + token.at, token.length, accidental + pitchToken(pos));
+        return midi;
+      },
+      (element, state) => {
+        // Grace notes written before a slur or decoration, {B}(~A, sit just before the element abcjs reports.
+        textStart = element.startChar;
+        if (element.gracenotes?.length && !source.slice(textStart, element.endChar).includes('{')) {
+          const open = source.lastIndexOf('{', textStart),
+            close = source.indexOf('}', open);
+          if (open >= 0 && close < textStart && /^[^{}|"\]]*$/.test(source.slice(close + 1, textStart)))
+            textStart = open;
+        }
+        const text = source.slice(textStart, element.endChar),
+          out = voiceFor(state, element.startChar);
+        // Only a note or rest moves the ties on; a chord symbol on a bar line leaves a tie across it alone.
+        if (element.el_type === 'note') {
+          out.pending = out.ties;
+          out.ties = new Map();
+        }
+        tokens = pitchTokens(text);
+        // Chord symbols ride on the note, rest or bar line they are written before.
+        for (const q of text.matchAll(/"([^"]*)"/g)) {
+          const name = transposeChordSymbol(q[1], semitones, out.region.letters);
+          if (name !== q[1]) edit(textStart + q.index + 1, q[1].length, name);
+        }
+      }
+    );
   }
-  return out + moved.slice(at);
+  let out = source;
+  for (const e of edits.sort((x, y) => y.at - x.at)) out = out.slice(0, e.at) + e.text + out.slice(e.at + e.length);
+  return out;
+}
+// Semitones a letter needs, after moving `steps` staff steps, to sound `semitones` away from letter + `alter`.
+const movedAlter = (letter, alter, steps, semitones) =>
+  posMod(LETTER_SEMIS[letter] + alter + semitones - LETTER_SEMIS[posMod(letter + steps, 7)] + 6, 12) - 6;
+// A signature, letter by letter, moved `steps` letters and `semitones` (explicit K: accidentals included).
+function movedSignature(key, steps, semitones) {
+  const map = {};
+  for (let letter = 0; letter < 7; letter++)
+    map[posMod(letter + steps, 7)] = movedAlter(letter, key[letter] ?? 0, steps, semitones);
+  return map;
+}
+// Every written note and grace note, voice by voice, with the MIDI pitch abcjs plays: the key signature, unless an
+// accidental earlier in the bar at the same staff position overrides it. `visit` sees each entry in order;
+// `visitElement` sees each note, rest and bar line carrying a chord symbol before its pitches.
+function notePitches(tune, visit, visitElement) {
+  const out = [],
+    voices = new Map();
+  for (const line of tune.lines || [])
+    for (const [s, staff] of (line.staff || []).entries())
+      for (const [v, voice] of (staff.voices || []).entries()) {
+        const id = s + ':' + v;
+        if (!voices.has(id))
+          voices.set(id, {key: {}, keyInfo: null, bar: new Map(), barSerial: 0, ties: new Map(), pending: new Map()});
+        const state = voices.get(id);
+        if (staff.key) setKey(state, staff.key);
+        for (const element of voice) {
+          if (element.el_type === 'key') setKey(state, element);
+          else if (element.el_type === 'bar') {
+            if (element.chord) visitElement?.(element, state);
+            state.bar = new Map();
+            state.barSerial++;
+          } else if (element.el_type === 'note') {
+            // A tie joins a note to the next one in its voice; anything older is left behind.
+            state.pending = state.ties;
+            state.ties = new Map();
+            visitElement?.(element, state);
+            for (const [grace, list] of [
+              [true, element.gracenotes || []],
+              [false, element.pitches || []]
+            ])
+              for (const pitch of list) {
+                const entry = {
+                  element,
+                  grace,
+                  pitch: pitch.pitch,
+                  accidental: pitch.accidental,
+                  startTie: !!pitch.startTie,
+                  endTie: !!pitch.endTie,
+                  state
+                };
+                entry.midi = visit ? visit(entry) : soundingPitch(entry);
+                out.push(entry);
+              }
+          }
+        }
+      }
+  return out;
+}
+const ACCIDENTAL_SEMITONES = {dblflat: -2, flat: -1, natural: 0, sharp: 1, dblsharp: 2};
+function setKey(state, key) {
+  state.key = {};
+  for (const a of key.accidentals || [])
+    if (a.acc !== 'natural') state.key['cdefgab'.indexOf(a.note.toLowerCase())] = ACCIDENTAL_SEMITONES[a.acc];
+  if (key.root !== undefined) state.keyInfo = {root: key.root, acc: key.acc, mode: key.mode};
+}
+// As abcjs plays it, a note that ends a tie continues the note that started it: it takes that pitch, and its own
+// accidental does not carry on through the bar. `entry.written` is the pitch as notated.
+function soundingPitch(entry) {
+  const {pitch, accidental, state} = entry;
+  if (accidental && !(accidental in ACCIDENTAL_SEMITONES)) return null;
+  const carried = entry.endTie ? state.pending.get(pitch) : undefined;
+  if (accidental && carried === undefined) state.bar.set(pitch, ACCIDENTAL_SEMITONES[accidental]);
+  entry.written =
+    60 +
+    diatonicSemis(pitch) +
+    (accidental ? ACCIDENTAL_SEMITONES[accidental] : (state.bar.get(pitch) ?? state.key[posMod(pitch, 7)] ?? 0));
+  const midi = carried ?? entry.written;
+  if (entry.startTie) state.ties.set(pitch, midi);
+  if (carried !== undefined && !accidental) entry.written = carried;
+  return midi;
+}
+// Note-letter tokens in an element's text: grace notes inside {…} first, then the note or chord, as abcjs lists them.
+function pitchTokens(text) {
+  const masked = text.replace(/"[^"]*"|![^!\n]*!|\+[^+\s]*\+/g, m => ' '.repeat(m.length)),
+    tokens = [];
+  for (const m of masked.matchAll(/(\^\^|\^|__|_|=)?([A-Ga-g])([,']*)/g)) {
+    const marks = m[3];
+    tokens.push({
+      at: m.index,
+      length: m[0].length,
+      grace: masked.lastIndexOf('{', m.index) > masked.lastIndexOf('}', m.index),
+      pitch:
+        'CDEFGAB'.indexOf(m[2].toUpperCase()) +
+        (m[2] === m[2].toLowerCase() ? 7 : 0) +
+        7 * (marks.split("'").length - marks.split(',').length)
+    });
+  }
+  return tokens;
+}
+// A transposition the student will keep: every written note must sound exactly `semitones` away and keep its length,
+// judged note by note as abcjs plays them (ties included) after abcjs reads the new text back.
+function transposeChecked(source, semitones, letters, maxAccidentals) {
+  const out = transposeABC(source, semitones, letters, maxAccidentals),
+    notes = abc => ABCJS.parseOnly(abc).flatMap(tune => notePitches(tune)),
+    before = notes(source),
+    after = notes(out),
+    length = e => (e.grace ? 0 : e.element.duration);
+  if (before.some(n => n.midi == null)) throw new Error('Quarter-tone accidentals cannot be transposed.');
+  if (
+    before.length !== after.length ||
+    before.some((n, i) => after[i].midi !== n.midi + semitones || !Object.is(length(after[i]), length(n)))
+  )
+    throw new Error('Some notes would land on the wrong pitch.');
+  return out;
 }
 // Letter names from concert to written pitch at a position in a concert source, for an instrument whose written notes
 // sound semitones lower. Plain notes move by the letters between the keys transposeABC writes: usually the shift's own

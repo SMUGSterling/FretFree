@@ -75,8 +75,9 @@ for (const score of context.library) {
     Math.abs(midiQuarter(midi) - timed.millisecondsPerMeasure() / timed.getBarLength() / 4) < 0.01,
     `${score.id}: MIDI tempo ${midiQuarter(midi)} ms a quarter, timed at ${timed.millisecondsPerMeasure()} ms a bar`
   );
-  for (const step of [-12, 2, 9]) {
-    const transposed = ABCJS.strTranspose(score.abc, parsed, step);
+  // Every written part and every Transpose: each note lands exactly `step` semitones away with its length kept.
+  for (const step of [-12, -5, 2, 9]) {
+    const transposed = context.transposeChecked(score.abc, step);
     assert.ok(!ABCJS.parseOnly(transposed)[0].warnings?.length);
     const shifted = context.parseMidi(context.midiBytes(transposed));
     assert.equal(context.melodyNotes(shifted.notes)[0].note, context.melodyNotes(data.notes)[0].note + step);
@@ -1432,6 +1433,35 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
   assert.equal(T('X:1\nL:1/4\nK:Bb\nC D|]', -11), 'X:1\nL:1/4\nK:B\nC, D,|]', 'Bb major down a major 7th');
   assert.equal(T('X:1\nL:1/4\nK:Cb\nC D|]', -12), 'X:1\nL:1/4\nK:Cb\nC, D,|]', 'Cb major down an octave');
   assert.equal(T('X:1\nL:1/4\nK:Cb\nC D|]', 0, 6, 7), 'X:1\nL:1/4\nK:B\nB, C|]', 'Cb major respelled as B major');
+  // What abcjs's strTranspose got wrong, and the tie and signature rules the note-by-note transposer follows.
+  assert.equal(T('X:1\nL:1/8\nK:C\nE ^D E =D|]', -5), 'X:1\nL:1/8\nK:G\nB, ^A, B, =A,|]', 'A natural the bar needs');
+  assert.equal(T('X:1\nL:1/4\nK:F\n[F3/2c3/2] [F/c/]|]', -5), 'X:1\nL:1/4\nK:C\n[C3/2G3/2] [C/G/]|]', 'Chord lengths');
+  assert.equal(T('X:1\nL:1/8\nK:G\nG {B}(~A>G)|]', 2), 'X:1\nL:1/8\nK:A\nA {c}(~B>A)|]', 'A grace before a slur');
+  assert.equal(T('X:1\nL:1/4\nK:C\n^F- | F F|]', 2), 'X:1\nL:1/4\nK:D\n^G- | G G|]', 'A tie carries its sharp');
+  assert.equal(T('X:1\nL:1/8\nK:EPhr ^G\nE G F E|]', -5), 'X:1\nL:1/8\nK:BPhr ^D\nB, D C B,|]', 'K: ^G moves');
+  assert.equal(T('X:1\nL:1/4\nK:none\nA B ^c d|]', 2), 'X:1\nL:1/4\nK:none\nB ^c ^d e|]', 'No signature');
+  assert.throws(() => T('X:1\nL:1/4\nK:C\n^/c d|]', 2), /Quarter-tone/);
+  {
+    const long = '{' + 'gabgfedcBAGFEDCB'.repeat(6) + '}';
+    assert.match(T(`X:1\nL:1/8\nK:G\nG ${long}(~A>G)|]`, 2), /\{a.*\}\(~B>A\)/, 'A long grace group moves too');
+  }
+  // exp keys (MusicXML import) list the whole moved signature; abcjs adds the tonic's own, so it is spelled out too.
+  assert.equal(T('X:1\nL:1/4\nK:C exp ^F\nE F|]', 2), 'X:1\nL:1/4\nK:D exp ^c ^f ^g\nF G|]');
+  assert.equal(
+    context.transposeChecked('X:1\nL:1/4\nK:C exp _b ^f clef=bass\nB F E|]', -5),
+    'X:1\nL:1/4\nK:G exp ^c =f clef=bass\nF C B,|]'
+  );
+  // The source exp signature is read as abcjs reads it (the tonic's own accidentals included); comments stay comments.
+  assert.equal(T('X:1\nL:1/4\nK:G exp ^c\nF c|]', 2), 'X:1\nL:1/4\nK:A exp ^c ^d ^f ^g\nG d|]');
+  assert.equal(T('X:1\nL:1/4\nK:C ^F % exp\nF|]', 2), 'X:1\nL:1/4\nK:D ^G % exp\nG|]');
+  assert.equal(T('X:1\nL:1/4\nK:C exp ^F%comment\nF|]', 2), 'X:1\nL:1/4\nK:D exp ^c ^f ^g%comment\nG|]');
+  assert.throws(() => T('X:1\nL:1/4\nK:B _C\nA|]', 2), /triple sharp or flat/, 'No stale signature accidental');
+  // A key respelled under the accidental cap keeps one line per letter, doubles included (B up a tone is Db).
+  assert.equal(T('X:1\nL:1/4\nK:B\n=C =D|]', 2), 'X:1\nL:1/4\nK:Db\n__E _F|]');
+  // A chord symbol on a bar line does not break a tie across it.
+  assert.equal(T('X:1\nL:1/4\nK:B\nF-"C"|[K:C]F|]', 2), 'X:1\nL:1/4\nK:Db\nA-"D"|[K:D]A|]');
+  // One concert step is one written step: drag and arrow keys step the source (Copilot's K:E =D on B-flat case).
+  assert.equal(T('X:1\nL:1/4\nK:E\n=D =E|]', 2), 'X:1\nL:1/4\nK:F#\n=E ^F|]');
   {
     const midi = abc => context.melodyNotes(context.parseMidi(context.midiBytes(abc)).notes).map(n => n.note),
       body = 'C D E F G A B c | ^C _D =E ^F | _G ^A _B c\' | "Am"A "C#m"c "Gb"G2|]',

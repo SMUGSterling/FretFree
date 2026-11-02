@@ -4397,6 +4397,12 @@ async function checkInstrumentSounds() {
       );
     }
   }
+  // The E-flat clarinet is written below how it sounds.
+  open('Clarinet in E♭');
+  run("$('concert-pitch').checked=false;$('concert-pitch').onchange()");
+  assert.match(caption(), /it sounds a minor 3rd higher/, caption());
+  open('Clarinet in B♭');
+  assert.match(caption(), /it sounds a major 2nd lower/, caption());
   open('Horn in F');
   assert.match(run('writtenABC()'), /K:C[^\n]*\nc d e f \| g4 \|\]/, 'Horn in F is written a fifth higher');
   assert.equal(
