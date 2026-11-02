@@ -690,7 +690,7 @@ function moveChordName(name, accText, shift, steps) {
   return 'CDEFGAB'[to] + (newAlter > 0 ? (unicode ? '♯' : '#') : unicode ? '♭' : 'b').repeat(Math.abs(newAlter));
 }
 function moveChordSymbol(text, shift, steps) {
-  const m = text.match(/^([A-G])([#b♯♭]?)([^/]*?)(?:\/([A-G])([#b♯♭]?))?(\s*)$/);
+  const m = text.match(/^([A-G])([#b♯♭]?)(.*?)(?:\/([A-G])([#b♯♭]?))?(\s*)$/);
   if (!m) return text;
   const root = moveChordName(m[1], m[2], shift, steps),
     bass = m[4] ? moveChordName(m[4], m[5], shift, steps) : '';

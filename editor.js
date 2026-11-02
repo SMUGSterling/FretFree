@@ -234,7 +234,7 @@ function updateCaption() {
   updateTransposeOptions();
 }
 // Transpose: each option names the key the score lands in, plus the written key for a transposing instrument.
-const KEY_NAME = /^([A-G])([#b]?)(?:[ \t]*(maj|min|m|ion|dor|phr|lyd|mix|aeo|loc)[a-z]*(?![=\w]))?/i;
+const KEY_NAME = /^([A-G])([#b]?)(?:[ \t]*(maj|min|mix|ion|dor|phr|lyd|aeo|loc|m)[a-z]*(?![=\w]))?/i;
 const MODE_NAMES = {
   '': 'major',
   maj: 'major',
@@ -293,7 +293,7 @@ function updateTransposePreview() {
     return;
   }
   const to = keyLabel(transposedKey(key, steps)),
-    written = to && shift ? keyLabel(transposedKey(key, steps + shift)) : '';
+    written = to && shift ? keyLabel(transposedKey(transposedKey(key, steps), shift)) : '';
   $('transpose-note').textContent =
     `${transposeMove(steps)}${to ? ' to ' + to : ''}` +
     (written ? `; the ${currentInstrument()} part will read in ${written}` : '') +
@@ -826,8 +826,7 @@ function drawNote(t) {
     toast('Score updated. Click again to add the note.');
     return;
   }
-  const config = instruments[currentInstrument()];
-  const token = pitchToken(t.written - Math.round((config.shift * 7) / 12)) + lengthText(beatLength() / unitLength());
+  const token = pitchToken(t.written - writtenSteps()) + lengthText(beatLength() / unitLength());
   // Neighbours on the clicked staff, in reading order; the new note goes before the first one to the right of the click.
   const staffs = staffList(),
     items = [];
@@ -853,7 +852,7 @@ function drawNote(t) {
     ),
     nearest = rests.reduce((best, i) => (!best || Math.abs(i.x - t.x) < Math.abs(best.x - t.x) ? i : best), null);
   if (nearest) {
-    fillRest(nearest.entry, pitchToken(t.written - Math.round((config.shift * 7) / 12)), beatLength());
+    fillRest(nearest.entry, pitchToken(t.written - writtenSteps()), beatLength());
     $('selection-status').textContent =
       `Added ${pitchName(t.written)} on the rest · right-click it to change accidental or length`;
     return;
@@ -945,6 +944,12 @@ const DOTTABLE = [1, 0.5, 0.25, 0.125, 0.0625, 0.03125];
 function closeNoteMenu() {
   $('note-menu').hidden = true;
   menuEntry = null;
+}
+// Staff steps between the concert source and the written part. The written key's spelling decides it (horn in F
+// reads a B major score in G♭, two steps down, not three), so it follows the score's key as the transposer does.
+function writtenSteps() {
+  const m = field('K', '').match(/^([A-G])([#b]?)[ \t]*([A-Za-z]*)/);
+  return movedKey(m?.[1], m?.[2], m?.[3], instruments[currentInstrument()].shift || 0).shift;
 }
 const transposing = () => {
   const shift = instruments[currentInstrument()].shift;
@@ -1200,7 +1205,7 @@ function insertNote(letter, sel) {
 // Written-pitch note token for a letter, in the octave nearest the last note before a source position.
 function letterToken(letter, at) {
   if (letter === 'z') return 'z';
-  const steps = Math.round((instruments[currentInstrument()].shift * 7) / 12),
+  const steps = writtenSteps(),
     prev = scoreNotes()
       .filter(n => n.element.startChar < at && n.element.pitches?.length)
       .pop();

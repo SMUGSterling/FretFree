@@ -154,6 +154,23 @@ assert.equal(run(`transposeChecked('X:1\\nL:1/8\\nK:G\\nG {B}(~A>G)|]',2)`), 'X:
 assert.equal(run(`transposeChecked('X:1\\nL:1/4\\nK:C\\n^F- | F F|]',2)`), 'X:1\nL:1/4\nK:D\n^G- | G G|]');
 assert.equal(run(`transposeChecked('X:1\\nL:1/8\\nK:EPhr ^G\\nE G F E|]',-5)`), 'X:1\nL:1/8\nK:BPhr ^D\nB, D C B,|]');
 assert.throws(() => run(`transposeChecked('X:1\\nL:1/4\\nK:C\\n^/c d|]',2)`), /Quarter-tone/);
+// Review fixes: slash extensions in chord symbols, Mixolydian labels, written-key preview, key-aware note entry.
+assert.equal(
+  run(`transposeABC('X:1\\nL:1/4\\nK:C\\n"C6/9"C "C6/9/G"G "Am7/G"A|]',2)`),
+  'X:1\nL:1/4\nK:D\n"D6/9"D "D6/9/A"A "Bm7/A"B|]'
+);
+assert.equal(run("keyLabel('Gmix')"), 'G Mixolydian');
+assert.equal(run("keyLabel('Am')"), 'A minor');
+run(`openScore({abc:'X:1\\nL:1/4\\nK:B\\nB c d e|]',instrument:'Horn in F'})`);
+assert.equal(run('writtenSteps()'), -2, 'Horn reads B major in G♭: two staff steps down');
+// A written C is C♭ in the G♭ part; it sounds a fourth higher, concert E (old code entered F, written D♭).
+assert.equal(run("letterToken('C', $('abc').value.length)").replace(/[,']/g, '').toUpperCase(), 'E');
+run(`openScore({abc:'X:1\\nL:1/4\\nK:F#\\nF G A B|]',instrument:'Clarinet in B♭'})`);
+run("$('transpose').value='-2';$('transpose').onchange()");
+const preview = run("$('transpose-note').textContent");
+run("$('transpose-apply').onclick();render()");
+const shown = run('(writtenABC().match(/^K:(\\S+)/m)||[])[1]');
+assert.ok(preview.includes('read in ' + run(`keyLabel(${JSON.stringify(shown)})`)), `${preview} vs written K:${shown}`);
 // Instruments: each caption states the written-to-sounding interval.
 const caption = name => {
   run(`$('instrument').value=${JSON.stringify(name)};updateCaption()`);
