@@ -2150,8 +2150,29 @@ function transposeABC(source, semitones, letters = Math.round((semitones * 7) / 
           a = movedAlter(at, ACC_VALUE[acc], steps, semitones);
         return Math.abs(a) > 2 ? all : lead + ACC_TEXT[a] + (letter === letter.toLowerCase() ? to.toLowerCase() : to);
       });
-    edit(f.start, f.end - f.start, pick.tonic + (f.tonic ? f.key.slice(f.tonic.length) : '') + moved);
-    regions.push({start: f.start, steps, letters: pick.letters, respelled: pick.letters !== letters});
+    // An exp key has only the accidentals it lists, so it lists the whole moved signature (C exp ^F up a tone is
+    // D exp ^f ^g: its E becomes F#).
+    let tail = moved;
+    if (/(^|\s)exp(?=\s|$)/.test(rest)) {
+      const listed = {};
+      for (const m of rest.matchAll(/(^|\s)(\^\^|\^|__|_|=)([A-Ga-g])(?=\s|$)/g))
+        listed['CDEFGAB'.indexOf(m[3].toUpperCase())] = ACC_VALUE[m[2]];
+      // abcjs adds the tonic's own signature to an exp list (K:G exp ^c sharpens F too), so letters that signature
+      // touches are listed as well, naturals included: the list then reads the same either way.
+      const sig = movedSignature(listed, steps, semitones),
+        fifths = keyFifths(pick.tonic + f.mode),
+        tonicSig = {};
+      for (let i = 0; i < Math.abs(fifths); i++)
+        tonicSig['CDEFGAB'.indexOf((fifths > 0 ? 'FCGDAEB' : 'BEADGCF')[i])] = Math.sign(fifths);
+      const list = [...'CDEFGAB'].flatMap((letter, i) =>
+        sig[i] || tonicSig[i] ? [ACC_TEXT[sig[i] ?? 0] + letter.toLowerCase()] : []
+      );
+      tail = rest
+        .replace(/(^|\s)(\^\^|\^|__|_|=)[A-Ga-g](?=\s|$)/g, '')
+        .replace(/(^|\s)exp(?=\s|$)/, m => m + (list.length ? ' ' + list.join(' ') : ''));
+    }
+    edit(f.start, f.end - f.start, pick.tonic + (f.tonic ? f.key.slice(f.tonic.length) : '') + tail);
+    regions.push({start: f.start, steps, letters: pick.letters});
   }
   const regionAt = at => regions.filter(r => r.start < at).at(-1) || regions[0];
   for (const tune of ABCJS.parseOnly(source)) {
@@ -2197,9 +2218,7 @@ function transposeABC(source, semitones, letters = Math.round((semitones * 7) / 
           const tied = new Set(out.pending.values()),
             fits = p =>
               Math.abs(entry.written + semitones - diatonicSemis(p) - 60) <= 2 && !(entry.endTie && tied.has(p));
-          // Where the key itself was respelled to keep its accidentals down (B major up a tone written in Db), its
-          // notes may also take a neighbouring letter rather than a double sharp or flat.
-          if (!fits(pos) || (Math.abs(need) === 2 && out.region.respelled)) {
+          if (!fits(pos)) {
             const way = Math.sign(need) || 1,
               alt = [pos, pos + way, pos - way, pos + 2 * way, pos - 2 * way]
                 .filter(fits)
@@ -2233,8 +2252,11 @@ function transposeABC(source, semitones, letters = Math.round((semitones * 7) / 
         }
         const text = source.slice(textStart, element.endChar),
           out = voiceFor(state, element.startChar);
-        out.pending = out.ties;
-        out.ties = new Map();
+        // Only a note or rest moves the ties on; a chord symbol on a bar line leaves a tie across it alone.
+        if (element.el_type === 'note') {
+          out.pending = out.ties;
+          out.ties = new Map();
+        }
         tokens = pitchTokens(text);
         // Chord symbols ride on the note, rest or bar line they are written before.
         for (const q of text.matchAll(/"([^"]*)"/g)) {

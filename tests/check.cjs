@@ -1445,6 +1445,16 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     const long = '{' + 'gabgfedcBAGFEDCB'.repeat(6) + '}';
     assert.match(T(`X:1\nL:1/8\nK:G\nG ${long}(~A>G)|]`, 2), /\{a.*\}\(~B>A\)/, 'A long grace group moves too');
   }
+  // exp keys (MusicXML import) list the whole moved signature; abcjs adds the tonic's own, so it is spelled out too.
+  assert.equal(T('X:1\nL:1/4\nK:C exp ^F\nE F|]', 2), 'X:1\nL:1/4\nK:D exp ^c ^f ^g\nF G|]');
+  assert.equal(
+    context.transposeChecked('X:1\nL:1/4\nK:C exp _b ^f clef=bass\nB F E|]', -5),
+    'X:1\nL:1/4\nK:G exp ^c =f clef=bass\nF C B,|]'
+  );
+  // A key respelled under the accidental cap keeps one line per letter, doubles included (B up a tone is Db).
+  assert.equal(T('X:1\nL:1/4\nK:B\n=C =D|]', 2), 'X:1\nL:1/4\nK:Db\n__E _F|]');
+  // A chord symbol on a bar line does not break a tie across it.
+  assert.equal(T('X:1\nL:1/4\nK:B\nF-"C"|[K:C]F|]', 2), 'X:1\nL:1/4\nK:Db\nA-"D"|[K:D]A|]');
   // One concert step is one written step: drag and arrow keys step the source (Copilot's K:E =D on B-flat case).
   assert.equal(T('X:1\nL:1/4\nK:E\n=D =E|]', 2), 'X:1\nL:1/4\nK:F#\n=E ^F|]');
   {
