@@ -191,8 +191,12 @@ $('instrument').onchange = () => {
     source = $('abc').value;
   if (current?.prompt && promptById(current.prompt) && before !== after) {
     flushTyping();
-    $('abc').value = transposeABC(source, before - after);
-    selectedRange = null;
+    try {
+      $('abc').value = transposeABC(source, before - after);
+      selectedRange = null;
+    } catch (error) {
+      toast(`The written notes could not move with the instrument. ${error.message}`);
+    }
   }
   instrumentShown = currentInstrument();
   changed();

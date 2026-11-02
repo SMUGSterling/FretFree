@@ -49,10 +49,18 @@ function setHeader(name, value) {
     );
   $('abc').value = lines.join('\n');
 }
+// Set when the written part cannot be made (quarter tones); the score is then shown at concert pitch.
+let writtenProblem = '';
 function writtenABC() {
   let source = $('abc').value;
   const config = instruments[currentInstrument()];
-  if (config.shift) source = transposeABC(source, config.shift);
+  writtenProblem = '';
+  if (config.shift)
+    try {
+      source = transposeABC(source, config.shift);
+    } catch (error) {
+      writtenProblem = error.message;
+    }
   source = source.replace(/^K:(.*)$/m, (_, key) => 'K:' + key.replace(/\s+clef=\S+/g, '') + ' clef=' + config.clef);
   if (fingeringShown() === 'recorder') source = source.replace(/^(X:.*)$/m, '$1\n%%staffsep 190');
   return labelSource(source, noteNamesMode());
@@ -230,7 +238,9 @@ function instrumentPitchNote(config) {
 function updateCaption() {
   $('workspace-heading').textContent = field('T', 'Untitled melody');
   const config = instruments[currentInstrument()];
-  $('score-caption').textContent = `${currentInstrument()} · ${config.clef} clef · ${instrumentPitchNote(config)}`;
+  $('score-caption').textContent =
+    `${currentInstrument()} · ${config.clef} clef · ` +
+    (writtenProblem ? `Shown at concert pitch: ${writtenProblem}` : instrumentPitchNote(config));
   updateTransposeOptions();
 }
 // Transpose: each option names the key the score lands in, plus the written key for a transposing instrument.
@@ -826,7 +836,6 @@ function drawNote(t) {
     toast('Score updated. Click again to add the note.');
     return;
   }
-  const token = pitchToken(t.written - writtenSteps()) + lengthText(beatLength() / unitLength());
   // Neighbours on the clicked staff, in reading order; the new note goes before the first one to the right of the click.
   const staffs = staffList(),
     items = [];
@@ -852,7 +861,7 @@ function drawNote(t) {
     ),
     nearest = rests.reduce((best, i) => (!best || Math.abs(i.x - t.x) < Math.abs(best.x - t.x) ? i : best), null);
   if (nearest) {
-    fillRest(nearest.entry, pitchToken(t.written - writtenSteps()), beatLength());
+    fillRest(nearest.entry, pitchToken(t.written - writtenSteps(nearest.entry.element.startChar)), beatLength());
     $('selection-status').textContent =
       `Added ${pitchName(t.written)} on the rest · right-click it to change accidental or length`;
     return;
@@ -860,22 +869,22 @@ function drawNote(t) {
   const next = items.find(i => i.x > t.x),
     last = items.at(-1),
     value = $('abc').value;
-  let at, text;
+  let at, before;
   const tuneEnd = Math.max(...[...noteSources.values()].filter(Boolean).map(e => e.element.startChar));
   // Past the closing barline: add the note inside the tune, before that barline.
   if (!next && last?.entry.element.el_type === 'bar' && last.entry.element.startChar === tuneEnd) {
     at = last.entry.element.startChar;
-    text = token + ' ';
   } else if (next) {
     at = next.entry.element.startChar;
-    text = token + ' ';
   } else if (last) {
     at = last.entry.element.endChar;
-    text = ' ' + token;
+    before = ' ';
   } else {
     at = value.length;
-    text = (value.endsWith('\n') ? '' : '\n') + token;
+    before = value.endsWith('\n') ? '' : '\n';
   }
+  const token = pitchToken(t.written - writtenSteps(at)) + lengthText(beatLength() / unitLength());
+  let text = before == null ? token + ' ' : before + token;
   if (at > 0 && !/\s/.test(value[at - 1]) && !text.startsWith(' ') && !text.startsWith('\n')) text = ' ' + text;
   const start = at + text.indexOf(token);
   applyNoteEdit(at, at, text, [start, start + token.length]);
@@ -947,9 +956,18 @@ function closeNoteMenu() {
 }
 // Staff steps between the concert source and the written part. The written key's spelling decides it (horn in F
 // reads a B major score in G♭, two steps down, not three), so it follows the score's key as the transposer does.
-function writtenSteps() {
-  const m = field('K', '').match(/^([A-G])([#b]?)[ \t]*([A-Za-z]*)/);
+function writtenSteps(at = Infinity) {
+  const m = keyAt(at).match(/^([A-G])([#b]?)[ \t]*([A-Za-z]*)/);
   return movedKey(m?.[1], m?.[2], m?.[3], instruments[currentInstrument()].shift || 0).shift;
+}
+// The key in force at a source position: the last K: line or inline [K:…] before it.
+function keyAt(at = Infinity) {
+  const keys = [
+    ...$('abc')
+      .value.slice(0, at)
+      .matchAll(/(?:^K:|\[K:)[ \t]*([^\]\n%]*)/gm)
+  ];
+  return keys.length ? keys.at(-1)[1].trim() : field('K', '');
 }
 const transposing = () => {
   const shift = instruments[currentInstrument()].shift;
@@ -969,9 +987,15 @@ function accidentalEdit(entry, display, acc) {
   if (!shift) return editNoteText(old, {accidental: acc});
   const {text, key} = writtenNote(display),
     mini = `X:1\nL:1/8\nK:${key}\n${editNoteText(text, {accidental: acc})}\n`;
-  const lines = transposeABC(mini, -shift).split('\n'),
-    note = lines[lines.findIndex(l => l.startsWith('K:')) + 1];
-  return note == null ? old : note;
+  try {
+    const lines = transposeABC(mini, -shift).split('\n'),
+      at = lines.findIndex(l => l.startsWith('K:')),
+      note = lines[at + 1];
+    // The way back may spell the key differently (G♭ for F♯); write the note against the score's own key.
+    return note == null ? old : respellNote(note, lines[at].slice(2), keyAt(entry.element.startChar));
+  } catch {
+    return old;
+  }
 }
 // A note joined to its neighbour by > or < (broken rhythm), as [first, second] source entries.
 function brokenPair(entry) {
@@ -1205,7 +1229,7 @@ function insertNote(letter, sel) {
 // Written-pitch note token for a letter, in the octave nearest the last note before a source position.
 function letterToken(letter, at) {
   if (letter === 'z') return 'z';
-  const steps = writtenSteps(),
+  const steps = writtenSteps(at),
     prev = scoreNotes()
       .filter(n => n.element.startChar < at && n.element.pitches?.length)
       .pop();

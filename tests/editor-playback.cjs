@@ -171,6 +171,31 @@ const preview = run("$('transpose-note').textContent");
 run("$('transpose-apply').onclick();render()");
 const shown = run('(writtenABC().match(/^K:(\\S+)/m)||[])[1]');
 assert.ok(preview.includes('read in ' + run(`keyLabel(${JSON.stringify(shown)})`)), `${preview} vs written K:${shown}`);
+// Second review: double-flat chord names, quarter tones, long grace groups, respelling, inline key changes.
+assert.equal(run(`transposeABC('X:1\\nL:1/4\\nK:Gb\\n"Ebb"E|]',3)`), 'X:1\nL:1/4\nK:A\n"F"F|]');
+assert.equal(run(`transposeABC('X:1\\nL:1/4\\nK:E\\n"C"C|]',2)`), 'X:1\nL:1/4\nK:Gb\n"D"E|]', 'D, not E𝄫');
+assert.throws(() => run(`transposeABC('X:1\\nL:1/4\\nK:C\\n^/c d|]',2)`), /Quarter-tone/);
+run(`openScore({abc:'X:1\\nL:1/4\\nK:C\\n^/c d|]',instrument:'Clarinet in B♭'})`);
+assert.match(run("$('score-caption').textContent"), /Shown at concert pitch: Quarter-tone/);
+const longGrace = '{' + 'gabgfedcBAGFEDCB'.repeat(6) + '}';
+assert.match(run(`transposeChecked('X:1\\nL:1/8\\nK:G\\nG ${longGrace}(~A>G)|]',2)`), /\(~B>A\)/);
+assert.equal(run("respellNote('A','Gb','F#')"), 'G', 'A♭ in G♭ is G♯ in F♯ major');
+run(`openScore({abc:'X:1\\nL:1/4\\nK:F#\\n^F G|]',instrument:'Clarinet in B♭'})`);
+const edited = run(
+  "(()=>{const e=scoreNotes()[0],d=scoreEvents(renderedTune).find(x=>x.element.el_type==='note');return accidentalEdit(e,d.element,'')})()"
+);
+assert.equal(
+  run(`notePitches(ABCJS.parseOnly('X:1\\nL:1/4\\nK:F#\\n'+${JSON.stringify(edited)}+'|]')[0])[0].midi`),
+  66,
+  `Removing the written accidental keeps concert F♯ (got ${edited})`
+);
+run(`openScore({abc:'X:1\\nL:1/4\\nK:C\\nC D|[K:B] B c|]',instrument:'Horn in F'})`);
+assert.equal(
+  run("writtenSteps($('abc').value.indexOf('C D'))"),
+  -3,
+  'In C major the horn part sits three staff steps lower'
+);
+assert.equal(run("writtenSteps($('abc').value.length)"), -2, 'After [K:B] the horn reads G♭: two steps down');
 // Instruments: each caption states the written-to-sounding interval.
 const caption = name => {
   run(`$('instrument').value=${JSON.stringify(name)};updateCaption()`);

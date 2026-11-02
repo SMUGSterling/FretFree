@@ -680,17 +680,22 @@ const pitchText = pos => {
   return octave >= 1 ? letter.toLowerCase() + "'".repeat(octave - 1) : letter + ','.repeat(-octave);
 };
 // Move one chord-symbol note name ("F#", "Bb") by the key's staff steps, spelled to land `steps` semitones away.
-function moveChordName(name, accText, shift, steps) {
+function moveChordName(name, accText = '', shift, steps) {
   const letter = 'CDEFGAB'.indexOf(name),
-    alter = /#|♯/.test(accText) ? 1 : /b|♭/.test(accText) ? -1 : 0,
-    to = (((letter + shift) % 7) + 7) % 7,
-    newAlter = movedAlter(letter, alter, shift, steps),
+    alter = (accText.match(/[#♯]/g) || []).length - (accText.match(/[b♭]/g) || []).length,
     unicode = /[♯♭]/.test(accText);
+  let to = (((letter + shift) % 7) + 7) % 7,
+    newAlter = movedAlter(letter, alter, shift, steps);
+  // Prefer a plain letter to a double sharp or flat (D, not E𝄫).
+  if (Math.abs(newAlter) >= 2) {
+    const next = movedAlter(letter, alter, shift + Math.sign(newAlter), steps);
+    if (Math.abs(next) <= 1) [to, newAlter] = [(((to + Math.sign(newAlter)) % 7) + 7) % 7, next];
+  }
   if (Math.abs(newAlter) > 2) return null;
   return 'CDEFGAB'[to] + (newAlter > 0 ? (unicode ? '♯' : '#') : unicode ? '♭' : 'b').repeat(Math.abs(newAlter));
 }
 function moveChordSymbol(text, shift, steps) {
-  const m = text.match(/^([A-G])([#b♯♭]?)(.*?)(?:\/([A-G])([#b♯♭]?))?(\s*)$/);
+  const m = text.match(/^([A-G])([#♯]{1,2}|[b♭]{1,2})?(.*?)(?:\/([A-G])([#♯]{1,2}|[b♭]{1,2})?)?(\s*)$/);
   if (!m) return text;
   const root = moveChordName(m[1], m[2], shift, steps),
     bass = m[4] ? moveChordName(m[4], m[5], shift, steps) : '';
@@ -744,7 +749,9 @@ function transposeABC(source, steps) {
         const midi = soundingPitch(entry),
           out = voiceFor(entry.state),
           i = tokens.findIndex(k => k.grace === entry.grace && k.pitch === entry.pitch);
-        if (midi == null || i < 0) return midi;
+        // A quarter tone has no place in another key, and a note missing from the text would be left behind.
+        if (midi == null) throw new Error('Quarter-tone accidentals cannot be transposed.');
+        if (i < 0) throw new Error('A note could not be found in the text.');
         const [token] = tokens.splice(i, 1),
           written = /^[\^_=]/.test(source.substr(textStart + token.at, token.length)),
           tieEnd = entry.endTie && out.pending.has(entry.pitch);
@@ -777,10 +784,12 @@ function transposeABC(source, steps) {
       (element, state) => {
         // Grace notes written before a slur or decoration, {B}(~A, sit just before the element abcjs reports.
         textStart = element.startChar;
-        const before = element.gracenotes?.length && !source.slice(textStart, element.endChar).includes('{');
-        if (before)
-          textStart -= (source.slice(Math.max(0, textStart - 80), textStart).match(/\{[^{}]*\}[^{}|"\]]*$/) || [''])[0]
-            .length;
+        if (element.gracenotes?.length && !source.slice(textStart, element.endChar).includes('{')) {
+          const open = source.lastIndexOf('{', textStart),
+            close = source.indexOf('}', open);
+          if (open >= 0 && close < textStart && /^[^{}|"\]]*$/.test(source.slice(close + 1, textStart)))
+            textStart = open;
+        }
         const text = source.slice(textStart, element.endChar),
           out = voiceFor(state),
           {moved} = out;
@@ -881,6 +890,36 @@ function pitchTokens(text) {
     });
   }
   return tokens;
+}
+// The same note or chord spelled for another form of its key (from G♭ back to the score's F♯): pitches unchanged,
+// accidentals written against `toKey` wherever its signature differs.
+function respellNote(text, fromKey, toKey) {
+  if (fromKey.trim() === toKey.trim()) return text;
+  const entries = notePitches(ABCJS.parseOnly(`X:1\nL:1/8\nK:${fromKey}\n${text}\n`)[0]),
+    target = {};
+  setKey(target, ABCJS.parseOnly(`X:1\nL:1/8\nK:${toKey}\nz|]`)[0].lines[0].staff[0].key);
+  const tokens = pitchTokens(text),
+    edits = [];
+  for (const entry of entries) {
+    const i = tokens.findIndex(k => k.grace === entry.grace && k.pitch === entry.pitch);
+    if (entry.midi == null || i < 0) return text;
+    const [token] = tokens.splice(i, 1),
+      written = /^[\^_=]/.test(text.substr(token.at, token.length)),
+      // Take the key's own spelling where one letter fits it (G♯ in F♯ major, not A♭), else the nearest.
+      spellings = [entry.pitch, entry.pitch - 1, entry.pitch + 1]
+        .map(pos => ({pos, need: entry.midi - naturalPitch(pos), sig: target.key[((pos % 7) + 7) % 7] ?? 0}))
+        .filter(c => Math.abs(c.need) <= 2),
+      pick = spellings.find(c => c.need === c.sig) || spellings.find(c => Math.abs(c.need) <= 1) || spellings[0];
+    if (!pick) return text;
+    const explicit = written || pick.need !== pick.sig;
+    edits.push({
+      at: token.at,
+      length: token.length,
+      text: (explicit ? ACCIDENTAL_TEXT[pick.need] : '') + pitchText(pick.pos)
+    });
+  }
+  for (const e of edits.sort((x, y) => y.at - x.at)) text = text.slice(0, e.at) + e.text + text.slice(e.at + e.length);
+  return text;
 }
 // Transposition the student will keep: every written note must sound exactly `steps` semitones away and keep its
 // length, judged note by note as abcjs plays them (ties included), after abcjs reads the new text back.
