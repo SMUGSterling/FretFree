@@ -63,8 +63,9 @@ for (const score of context.library) {
   const data = context.parseMidi(midi);
   assert.ok(data.notes.length > 0);
   assert.ok(data.duration > 0 && Number.isFinite(data.duration));
-  for (const step of [-12, 2, 9]) {
-    const transposed = ABCJS.strTranspose(score.abc, parsed, step);
+  // The Transpose control and every transposing instrument: each written note lands exactly `step` semitones away.
+  for (const step of [-12, -5, 2, 9]) {
+    const transposed = context.transposeChecked(score.abc, step);
     assert.ok(!ABCJS.parseOnly(transposed)[0].warnings?.length);
     const shifted = context.parseMidi(context.midiBytes(transposed));
     assert.equal(context.melodyNotes(shifted.notes)[0].note, context.melodyNotes(data.notes)[0].note + step);

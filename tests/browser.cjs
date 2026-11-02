@@ -349,6 +349,30 @@ const {chromium} = require('playwright'),
   await page.click('#undo');
   assert.equal(await page.inputValue('#instrument'), 'Flute', 'Instrument change is undoable');
   assert.equal(await page.evaluate(() => dirty), false);
+  // Transpose: choose a key, Apply, the score re-engraves in the new key; Undo returns to the original.
+  await reopenU();
+  assert.ok(await page.isDisabled('#transpose-apply'));
+  await page.selectOption('#transpose', '2');
+  await page.click('#transpose-apply');
+  await page.waitForTimeout(400);
+  assert.equal(await page.evaluate(() => $('abc').value), 'X:1\nT:U\nM:4/4\nL:1/4\nK:D\nD E F G | A B c d |]');
+  assert.equal(await page.inputValue('#key'), 'D');
+  assert.equal(await page.inputValue('#transpose'), '');
+  assert.equal(
+    (await page.locator('#notation .abcjs-key-signature path').count()) > 0,
+    true,
+    'D major signature drawn'
+  );
+  await page.click('#undo');
+  assert.match(await page.evaluate(() => $('abc').value), /K:C\nC D E F \| G A B c \|\]$/, 'Undo restores C major');
+  await page.selectOption('#instrument', 'Tenor sax in B♭');
+  await page.waitForTimeout(400);
+  assert.match(await page.textContent('#score-caption'), /sounding an octave and a major 2nd lower/);
+  await page.selectOption('#transpose', '2');
+  assert.match(
+    await page.textContent('#transpose-note'),
+    /Up 2 semitones to D major; the Tenor sax in B♭ part will read in E major/
+  );
   await reopenU();
   await page.evaluate(() => {
     const a = $('abc');

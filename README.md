@@ -39,6 +39,7 @@ Public-domain declarations follow the source’s United States context. A public
 ## Edit, play, and export
 
 - Drag notes vertically to change pitch. Chords move together; rhythms and source positions are retained.
+- **Transpose** (Score settings): move the whole score up or down 1–6 semitones or an octave. Each choice names the key it lands in, and the written key too for a transposing instrument. Notes, key signature (including extras such as `clef=bass` or `K:EPhr ^G`) and chord symbols move together; lengths, ties, grace notes and decorations are untouched, and accidentals follow the new key and bar. Every note is checked to land exactly the chosen distance away before the change is applied; one undo puts it back. Changing **Key** alone still only swaps the key signature.
 - Click a sheet-music note to select its **original concert-pitch ABC**, including transposing instruments. Selecting never moves the practice range.
 - **Play from a note**: double-click it, press <kbd>Space</kbd> with it selected (Space again stops), or choose **▶ Play from here** in its menu. Count-in applies; playback runs to the end of the practice range, or of the tune when the note is past it.
 - **Note names** (Off / Letters / Do re mi) print under each note in written pitch. Do re mi is movable do: do-based in major, la-based in minor, with sharp syllables for notes raised against the key signature and flat syllables for lowered ones. Display only; the ABC source never changes.
@@ -55,7 +56,7 @@ Public-domain declarations follow the source’s United States context. A public
 - Print/PDF exports retain the rights notice and links. GPL scores additionally print the editable ABC and complete GPL v2 text as an appendix. Keep these pages with redistributed copies.
 - When distributing CC BY adaptations, preserve attribution, license, source, and change notices. CC BY-SA adaptations also retain the same edition license. GPL derivatives retain credits, license, change notices, and corresponding editable source. The app’s MIT code license does not replace music licenses.
 
-Piano selections do not generate accompaniment; Guitar shows tablature and Recorder shows fingering diagrams (see Fingering above). Sound is synthesized locally. Instrument selection changes written pitch/clef while MIDI stays in concert pitch (bass-range instruments sound an octave lower in playback).
+Piano selections do not generate accompaniment; Guitar shows tablature and Recorder shows fingering diagrams (see Fingering above). Sound is synthesized locally. Instruments are grouped as woodwinds (flute, recorder, clarinets in B♭, A and E♭, bass clarinet, soprano, alto, tenor and baritone sax), brass (trumpet in B♭, horn in F, trombone), strings (violin, cello, guitar, bass guitar) and piano. Choosing one changes the written pitch and clef while the ABC source and MIDI export stay in concert pitch; the caption names the written-to-sounding interval. Instruments that play a treble melody an octave down (tenor and baritone sax, bass clarinet, horn, guitar, cello, trombone; bass guitar two octaves) sound that way in playback. FretFree uses its own transposer rather than abcjs's `strTranspose`, which drops naturals a bar needs, loses chord note lengths and mangles key lines carrying a clef.
 
 ## Saved-score compatibility
 

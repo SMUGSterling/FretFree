@@ -62,7 +62,37 @@ function newScore(bars) {
   $('selection-status').textContent =
     `Blank sheet of ${bars} bars. Click a bar and type A–G, or turn on Draw notes and click the staff; each bar fills from its rest. ＋ 4 bars adds more.`;
 }
-for (const name of Object.keys(instruments)) $('instrument').add(new Option(name, name));
+// Both instrument menus list families in score order; anything new in `instruments` lands under Other.
+const INSTRUMENT_FAMILIES = [
+  [
+    'Woodwinds',
+    [
+      'Flute',
+      'Recorder',
+      'Clarinet in B♭',
+      'Clarinet in A',
+      'Clarinet in E♭',
+      'Bass clarinet in B♭',
+      'Soprano sax in B♭',
+      'Alto sax in E♭',
+      'Tenor sax in B♭',
+      'Baritone sax in E♭'
+    ]
+  ],
+  ['Brass', ['Trumpet in B♭', 'Horn in F', 'Trombone']],
+  ['Strings', ['Violin', 'Cello', 'Guitar', 'Bass guitar']],
+  ['Keyboard', ['Piano']]
+];
+for (const select of [$('instrument'), $('instrument-filter')]) {
+  const listed = INSTRUMENT_FAMILIES.flatMap(([, names]) => names),
+    other = Object.keys(instruments).filter(name => !listed.includes(name));
+  for (const [family, names] of [...INSTRUMENT_FAMILIES, ['Other', other]]) {
+    const group = document.createElement('optgroup');
+    group.label = family;
+    for (const name of names) if (instruments[name]) group.append(new Option(name, name));
+    if (group.children.length) select.append(group);
+  }
+}
 for (const note of 'CDEFGAB') {
   $('note-buttons').insertAdjacentHTML('beforeend', `<button data-token="${note}">${note}</button>`);
 }
@@ -161,7 +191,7 @@ $('instrument').onchange = () => {
     source = $('abc').value;
   if (current?.prompt && promptById(current.prompt) && before !== after) {
     flushTyping();
-    $('abc').value = ABCJS.strTranspose(source, ABCJS.parseOnly(source), before - after);
+    $('abc').value = transposeABC(source, before - after);
     selectedRange = null;
   }
   instrumentShown = currentInstrument();

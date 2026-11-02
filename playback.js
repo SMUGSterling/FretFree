@@ -109,7 +109,7 @@ function scheduleNotes(notes, base, instrument = currentInstrument(), into = nod
     const osc = audio.createOscillator(),
       gain = audio.createGain();
     osc.type = config.wave;
-    osc.frequency.value = 440 * 2 ** ((n.note + (config.shift === -12 ? -12 : 0) - 69) / 12);
+    osc.frequency.value = 440 * 2 ** ((n.note + (config.sound || 0) - 69) / 12);
     const start = base + n.start,
       end = start + n.duration,
       attack = Math.min(0.012, n.duration / 3);

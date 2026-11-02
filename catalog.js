@@ -1,8 +1,13 @@
 /* All new teaching notation and original studies are dedicated under CC0 1.0. */
+// shift: semitones from the concert ABC source to the written part. sound: semitones from the source to what plays,
+// so a tenor sax or a guitar sounds the melody an octave below the source. Names are stored with saved scores.
 const instruments = {
  'Flute':{clef:'treble',shift:0,wave:'sine'}, 'Violin':{clef:'treble',shift:0,wave:'triangle'}, 'Recorder':{clef:'treble',shift:0,wave:'sine'},
  'Clarinet in B♭':{clef:'treble',shift:2,wave:'triangle'}, 'Trumpet in B♭':{clef:'treble',shift:2,wave:'sawtooth'}, 'Alto sax in E♭':{clef:'treble',shift:9,wave:'sawtooth'},
- 'Cello':{clef:'bass',shift:-12,wave:'triangle'}, 'Trombone':{clef:'bass',shift:-12,wave:'sawtooth'}, 'Piano':{clef:'treble',shift:0,wave:'triangle'}, 'Guitar':{clef:'treble',shift:0,wave:'triangle'}
+ 'Cello':{clef:'bass',shift:-12,sound:-12,wave:'triangle'}, 'Trombone':{clef:'bass',shift:-12,sound:-12,wave:'sawtooth'}, 'Piano':{clef:'treble',shift:0,wave:'triangle'}, 'Guitar':{clef:'treble',shift:0,sound:-12,wave:'triangle'},
+ 'Clarinet in A':{clef:'treble',shift:3,wave:'triangle'}, 'Clarinet in E♭':{clef:'treble',shift:-3,wave:'triangle'}, 'Bass clarinet in B♭':{clef:'treble',shift:2,sound:-12,wave:'triangle'},
+ 'Soprano sax in B♭':{clef:'treble',shift:2,wave:'sawtooth'}, 'Tenor sax in B♭':{clef:'treble',shift:2,sound:-12,wave:'sawtooth'}, 'Baritone sax in E♭':{clef:'treble',shift:9,sound:-12,wave:'sawtooth'},
+ 'Horn in F':{clef:'treble',shift:-5,sound:-12,wave:'triangle'}, 'Bass guitar':{clef:'bass',shift:-12,sound:-24,wave:'triangle'}
 };
 function tune(title,composer,meter,key,bpm,notes){return `X:1\nT:${title}\nC:${composer}\nM:${meter}\nL:1/4\nQ:1/4=${bpm}\nK:${key}\n${notes}`;}
 const catalog = [

@@ -1,3 +1,11 @@
+# Transpose and more instruments · 2026-11-02
+
+- **Transpose** in Score settings moves the whole score up or down by 1–6 semitones or an octave, with each option naming the destination key (and the written key for a transposing instrument). Notes, key signature and chord symbols move together; lengths, ties, grace notes and decorations stay as written. The change is checked note by note before it is applied and is one undo step.
+- **New instruments:** clarinet in A, clarinet in E♭, bass clarinet in B♭, soprano sax in B♭, tenor sax in B♭, baritone sax in E♭, horn in F and bass guitar. Both instrument menus are grouped by family. Guitar now sounds an octave below written pitch, as guitar music does; tenor and baritone sax, bass clarinet and horn play the melody an octave down.
+- **Fix:** transposing-instrument parts (B♭ and E♭) could show wrong notes; playback, which uses the concert-pitch source, was not affected. abcjs's built-in transposer drops a natural the bar needs (after ^F, a later F stays sharp), loses chord note lengths and garbles key lines with `clef=`. Measured across the library, 444 scores (7%) had at least one wrong note or note length in a B♭ part and 911 (15%) in an E♭ part. FretFree now transposes with its own note-by-note engine, and the test suite checks every library score at four distances.
+
+---
+
 # Backup and restore · 2026-10-06
 
 - **My scores → ⬇ Back up** writes every saved score, favorite, played mark and practice setting to one JSON file. Where the browser offers a Save As dialog (Chrome, Edge) the file can go in a synced folder and is remembered for one-click repeat backups; elsewhere it downloads.

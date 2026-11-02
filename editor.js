@@ -31,6 +31,7 @@ function syncFields() {
   const m = field('Q', '100').match(/(\d+)\s*$/);
   $('bpm').value = m ? Math.max(40, Math.min(200, +m[1])) : 100;
   $('bpm-value').textContent = $('bpm').value;
+  updateTransposeOptions();
 }
 function setHeader(name, value) {
   const lines = $('abc').value.split('\n'),
@@ -51,7 +52,7 @@ function setHeader(name, value) {
 function writtenABC() {
   let source = $('abc').value;
   const config = instruments[currentInstrument()];
-  if (config.shift) source = ABCJS.strTranspose(source, ABCJS.parseOnly(source), config.shift);
+  if (config.shift) source = transposeABC(source, config.shift);
   source = source.replace(/^K:(.*)$/m, (_, key) => 'K:' + key.replace(/\s+clef=\S+/g, '') + ' clef=' + config.clef);
   if (fingeringShown() === 'recorder') source = source.replace(/^(X:.*)$/m, '$1\n%%staffsep 190');
   return labelSource(source, noteNamesMode());
@@ -195,17 +196,135 @@ function restoreSelection(display) {
   const shown = scoreEvents(display).find(e => e.element.startChar === match[0]);
   if (shown) renderedTune.engraver.rangeHighlight(shown.element.startChar, shown.element.endChar);
 }
+const INTERVALS = [
+  'a minor 2nd',
+  'a major 2nd',
+  'a minor 3rd',
+  'a major 3rd',
+  'a perfect 4th',
+  'a tritone',
+  'a perfect 5th',
+  'a minor 6th',
+  'a major 6th',
+  'a minor 7th',
+  'a major 7th',
+  'an octave'
+];
+const intervalName = semitones =>
+  semitones > 12
+    ? semitones === 24
+      ? 'two octaves'
+      : 'an octave and ' + INTERVALS[semitones - 13]
+    : INTERVALS[semitones - 1];
+// How the part on screen relates to the source and to the sound, e.g. a tenor sax reads a major 9th above concert pitch.
+function instrumentPitchNote(config) {
+  const written = config.shift || 0,
+    sound = config.sound || 0,
+    gap = written - sound;
+  if (written % 12)
+    return `Written pitch shown, sounding ${intervalName(Math.abs(gap))} ${gap > 0 ? 'lower' : 'higher'}; ABC source and MIDI are concert pitch.`;
+  if (gap) return `Sounds ${intervalName(Math.abs(gap))} ${gap > 0 ? 'below' : 'above'} the written notes.`;
+  if (written < 0) return 'Melody lowered one octave for bass range.';
+  return 'Concert pitch melody part.';
+}
 function updateCaption() {
   $('workspace-heading').textContent = field('T', 'Untitled melody');
   const config = instruments[currentInstrument()];
-  const pitch =
-    config.shift === 2 || config.shift === 9
-      ? 'Written pitch shown; ABC source and MIDI are concert pitch.'
-      : config.shift === -12
-        ? 'Melody lowered one octave for bass range.'
-        : 'Concert pitch melody part.';
-  $('score-caption').textContent = `${currentInstrument()} · ${config.clef} clef · ${pitch}`;
+  $('score-caption').textContent = `${currentInstrument()} · ${config.clef} clef · ${instrumentPitchNote(config)}`;
+  updateTransposeOptions();
 }
+// Transpose: each option names the key the score lands in, plus the written key for a transposing instrument.
+const KEY_NAME = /^([A-G])([#b]?)(?:[ \t]*(maj|min|m|ion|dor|phr|lyd|mix|aeo|loc)[a-z]*(?![=\w]))?/i;
+const MODE_NAMES = {
+  '': 'major',
+  maj: 'major',
+  ion: 'major',
+  m: 'minor',
+  min: 'minor',
+  aeo: 'minor',
+  dor: 'Dorian',
+  phr: 'Phrygian',
+  lyd: 'Lydian',
+  mix: 'Mixolydian',
+  loc: 'Locrian'
+};
+function keyLabel(key) {
+  const m = String(key || '').match(KEY_NAME);
+  if (!m) return '';
+  return `${m[1].toUpperCase()}${{'#': '♯', b: '♭'}[m[2]] || ''} ${MODE_NAMES[(m[3] || '').toLowerCase()]}`;
+}
+function transposedKey(key, steps) {
+  try {
+    return (transposeABC(`X:1\nK:${key}\n`, steps).match(/^K:[ \t]*(.*)$/m) || [])[1] || '';
+  } catch {
+    return '';
+  }
+}
+const TRANSPOSE_STEPS = [12, 6, 5, 4, 3, 2, 1, -1, -2, -3, -4, -5, -6, -12];
+function transposeMove(steps) {
+  const size = Math.abs(steps),
+    way = steps > 0 ? 'Up' : 'Down';
+  return size === 12 ? `${way} an octave` : `${way} ${size} semitone${size > 1 ? 's' : ''}`;
+}
+const TRANSPOSE_NOTE =
+  'Moves every note, the key signature and chord symbols together. Changing Key above only swaps the key signature.';
+function updateTransposeOptions() {
+  const select = $('transpose'),
+    key = field('K', 'C');
+  if (select.dataset.key !== key) {
+    select.dataset.key = key;
+    select.length = 1;
+    for (const steps of TRANSPOSE_STEPS) {
+      const to = Math.abs(steps) === 12 ? '' : keyLabel(transposedKey(key, steps)),
+        size = Math.abs(steps) === 12 ? 'an octave' : Math.abs(steps);
+      select.add(new Option(`${steps > 0 ? 'Up' : 'Down'} ${size}${to ? ' · ' + to : ''}`, steps));
+    }
+  }
+  updateTransposePreview();
+}
+// Under the menu: what the chosen move does, including the key a transposing instrument reads.
+function updateTransposePreview() {
+  const steps = +$('transpose').value,
+    key = field('K', 'C'),
+    shift = transposing();
+  $('transpose-apply').disabled = !steps;
+  if (!steps) {
+    $('transpose-note').textContent = TRANSPOSE_NOTE;
+    return;
+  }
+  const to = keyLabel(transposedKey(key, steps)),
+    written = to && shift ? keyLabel(transposedKey(key, steps + shift)) : '';
+  $('transpose-note').textContent =
+    `${transposeMove(steps)}${to ? ' to ' + to : ''}` +
+    (written ? `; the ${currentInstrument()} part will read in ${written}` : '') +
+    '. Notes, key signature and chord symbols move together.';
+}
+// Rewrites the concert source, so the new key is saved, shared and exported; one undo step puts it back.
+function transposeScore(steps) {
+  flushTyping();
+  const from = keyLabel(field('K', ''));
+  let out;
+  try {
+    out = transposeChecked($('abc').value, steps);
+  } catch (error) {
+    toast(`Could not transpose this score. ${error.message}`);
+    return false;
+  }
+  $('abc').value = out;
+  syncFields();
+  changed();
+  const to = keyLabel(field('K', ''));
+  $('selection-status').textContent =
+    `Moved ${transposeMove(steps).toLowerCase()}${to && to !== from ? ' to ' + to : ''}. Undo (Ctrl+Z) puts it back${from ? ' in ' + from : ''}.`;
+  return true;
+}
+$('transpose').onchange = updateTransposePreview;
+$('transpose-apply').onclick = () => {
+  const steps = +$('transpose').value;
+  if (!steps) return;
+  if (transposeScore(steps)) $('transpose').value = '';
+  updateTransposePreview();
+};
 // Links to the complete source edition behind a library practice part.
 function updateSourceEdition() {
   const edition = $('source-edition');
@@ -845,7 +964,7 @@ function accidentalEdit(entry, display, acc) {
   if (!shift) return editNoteText(old, {accidental: acc});
   const {text, key} = writtenNote(display),
     mini = `X:1\nL:1/8\nK:${key}\n${editNoteText(text, {accidental: acc})}\n`;
-  const lines = ABCJS.strTranspose(mini, ABCJS.parseOnly(mini), -shift).split('\n'),
+  const lines = transposeABC(mini, -shift).split('\n'),
     note = lines[lines.findIndex(l => l.startsWith('K:')) + 1];
   return note == null ? old : note;
 }
@@ -1288,7 +1407,7 @@ function startPrompt(prompt) {
   let key = prompt.key;
   if (shift) {
     const mini = `X:1\nK:${key}\n`;
-    key = (ABCJS.strTranspose(mini, ABCJS.parseOnly(mini), -shift).match(/^K:\s*(\S+)/m) || [, key])[1];
+    key = (transposeABC(mini, -shift).match(/^K:\s*(\S+)/m) || [, key])[1];
   }
   const abc = promptSource(prompt, key);
   if (!allowReplace()) return;
