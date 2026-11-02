@@ -2142,36 +2142,43 @@ function transposeABC(source, semitones, letters = Math.round((semitones * 7) / 
     }
     if (!pick) throw new Error('Could not transpose the key signatures.');
     const steps = stepsFor(pick.letters),
-      rest = f.tonic ? f.rest : (f.rest.trim() ? ' ' : '') + f.rest.trim(),
-      // Extra signature accidentals (K:EPhr ^G) move with the key.
-      moved = rest.replace(/(^|\s)(\^\^|\^|__|_|=)([A-Ga-g])(?=\s|$)/g, (all, lead, acc, letter) => {
+      full = f.tonic ? f.rest : (f.rest.trim() ? ' ' : '') + f.rest.trim(),
+      // A comment on the key line (K:C ^F % exp) is kept as it is and never read as key syntax.
+      cut = full.indexOf('%'),
+      rest = cut < 0 ? full : full.slice(0, cut),
+      comment = cut < 0 ? '' : full.slice(cut),
+      ACC_TOKEN = /(^|\s)(\^\^|\^|__|_|=)([A-Ga-g])(?=\s|$)/g,
+      movedToken = (letter, alter) => {
         const at = 'CDEFGAB'.indexOf(letter.toUpperCase()),
           to = 'CDEFGAB'[posMod(at + steps, 7)],
-          a = movedAlter(at, ACC_VALUE[acc], steps, semitones);
-        return Math.abs(a) > 2 ? all : lead + ACC_TEXT[a] + (letter === letter.toLowerCase() ? to.toLowerCase() : to);
-      });
+          a = movedAlter(at, alter, steps, semitones);
+        if (Math.abs(a) > 2) throw new Error('A key signature accidental would need a triple sharp or flat.');
+        return ACC_TEXT[a] + (letter === letter.toLowerCase() ? to.toLowerCase() : to);
+      };
+    // Extra signature accidentals (K:EPhr ^G) move with the key.
+    let tail = rest.replace(ACC_TOKEN, (all, lead, acc, letter) => lead + movedToken(letter, ACC_VALUE[acc]));
     // An exp key has only the accidentals it lists, so it lists the whole moved signature (C exp ^F up a tone is
-    // D exp ^f ^g: its E becomes F#).
-    let tail = moved;
+    // D exp ^c ^f ^g: its E becomes F#). abcjs adds the tonic's own signature to an exp list (K:G exp ^c sharpens F
+    // too), so the source signature is read as abcjs reads it, and the letters the new tonic's signature touches are
+    // listed too, naturals included: the list then reads the same either way.
     if (/(^|\s)exp(?=\s|$)/.test(rest)) {
-      const listed = {};
-      for (const m of rest.matchAll(/(^|\s)(\^\^|\^|__|_|=)([A-Ga-g])(?=\s|$)/g))
-        listed['CDEFGAB'.indexOf(m[3].toUpperCase())] = ACC_VALUE[m[2]];
-      // abcjs adds the tonic's own signature to an exp list (K:G exp ^c sharpens F too), so letters that signature
-      // touches are listed as well, naturals included: the list then reads the same either way.
-      const sig = movedSignature(listed, steps, semitones),
+      const state = {};
+      setKey(state, ABCJS.parseOnly(`X:1\nK:${f.tonic ? f.key : 'C'}${rest}\nz|]`)[0].lines[0].staff[0].key);
+      const sig = movedSignature(state.key, steps, semitones),
         fifths = keyFifths(pick.tonic + f.mode),
         tonicSig = {};
       for (let i = 0; i < Math.abs(fifths); i++)
         tonicSig['CDEFGAB'.indexOf((fifths > 0 ? 'FCGDAEB' : 'BEADGCF')[i])] = Math.sign(fifths);
+      if (Object.values(sig).some(v => Math.abs(v) > 2))
+        throw new Error('A key signature accidental would need a triple sharp or flat.');
       const list = [...'CDEFGAB'].flatMap((letter, i) =>
         sig[i] || tonicSig[i] ? [ACC_TEXT[sig[i] ?? 0] + letter.toLowerCase()] : []
       );
       tail = rest
-        .replace(/(^|\s)(\^\^|\^|__|_|=)[A-Ga-g](?=\s|$)/g, '')
+        .replace(ACC_TOKEN, '')
         .replace(/(^|\s)exp(?=\s|$)/, m => m + (list.length ? ' ' + list.join(' ') : ''));
     }
-    edit(f.start, f.end - f.start, pick.tonic + (f.tonic ? f.key.slice(f.tonic.length) : '') + tail);
+    edit(f.start, f.end - f.start, pick.tonic + (f.tonic ? f.key.slice(f.tonic.length) : '') + tail + comment);
     regions.push({start: f.start, steps, letters: pick.letters});
   }
   const regionAt = at => regions.filter(r => r.start < at).at(-1) || regions[0];

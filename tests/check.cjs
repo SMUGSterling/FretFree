@@ -1451,6 +1451,11 @@ assert.equal(context.noteMarks('x4'), null, 'Invisible rests take no marks');
     context.transposeChecked('X:1\nL:1/4\nK:C exp _b ^f clef=bass\nB F E|]', -5),
     'X:1\nL:1/4\nK:G exp ^c =f clef=bass\nF C B,|]'
   );
+  // The source exp signature is read as abcjs reads it (the tonic's own accidentals included); comments stay comments.
+  assert.equal(T('X:1\nL:1/4\nK:G exp ^c\nF c|]', 2), 'X:1\nL:1/4\nK:A exp ^c ^d ^f ^g\nG d|]');
+  assert.equal(T('X:1\nL:1/4\nK:C ^F % exp\nF|]', 2), 'X:1\nL:1/4\nK:D ^G % exp\nG|]');
+  assert.equal(T('X:1\nL:1/4\nK:C exp ^F%comment\nF|]', 2), 'X:1\nL:1/4\nK:D exp ^c ^f ^g%comment\nG|]');
+  assert.throws(() => T('X:1\nL:1/4\nK:B _C\nA|]', 2), /triple sharp or flat/, 'No stale signature accidental');
   // A key respelled under the accidental cap keeps one line per letter, doubles included (B up a tone is Db).
   assert.equal(T('X:1\nL:1/4\nK:B\n=C =D|]', 2), 'X:1\nL:1/4\nK:Db\n__E _F|]');
   // A chord symbol on a bar line does not break a tie across it.
