@@ -177,6 +177,9 @@ assert.equal(run(`transposeABC('X:1\\nL:1/4\\nK:E\\n"C"C|]',2)`), 'X:1\nL:1/4\nK
 assert.throws(() => run(`transposeABC('X:1\\nL:1/4\\nK:C\\n^/c d|]',2)`), /Quarter-tone/);
 run(`openScore({abc:'X:1\\nL:1/4\\nK:C\\n^/c d|]',instrument:'Clarinet in B♭'})`);
 assert.match(run("$('score-caption').textContent"), /Shown at concert pitch: Quarter-tone/);
+assert.equal(run('writtenSteps() + transposing()'), 0, 'Edits follow the concert-pitch display');
+// Neighbouring concert notes stay a staff line apart in the written part (G♭: D♮ then E♮, not D♮ then F♭).
+assert.equal(run(`transposeABC('X:1\\nL:1/4\\nK:E\\n=C =D E|]',2)`), 'X:1\nL:1/4\nK:Gb\n=D =E G|]');
 const longGrace = '{' + 'gabgfedcBAGFEDCB'.repeat(6) + '}';
 assert.match(run(`transposeChecked('X:1\\nL:1/8\\nK:G\\nG ${longGrace}(~A>G)|]',2)`), /\(~B>A\)/);
 assert.equal(run("respellNote('A','Gb','F#')"), 'G', 'A♭ in G♭ is G♯ in F♯ major');

@@ -762,13 +762,25 @@ function transposeABC(source, steps) {
           // A tied-over note continues its first note; it shows an accidental only where the source wrote one.
           if (written && Math.abs(need) <= 2) accidental = ACCIDENTAL_TEXT[need];
         } else {
-          // Respell rather than write a double sharp or flat where a plain letter will do (C, not D𝄫), and never onto
-          // the line of a tie that ends here on a different note: abcjs would merge the two.
+          // Spell each note on the line the key suggests unless a neighbouring line reads more simply: a note the
+          // signature (or the bar) already gives needs no accidental, and otherwise a natural beats a flat or sharp,
+          // which beats a double (in G♭: E♮, not F♭; D♮, not E𝄫). Neighbouring notes then stay a line apart, so a
+          // drag or arrow key moves the written note one step. Never onto the line of a tie that ends here on a
+          // different note: abcjs would merge the two.
           const tiedLines = new Set(out.pending.values()),
+            implied = p => (out.bar.has(p) ? out.bar.get(p) : (out.signature[((p % 7) + 7) % 7] ?? 0)),
+            cost = c => (c.n === implied(c.p) ? 0 : 3) + Math.abs(c.n) + (Math.abs(c.n) === 2 ? 2 : 0),
             spellings = [pos, pos + (Math.sign(need) || 1), pos - (Math.sign(need) || 1)]
               .map(p => ({p, n: entry.written + steps - naturalPitch(p)}))
               .filter(c => Math.abs(c.n) <= 2 && !(entry.endTie && tiedLines.has(c.p)));
-          const pick = spellings.find(c => Math.abs(c.n) <= 1) || spellings[0];
+          // Tied notes keep the key's line unless that needs a double accidental, so every tie joins the same lines
+          // as in the source (abcjs plays a tie between different notes by their lines).
+          const tied = entry.startTie || entry.endTie,
+            pick = spellings.reduce(
+              (best, c) =>
+                !best || (tied ? Math.abs(best.n) === 2 && Math.abs(c.n) < 2 : cost(c) < cost(best)) ? c : best,
+              null
+            );
           if (pick) ({p: pos, n: need} = pick);
           const letter = ((pos % 7) + 7) % 7,
             signature = out.signature[letter] ?? 0;

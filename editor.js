@@ -957,6 +957,8 @@ function closeNoteMenu() {
 // Staff steps between the concert source and the written part. The written key's spelling decides it (horn in F
 // reads a B major score in G♭, two steps down, not three), so it follows the score's key as the transposer does.
 function writtenSteps(at = Infinity) {
+  // While the part is shown at concert pitch (writtenProblem), edits are in concert pitch too.
+  if (writtenProblem) return 0;
   const m = keyAt(at).match(/^([A-G])([#b]?)[ \t]*([A-Za-z]*)/);
   return movedKey(m?.[1], m?.[2], m?.[3], instruments[currentInstrument()].shift || 0).shift;
 }
@@ -970,6 +972,7 @@ function keyAt(at = Infinity) {
   return keys.length ? keys.at(-1)[1].trim() : field('K', '');
 }
 const transposing = () => {
+  if (writtenProblem) return 0;
   const shift = instruments[currentInstrument()].shift;
   return shift % 12 !== 0 ? shift : 0;
 };
