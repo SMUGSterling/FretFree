@@ -474,7 +474,7 @@ function updateCaption() {
   const pitch = concertView()
     ? `${sound ? `ABC source shown, ${source}` : 'Concert pitch shown, as it sounds'}; turn off Concert pitch for the written part.`
     : transposesInstrument()
-      ? `Written pitch shown; it sounds ${intervalPhrase(written)} lower. ABC source and MIDI are ${source || 'concert pitch'}.`
+      ? `Written pitch shown; it sounds ${intervalPhrase(written)} ${written > 0 ? 'lower' : 'higher'}. ABC source and MIDI are ${source || 'concert pitch'}.`
       : config.shift === -12
         ? `${staves > 1 ? 'Parts' : 'Melody'} lowered one octave for bass range.${sounds}`
         : written
@@ -4116,7 +4116,7 @@ function changeKey(value, transpose) {
   const before = $('abc').value,
     move = transpose ? keyInterval(sourceKey(), value) : null;
   try {
-    if (move) $('abc').value = transposeABC($('abc').value, move.semitones, move.letters, 7);
+    if (move) $('abc').value = transposeChecked($('abc').value, move.semitones, move.letters, 7);
   } catch (e) {
     toast(e.message);
     cancelKeyChoice();
@@ -4264,7 +4264,7 @@ function applyTranspose() {
           );
         text = text.slice(0, s.start) + moved + text.slice(s.end);
       }
-    else text = transposeABC(value, plan.semitones, plan.letters, plan.to ? 7 : 6);
+    else text = transposeChecked(value, plan.semitones, plan.letters, plan.to ? 7 : 6);
   } catch (e) {
     toast(e.message);
     return;

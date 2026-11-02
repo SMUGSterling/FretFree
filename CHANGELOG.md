@@ -1,3 +1,13 @@
+# A note-by-note transposer, and four more instruments · 2026-11-02
+
+- **Fix: transposed notes could be wrong.** FretFree transposed with abcjs's `strTranspose`, which drops a natural the bar needs (after `^D`, a later `=D` stayed sharp), loses note lengths inside chords (`[F/c/]` became `[CG]`), and drops the decoration and broken rhythm after a grace note's slur (`{B}(~A>G)` became `{B}(cA)`, grace unmoved). Across the library, 443 scores showed at least one wrong note or length in a B♭ part and 911 in an E♭ part, and **Transpose** and moving the notes to a new key wrote the same errors into the score.
+- `transposeABC` now moves each note itself. Keys, letter intervals, the accidental cap and chord-symbol rules work as before; every note moves by its key's letters and takes the accidental its new key and bar call for, so lengths, ties, grace notes, decorations and comments stay exactly as written. Explicit signature accidentals move with the key (`K:EPhr ^G` → `K:BPhr ^D`), ties follow abcjs's rules (a tie between two different notes is never turned into a merge), and quarter tones are refused rather than left behind. One concert step is still one written step, so dragging and arrow keys move the written note by a line.
+- **Transpose** and the key change that moves the notes check every note before applying: each must sound exactly the interval away and keep its length, or nothing changes.
+- **New instruments:** Clarinet in A, Clarinet in E♭, Bass clarinet in B♭ and Soprano sax in B♭, each with its own voicing. The written-pitch caption now says "higher" for instruments written below their sound (Clarinet in E♭).
+- Tests: every library score transposes correctly at −12, −5, +2 and +9 semitones in the check suite (all 6,150 also pass at ten distances from −12 to +12), plus the abcjs failure cases above.
+
+---
+
 # Compose menus: review fixes · 2026-10-12
 
 - A pinned popover no longer covers one opened after it: with Marks or Measure pinned, Notes' Spelling, Tuplet and Keep open were under the pinned row and could not be pressed. A pinned row now spans the whole tool row, under the transport too.
